@@ -1,14 +1,14 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
-use crate::lazy::decoder::{Decoder, LazyRawReader, RawValueExpr, RawVersionMarker};
+use crate::lazy::binary::raw::v1_1::immutable_buffer::{ImmutableBuffer, ParseResult};
+use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
+use crate::lazy::decoder::{LazyRawReader, RawValueExpr};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
-use crate::result::IonFailure;
-use crate::{Encoding, HasRange, IonResult};
+use crate::{Encoding, IonResult};
 
 pub struct LazyRawBinaryReader_1_1<'data> {
     input: &'data [u8],
@@ -19,7 +19,7 @@ pub struct LazyRawBinaryReader_1_1<'data> {
 }
 
 impl<'data> LazyRawBinaryReader_1_1<'data> {
-    fn new(input: &'data [u8]) -> Self {
+    pub fn new(input: &'data [u8]) -> Self {
         Self::new_with_offset(input, 0)
     }
 
@@ -43,12 +43,6 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
         'data: 'top,
     {
         let (marker, buffer_after_ivm) = buffer.read_ivm()?;
-        let (major, minor) = marker.version();
-        if (major, minor) != (1, 1) {
-            return IonResult::decoding_error(format!(
-                "unsupported version of Ion: v{major}.{minor}; only 1.1 is supported by this reader",
-            ));
-        }
         self.local_offset = buffer_after_ivm.offset() - self.stream_offset;
         Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::VersionMarker(
             marker,
@@ -58,20 +52,21 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     fn read_value_expr<'top>(
         &'top mut self,
         buffer: ImmutableBuffer<'top>,
-    ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
+    ) -> ParseResult<'top, LazyRawStreamItem<'top, BinaryEncoding_1_1>>
     where
         'data: 'top,
     {
-        let item = match buffer.peek_sequence_value_expr()? {
+        let (maybe_expr, remaining) = buffer.read_sequence_value_expr()?;
+        let item = match maybe_expr {
             Some(RawValueExpr::ValueLiteral(lazy_value)) => RawStreamItem::Value(lazy_value),
-            Some(RawValueExpr::EExp(eexpr)) => RawStreamItem::EExpression(eexpr),
+            Some(RawValueExpr::EExp(eexpr)) => RawStreamItem::EExp(eexpr),
             None => self.end_of_stream(buffer.offset()),
         };
-        let item_range = item.range();
-        self.local_offset = item_range.end - self.stream_offset;
-        Ok(item)
+        self.local_offset = remaining.offset() - self.stream_offset;
+        Ok((item, remaining))
     }
 
+    #[inline(always)]
     pub fn next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
@@ -79,27 +74,20 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     where
         'data: 'top,
     {
-        let mut buffer = ImmutableBuffer::new_with_offset(
-            context,
-            self.input.get(self.local_offset..).unwrap(),
-            self.position(),
-        );
-
-        if buffer.is_empty() {
+        let data = &self.input[self.local_offset..];
+        let Some(&first_byte) = data.first() else {
+            return Ok(self.end_of_stream(self.position()));
+        };
+        let mut buffer = ImmutableBuffer::new_with_offset(context, data, self.position());
+        let mut opcode = ION_1_1_OPCODES[first_byte as usize];
+        if opcode.is_nop() && !buffer.opcode_after_nop(&mut opcode)? {
             return Ok(self.end_of_stream(buffer.offset()));
         }
-
-        let type_descriptor = buffer.peek_opcode()?;
-        if type_descriptor.is_nop() {
-            (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
-            if buffer.is_empty() {
-                return Ok(self.end_of_stream(buffer.offset()));
-            }
-        }
-        if type_descriptor.is_ivm_start() {
+        if opcode.is_ivm_start() {
             return self.read_ivm(buffer);
         }
-        self.read_value_expr(buffer)
+        let (item, _remaining) = self.read_value_expr(buffer)?;
+        Ok(item)
     }
 }
 
@@ -113,9 +101,18 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
-        _saved_state: <BinaryEncoding_1_1 as Decoder>::ReaderSavedState,
+        // This argument is ignored by all raw readers except LazyRawAnyReader
+        _encoding_hint: IonEncoding,
     ) -> Self {
         Self::new_with_offset(data, offset)
+    }
+
+    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
+        (
+            &self.input[self.local_offset..],
+            self.position(),
+            self.encoding(),
+        )
     }
 
     fn next<'top>(

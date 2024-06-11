@@ -12,7 +12,7 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::encoded_value::EncodedTextValue;
-use crate::{IonResult, IonType, RawSymbolRef};
+use crate::{IonEncoding, IonResult, IonType, RawSymbolRef};
 
 /// A value that has been identified in the text input stream but whose data has not yet been read.
 ///
@@ -123,8 +123,12 @@ impl<'top, E: TextEncoding<'top>> HasRange for LazyRawTextVersionMarker<'top, E>
 }
 
 impl<'top, E: TextEncoding<'top>> RawVersionMarker<'top> for LazyRawTextVersionMarker<'top, E> {
-    fn version(&self) -> (u8, u8) {
+    fn major_minor(&self) -> (u8, u8) {
         (self.major, self.minor)
+    }
+
+    fn old_encoding(&self) -> IonEncoding {
+        IonEncoding::Text_1_0
     }
 }
 

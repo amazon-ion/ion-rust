@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 use std::io;
 
-use crate::lazy::any_encoding::{IonEncoding, LazyRawAnyValue};
+use crate::lazy::any_encoding::{IonEncoding, IonVersion, LazyRawAnyValue};
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
@@ -27,7 +27,7 @@ use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{LazyRawTextList_1_0, LazyRawTextSExp_1_0};
 use crate::lazy::text::raw::v1_1::reader::{
     LazyRawTextFieldName_1_1, LazyRawTextList_1_1, LazyRawTextReader_1_1, LazyRawTextSExp_1_1,
-    LazyRawTextStruct_1_1, RawTextEExpression_1_1,
+    LazyRawTextStruct_1_1, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
@@ -63,7 +63,21 @@ pub trait Encoding: Encoder + Decoder {
     }
 
     fn encoding(&self) -> IonEncoding;
+    fn instance() -> Self;
     fn name() -> &'static str;
+
+    fn is_binary() -> bool {
+        Self::instance().encoding().is_binary()
+    }
+
+    fn is_text() -> bool {
+        Self::instance().encoding().is_text()
+    }
+
+    fn ion_version() -> IonVersion {
+        Self::instance().encoding().version()
+    }
+
     fn default_write_config() -> WriteConfig<Self>;
 }
 
@@ -126,6 +140,10 @@ impl Encoding for BinaryEncoding_1_0 {
         IonEncoding::Binary_1_0
     }
 
+    fn instance() -> Self {
+        BinaryEncoding_1_0
+    }
+
     fn name() -> &'static str {
         "binary Ion v1.0"
     }
@@ -138,6 +156,10 @@ impl Encoding for BinaryEncoding_1_1 {
 
     fn encoding(&self) -> IonEncoding {
         IonEncoding::Binary_1_1
+    }
+
+    fn instance() -> Self {
+        BinaryEncoding_1_1
     }
 
     fn name() -> &'static str {
@@ -154,6 +176,10 @@ impl Encoding for TextEncoding_1_0 {
         IonEncoding::Text_1_0
     }
 
+    fn instance() -> Self {
+        TextEncoding_1_0
+    }
+
     fn name() -> &'static str {
         "text Ion v1.0"
     }
@@ -166,6 +192,10 @@ impl Encoding for TextEncoding_1_1 {
 
     fn encoding(&self) -> IonEncoding {
         IonEncoding::Text_1_1
+    }
+
+    fn instance() -> Self {
+        TextEncoding_1_1
     }
 
     fn name() -> &'static str {
@@ -198,7 +228,6 @@ impl EncodingWithMacroSupport for TextEncoding_1_1 {}
 
 impl Decoder for BinaryEncoding_1_0 {
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
-    type ReaderSavedState = ();
     type Value<'top> = LazyRawBinaryValue_1_0<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_0<'top>;
     type List<'top> = LazyRawBinaryList_1_0<'top>;
@@ -212,7 +241,6 @@ impl Decoder for BinaryEncoding_1_0 {
 
 impl Decoder for TextEncoding_1_0 {
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
-    type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_0<'top>;
     type SExp<'top> = LazyRawTextSExp_1_0<'top>;
     type List<'top> = LazyRawTextList_1_0<'top>;
@@ -226,28 +254,25 @@ impl Decoder for TextEncoding_1_0 {
 
 impl Decoder for TextEncoding_1_1 {
     type Reader<'data> = LazyRawTextReader_1_1<'data>;
-    type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_1<'top>;
     type SExp<'top> = LazyRawTextSExp_1_1<'top>;
     type List<'top> = LazyRawTextList_1_1<'top>;
     type Struct<'top> = LazyRawTextStruct_1_1<'top>;
     type FieldName<'top> = LazyRawTextFieldName_1_1<'top>;
     type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
-    type EExp<'top> = RawTextEExpression_1_1<'top>;
+    type EExp<'top> = TextEExpression_1_1<'top>;
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_1<'top>;
 }
 
 impl Decoder for BinaryEncoding_1_1 {
     type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
-    type ReaderSavedState = ();
-    type Value<'top> = LazyRawBinaryValue_1_1<'top>;
+    type Value<'top> = &'top LazyRawBinaryValue_1_1<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
     type List<'top> = LazyRawBinaryList_1_1<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
     type FieldName<'top> = LazyRawBinaryFieldName_1_1<'top>;
     type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator_1_1<'top>;
-    // TODO: implement macros in 1.1
-    type EExp<'top> = RawBinaryEExpression_1_1<'top>;
+    type EExp<'top> = &'top RawBinaryEExpression_1_1<'top>;
     type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_1<'top>;
 }
 
@@ -265,7 +290,7 @@ pub trait RawValueLiteral {}
 
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
 impl<'top> RawValueLiteral for LazyRawBinaryValue_1_0<'top> {}
-impl<'top> RawValueLiteral for LazyRawBinaryValue_1_1<'top> {}
+impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_1<'top> {}
 impl<'top> RawValueLiteral for LazyRawAnyValue<'top> {}
 
 #[cfg(test)]

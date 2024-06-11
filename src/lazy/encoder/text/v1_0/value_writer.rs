@@ -1,3 +1,8 @@
+use std::fmt::Formatter;
+use std::io::Write;
+
+use delegate::delegate;
+
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
@@ -14,9 +19,6 @@ use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::{ContainerType, ParentType};
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
-use delegate::delegate;
-use std::fmt::Formatter;
-use std::io::Write;
 
 pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
     pub(crate) writer: &'value mut LazyRawTextWriter_1_0<W>,

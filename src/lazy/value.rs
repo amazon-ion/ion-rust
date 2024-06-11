@@ -1,8 +1,6 @@
 use crate::lazy::decoder::Decoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
-use crate::lazy::expanded::{ExpandedAnnotationsIterator, ExpandedValueRef, LazyExpandedValue};
-use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::sequence::{LazyList, LazySExp};
+use crate::lazy::expanded::{ExpandedAnnotationsIterator, LazyExpandedValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
@@ -260,50 +258,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn read(&self) -> IonResult<ValueRef<'top, D>> {
-        use ExpandedValueRef::*;
-
-        let value_ref = match self.expanded_value.read()? {
-            Null(ion_type) => ValueRef::Null(ion_type),
-            Bool(b) => ValueRef::Bool(b),
-            Int(i) => ValueRef::Int(i),
-            Float(f) => ValueRef::Float(f),
-            Decimal(d) => ValueRef::Decimal(d),
-            Timestamp(t) => ValueRef::Timestamp(t),
-            String(s) => ValueRef::String(s),
-            Symbol(s) => {
-                let symbol = match s {
-                    RawSymbolRef::SymbolId(sid) => self
-                        .expanded_value
-                        .context
-                        .symbol_table()
-                        .symbol_for(sid)
-                        .ok_or_else(|| {
-                            IonError::decoding_error(format!(
-                                "found a symbol ID (${}) that was not in the symbol table",
-                                sid
-                            ))
-                        })?
-                        .into(),
-                    RawSymbolRef::Text(text) => text.into(),
-                };
-                ValueRef::Symbol(symbol)
-            }
-            Blob(b) => ValueRef::Blob(b),
-            Clob(c) => ValueRef::Clob(c),
-            SExp(s) => {
-                let lazy_sexp = LazySExp { expanded_sexp: s };
-                ValueRef::SExp(lazy_sexp)
-            }
-            List(l) => {
-                let lazy_sequence = LazyList { expanded_list: l };
-                ValueRef::List(lazy_sequence)
-            }
-            Struct(s) => {
-                let lazy_struct = LazyStruct { expanded_struct: s };
-                ValueRef::Struct(lazy_struct)
-            }
-        };
-        Ok(value_ref)
+        self.expanded_value.read_resolved()
     }
 }
 

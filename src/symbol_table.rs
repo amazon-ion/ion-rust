@@ -2,38 +2,53 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::constants::v1_0;
+use crate::lazy::any_encoding::IonVersion;
 use crate::{Symbol, SymbolId};
 
 /// Stores mappings from Symbol IDs to text and vice-versa.
 // SymbolTable instances always have at least system symbols; they are never empty.
 #[allow(clippy::len_without_is_empty)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SymbolTable {
+    ion_version: IonVersion,
     symbols_by_id: Vec<Symbol>,
     ids_by_text: HashMap<Symbol, SymbolId>,
 }
 
 impl Default for SymbolTable {
     fn default() -> Self {
-        Self::new()
+        Self::new(IonVersion::v1_0)
     }
 }
 
 impl SymbolTable {
     /// Constructs a new symbol table pre-populated with the system symbols defined in the spec.
-    pub(crate) fn new() -> SymbolTable {
+    pub(crate) fn new(ion_version: IonVersion) -> SymbolTable {
+        // Enough to hold the 1.0 system table and several user symbols.
+        const INITIAL_SYMBOLS_CAPACITY: usize = 32;
         let mut symbol_table = SymbolTable {
-            symbols_by_id: Vec::with_capacity(v1_0::SYSTEM_SYMBOLS.len()),
+            ion_version,
+            symbols_by_id: Vec::with_capacity(INITIAL_SYMBOLS_CAPACITY),
             ids_by_text: HashMap::new(),
         };
         symbol_table.initialize();
         symbol_table
     }
 
-    // Interns the v1.0 system symbols
+    /// Adds system symbols to the table.
     pub(crate) fn initialize(&mut self) {
         self.add_placeholder(); // $0
-        v1_0::SYSTEM_SYMBOLS[1..]
+
+        // TODO: If it's Ion 1.1, there are no other symbols in the symbol table. Implementing this
+        //       requires having first implemented reading and writing system symbols in their own
+        //       address space. For now, Ion 1.1's default symbol table matches Ion 1.0's.
+        //       let remaining_system_symbols = match self.ion_version {
+        //           IonVersion::v1_0 => &v1_0::SYSTEM_SYMBOLS[1..],
+        //           IonVersion::v1_1 => &[],
+        //       };
+        let remaining_system_symbols = &v1_0::SYSTEM_SYMBOLS[1..];
+
+        remaining_system_symbols
             .iter()
             .copied()
             .map(Option::unwrap)
@@ -46,6 +61,11 @@ impl SymbolTable {
         self.symbols_by_id.clear();
         self.ids_by_text.clear();
         self.initialize();
+    }
+
+    pub(crate) fn reset_to_version(&mut self, new_version: IonVersion) {
+        self.ion_version = new_version;
+        self.reset();
     }
 
     /// adds `text` to the symbol table and returns the newly assigned [SymbolId].
@@ -122,15 +142,11 @@ impl SymbolTable {
         &self.symbols_by_id
     }
 
-    /// Returns a slice of references to the symbol text stored in the table starting at the given
-    /// symbol ID. If a symbol table append occurs during reading, this function can be used to
-    /// easily view the new symbols that has been added to the table.
-    ///
-    /// The symbol table can contain symbols with unknown text; see the documentation for
-    /// [Symbol] for more information.
-    // TODO: Is this necessary vs just taking a slice of the `symbols()` method above?
-    pub(crate) fn symbols_tail(&self, start: usize) -> &[Symbol] {
-        &self.symbols_by_id[start..]
+    /// Returns a slice of the last `n` symbols in the symbol table. The caller must confirm that
+    /// `last_n` is less than the size of the symbol table.
+    pub(crate) fn symbols_tail(&self, last_n: usize) -> &[Symbol] {
+        let num_symbols = self.symbols_by_id.len();
+        &self.symbols_by_id[num_symbols - last_n..]
     }
 
     /// Returns the number of symbols defined in the table.

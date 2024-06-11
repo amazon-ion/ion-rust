@@ -1,4 +1,6 @@
-use crate::{Symbol, SymbolId, SymbolRef};
+use crate::lazy::expanded::EncodingContextRef;
+use crate::result::IonFailure;
+use crate::{IonError, IonResult, Symbol, SymbolId, SymbolRef};
 
 /// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -16,6 +18,26 @@ impl<'a> RawSymbolRef<'a> {
             RawSymbolRef::SymbolId(sid) => symbol_id == *sid,
             RawSymbolRef::Text(text) => symbol_text == *text,
         }
+    }
+
+    pub fn resolve(self, context: EncodingContextRef<'a>) -> IonResult<SymbolRef<'a>> {
+        let symbol = match self {
+            RawSymbolRef::SymbolId(sid) => context
+                .symbol_table()
+                .symbol_for(sid)
+                .ok_or_else(
+                    #[inline(never)]
+                    || {
+                        IonError::decoding_error(format!(
+                            "found a symbol ID (${}) that was not in the symbol table",
+                            sid
+                        ))
+                    },
+                )?
+                .into(),
+            RawSymbolRef::Text(text) => text.into(),
+        };
+        Ok(symbol)
     }
 }
 

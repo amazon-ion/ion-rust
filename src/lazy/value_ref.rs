@@ -1,11 +1,16 @@
 use crate::element::Value;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::Decoder;
+use crate::lazy::expanded::template::TemplateElement;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
-use crate::{Decimal, Element, Int, IonError, IonResult, IonType, SymbolRef, Timestamp};
+use crate::{
+    Decimal, Element, Environment, ExpandedValueRef, Int, IonError, IonResult, IonType,
+    LazyExpandedList, LazyExpandedSExp, LazyExpandedStruct, SymbolRef, Timestamp,
+};
 use std::fmt::{Debug, Formatter};
 
 /// A [ValueRef] represents a value that has been read from the input stream. Scalar variants contain
@@ -182,7 +187,7 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         }
     }
 
-    pub fn expect_text(&self) -> IonResult<&'_ str> {
+    pub fn expect_text(self) -> IonResult<&'top str> {
         use ValueRef::*;
         match self {
             String(string) => Ok(string.text()),
@@ -256,6 +261,64 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
             ValueRef::SExp(_) => IonType::SExp,
             ValueRef::List(_) => IonType::List,
             ValueRef::Struct(_) => IonType::Struct,
+        }
+    }
+
+    pub(crate) fn from_template(
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+        element: &TemplateElement<'top>,
+    ) -> Self {
+        use crate::lazy::expanded::template::TemplateValue::*;
+        match element.value() {
+            Null(ion_type) => ValueRef::Null(*ion_type),
+            Bool(b) => ValueRef::Bool(*b),
+            Int(i) => ValueRef::Int(*i),
+            Float(f) => ValueRef::Float(*f),
+            Decimal(d) => ValueRef::Decimal(*d),
+            Timestamp(t) => ValueRef::Timestamp(*t),
+            String(s) => ValueRef::String(StrRef::from(s.text())),
+            Symbol(s) => ValueRef::Symbol(SymbolRef::from(s)),
+            Blob(b) => ValueRef::Blob(BytesRef::from(b.as_ref())),
+            Clob(c) => ValueRef::Clob(BytesRef::from(c.as_ref())),
+            List => ValueRef::List(LazyList::new(LazyExpandedList::from_template(
+                context,
+                environment,
+                *element,
+            ))),
+            SExp => ValueRef::SExp(LazySExp::new(LazyExpandedSExp::from_template(
+                context,
+                environment,
+                *element,
+            ))),
+            Struct(index) => ValueRef::Struct(LazyStruct::new(LazyExpandedStruct::from_template(
+                context,
+                environment,
+                element,
+                index,
+            ))),
+        }
+    }
+
+    /// Downgrades the `ValueRef` to an `ExpandedValueRef` for use in contexts that expect the
+    /// lower-level representation.
+    /// TODO: Consolidate `ExpandedValue` and `LazyValue`.
+    pub(crate) fn as_expanded(&self) -> ExpandedValueRef<'top, D> {
+        use ValueRef::*;
+        match self {
+            Null(ion_type) => ExpandedValueRef::Null(*ion_type),
+            Bool(b) => ExpandedValueRef::Bool(*b),
+            Int(i) => ExpandedValueRef::Int(*i),
+            Float(f) => ExpandedValueRef::Float(*f),
+            Decimal(d) => ExpandedValueRef::Decimal(*d),
+            Timestamp(t) => ExpandedValueRef::Timestamp(*t),
+            String(s) => ExpandedValueRef::String(*s),
+            Symbol(s) => ExpandedValueRef::Symbol((*s).into()),
+            Blob(b) => ExpandedValueRef::Blob(*b),
+            Clob(c) => ExpandedValueRef::Clob(*c),
+            SExp(s) => ExpandedValueRef::SExp(s.expanded_sexp),
+            List(l) => ExpandedValueRef::List(l.expanded_list),
+            Struct(s) => ExpandedValueRef::Struct(s.expanded_struct),
         }
     }
 }

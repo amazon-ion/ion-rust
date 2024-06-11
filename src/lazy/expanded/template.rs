@@ -1,69 +1,192 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 
+use bumpalo::collections::Vec as BumpVec;
+use rustc_hash::FxHashMap;
+
+use crate::{Bytes, Decimal, Int, IonResult, IonType, LazyExpandedFieldName, Str, Symbol, SymbolRef, Timestamp, try_or_some_err, Value};
+use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, ValueExpr};
-use crate::lazy::expanded::macro_table::MacroRef;
-use crate::lazy::expanded::r#struct::UnexpandedField;
-use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
+use crate::lazy::expanded::compiler::ExpansionAnalysis;
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeStringExpansion, TemplateExpansion, ValueExpr, ValuesExpansion};
+use crate::lazy::expanded::macro_table::{Macro, MacroKind, MacroRef};
+use crate::lazy::expanded::r#struct::UnexpandedField;
+use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
-use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp, Value};
 
 /// A parameter in a user-defined macro's signature.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     name: String,
     encoding: ParameterEncoding,
-    // TODO: Grouping
+    cardinality: ParameterCardinality,
+    rest_syntax_policy: RestSyntaxPolicy,
 }
 
 impl Parameter {
-    pub fn new(name: String, encoding: ParameterEncoding) -> Self {
-        Self { name, encoding }
+    pub fn new(name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality, rest_syntax_policy: RestSyntaxPolicy) -> Self {
+        Self { name: name.into(), encoding, cardinality, rest_syntax_policy }
     }
 
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
-    pub fn encoding(&self) -> &ParameterEncoding {
-        &self.encoding
+    pub fn encoding(&self) -> ParameterEncoding {
+        self.encoding
+    }
+    pub fn cardinality(&self) -> ParameterCardinality {
+        self.cardinality
+    }
+    pub fn rest_syntax_policy(&self) -> RestSyntaxPolicy {
+        self.rest_syntax_policy
+    }
+    /// Returns true if this parameter is of any cardinality other than `ExactlyOne` (`!`).
+    pub fn is_variadic(&self) -> bool {
+        !matches!(self.cardinality, ParameterCardinality::ExactlyOne)
     }
 }
 
 /// The encoding used to serialize and deserialize the associated parameter.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ParameterEncoding {
     /// A 'tagged' type is one whose binary encoding begins with an opcode (sometimes called a 'tag'.)
     Tagged,
     // TODO: tagless types, including fixed-width types and macros
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ParameterCardinality {
+    ExactlyOne, // !
+    ZeroOrOne,  // ?
+    ZeroOrMore, // *
+    OneOrMore,  // +
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum RestSyntaxPolicy {
+    NotAllowed,
+    Allowed
+}
+
 /// The sequence of parameters for which callers must pass expressions when invoking the macro.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MacroSignature {
     parameters: Vec<Parameter>,
+    num_variadic_params: usize,
 }
 
 impl MacroSignature {
-    fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding) -> Self {
-        self.parameters.push(Parameter {
-            name: name.into(),
-            encoding,
-        });
-        self
+    fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> IonResult<Self> {
+        // We're adding a new parameter, so the previous "final position" parameter is no longer in the final position.
+        // Disable rest syntax for that parameter.
+        if let Some(final_position_param) = self.parameters.last_mut() {
+            final_position_param.rest_syntax_policy = RestSyntaxPolicy::NotAllowed;
+        }
+        let rest_syntax_policy = if cardinality == ParameterCardinality::ExactlyOne {
+            RestSyntaxPolicy::NotAllowed
+        } else {
+            self.num_variadic_params += 1;
+            if self.num_variadic_params > ArgGroupingBitmap::MAX_VARIADIC_PARAMS {
+                return IonResult::decoding_error(format!(
+                    "macro found with {} variadic parameters; the max supported is {}",
+                    self.num_variadic_params,
+                    ArgGroupingBitmap::MAX_VARIADIC_PARAMS,
+                ));
+            };
+            RestSyntaxPolicy::Allowed
+        };
+        let param = Parameter::new(name.into(), encoding, cardinality, rest_syntax_policy);
+        self.parameters.push(param);
+        Ok(self)
     }
 
-    pub fn parameters(&self) -> &[Parameter] {
-        &self.parameters
+    fn constant() -> Self {
+        Self::new(Vec::new()).unwrap()
     }
-    pub fn new(parameters: Vec<Parameter>) -> Self {
-        Self { parameters }
+
+    pub fn len(&self) -> usize {
+        self.parameters().len()
+    }
+    pub fn parameters(&self) -> &[Parameter] {
+        self.parameters.as_slice()
+    }
+    pub fn new(parameters: Vec<Parameter>) -> IonResult<Self> {
+        let num_variadic_params = parameters.iter().filter(|p| p.cardinality != ParameterCardinality::ExactlyOne).count();
+        if num_variadic_params > ArgGroupingBitmap::MAX_VARIADIC_PARAMS {
+            return IonResult::decoding_error(format!(
+                "macro found with {num_variadic_params} variadic parameters; the max supported is {}",
+                ArgGroupingBitmap::MAX_VARIADIC_PARAMS
+            ));
+        };
+        Ok(Self { parameters, num_variadic_params })
+    }
+    pub fn num_variadic_params(&self) -> usize {
+        self.num_variadic_params
+    }
+    pub fn bitmap_size_in_bytes(&self) -> usize {
+        const BITS_PER_VARIADIC_PARAM: usize = 2;
+        const BITS_PER_BYTE: usize = 8;
+        ((self.num_variadic_params * BITS_PER_VARIADIC_PARAM) + 7) / 8
+    }
+}
+
+#[cfg(test)]
+mod macro_signature_tests {
+    use crate::IonResult;
+    use crate::lazy::expanded::template::{MacroSignature, ParameterCardinality, ParameterEncoding};
+
+    #[test]
+    fn bitmap_sizes() -> IonResult<()> {
+        let signature = MacroSignature::constant();
+        assert_eq!(signature.num_variadic_params(), 0);
+        assert_eq!(signature.bitmap_size_in_bytes(), 0);
+
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ExactlyOne)?;
+        assert_eq!(signature.num_variadic_params(), 0);
+        assert_eq!(signature.bitmap_size_in_bytes(), 0);
+
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
+        assert_eq!(signature.num_variadic_params(), 1);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
+        assert_eq!(signature.num_variadic_params(), 2);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
+        assert_eq!(signature.num_variadic_params(), 3);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
+        assert_eq!(signature.num_variadic_params(), 4);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("quuz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
+        assert_eq!(signature.num_variadic_params(), 5);
+        assert_eq!(signature.bitmap_size_in_bytes(), 2);
+
+        Ok(())
     }
 }
 
@@ -76,11 +199,12 @@ impl MacroSignature {
 /// ```
 /// This simplifies the use of machine-authored macros, which are always invoked by their address
 /// in the macro table rather than by a human-friendly name.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TemplateMacro {
     pub(crate) name: Option<String>,
     pub(crate) signature: MacroSignature,
     pub(crate) body: TemplateBody,
+    pub(crate) expansion_analysis: ExpansionAnalysis,
 }
 
 impl Debug for TemplateMacro {
@@ -97,7 +221,7 @@ impl Debug for TemplateMacro {
         let indentation = &mut String::from("        ");
         let mut index = 0usize;
         while let Some(expr) = self.body().expressions().get(index) {
-            index += TemplateBodyValueExpr::fmt_expr(f, indentation, self, expr)?;
+            index += TemplateBodyExprKind::fmt_expr(f, indentation, self, expr)?;
         }
 
         Ok(())
@@ -119,26 +243,28 @@ impl TemplateMacro {
 /// A reference to a template macro definition paired with the macro table address at which it was found.
 #[derive(Copy, Clone, Debug)]
 pub struct TemplateMacroRef<'top> {
-    // This field is only stored as a source of information for debugging. (For example, when showing
-    // a macro evaluator stack trace.)
-    address: MacroAddress,
-    template: &'top TemplateMacro,
+    macro_ref: MacroRef<'top>,
+    template_body: &'top TemplateBody,
 }
 
 impl<'top> TemplateMacroRef<'top> {
-    pub fn new(address: MacroAddress, template: &'top TemplateMacro) -> Self {
-        Self { address, template }
+    pub fn new(macro_ref: MacroRef<'top>, template_body: &'top TemplateBody) -> Self {
+        Self { macro_ref, template_body }
     }
-    pub fn address(&self) -> MacroAddress {
-        self.address
+    pub fn body(&self) -> &'top TemplateBody {
+        self.template_body
+    }
+
+    pub fn macro_ref(&self) -> MacroRef<'top> {
+        self.macro_ref
     }
 }
 
 impl<'top> Deref for TemplateMacroRef<'top> {
-    type Target = &'top TemplateMacro;
+    type Target = MacroRef<'top>;
 
     fn deref(&self) -> &Self::Target {
-        &self.template
+        &self.macro_ref
     }
 }
 
@@ -147,7 +273,7 @@ pub struct TemplateSequenceIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     template: TemplateMacroRef<'top>,
     evaluator: MacroEvaluator<'top, D>,
-    value_expressions: &'top [TemplateBodyValueExpr],
+    value_expressions: &'top [TemplateBodyExpr],
     index: usize,
 }
 
@@ -156,13 +282,13 @@ impl<'top, D: Decoder> TemplateSequenceIterator<'top, D> {
         context: EncodingContextRef<'top>,
         evaluator: MacroEvaluator<'top, D>,
         template: TemplateMacroRef<'top>,
-        value_expressions: &'top [TemplateBodyValueExpr],
+        nested_expressions: &'top [TemplateBodyExpr],
     ) -> Self {
         Self {
             context,
             template,
             evaluator,
-            value_expressions,
+            value_expressions: nested_expressions,
             index: 0,
         }
     }
@@ -174,33 +300,29 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             // If the evaluator's stack is not empty, give it the opportunity to yield a value.
-            if self.evaluator.macro_stack_depth() > 0 {
-                match self.evaluator.next().transpose() {
-                    Some(value) => return Some(value),
-                    None => {
-                        // The stack did not produce values and is empty, pull
-                        // the next expression from `self.value_expressions`
-                    }
-                }
+            if let Some(value) = try_or_some_err!(self.evaluator.next()) {
+                return Some(Ok(value));
             }
-            // We didn't get a value from the evaluator, so pull the next expansion step.
-            let step = self.value_expressions.get(self.index)?;
-            self.index += 1;
-            return match step {
-                TemplateBodyValueExpr::Element(element) => {
+            // The stack did not produce values and is empty, pull the next expression from `self.value_expressions`
+            // and start expanding it.
+            let current_expr = self.value_expressions.get(self.index)?;
+            let environment = self.evaluator.environment();
+            self.index += current_expr.num_expressions();
+            break match current_expr.kind() {
+                TemplateBodyExprKind::Element(element) => {
                     let value = LazyExpandedValue {
                         context: self.context,
                         source: ExpandedValueSource::Template(
-                            self.evaluator.environment(),
-                            TemplateElement::new(self.template, element),
+                            environment,
+                            TemplateElement::new(self.template.macro_ref, element, current_expr.expr_range()),
                         ),
                         variable: None,
                     };
                     Some(Ok(value))
                 }
-                TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
-                    // ...it's a TDL macro invocation. Push it onto the evaluator's stack and return
-                    // to the top of the loop.
+                TemplateBodyExprKind::MacroInvocation(body_invocation) => {
+                    // ...it's a TDL macro invocation. Resolve the invocation to get a reference to the
+                    // macro being invoked.
                     let invoked_macro = self
                         .context
                         .macro_table()
@@ -208,33 +330,33 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                         .unwrap();
                     let invocation = TemplateMacroInvocation::new(
                         self.context,
-                        self.template,
+                        self.template.address(),
                         invoked_macro,
-                        self.template
-                            .body
-                            .expressions()
-                            .get(body_invocation.arg_expr_range().ops_range())
-                            .unwrap(),
+                        ExprRange::new(current_expr.expr_range().tail())
                     );
-                    self.index += invocation.arg_expressions.len();
-                    match self.evaluator.push(invocation) {
-                        Ok(_) => continue,
-                        Err(e) => Some(Err(e)),
+                    // If the macro is guaranteed to expand to exactly one value, we can evaluate it
+                    // in place.
+                    let new_expansion = try_or_some_err!(MacroExpansion::initialize(environment, invocation.into()));
+                    if invoked_macro.expansion_analysis().must_produce_exactly_one_value() {
+                        Some(new_expansion.expand_singleton())
+                    } else {
+                        // Otherwise, add it to the evaluator's stack and return to the top of the loop.
+                        self.evaluator.push(new_expansion);
+                        continue;
                     }
                 }
-                TemplateBodyValueExpr::Variable(variable_ref) => {
-                    let arg_expr = self
-                        .evaluator
-                        .environment()
-                        .expressions()
-                        .get(variable_ref.signature_index())
-                        .unwrap();
+                TemplateBodyExprKind::Variable(variable_ref) => {
+                    let arg_expr = self.evaluator.environment().require_expr(variable_ref.signature_index());
                     match arg_expr {
-                        ValueExpr::ValueLiteral(value) => Some(Ok(*value)),
+                        ValueExpr::ValueLiteral(value) => Some(Ok(value)),
                         ValueExpr::MacroInvocation(invocation) => {
-                            match self.evaluator.push(*invocation) {
-                                Ok(_) => continue,
-                                Err(e) => Some(Err(e)),
+                            let new_expansion = try_or_some_err!(MacroExpansion::initialize(environment, invocation));
+                            if invocation.invoked_macro().expansion_analysis().must_produce_exactly_one_value() {
+                                Some(new_expansion.expand_singleton())
+                            } else {
+                                // Otherwise, add it to the evaluator's stack and return to the top of the loop.
+                                self.evaluator.push(new_expansion);
+                                continue;
                             }
                         }
                     }
@@ -251,7 +373,7 @@ pub struct TemplateStructUnexpandedFieldsIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     environment: Environment<'top, D>,
     template: TemplateMacroRef<'top>,
-    expressions: &'top [TemplateBodyValueExpr],
+    nested_expressions: &'top [TemplateBodyExpr],
     index: usize,
 }
 
@@ -266,13 +388,13 @@ impl<'top, D: Decoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
         template: TemplateMacroRef<'top>,
-        expressions: &'top [TemplateBodyValueExpr],
+        nested_expressions: &'top [TemplateBodyExpr],
     ) -> Self {
         Self {
             context,
             environment,
             template,
-            expressions,
+            nested_expressions,
             index: 0,
         }
     }
@@ -284,10 +406,10 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
     fn next(&mut self) -> Option<Self::Item> {
         let name_expr_address = self.index;
         let name_element = self
-            .expressions
+            .nested_expressions
             .get(name_expr_address)?
-            .expect_element()
-            .expect("field name must be a literal");
+            .kind()
+            .require_element();
         let name: SymbolRef = match &name_element.value {
             TemplateValue::Symbol(s) => s.into(),
             TemplateValue::String(s) => s.text().into(),
@@ -295,26 +417,17 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
         };
         let value_expr_address = name_expr_address + 1;
         let value_expr = self
-            .expressions
+            .nested_expressions
             .get(value_expr_address)
             .expect("template struct had field name with no value");
-        let unexpanded_field = match value_expr {
-            TemplateBodyValueExpr::Element(element) => {
-                match element.value() {
-                    TemplateValue::List(range)
-                    | TemplateValue::SExp(range)
-                    | TemplateValue::Struct(range, _) => self.index += range.len(),
-                    _ => {
-                        // Otherwise, the value is a scalar and is exactly one expression. We already
-                        // accounted for the first expression, so there's nothing else to do here.
-                    }
-                };
-                UnexpandedField::TemplateNameValue(
-                    name,
-                    TemplateElement::new(self.template, element),
+        let unexpanded_field = match value_expr.kind() {
+            TemplateBodyExprKind::Element(element) => {
+                UnexpandedField::NameValue(
+                    LazyExpandedFieldName::TemplateName(self.template, name),
+                    LazyExpandedValue::from_template(self.context, self.environment, TemplateElement::new(self.template.macro_ref(), element, value_expr.expr_range())),
                 )
             }
-            TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
+            TemplateBodyExprKind::MacroInvocation(body_invocation) => {
                 let invoked_macro = self
                     .context
                     .macro_table()
@@ -322,37 +435,40 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
                     .unwrap();
                 let invocation = TemplateMacroInvocation::new(
                     self.context,
-                    self.template,
+                    self.template.address(),
                     invoked_macro,
-                    self.template
-                        .body
-                        .expressions()
-                        .get(body_invocation.arg_expr_range().ops_range())
-                        .unwrap(),
+                    ExprRange::new(value_expr.expr_range().tail())
                 );
-                self.index += invocation.arg_expressions.len();
-                UnexpandedField::TemplateNameMacro(name, invocation)
+                UnexpandedField::NameMacro(
+                    LazyExpandedFieldName::TemplateName(self.template, name),
+                    MacroExpr::from_template_macro(invocation)
+                )
             }
-            TemplateBodyValueExpr::Variable(variable) => {
+            TemplateBodyExprKind::Variable(variable) => {
                 let arg_expr = self
                     .environment
-                    .get_expected(variable.signature_index())
-                    .expect("reference to non-existent parameter");
-                let variable_ref = variable.resolve(self.template);
-                UnexpandedField::TemplateNameVariable(name, (variable_ref, arg_expr))
+                    .require_expr(variable.signature_index());
+                let variable_ref = variable.resolve(self.template.macro_ref.reference());
+                let field_name = LazyExpandedFieldName::TemplateName(self.template, name);
+                let field = match arg_expr {
+                    ValueExpr::ValueLiteral(value) => UnexpandedField::NameValue(field_name, value.via_variable(variable_ref)),
+                    ValueExpr::MacroInvocation(invocation) => UnexpandedField::NameMacro(field_name, invocation)
+                };
+                field
             }
         };
-        self.index += 2;
+        self.index += /* name expr count -> */ 1 + value_expr.num_expressions();
         Some(Ok(unexpanded_field))
     }
 }
 
 /// Stores a sequence of expansion steps that need to be evaluated in turn.
 ///
-/// See [`TemplateBodyValueExpr`] for details.
+/// See [`TemplateBodyExprKind`] for details.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TemplateBody {
-    pub(crate) expressions: Vec<TemplateBodyValueExpr>,
+    // A vector of expressions that will be visited in turn during expansion.
+    pub(crate) expressions: Vec<TemplateBodyExpr>,
     // All of the elements stored in the Vec above share the Vec below for storing their annotations.
     // This allows us to avoid allocating a `Vec<Symbol>` for every value in the template, saving
     // a small amount of time and memory during compilation. Each values hold an index range
@@ -361,35 +477,77 @@ pub struct TemplateBody {
 }
 
 impl TemplateBody {
-    pub fn expressions(&self) -> &[TemplateBodyValueExpr] {
-        &self.expressions
+    pub fn expressions(&self) -> &[TemplateBodyExpr] {
+        self.expressions.as_slice()
     }
     pub fn annotations_storage(&self) -> &[Symbol] {
         &self.annotations_storage
     }
 
-    pub fn push_element(&mut self, element: TemplateBodyElement) {
+    pub fn push_element(&mut self, element: TemplateBodyElement, expr_range: ExprRange) {
         self.expressions
-            .push(TemplateBodyValueExpr::Element(element))
+            .push(TemplateBodyExpr::element(element, expr_range))
     }
 
     pub fn push_variable(&mut self, signature_index: u16) {
-        self.expressions.push(TemplateBodyValueExpr::Variable(
-            TemplateBodyVariableReference::new(signature_index),
-        ))
+        let index = self.expressions.len();
+        self.expressions.push(TemplateBodyExpr::variable(signature_index, ExprRange::new(index..index+1)))
     }
 
     pub fn push_macro_invocation(&mut self, invoked_macro_address: usize, expr_range: ExprRange) {
         self.expressions
-            .push(TemplateBodyValueExpr::MacroInvocation(
-                TemplateBodyMacroInvocation::new(invoked_macro_address, expr_range),
-            ))
+            .push(TemplateBodyExpr::macro_invocation(invoked_macro_address, expr_range))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TemplateBodyExpr {
+    kind: TemplateBodyExprKind,
+    expr_range: ExprRange,
+}
+
+impl TemplateBodyExpr {
+    pub fn new(kind: TemplateBodyExprKind, expr_range: ExprRange) -> Self {
+        Self { kind, expr_range }
+    }
+
+    pub fn element(element: TemplateBodyElement, expr_range: ExprRange) -> Self {
+        Self {
+            kind: TemplateBodyExprKind::Element(element),
+            expr_range
+        }
+    }
+
+    pub fn variable(signature_index: u16, expr_range: ExprRange) -> Self {
+        Self {
+            kind: TemplateBodyExprKind::Variable(TemplateBodyVariableReference::new(signature_index)),
+            expr_range
+        }
+    }
+
+    pub fn macro_invocation(invoked_macro_address: MacroAddress, expr_range: ExprRange) -> Self {
+        Self {
+            kind: TemplateBodyExprKind::MacroInvocation(TemplateBodyMacroInvocation::new(invoked_macro_address)),
+            expr_range
+        }
+    }
+
+    pub fn kind(&self) -> &TemplateBodyExprKind {
+        &self.kind
+    }
+
+    pub fn num_expressions(&self) -> usize {
+        self.expr_range.len()
+    }
+
+    pub fn expr_range(&self) -> ExprRange {
+        self.expr_range
     }
 }
 
 /// An expression appearing in value position in a template body.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TemplateBodyValueExpr {
+pub enum TemplateBodyExprKind {
     /// A potentially annotated value literal.
     Element(TemplateBodyElement),
     /// A reference to a variable that needs to be expanded.
@@ -398,25 +556,17 @@ pub enum TemplateBodyValueExpr {
     MacroInvocation(TemplateBodyMacroInvocation),
 }
 
-impl TemplateBodyValueExpr {
-    /// Returns `Ok(&element)` if this expression is an annotated value. Otherwise, returns
-    /// `Err(IonError)`.
-    pub fn expect_element(&self) -> IonResult<&TemplateBodyElement> {
-        match self {
-            TemplateBodyValueExpr::Element(e) => Ok(e),
-            TemplateBodyValueExpr::Variable(variable_reference) => {
-                let index = variable_reference.signature_index();
-                IonResult::decoding_error(format!(
-                    "expected an element, found reference variable with signature index '{index}'"
-                ))
-            }
-            TemplateBodyValueExpr::MacroInvocation(invocation) => {
-                let address = invocation.macro_address();
-                IonResult::decoding_error(format!(
-                    "expected an element, found macro at address {address}"
-                ))
-            }
+impl TemplateBodyExprKind {
+    /// Confirms that this value expression is a value literal and panics if it is not.
+    ///
+    /// When this method is called, it is because the rules of the template compiler have
+    /// dictated that an element in this position be a value literal.
+    #[inline]
+    pub fn require_element(&self) -> &TemplateBodyElement {
+        if let TemplateBodyExprKind::Element(e) = self {
+            return e;
         }
+        unreachable!("The compiled template contained a non-element in element position");
     }
 
     /// This helper method is invoked by the `Debug` implementation of `TemplateMacro`, which provides
@@ -428,17 +578,17 @@ impl TemplateBodyValueExpr {
         f: &mut Formatter<'_>,
         indentation: &mut String,
         host_template: &TemplateMacro,
-        expr: &TemplateBodyValueExpr,
+        expr: &TemplateBodyExpr,
     ) -> Result<usize, fmt::Error> {
-        match &expr {
-            TemplateBodyValueExpr::Element(e) => {
-                Self::fmt_element(f, indentation, host_template, e)
+        match &expr.kind() {
+            TemplateBodyExprKind::Element(e) => {
+                Self::fmt_element(f, indentation, host_template, e, expr.expr_range())
             }
-            TemplateBodyValueExpr::Variable(v) => {
+            TemplateBodyExprKind::Variable(v) => {
                 Self::fmt_variable(f, indentation, host_template, v)
             }
-            TemplateBodyValueExpr::MacroInvocation(m) => {
-                Self::fmt_invocation(f, indentation, host_template, m)
+            TemplateBodyExprKind::MacroInvocation(m) => {
+                Self::fmt_invocation(f, indentation, host_template, m, expr.expr_range())
             }
         }
     }
@@ -451,6 +601,7 @@ impl TemplateBodyValueExpr {
         indentation: &mut String,
         host_template: &TemplateMacro,
         element: &TemplateBodyElement,
+        expr_range: ExprRange,
     ) -> Result<usize, fmt::Error> {
         let annotations_range = element.annotations_range.ops_range();
         let annotations = host_template
@@ -464,17 +615,17 @@ impl TemplateBodyValueExpr {
         }
         use TemplateValue::*;
         match element.value() {
-            List(l) => {
+            List => {
                 writeln!(f, "list")?;
-                return Self::fmt_sequence_body(f, indentation, host_template, *l);
+                return Self::fmt_sequence_body(f, indentation, host_template, expr_range);
             }
-            SExp(s) => {
+            SExp => {
                 writeln!(f, "sexp")?;
-                return Self::fmt_sequence_body(f, indentation, host_template, *s);
+                return Self::fmt_sequence_body(f, indentation, host_template, expr_range);
             }
-            Struct(s, _) => {
+            Struct(_) => {
                 writeln!(f, "struct")?;
-                return Self::fmt_struct(f, indentation, host_template, *s);
+                return Self::fmt_struct(f, indentation, host_template, expr_range);
             }
             Null(n) => writeln!(f, "{}", Value::Null(*n)),
             Bool(b) => writeln!(f, "{b}"),
@@ -526,7 +677,7 @@ impl TemplateBodyValueExpr {
         indentation.push_str("    ");
         let mut expr_index: usize = 0;
         while expr_index < expressions.len() {
-            let TemplateBodyValueExpr::Element(name_element) = &expressions[expr_index] else {
+            let TemplateBodyExprKind::Element(name_element) = &expressions[expr_index].kind() else {
                 unreachable!(
                     "non-element field name in template struct: {:?}",
                     &expressions[expr_index]
@@ -558,6 +709,7 @@ impl TemplateBodyValueExpr {
         indentation: &mut String,
         host_template: &TemplateMacro,
         invocation: &TemplateBodyMacroInvocation,
+        expr_range: ExprRange,
     ) -> Result<usize, fmt::Error> {
         writeln!(
             f,
@@ -567,7 +719,7 @@ impl TemplateBodyValueExpr {
         let args = host_template
             .body
             .expressions
-            .get(invocation.arg_expr_range.ops_range())
+            .get(expr_range.tail())
             .unwrap();
 
         indentation.push_str("    ");
@@ -609,49 +761,36 @@ impl TemplateBodyValueExpr {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TemplateBodyMacroInvocation {
     invoked_macro_address: MacroAddress,
-    arg_expr_range: ExprRange,
 }
 
 impl TemplateBodyMacroInvocation {
-    pub fn new(invoked_macro_address: MacroAddress, arg_expr_range: ExprRange) -> Self {
+    pub fn new(invoked_macro_address: MacroAddress) -> Self {
         Self {
             invoked_macro_address,
-            arg_expr_range,
         }
     }
     pub fn macro_address(&self) -> MacroAddress {
         self.invoked_macro_address
-    }
-    pub fn arg_expr_range(&self) -> ExprRange {
-        self.arg_expr_range
     }
 
     /// Finds the definition of the macro being invoked in the provided `context`'s macro table.
     ///
     /// It is a logic error for this method to be called with an [`EncodingContextRef`] that does not
     /// contain the necessary information; doing so will cause this method to panic.
-    pub(crate) fn resolve<'top>(
+    pub(crate) fn resolve(
         self,
-        host_template: TemplateMacroRef<'top>,
-        context: EncodingContextRef<'top>,
-    ) -> TemplateMacroInvocation<'top> {
+        context: EncodingContextRef,
+        host_template_address: MacroAddress,
+        expr_range: ExprRange
+    ) -> TemplateMacroInvocation {
         let invoked_macro = context
             .macro_table()
             .macro_at_address(self.invoked_macro_address)
             .unwrap();
 
-        let arg_expressions = host_template
-            .body
-            .expressions()
-            .get(self.arg_expr_range.ops_range())
-            .unwrap();
+        let arg_expr_range = ExprRange::new(expr_range.tail());
 
-        TemplateMacroInvocation {
-            context,
-            host_template,
-            invoked_macro,
-            arg_expressions,
-        }
+        TemplateMacroInvocation::new(context, host_template_address, invoked_macro, arg_expr_range)
     }
 }
 
@@ -660,14 +799,13 @@ impl TemplateBodyMacroInvocation {
 #[derive(Copy, Clone)]
 pub struct TemplateMacroInvocation<'top> {
     context: EncodingContextRef<'top>,
-    // The definition of the template in which this macro invocation appears. This is useful as
-    // debugging information / viewing in stack traces.
-    host_template: TemplateMacroRef<'top>,
+    // We store the address of the host template (8 bytes) rather than a full TemplateMacroRef (24)
+    host_template_address: MacroAddress,
     // The macro being invoked
     invoked_macro: MacroRef<'top>,
     // The range of value expressions in the host template's body that are arguments to the
     // macro being invoked
-    arg_expressions: &'top [TemplateBodyValueExpr],
+    arg_expressions_range: ExprRange,
 }
 
 impl<'top> Debug for TemplateMacroInvocation<'top> {
@@ -683,15 +821,16 @@ impl<'top> Debug for TemplateMacroInvocation<'top> {
 impl<'top> TemplateMacroInvocation<'top> {
     pub fn new(
         context: EncodingContextRef<'top>,
-        host_template: TemplateMacroRef<'top>,
+        // host_template_address: TemplateMacroRef<'top>,
+        host_template_address: MacroAddress,
         invoked_macro: MacroRef<'top>,
-        arg_expressions: &'top [TemplateBodyValueExpr],
+        arg_expressions_range: ExprRange,
     ) -> Self {
         Self {
             context,
-            host_template,
+            host_template_address,
             invoked_macro,
-            arg_expressions,
+            arg_expressions_range,
         }
     }
 
@@ -702,13 +841,32 @@ impl<'top> TemplateMacroInvocation<'top> {
         &self,
         environment: Environment<'top, D>,
     ) -> TemplateMacroInvocationArgsIterator<'top, D> {
-        TemplateMacroInvocationArgsIterator::new(environment, *self)
+        TemplateMacroInvocationArgsIterator::new(self.context, environment, self.arg_expressions(), self.host_macro_ref())
     }
+    pub fn host_template_address(&self) -> MacroAddress {
+        self.host_template_address
+    }
+
+    /// Helper method to access the definition of the host template. Useful for debugging,
+    /// but not required for macro expansion.
+    pub fn host_macro_ref(&self) -> MacroRef<'top> {
+        self.context().macro_table().macro_at_address(self.host_template_address).unwrap()
+    }
+
+    /// Helper method to access the definition of the host template. Useful for debugging,
+    /// but not required for macro expansion.
     pub fn host_template(&self) -> TemplateMacroRef<'top> {
-        self.host_template
+        // We only store the macro address (8 bytes) instead of the full `TemplateMacroRef` (24 bytes)
+        // for size savings. Because the address was copied from a resolved `TemplateMacroRef` in the
+        // constructor and the encoding context is frozen for the duration of `'top`, we can safely
+        // assume that the address maps to a template macro in the current encoding context. This
+        // allows us to call `unwrap()` freely.
+        let macro_ref = self.host_macro_ref();
+        macro_ref.require_template()
     }
-    pub fn arg_expressions(&self) -> &'top [TemplateBodyValueExpr] {
-        self.arg_expressions
+
+    pub fn arg_expressions(&self) -> &'top [TemplateBodyExpr] {
+        self.host_template().body().expressions().get(self.arg_expressions_range.ops_range()).unwrap()
     }
     pub fn invoked_macro(&self) -> MacroRef<'top> {
         self.invoked_macro
@@ -716,76 +874,110 @@ impl<'top> TemplateMacroInvocation<'top> {
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
+
+    pub fn new_evaluation_environment<D: Decoder>(&self, parent_environment: Environment<'top, D>) -> IonResult<Environment<'top, D>> {
+        let arguments = self.arguments(parent_environment);
+        let allocator = self.context().allocator();
+        // Use the iterator's size hint to determine an initial capacity to aim for.
+        let num_args_hint = arguments.size_hint();
+        let capacity_hint = num_args_hint.1.unwrap_or(num_args_hint.0);
+        let mut env_exprs = BumpVec::with_capacity_in(capacity_hint, allocator);
+        for arg in arguments {
+            env_exprs.push(arg?);
+        }
+        Ok(Environment::new(env_exprs.into_bump_slice()))
+    }
+
+    pub fn expand<D: Decoder>(&self, mut environment: Environment<'top, D>) -> IonResult<MacroExpansion<'top, D>> {
+        // Initialize a `MacroExpansionKind` with the state necessary to evaluate the requested
+        // macro.
+        let macro_ref: MacroRef<'top> = self.invoked_macro();
+        let arguments = MacroExprArgsIterator::from_template_macro(self.arguments(environment));
+        let expansion_kind = match macro_ref.kind() {
+            MacroKind::Void => MacroExpansionKind::Void,
+            MacroKind::Values => MacroExpansionKind::Values(ValuesExpansion::new(arguments)),
+            MacroKind::MakeString => {
+                MacroExpansionKind::MakeString(MakeStringExpansion::new(arguments))
+            }
+            MacroKind::Template(template_body) => {
+                let template_ref = TemplateMacroRef::new(macro_ref, template_body);
+                environment = self.new_evaluation_environment(environment)?;
+                MacroExpansionKind::Template(TemplateExpansion::new(template_ref))
+            }
+        };
+        Ok(MacroExpansion::new(self.context(), environment, expansion_kind))
+    }
 }
 
 impl<'top, D: Decoder> From<TemplateMacroInvocation<'top>> for MacroExpr<'top, D> {
     fn from(value: TemplateMacroInvocation<'top>) -> Self {
-        MacroExpr::TemplateMacro(value)
+        MacroExpr::from_template_macro(value)
     }
 }
 
 /// Steps over the argument expressions passed to a macro invocation found in a template body.
+#[derive(Copy, Clone, Debug)]
 pub struct TemplateMacroInvocationArgsIterator<'top, D: Decoder> {
+    context: EncodingContextRef<'top>,
     environment: Environment<'top, D>,
-    invocation: TemplateMacroInvocation<'top>,
+    host_template: MacroRef<'top>,
+    // The range of value expressions in the host template's body that are arguments to the
+    // macro being invoked
+    arg_expressions: &'top [TemplateBodyExpr],
     arg_index: usize,
 }
 
 impl<'top, D: Decoder> TemplateMacroInvocationArgsIterator<'top, D> {
-    pub fn new(
-        environment: Environment<'top, D>,
-        invocation: TemplateMacroInvocation<'top>,
-    ) -> Self {
+    pub fn new(context: EncodingContextRef<'top>, environment: Environment<'top, D>, arg_expressions: &'top [TemplateBodyExpr], host_template: MacroRef<'top>) -> Self {
         Self {
             environment,
-            invocation,
-            arg_index: 0,
+            context,
+            arg_expressions,
+            host_template,
+            arg_index: 0
         }
+    }
+
+    pub fn is_exhausted(&self) -> bool {
+        let current = self.arg_index;
+        let max = self.arg_expressions.len();
+        current == max
     }
 }
 
 impl<'top, D: Decoder> Iterator for TemplateMacroInvocationArgsIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        let arg = self.invocation.arg_expressions().get(self.arg_index)?;
-        self.arg_index += 1;
-        let arg_expr = match arg {
-            TemplateBodyValueExpr::Element(e) => {
-                // If it's a container, skip over its contents when this iterator resumes
-                match e.value() {
-                    TemplateValue::List(range)
-                    | TemplateValue::SExp(range)
-                    | TemplateValue::Struct(range, _) => {
-                        self.arg_index += range.len();
-                    }
-                    _ => {
-                        // If it's a scalar, it has already been accounted for.
-                    }
-                };
+        let arg = self.arg_expressions.get(self.arg_index)?;
+        let arg_expr = match arg.kind() {
+            TemplateBodyExprKind::Element(e) => {
                 ValueExpr::ValueLiteral(LazyExpandedValue::from_template(
-                    self.invocation.context,
+                    self.context,
                     self.environment,
-                    TemplateElement::new(self.invocation.host_template(), e),
+                    TemplateElement::new(self.host_template, e, arg.expr_range()),
                 ))
             }
-            TemplateBodyValueExpr::Variable(variable_ref) => match self
-                .environment
-                .get_expected(variable_ref.signature_index())
-            {
-                Ok(expr) => expr,
-                Err(e) => return Some(Err(e)),
+            TemplateBodyExprKind::Variable(variable_ref) => {
+                self
+                    .environment
+                    .require_expr(variable_ref.signature_index())
             },
-            TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
+            TemplateBodyExprKind::MacroInvocation(body_invocation) => {
                 let invocation = body_invocation
-                    .resolve(self.invocation.host_template(), self.invocation.context);
-                // Skip over all of the expressions that belong to this invocation.
-                self.arg_index += invocation.arg_expressions.len();
+                    .resolve(self.context, self.host_template.address(), arg.expr_range());
                 ValueExpr::MacroInvocation(invocation.into())
             }
         };
+        self.arg_index += arg.num_expressions();
 
         Some(Ok(arg_expr))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let num_args = self.arg_expressions.len();
+        (num_args, Some(num_args))
     }
 }
 
@@ -813,12 +1005,12 @@ impl TemplateBodyVariableReference {
     /// about the template definition to be retrieved later.
     pub(crate) fn resolve<'top>(
         &self,
-        template: TemplateMacroRef<'top>,
+        host_macro: &'top Macro,
     ) -> TemplateVariableReference<'top> {
-        TemplateVariableReference {
-            template,
-            signature_index: self.signature_index,
-        }
+        TemplateVariableReference::new(
+            host_macro,
+            self.signature_index,
+        )
     }
 }
 
@@ -830,31 +1022,37 @@ impl TemplateBodyVariableReference {
 pub struct TemplateElement<'top> {
     // This type holds a reference to the host template macro, which contains some shared resources
     // like a `Vec` of annotation definitions.
-    template: TemplateMacroRef<'top>,
+    template: MacroRef<'top>,
     element: &'top TemplateBodyElement,
+    expr_range: ExprRange,
 }
 
 impl<'top> TemplateElement<'top> {
-    pub fn new(template: TemplateMacroRef<'top>, element: &'top TemplateBodyElement) -> Self {
-        Self { template, element }
+    pub fn new(template: MacroRef<'top>, element: &'top TemplateBodyElement, expr_range: ExprRange) -> Self {
+        Self { template, element, expr_range }
     }
     pub fn annotations(&self) -> &'top [Symbol] {
         self.template
+            .require_template()
             .body()
             .annotations_storage()
             .get(self.element.annotations_range().ops_range())
             .unwrap()
     }
-
     pub fn annotations_range(&self) -> AnnotationsRange {
         self.element.annotations_range
     }
-
     pub fn value(&self) -> &'top TemplateValue {
         &self.element.value
     }
     pub fn template(&self) -> TemplateMacroRef<'top> {
-        self.template
+        self.template.require_template()
+    }
+    pub fn expr_range(&self) -> ExprRange {
+        self.expr_range
+    }
+    pub fn nested_expressions(&self) -> &'top [TemplateBodyExpr] {
+        self.template().body().expressions().get(self.expr_range.tail()).unwrap()
     }
 }
 
@@ -911,10 +1109,10 @@ pub enum TemplateValue {
     Clob(Bytes),
     Blob(Bytes),
     // The range of ensuing `TemplateBodyValueExpr`s that belong to this container.
-    List(ExprRange),
-    SExp(ExprRange),
+    List,
+    SExp,
     // A 'closed' struct quasi-literal. All field names are known at compile time.
-    Struct(ExprRange, TemplateStructIndex),
+    Struct(TemplateStructIndex),
     // TODO: Implementation of a `make_struct` macro requires an 'open' struct whose fields will
     //       often not be known at compile time.
 }
@@ -922,7 +1120,7 @@ pub enum TemplateValue {
 /// A mapping of struct field names to one or more template body addresses that have that
 /// field name. This type is used to allow field lookups within a template struct to happen in
 /// constant rather than linear time.
-pub type TemplateStructIndex = HashMap<Symbol, Vec<usize>>;
+pub type TemplateStructIndex = FxHashMap<Symbol, Vec<usize>>;
 
 impl TemplateValue {
     pub fn is_null(&self) -> bool {
@@ -944,9 +1142,9 @@ impl TemplateValue {
             String(_) => IonType::String,
             Clob(_) => IonType::Clob,
             Blob(_) => IonType::Blob,
-            List(_) => IonType::List,
-            SExp(_) => IonType::SExp,
-            Struct(_, _) => IonType::Struct,
+            List => IonType::List,
+            SExp => IonType::SExp,
+            Struct(_) => IonType::Struct,
         }
     }
 }
@@ -1002,6 +1200,10 @@ impl SmallRange {
     // this crate owns neither the `Index` trait nor the collections themselves.
     pub fn ops_range(&self) -> Range<usize> {
         self.start as usize..self.end as usize
+    }
+
+    pub fn tail(&self) -> Range<usize> {
+        self.start as usize + 1 .. self.end as usize
     }
 
     pub fn len(&self) -> usize {

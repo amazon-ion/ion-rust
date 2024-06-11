@@ -1,11 +1,14 @@
 use std::fmt::{Debug, Formatter};
+use std::mem::size_of;
 use std::ops::Range;
 
 use bumpalo::collections::Vec as BumpVec;
 
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::v1_1::e_expression::{EncodedBinaryEExp, RawBinaryEExpression_1_1};
+use crate::lazy::binary::raw::v1_1::e_expression::{
+    BinaryEExpArgsIterator_1_1, RawBinaryEExpression_1_1,
+};
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
@@ -16,11 +19,11 @@ use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
-use crate::lazy::expanded::macro_table::MacroKind;
+use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::EncodingContextRef;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
 use crate::result::IonFailure;
-use crate::{v1_1, HasRange, IonError, IonResult};
+use crate::{v1_1, IonError, IonResult};
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -53,6 +56,14 @@ impl<'a> Debug for ImmutableBuffer<'a> {
     }
 }
 
+impl<'a> PartialEq for ImmutableBuffer<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        // A definition of equality that ignores the `context` field
+        self.offset == other.offset && self.data == other.data
+    }
+}
+
+/// When `Ok`, contains the value that was matched/parsed and the remainder of the input buffer.
 pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
 
 impl<'a> ImmutableBuffer<'a> {
@@ -62,6 +73,7 @@ impl<'a> ImmutableBuffer<'a> {
         Self::new_with_offset(context, data, 0)
     }
 
+    #[inline]
     pub fn new_with_offset(
         context: EncodingContextRef<'a>,
         data: &'a [u8],
@@ -72,6 +84,10 @@ impl<'a> ImmutableBuffer<'a> {
             offset,
             context,
         }
+    }
+
+    pub fn context(&self) -> EncodingContextRef<'a> {
+        self.context
     }
 
     /// Returns a slice containing all of the buffer's bytes.
@@ -141,14 +157,33 @@ impl<'a> ImmutableBuffer<'a> {
         }
     }
 
-    /// Reads the first byte in the buffer and returns it as an [Opcode].
+    /// Reads the first byte in the buffer and returns it as an [Opcode]. If the buffer is empty,
+    /// returns an `IonError::Incomplete`.
     #[inline]
-    pub(crate) fn peek_opcode(&self) -> IonResult<Opcode> {
+    pub(crate) fn expect_opcode(&self) -> IonResult<Opcode> {
         if self.is_empty() {
             return IonResult::incomplete("an opcode", self.offset());
         }
+        Ok(self.peek_opcode_unchecked())
+    }
+
+    /// Reads the first byte in the buffer and returns it as an [Opcode]. If the buffer is empty,
+    /// returns `None`.
+    #[inline]
+    pub(crate) fn peek_opcode(&self) -> Option<Opcode> {
+        if let Some(&byte) = self.data.first() {
+            Some(ION_1_1_OPCODES[byte as usize])
+        } else {
+            None
+        }
+    }
+
+    /// Reads the first byte in the buffer *without confirming one is available* and returns it
+    /// as an [Opcode].
+    #[inline]
+    pub(crate) fn peek_opcode_unchecked(&self) -> Opcode {
         let next_byte = self.data[0];
-        Ok(ION_1_1_OPCODES[next_byte as usize])
+        ION_1_1_OPCODES[next_byte as usize]
     }
 
     /// Reads the first four bytes in the buffer as an Ion version marker. If it is successful,
@@ -201,7 +236,7 @@ impl<'a> ImmutableBuffer<'a> {
     // expose the ability to write them. As such, this method has been marked `inline(never)` to
     // allow the hot path to be better optimized.
     pub fn read_nop_pad(self) -> ParseResult<'a, usize> {
-        let opcode = self.peek_opcode()?;
+        let opcode = self.expect_opcode()?;
 
         // We need to determine the size of the nop..
         let (size, remaining) = if opcode.low_nibble() == 0xC {
@@ -226,9 +261,6 @@ impl<'a> ImmutableBuffer<'a> {
     /// Calls [`Self::read_nop_pad`] in a loop until the buffer is empty or an opcode
     /// is encountered that is not a NOP.
     #[inline(never)]
-    // NOP padding is not widely used in Ion 1.0. This method is annotated with `inline(never)`
-    // to avoid the compiler bloating other methods on the hot path with its rarely used
-    // instructions.
     pub fn consume_nop_padding(self, mut opcode: Opcode) -> ParseResult<'a, ()> {
         let mut buffer = self;
         // Skip over any number of NOP regions
@@ -238,7 +270,7 @@ impl<'a> ImmutableBuffer<'a> {
             if buffer.is_empty() {
                 break;
             }
-            opcode = buffer.peek_opcode()?
+            opcode = buffer.expect_opcode()?
         }
         Ok(((), buffer))
     }
@@ -247,59 +279,139 @@ impl<'a> ImmutableBuffer<'a> {
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
     /// containing a [FlexUInt] representation of the value's length. If no additional bytes were
     /// read, the returned `FlexUInt`'s `size_in_bytes()` method will return `0`.
+    #[inline]
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, FlexUInt> {
-        let length = match header.length_type() {
+        match header.length_type() {
             LengthType::InOpcode(n) => {
                 // FlexUInt represents the length, but is not physically present, hence the 0 size.
-                FlexUInt::new(0, n as u64)
+                Ok((FlexUInt::new(0, n as u64), self))
             }
-            LengthType::FlexUIntFollows => {
-                let (flexuint, _) = self.read_flex_uint()?;
-                flexuint
-            }
-        };
-
-        let remaining = self;
-
-        // TODO: Validate length to ensure it is a reasonable value.
-
-        Ok((length, remaining))
+            LengthType::FlexUIntFollows => self.read_flex_uint(),
+        }
     }
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
-    pub(crate) fn peek_sequence_value_expr(
+    #[inline]
+    pub(crate) fn expect_eexp_arg_expr(
         self,
-    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
-        if self.is_empty() {
-            return Ok(None);
+        label: &'static str,
+    ) -> ParseResult<'a, EExpArgExpr<'a, v1_1::Binary>> {
+        let (raw_value_expr, remaining_input) = self.expect_sequence_value_expr(label)?;
+        let arg_expr = match raw_value_expr {
+            RawValueExpr::ValueLiteral(v) => EExpArgExpr::ValueLiteral(v),
+            RawValueExpr::EExp(e) => EExpArgExpr::EExp(e),
+        };
+        Ok((arg_expr, remaining_input))
+    }
+
+    pub(crate) fn expect_sequence_value_expr(
+        self,
+        label: &'static str,
+    ) -> ParseResult<'a, LazyRawValueExpr<'a, v1_1::Binary>> {
+        match self.read_sequence_value_expr() {
+            Ok((Some(expr), remaining)) => Ok((expr, remaining)),
+            Ok((None, _)) => IonResult::incomplete(label, self.offset),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Returns `true` if the opcode was updated to one that follows the NOP.
+    /// Returns `false` if there was no more data following the NOP.
+    #[inline(never)]
+    pub(crate) fn opcode_after_nop(&mut self, opcode: &mut Opcode) -> IonResult<bool> {
+        let (_matched, input_after_nop) = self.consume_nop_padding(*opcode)?;
+        if let Some(new_opcode) = input_after_nop
+            .peek_next_byte()
+            .map(|b| ION_1_1_OPCODES[b as usize])
+        {
+            *opcode = new_opcode;
+            *self = input_after_nop;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
+    /// and at the top level.
+    pub(crate) fn read_sequence_value_expr(
+        self,
+    ) -> ParseResult<'a, Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
+        let opcode = match self.peek_opcode() {
+            Some(opcode) => opcode,
+            None => return Ok((None, self)),
+        };
+
+        // Like RawValueExpr, but doesn't use references.
+        enum ParseValueExprResult<'top> {
+            Value(ParseResult<'top, LazyRawBinaryValue_1_1<'top>>),
+            EExp(ParseResult<'top, RawBinaryEExpression_1_1<'top>>),
+        }
+
+        use OpcodeType::*;
+        let result = match opcode.opcode_type {
+            EExpressionWithAddress => {
+                ParseValueExprResult::EExp(self.read_eexp_with_address_in_opcode(opcode))
+            }
+            EExpressionAddressFollows => todo!("eexp address follows"),
+            EExpressionWithLengthPrefix => {
+                ParseValueExprResult::EExp(self.read_eexp_with_length_prefix(opcode))
+            }
+            AnnotationFlexSym => ParseValueExprResult::Value(self.read_annotated_value(opcode)),
+            AnnotationSymAddress => todo!("symbol address annotations"),
+            _ if opcode.ion_type().is_some() => {
+                ParseValueExprResult::Value(self.read_value_without_annotations(opcode))
+            }
+            _ => return self.read_nop_then_sequence_value(),
+        };
+        let allocator = self.context().allocator();
+        match result {
+            ParseValueExprResult::Value(Ok((value, remaining))) => {
+                let value_ref = &*allocator.alloc_with(|| value);
+                Ok((
+                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(
+                        value_ref,
+                    )),
+                    remaining,
+                ))
+            }
+            ParseValueExprResult::EExp(Ok((eexp, remaining))) => {
+                let eexp_ref = &*allocator.alloc_with(|| eexp);
+                Ok((
+                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::EExp(eexp_ref)),
+                    remaining,
+                ))
+            }
+            ParseValueExprResult::Value(Err(e)) => Err(e),
+            ParseValueExprResult::EExp(Err(e)) => Err(e),
+        }
+    }
+
+    #[inline(never)]
+    fn read_nop_then_sequence_value(
+        self,
+    ) -> ParseResult<'a, Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
+        let mut opcode = self.expect_opcode()?;
+        if !opcode.is_nop() {
+            return IonResult::decoding_error("found a non-value, non-eexp, non-nop in a sequence");
         }
         let mut input = self;
-        let mut type_descriptor = input.peek_opcode()?;
-        // If we find a NOP...
-        if type_descriptor.is_nop() {
-            // ...skip through NOPs until we found the next non-NOP byte.
-            (_, input) = self.consume_nop_padding(type_descriptor)?;
-            // If there is no next byte, we're out of values.
-            if input.is_empty() {
-                return Ok(None);
-            }
-            // Otherwise, there's a value.
-            type_descriptor = input.peek_opcode()?;
+        // This test updates input and opcode.
+        if !input.opcode_after_nop(&mut opcode)? {
+            return Ok((None, input));
         }
-        if type_descriptor.is_e_expression() {
-            return Ok(Some(RawValueExpr::EExp(
-                self.read_e_expression(type_descriptor)?,
-            )));
+        // TODO: Make an `OpcodeClass` enum that captures groups like this for fewer branches
+        if opcode.is_e_expression() || opcode.ion_type.is_some() || opcode.is_annotations_sequence()
+        {
+            return input.read_sequence_value_expr();
         }
-        Ok(Some(RawValueExpr::ValueLiteral(
-            input.read_value(type_descriptor)?,
-        )))
+        IonResult::decoding_error("found a non-value, non-eexp after a nop pad")
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
-    pub fn read_value(self, opcode: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    pub fn read_value(self, opcode: Opcode) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         if opcode.is_annotations_sequence() {
             self.read_annotated_value(opcode)
         } else {
@@ -309,17 +421,24 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is neither a NOP nor an annotations wrapper.
+    #[inline(always)]
     fn read_value_without_annotations(
         self,
         type_descriptor: Opcode,
-    ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    ) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         let input = self;
         let header = type_descriptor
             .to_header()
             .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
 
         let header_offset = input.offset();
-        let (length, _) = input.consume(1).read_value_length(header)?;
+
+        let length = match header.length_type() {
+            LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),
+            // This call to `read_value_length` is not always inlined, so we avoid the method call
+            // if possible.
+            _ => input.consume(1).read_value_length(header)?.0,
+        };
         let length_length = length.size_in_bytes() as u8;
         let value_length = length.value() as usize; // ha
         let total_length = 1 // Header byte
@@ -342,14 +461,14 @@ impl<'a> ImmutableBuffer<'a> {
             // If this value has a field ID or annotations, this will be replaced by the caller.
             input: self,
         };
-        Ok(lazy_value)
+        Ok((lazy_value, self.consume(total_length)))
     }
 
     pub fn read_fixed_int(self, length: usize) -> ParseResult<'a, FixedInt> {
         let int_bytes = self
             .peek_n_bytes(length)
             .ok_or_else(|| IonError::incomplete("a FixedInt", self.offset()))?;
-        let fixed_int = FixedInt::read(int_bytes, length, 0)?;
+        let fixed_int = FixedInt::read(int_bytes, length, self.offset())?;
         Ok((fixed_int, self.consume(length)))
     }
 
@@ -363,19 +482,20 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads an annotations wrapper and its associated value from the buffer. The caller must confirm
     /// that the next byte in the buffer (`type_descriptor`) begins an annotations wrapper.
-    fn read_annotated_value(self, opcode: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    fn read_annotated_value(self, opcode: Opcode) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         let (annotations_seq, input_after_annotations) = self.read_annotations_sequence(opcode)?;
-        let opcode = input_after_annotations.peek_opcode()?;
-        let mut value = input_after_annotations.read_value_without_annotations(opcode)?;
+        let opcode = input_after_annotations.expect_opcode()?;
+        let (mut value, input_after_value) =
+            input_after_annotations.read_value_without_annotations(opcode)?;
         let total_annotations_length =
             annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
-        value.encoded_value.annotations_header_length = total_annotations_length as u16;
+        value.encoded_value.annotations_header_length = annotations_seq.header_length;
         value.encoded_value.annotations_sequence_length = annotations_seq.sequence_length;
         value.encoded_value.annotations_encoding = annotations_seq.encoding;
         value.encoded_value.total_length += total_annotations_length;
         // Rewind the input to include the annotations sequence
         value.input = self;
-        Ok(value)
+        Ok((value, input_after_value))
     }
 
     fn read_annotations_sequence(self, opcode: Opcode) -> ParseResult<'a, EncodedAnnotations> {
@@ -455,67 +575,211 @@ impl<'a> ImmutableBuffer<'a> {
         todo!()
     }
 
-    fn read_e_expression(self, opcode: Opcode) -> IonResult<RawBinaryEExpression_1_1<'a>> {
+    #[inline]
+    pub fn read_e_expression(
+        self,
+        opcode: Opcode,
+    ) -> ParseResult<'a, RawBinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
-        let (macro_id, buffer_after_id) = match opcode.opcode_type {
-            EExpressionWithAddress => (
-                MacroIdRef::LocalAddress(opcode.byte as usize),
-                self.consume(1),
-            ),
+        match opcode.opcode_type {
+            EExpressionWithAddress => return self.read_eexp_with_address_in_opcode(opcode),
             EExpressionAddressFollows => todo!("e-expr with trailing address; {opcode:#0x?}",),
+            EExpressionWithLengthPrefix => return self.read_eexp_with_length_prefix(opcode),
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
+    }
 
-        // TODO: When we support untagged parameter encodings, we need to use the signature's
-        //       parameter encodings to drive this process. For now--while everything is tagged
-        //       and cardinality is always required--we just loop `num_parameters` times.
-        let macro_def = self
+    fn read_eexp_with_address_in_opcode(
+        self,
+        opcode: Opcode,
+    ) -> ParseResult<'a, RawBinaryEExpression_1_1<'a>> {
+        let input_after_opcode = self.consume(1);
+        let macro_address = opcode.byte as usize;
+
+        // Get a reference to the macro that lives at that address
+        let macro_ref = self
             .context
-            .macro_table
-            .macro_with_id(macro_id)
-            .ok_or_else(|| {
-                IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
-            })?;
-        use MacroKind::*;
-        let num_parameters = match macro_def.kind() {
-            Template(t) => t.signature().parameters().len(),
-            // Many system macros like `values`, `make_string`, etc take a variadic number of args.
-            _ => todo!("system macros require support for argument group encoding"),
+            .macro_table()
+            .macro_at_address(macro_address)
+            .ok_or_else(
+                #[inline(never)]
+                || {
+                    IonError::decoding_error(format!(
+                        "invocation of macro at unknown address '{macro_address:?}'"
+                    ))
+                },
+            )?
+            .reference();
+
+        let signature = macro_ref.signature();
+        let bitmap_size_in_bytes = signature.bitmap_size_in_bytes();
+
+        let (bitmap_bits, input_after_bitmap) = if signature.num_variadic_params() == 0 {
+            (0, input_after_opcode)
+        } else {
+            input_after_opcode.read_eexp_bitmap(bitmap_size_in_bytes)?
         };
 
-        let args_cache = self
-            .context
-            .allocator()
-            .alloc_with(|| BumpVec::with_capacity_in(num_parameters, self.context.allocator()));
-        // `args_buffer` will be partially consumed in each iteration of the loop below.
-        let mut args_buffer = buffer_after_id;
-        for _ in 0..num_parameters {
-            let value_expr = match args_buffer.peek_sequence_value_expr()? {
-                Some(expr) => expr,
-                None => {
-                    return IonResult::incomplete(
-                        "found an incomplete e-expression",
-                        buffer_after_id.offset(),
-                    )
-                }
-            };
-            args_buffer = args_buffer.consume(value_expr.range().len());
-            args_cache.push(value_expr);
+        let bitmap = ArgGroupingBitmap::new(signature.num_variadic_params(), bitmap_bits);
+        let mut args_iter =
+            BinaryEExpArgsIterator_1_1::for_input(bitmap.iter(), input_after_bitmap, signature);
+        let mut cache =
+            BumpVec::with_capacity_in(args_iter.size_hint().0, self.context.allocator());
+        for arg in &mut args_iter {
+            let arg = arg?;
+            let value_expr = arg.resolve(self.context)?;
+            cache.push(value_expr);
         }
-        let macro_id_encoded_length = buffer_after_id.offset() - self.offset();
-        let args_length = args_buffer.offset() + args_buffer.len() - buffer_after_id.offset();
-        let e_expression_buffer = self.slice(0, macro_id_encoded_length + args_length);
 
-        let e_expression = RawBinaryEExpression_1_1::new(
-            macro_id,
-            EncodedBinaryEExp::new(macro_id_encoded_length as u16),
-            e_expression_buffer,
-            args_cache,
-        );
-        Ok(e_expression)
+        let eexp_total_length = args_iter.offset() - self.offset();
+        let matched_eexp_bytes = self.slice(0, eexp_total_length);
+        let remaining_input = self.consume(matched_eexp_bytes.len());
+
+        let bitmap_offset = input_after_opcode.offset() - self.offset();
+        let args_offset = input_after_bitmap.offset() - self.offset();
+        Ok((
+            {
+                RawBinaryEExpression_1_1::new(
+                    MacroRef::new(macro_address, macro_ref),
+                    bitmap_bits,
+                    matched_eexp_bytes,
+                    bitmap_offset as u8,
+                    args_offset as u8,
+                )
+                .with_arg_expr_cache(cache.into_bump_slice())
+            },
+            remaining_input,
+        ))
+    }
+
+    fn read_eexp_with_length_prefix(
+        self,
+        _opcode: Opcode,
+    ) -> ParseResult<'a, RawBinaryEExpression_1_1<'a>> {
+        let input_after_opcode = self.consume(1);
+        let (macro_address_flex_uint, input_after_address) = input_after_opcode.read_flex_uint()?;
+        let (args_length_flex_uint, input_after_length) = input_after_address.read_flex_uint()?;
+        let header_length = input_after_length.offset() - self.offset();
+        let macro_address = macro_address_flex_uint.value() as usize;
+        let args_length = args_length_flex_uint.value() as usize;
+
+        let total_length = header_length + args_length;
+        let matched_bytes = self.slice(0, total_length);
+        let macro_ref = self
+            .context
+            .macro_table()
+            .macro_at_address(macro_address)
+            .ok_or_else(|| {
+                IonError::decoding_error(format!(
+                    "invocation of macro at unknown address '{macro_address:?}'"
+                ))
+            })?
+            .reference();
+        // Offset from `self`, not offset from the beginning of the stream.
+        let bitmap_offset = (input_after_length.offset() - self.offset()) as u8;
+        let (bitmap_bits, _input_after_bitmap) =
+            input_after_length.read_eexp_bitmap(macro_ref.signature().bitmap_size_in_bytes())?;
+        let args_offset = bitmap_offset + macro_ref.signature().bitmap_size_in_bytes() as u8;
+        let remaining_input = self.consume(total_length);
+        return Ok((
+            RawBinaryEExpression_1_1::new(
+                MacroRef::new(macro_address, macro_ref),
+                bitmap_bits,
+                matched_bytes,
+                bitmap_offset,
+                args_offset,
+            ),
+            remaining_input,
+        ));
+    }
+
+    fn read_eexp_bitmap(self, bitmap_size_in_bytes: usize) -> ParseResult<'a, u64> {
+        let bitmap_bytes = self.peek_n_bytes(bitmap_size_in_bytes).ok_or_else(|| {
+            IonError::incomplete("parsing an e-exp arg grouping bitmap", self.offset)
+        })?;
+        if bitmap_size_in_bytes == 1 {
+            return Ok((bitmap_bytes[0] as u64, self.consume(1)));
+        }
+        let mut buffer = [0u8; size_of::<u64>()];
+        let bitmap_bytes = self.peek_n_bytes(bitmap_size_in_bytes).ok_or_else(|| {
+            IonError::incomplete("parsing an e-exp arg grouping bitmap", self.offset)
+        })?;
+        buffer[..bitmap_size_in_bytes].copy_from_slice(bitmap_bytes);
+        let bitmap_u64 = u64::from_le_bytes(buffer);
+        Ok((bitmap_u64, self.consume(bitmap_size_in_bytes)))
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ArgGroupingBitmap {
+    num_args: usize,
+    bits: u64,
+}
+
+impl ArgGroupingBitmap {
+    const BITS_PER_VARIADIC_PARAM: usize = 2;
+    pub(crate) const MAX_VARIADIC_PARAMS: usize =
+        u64::BITS as usize / Self::BITS_PER_VARIADIC_PARAM;
+    pub(crate) fn new(num_args: usize, bits: u64) -> Self {
+        Self { num_args, bits }
+    }
+    #[inline]
+    pub fn iter(&self) -> ArgGroupingBitmapIterator {
+        ArgGroupingBitmapIterator {
+            remaining_args: self.num_args,
+            bits: self.bits,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ArgGrouping {
+    Empty,            // 00
+    ValueExprLiteral, // 01
+    ArgGroup,         // 10
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ArgGroupingBitmapIterator {
+    remaining_args: usize,
+    bits: u64,
+}
+
+impl ArgGroupingBitmapIterator {
+    pub fn new(remaining_args: usize, bits: u64) -> Self {
+        Self {
+            remaining_args,
+            bits,
+        }
+    }
+}
+
+impl Iterator for ArgGroupingBitmapIterator {
+    type Item = IonResult<ArgGrouping>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining_args == 0 {
+            None
+        } else {
+            use ArgGrouping::*;
+            // Read the last two bits
+            let encoding = match self.bits & 0b11 {
+                0b00 => Empty,
+                0b01 => ValueExprLiteral,
+                0b10 => ArgGroup,
+                _ => {
+                    return Some(IonResult::decoding_error(
+                        "found e-expression argument using reserved bitmap entry",
+                    ))
+                }
+            };
+            // Discard the last two bits and decrement the number of remaining entries
+            self.bits >>= 2;
+            self.remaining_args -= 1;
+            Some(Ok(encoding))
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnnotationsEncoding {
     SymbolAddress,
@@ -536,11 +800,46 @@ pub struct EncodedAnnotations {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use rstest::rstest;
+
+    use crate::ion_data::IonEq;
+    use crate::lazy::any_encoding::IonVersion;
+    use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpArgsIterator_1_1;
     use crate::lazy::expanded::compiler::TemplateCompiler;
-    use crate::lazy::expanded::macro_evaluator::RawEExpression;
+    use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression};
+    use crate::lazy::expanded::macro_table::MacroTable;
     use crate::lazy::expanded::EncodingContext;
-    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+    use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
+    use crate::v1_0::RawValueRef;
+    use crate::{Element, ElementReader, Reader};
+
+    use super::*;
+
+    #[rstest]
+    #[case::no_args(0, &[0b00u8], &[])]
+    #[case::one_empty_arg(1, &[0b00u8], &[ArgGrouping::Empty])]
+    #[case::one_literal_arg(1, &[0b01u8], &[ArgGrouping::ValueExprLiteral])]
+    #[case::one_group_arg(1, &[0b10u8], &[ArgGrouping::ArgGroup])]
+    #[case::two_empty_args(2, &[0b0000u8], &[ArgGrouping::Empty, ArgGrouping::Empty])]
+    #[case::one_literal_one_group_arg(2, &[0b1001u8], &[ArgGrouping::ValueExprLiteral, ArgGrouping::ArgGroup])]
+    fn read_bitmaps(
+        #[case] num_args: usize,
+        #[case] bitmap_bytes: &[u8],
+        #[case] expected_entries: &[ArgGrouping],
+    ) -> IonResult<()> {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let buffer = ImmutableBuffer::new(context.get_ref(), bitmap_bytes);
+        let bitmap =
+            ArgGroupingBitmap::new(num_args, buffer.read_eexp_bitmap(bitmap_bytes.len())?.0);
+
+        // Sanity test for inputs
+        assert_eq!(num_args, expected_entries.len());
+
+        for (actual, expected) in bitmap.iter().zip(expected_entries.iter()) {
+            assert_eq!(&actual?, expected);
+        }
+        Ok(())
+    }
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
         let empty_context = EncodingContext::empty();
@@ -594,7 +893,7 @@ mod tests {
     fn eexp_test(
         macro_source: &str,
         encode_macro_fn: impl FnOnce(MacroAddress) -> Vec<u8>,
-        test_fn: impl FnOnce(RawBinaryEExpression_1_1) -> IonResult<()>,
+        test_fn: impl FnOnce(BinaryEExpArgsIterator_1_1) -> IonResult<()>,
     ) -> IonResult<()> {
         let mut context = EncodingContext::empty();
         let template_macro = TemplateCompiler::compile_from_text(context.get_ref(), macro_source)?;
@@ -602,11 +901,12 @@ mod tests {
         let opcode_byte = u8::try_from(macro_address).unwrap();
         let binary_ion = encode_macro_fn(opcode_byte as usize);
         let buffer = ImmutableBuffer::new(context.get_ref(), &binary_ion);
-        let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?;
+        let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?.0;
+        let eexp_ref = &*context.allocator.alloc_with(|| eexp);
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
-        println!("{:?}", eexp);
-        assert_eq!(eexp.id, MacroIdRef::LocalAddress(opcode_byte as usize));
-        test_fn(eexp)
+        println!("{:?}", &eexp);
+        assert_eq!(eexp.id(), MacroIdRef::LocalAddress(opcode_byte as usize));
+        test_fn(eexp_ref.raw_arguments())
     }
 
     #[test]
@@ -618,8 +918,7 @@ mod tests {
         eexp_test(
             macro_source,
             encode_eexp_fn,
-            |eexp: RawBinaryEExpression_1_1| {
-                let mut args = eexp.raw_arguments();
+            |mut args: BinaryEExpArgsIterator_1_1| {
                 assert!(args.next().is_none());
                 Ok(())
             },
@@ -643,11 +942,11 @@ mod tests {
             0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
         ];
 
-        let args_test = |eexp: RawBinaryEExpression_1_1| {
-            let mut args = eexp.raw_arguments();
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
             assert_eq!(
                 args.next()
                     .unwrap()?
+                    .expr()
                     .expect_value()?
                     .read()?
                     .expect_string()?,
@@ -680,11 +979,11 @@ mod tests {
             0x54, 0x75, 0x65, 0x73, 0x64, 0x61, 0x79,
         ];
 
-        let args_test = |eexp: RawBinaryEExpression_1_1| {
-            let mut args = eexp.raw_arguments();
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
             assert_eq!(
                 args.next()
                     .unwrap()?
+                    .expr()
                     .expect_value()?
                     .read()?
                     .expect_string()?,
@@ -693,6 +992,7 @@ mod tests {
             assert_eq!(
                 args.next()
                     .unwrap()?
+                    .expr()
                     .expect_value()?
                     .read()?
                     .expect_string()?,
@@ -702,5 +1002,228 @@ mod tests {
         };
 
         eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_empty() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            // === Invoke macro ====
+            address as u8,
+            // === Argument grouping bitmap: empty ===
+            0b00,
+        ];
+
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+            let arg_group = args.next().unwrap()?.expr().expect_arg_group()?;
+            let mut group_args = arg_group.iter();
+            assert!(group_args.next().is_none());
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_value_literal() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            // === Invoke macro ====
+            address as u8,
+            // === Argument grouping bitmap: value literal ===
+            0b01,
+            // === Value Literal ===
+            0x61, 0x01
+        ];
+
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+            let arg1 = args.next().unwrap()?.expr().expect_value()?;
+            assert_eq!(arg1.read()?, RawValueRef::Int(1.into()));
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_arg_group() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            // === Invoke macro ====
+            address as u8,
+            // === Argument group header: arg group ===
+            0b10,
+            // === Arg group ===
+            0x0D,       // FlexUInt: Byte length 6
+            0x61, 0x01, // Int 1
+            0x61, 0x02, // Int 2
+            0x61, 0x03, // Int 3
+        ];
+
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+            let arg_group = args.next().unwrap()?.expr().expect_arg_group()?;
+            let mut group_exprs = arg_group.iter();
+            let group_arg1 = group_exprs.next().unwrap()?;
+            let group_arg2 = group_exprs.next().unwrap()?;
+            let group_arg3 = group_exprs.next().unwrap()?;
+            assert_eq!(
+                group_arg1.expect_value()?.read()?,
+                RawValueRef::Int(1.into())
+            );
+            assert_eq!(
+                group_arg2.expect_value()?.read()?,
+                RawValueRef::Int(2.into())
+            );
+            assert_eq!(
+                group_arg3.expect_value()?.read()?,
+                RawValueRef::Int(3.into())
+            );
+            assert!(group_exprs.next().is_none());
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_arg_group_nested_eexp() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        let expected_text = r#"
+            [
+                "first",
+                1,
+                ["first", "last"],
+                3,
+                "last",
+            ]
+        "#;
+
+        let expected = Element::read_all(expected_text)?;
+
+        let macro_address = MacroTable::FIRST_USER_MACRO_ID as u8;
+        #[rustfmt::skip]
+        let data = vec![
+            // === Invoke macro ====
+            macro_address,
+            // === Argument group header: arg group ===
+            0b10,
+            // === Arg group ===
+            0x0D,          // FlexUInt: Byte length 6
+            0x61, 0x01,    // Int 1
+            macro_address, // Nested invocation of same macro
+            0b00,          // Empty group
+            0x61, 0x03,    // Int 3
+        ];
+
+        let mut reader = Reader::new(v1_1::Binary, data)?;
+        reader.register_template_src(macro_source)?;
+        let actual = reader.read_all_elements()?;
+        assert!(
+            actual.ion_eq(&expected),
+            "Actual sequence\n{actual:?}\nwas not IonEq to expected sequence\n{expected:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn read_length_prefixed_eexp_with_star_parameter_arg_group_nested_eexp() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        let expected_text = r#"
+            [
+                "first",
+                1,
+                ["first", "last"],
+                3,
+                "last",
+            ]
+        "#;
+
+        let expected = Element::read_all(expected_text)?;
+
+        let macro_address = MacroTable::FIRST_USER_MACRO_ID as u8;
+        let flex_uint_macro_address = (macro_address * 2) + 1;
+        #[rustfmt::skip]
+        let data = vec![
+            // === Invoke length prefixed macro ===
+            0xF5,
+            // === Macro address ===
+            flex_uint_macro_address,
+            // === Length prefix ===
+            0x11, // FlexUInt 8
+            // === Argument bitmap: arg group ===
+            0b10,
+            // === Arg group ===
+            0x0D,          // FlexUInt: Byte length 6
+            0x61, 0x01,    // Int 1
+            macro_address, // Nested invocation of same macro (not length prefixed)
+            0b00,          // Bitmap: Empty group
+            0x61, 0x03,    // Int 3
+        ];
+
+        let mut reader = Reader::new(v1_1::Binary, data)?;
+        reader.register_template_src(macro_source)?;
+        let actual = reader.read_all_elements()?;
+        assert!(
+            actual.ion_eq(&expected),
+            "Actual sequence\n{actual:?}\nwas not IonEq to expected sequence\n{expected:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn read_length_prefixed_eexp_with_star_parameter_empty() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        let expected_text = r#"
+            [
+                "first",
+                "last",
+            ]
+        "#;
+
+        let expected = Element::read_all(expected_text)?;
+
+        let macro_address = MacroTable::FIRST_USER_MACRO_ID as u8;
+        let flex_uint_macro_address = (macro_address * 2) + 1;
+        #[rustfmt::skip]
+        let data = vec![
+            // === Invoke length prefixed macro ===
+            0xF5,
+            // === Macro address ===
+            flex_uint_macro_address,
+            // === Length prefix ===
+            0x03, // FlexUInt 1
+            // === Argument bitmap ===
+            0b00, // empty group
+        ];
+
+        let mut reader = Reader::new(v1_1::Binary, data)?;
+        reader.register_template_src(macro_source)?;
+        let actual = reader.read_all_elements()?;
+        assert!(
+            actual.ion_eq(&expected),
+            "Actual sequence\n{actual:?}\nwas not IonEq to expected sequence\n{expected:?}"
+        );
+        Ok(())
     }
 }

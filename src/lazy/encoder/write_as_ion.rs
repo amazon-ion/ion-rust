@@ -17,14 +17,18 @@
 use std::io;
 use std::marker::PhantomData;
 
-use crate::lazy::decoder::Decoder;
+use crate::lazy::decoder::{Decoder, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoder::annotation_seq::AnnotationsVec;
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
 use crate::lazy::encoding::Encoding;
+use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
+use crate::v1_0::RawValueRef;
 use crate::{
-    Blob, Clob, Decimal, Element, Int, IonResult, IonType, LazyList, LazySExp, LazyStruct, Null,
+    Blob, Clob, Decimal, Element, Int, IonResult, IonType, LazyList, LazyRawFieldExpr,
+    LazyRawFieldName, LazyRawSequence, LazyRawStruct, LazyRawValue, LazySExp, LazyStruct, Null,
     RawSymbolRef, Symbol, SymbolRef, Timestamp, Value, WriteConfig,
 };
 
@@ -282,6 +286,193 @@ impl<'a, D: Decoder> WriteAsIon for LazyValue<'a, D> {
                 .write_as_ion(writer.with_annotations(annotations)?)
         } else {
             self.read()?.write_as_ion(writer)
+        }
+    }
+}
+
+impl<'a, D: Decoder> WriteAsIon for RawValueRef<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
+        use RawValueRef::*;
+        match self {
+            Null(i) => value_writer.write_null(*i),
+            Bool(b) => value_writer.write_bool(*b),
+            Int(i) => value_writer.write_int(i),
+            Float(f) => value_writer.write_f64(*f),
+            Decimal(d) => value_writer.write_decimal(d),
+            Timestamp(t) => value_writer.write_timestamp(t),
+            Symbol(s) => value_writer.write_symbol(s),
+            String(s) => value_writer.write_string(s.text()),
+            Clob(c) => value_writer.write_clob(c.as_ref()),
+            Blob(b) => value_writer.write_blob(b.as_ref()),
+            List(l) => {
+                let mut list_writer = value_writer.list_writer()?;
+                for value_result in l.iter() {
+                    list_writer.write(WriteableRawValueExpr::<'_, D>::new(value_result?))?;
+                }
+                list_writer.close()
+            }
+            SExp(s) => {
+                let mut sexp_writer = value_writer.sexp_writer()?;
+                for value_result in s.iter() {
+                    sexp_writer.write(WriteableRawValueExpr::<'_, D>::new(value_result?))?;
+                }
+                sexp_writer.close()
+            }
+            Struct(s) => {
+                let mut struct_writer = value_writer.struct_writer()?;
+                for field_result in s.iter() {
+                    let field: LazyRawFieldExpr<D> = field_result?;
+                    match field {
+                        LazyRawFieldExpr::NameValue(name, value) => {
+                            struct_writer.write(name.read()?, WriteableRawValue::new(value))?;
+                        }
+                        LazyRawFieldExpr::NameEExp(name, eexp) => {
+                            struct_writer.write(name.read()?, WriteableEExp::new(eexp))?;
+                        }
+                        LazyRawFieldExpr::EExp(_eexp) => {
+                            todo!("Writing e-expressions in field name position during transcription.");
+                        }
+                    }
+                }
+                struct_writer.close()
+            }
+        }
+    }
+}
+
+/// Wrapper type for `LazyRawValue`s that implements `WriteAsIon`.
+pub struct WriteableRawValue<'a, D: Decoder, RawValue: LazyRawValue<'a, D>> {
+    raw_value: RawValue,
+    spooky: PhantomData<&'a D>,
+}
+
+impl<'a, D: Decoder, RawValue: LazyRawValue<'a, D>> WriteableRawValue<'a, D, RawValue> {
+    pub fn new(raw_value: RawValue) -> Self {
+        Self {
+            raw_value,
+            spooky: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: Decoder, RawValue: LazyRawValue<'a, D>> WriteAsIon
+    for WriteableRawValue<'a, D, RawValue>
+{
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        if self.raw_value.has_annotations() {
+            let mut annotations = AnnotationsVec::new();
+            for annotation in self.raw_value.annotations() {
+                annotations.push(annotation?);
+            }
+            self.raw_value
+                .read()?
+                .write_as_ion(writer.with_annotations(annotations)?)
+        } else {
+            self.raw_value.read()?.write_as_ion(writer)
+        }
+    }
+}
+
+/// Wrapper type for `RawEExpression`s that implements `WriteAsIon`.
+pub struct WriteableEExp<'a, D: Decoder<EExp<'a> = RawEExp>, RawEExp: RawEExpression<'a, D> + 'a> {
+    raw_eexp: RawEExp,
+    spooky: PhantomData<&'a D>,
+}
+
+impl<'a, D: Decoder<EExp<'a> = RawEExp>, RawEExp: RawEExpression<'a, D> + 'a>
+    WriteableEExp<'a, D, RawEExp>
+{
+    pub fn new(raw_eexp: RawEExp) -> Self {
+        Self {
+            raw_eexp,
+            spooky: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: Decoder<EExp<'a> = RawEExp>, RawEExp: RawEExpression<'a, D> + 'a> WriteAsIon
+    for WriteableEExp<'a, D, RawEExp>
+{
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        let id = self.raw_eexp.id();
+        let mut eexp_writer = writer.eexp_writer(id)?;
+        for arg_result in self.raw_eexp.raw_arguments() {
+            let arg = arg_result?;
+            eexp_writer.write(WriteableEExpArg::<'_, D>::new(arg))?;
+        }
+        eexp_writer.close()
+    }
+}
+
+/// Wrapper type for `EExpArg`s that implements `WriteAsIon`.
+pub struct WriteableEExpArg<'a, D: Decoder> {
+    arg_expr: EExpArg<'a, D>,
+    spooky: PhantomData<&'a D>,
+}
+
+impl<'a, D: Decoder> WriteableEExpArg<'a, D> {
+    pub fn new(arg_expr: EExpArg<'a, D>) -> Self {
+        Self {
+            arg_expr,
+            spooky: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: Decoder> WriteAsIon for WriteableEExpArg<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        use EExpArgExpr::*;
+        match self.arg_expr.expr() {
+            // TODO: Untagged encodings
+            ValueLiteral(v) => WriteableRawValue::new(*v).write_as_ion(writer),
+            EExp(e) => WriteableEExp::new(*e).write_as_ion(writer),
+            ArgGroup(group) => WriteableEExpArgGroup::<'_, D>::new(*group).write_as_ion(writer),
+        }
+    }
+}
+
+/// Wrapper type for `WriteableEExpArgGroup`s that implements `WriteAsIon`.
+pub struct WriteableEExpArgGroup<'a, D: Decoder> {
+    arg_group: <<D as Decoder>::EExp<'a> as RawEExpression<'a, D>>::ArgGroup,
+    spooky: PhantomData<&'a D>,
+}
+
+impl<'a, D: Decoder> WriteableEExpArgGroup<'a, D> {
+    pub fn new(arg_group: <<D as Decoder>::EExp<'a> as RawEExpression<'a, D>>::ArgGroup) -> Self {
+        Self {
+            arg_group,
+            spooky: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: Decoder> WriteAsIon for WriteableEExpArgGroup<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, _writer: V) -> IonResult<()> {
+        todo!()
+    }
+}
+
+/// Wrapper type for `LazyRawValueExpr`s that implements `WriteAsIon`.
+pub struct WriteableRawValueExpr<'a, D: Decoder> {
+    raw_value_expr: LazyRawValueExpr<'a, D>,
+    spooky: PhantomData<&'a D>,
+}
+
+impl<'a, D: Decoder> WriteableRawValueExpr<'a, D> {
+    pub fn new(raw_value_expr: LazyRawValueExpr<'a, D>) -> Self {
+        Self {
+            raw_value_expr,
+            spooky: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: Decoder> WriteAsIon for WriteableRawValueExpr<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        use RawValueExpr::*;
+        match self.raw_value_expr {
+            ValueLiteral(v) => WriteableRawValue::new(v).write_as_ion(writer),
+            EExp(e) => WriteableEExp::new(e).write_as_ion(writer),
         }
     }
 }

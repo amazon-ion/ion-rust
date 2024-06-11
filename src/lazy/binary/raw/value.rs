@@ -17,7 +17,7 @@ use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
-use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp};
+use crate::{Decimal, Int, IonEncoding, IonError, IonResult, IonType, RawSymbolRef, Timestamp};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::{fmt, mem};
@@ -52,8 +52,12 @@ impl<'top> HasRange for LazyRawBinaryVersionMarker_1_0<'top> {
 }
 
 impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_0<'top> {
-    fn version(&self) -> (u8, u8) {
+    fn major_minor(&self) -> (u8, u8) {
         (self.major, self.minor)
+    }
+
+    fn old_encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_0
     }
 }
 
@@ -312,12 +316,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let offset_and_length = self
             .encoded_value
             .annotations_sequence_offset()
-            .map(|offset| {
-                (
-                    offset,
-                    self.encoded_value.annotations_sequence_length().unwrap(),
-                )
-            });
+            .map(|offset| (offset, self.encoded_value.annotations_sequence_length()));
         let (sequence_offset, sequence_length) = match offset_and_length {
             None => {
                 // If there are no annotations, return an empty slice positioned on the type

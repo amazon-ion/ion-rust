@@ -46,7 +46,7 @@ impl<'top> HasRange for LazyRawBinaryFieldName_1_1<'top> {
     }
 }
 
-impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_1<'top> {
+impl<'top> LazyRawFieldName<'top, BinaryEncoding_1_1> for LazyRawBinaryFieldName_1_1<'top> {
     fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         Ok(self.field_name)
     }
@@ -54,7 +54,7 @@ impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_1<'top> {
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryStruct_1_1<'top> {
-    pub(crate) value: LazyRawBinaryValue_1_1<'top>,
+    pub(crate) value: &'top LazyRawBinaryValue_1_1<'top>,
 }
 
 impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_1<'top> {
@@ -85,9 +85,7 @@ impl<'top> LazyRawBinaryStruct_1_1<'top> {
     }
 
     pub fn iter(&self) -> RawBinaryStructIterator_1_1<'top> {
-        // Get as much of the struct's body as is available in the input buffer.
-        // Reading a child value may fail as `Incomplete`
-        let buffer_slice = self.value.available_body();
+        let buffer_slice = self.value.value_body_buffer();
         RawBinaryStructIterator_1_1::new(
             self.value.encoded_value.header.ion_type_code,
             buffer_slice,
@@ -96,7 +94,7 @@ impl<'top> LazyRawBinaryStruct_1_1<'top> {
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'top> {
-    fn from_value(value: LazyRawBinaryValue_1_1<'top>) -> Self {
+    fn from_value(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
         LazyRawBinaryStruct_1_1 { value }
     }
 }
@@ -197,7 +195,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     fn peek_value(
         buffer: ImmutableBuffer<'top>,
     ) -> IonResult<(Option<LazyRawBinaryValue_1_1<'top>>, ImmutableBuffer<'top>)> {
-        let opcode = buffer.peek_opcode()?;
+        let opcode = buffer.expect_opcode()?;
         if opcode.is_nop() {
             let after_nops = buffer.consume_nop_padding(opcode)?.1;
             if after_nops.is_empty() {
@@ -208,7 +206,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         } else {
             buffer
                 .read_value(opcode)
-                .map(|v| (Some(v), v.input.consume(v.encoded_value.total_length)))
+                .map(|(v, remaining)| (Some(v), remaining))
         }
     }
 
@@ -243,7 +241,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
                     buffer = after;
                     continue; // No value for this field, loop to try next field.
                 }
-                (Some(value), after) => (value, after),
+                (Some(value), after) => (&*after.context().allocator().alloc_with(|| value), after),
             };
 
             let bytes_to_skip = after_value.offset() - self.source.offset();

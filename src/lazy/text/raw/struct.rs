@@ -106,7 +106,7 @@ impl<'top> HasRange for LazyRawTextFieldName_1_0<'top> {
     }
 }
 
-impl<'top> LazyRawFieldName<'top> for LazyRawTextFieldName_1_0<'top> {
+impl<'top> LazyRawFieldName<'top, TextEncoding_1_0> for LazyRawTextFieldName_1_0<'top> {
     fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         self.matched.read()
     }

@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use ice_code::ice as cold_path;
-
 use crate::decimal::coefficient::Coefficient;
 use crate::result::IonFailure;
 use crate::{Int, IonResult};
@@ -18,8 +16,12 @@ pub(crate) const MAX_UINT_SIZE_IN_BYTES: usize = std::mem::size_of::<u128>();
 
 impl FixedInt {
     fn new(size_in_bytes: usize, value: impl Into<Int>) -> Self {
+        Self::from_int(size_in_bytes, value.into())
+    }
+
+    pub(crate) const fn from_int(size_in_bytes: usize, value: Int) -> Self {
         Self {
-            value: value.into(),
+            value,
             size_in_bytes,
         }
     }
@@ -35,13 +37,31 @@ impl FixedInt {
         if input.len() < size_in_bytes {
             return IonResult::incomplete("reading a FixedInt", offset);
         }
+        let fixed_int = match size_in_bytes {
+            0 => FixedInt::from_int(0, Int::ZERO),
+            1 => Self::read_const::<1>(input.try_into().unwrap()),
+            2 => Self::read_const::<2>(input.try_into().unwrap()),
+            n if n <= MAX_INT_SIZE_IN_BYTES => Self::read_general_case(input, n),
+            _ => {
+                return IonResult::decoding_error(
+                    "found a FixedInt that was larger than the supported maximum",
+                )
+            }
+        };
+        Ok(fixed_int)
+    }
 
-        if size_in_bytes > MAX_INT_SIZE_IN_BYTES {
-            return cold_path! {{
-                IonResult::decoding_error("found a FixedInt that was larger than the supported maximum")
-            }};
-        }
+    #[inline]
+    pub(crate) fn read_const<const N: usize>(input: [u8; N]) -> FixedInt {
+        let mut buffer = [0u8; MAX_INT_SIZE_IN_BYTES];
+        *buffer.last_chunk_mut::<N>().unwrap() = input;
+        let value = i128::from_le_bytes(buffer)
+            .checked_shr(128 - (N as u32 * 8))
+            .unwrap_or(0i128);
+        FixedInt::new(N, value)
+    }
 
+    fn read_general_case(input: &[u8], size_in_bytes: usize) -> FixedInt {
         const BUFFER_SIZE: usize = MAX_INT_SIZE_IN_BYTES;
         let mut buffer = [0u8; BUFFER_SIZE];
         // Copy the input into the buffer as the _most_ significant bits, read as i128, and then
@@ -52,7 +72,7 @@ impl FixedInt {
             .checked_shr(128 - (size_in_bytes as u32 * 8))
             .unwrap_or(0)
             .into();
-        Ok(FixedInt::new(size_in_bytes, value))
+        FixedInt::new(size_in_bytes, value)
     }
 
     #[inline]

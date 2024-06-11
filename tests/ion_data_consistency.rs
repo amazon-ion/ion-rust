@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use std::fs::read;
-use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
+use std::path::MAIN_SEPARATOR_STR as PATH_SEPARATOR;
 use test_generator::test_resources;
 
 /// Determines if the given file name is in the paths list.  This deals with platform
@@ -15,7 +15,7 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
     paths
         .iter()
         // TODO construct the paths in a not so hacky way
-        .map(|p| p.replace('/', &PATH_SEPARATOR.to_string()))
+        .map(|p| p.replace('/', PATH_SEPARATOR))
         .any(|p| p == file_name)
 }
 

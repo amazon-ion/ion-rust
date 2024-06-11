@@ -30,20 +30,25 @@ use crate::lazy::text::matched::{
     MatchedFloat, MatchedInt, MatchedString, MatchedSymbol, MatchedTimestamp,
     MatchedTimestampOffset, MatchedValue,
 };
-use crate::lazy::text::parse_result::{InvalidInputError, IonParseError};
+use crate::lazy::text::parse_result::{fatal_parse_error, InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::r#struct::{LazyRawTextFieldName_1_0, RawTextStructIterator_1_0};
 use crate::lazy::text::raw::sequence::{RawTextListIterator_1_0, RawTextSExpIterator_1_0};
+use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
 use crate::lazy::text::raw::v1_1::reader::{
-    EncodedTextMacroInvocation, LazyRawTextFieldName_1_1, MacroIdRef, RawTextEExpression_1_1,
-    RawTextListIterator_1_1, RawTextSExpIterator_1_1, RawTextStructIterator_1_1,
-    TextListSpanFinder_1_1, TextSExpSpanFinder_1_1, TextStructSpanFinder_1_1,
+    LazyRawTextFieldName_1_1, MacroIdRef, RawTextListIterator_1_1, RawTextSExpIterator_1_1,
+    RawTextStructIterator_1_1, TextEExpression_1_1, TextListSpanFinder_1_1, TextSExpSpanFinder_1_1,
+    TextStructSpanFinder_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
 use crate::result::DecodingError;
-use crate::{Encoding, IonError, IonResult, IonType, TimestampPrecision};
+use crate::{Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, TimestampPrecision};
+
+use crate::lazy::expanded::macro_table::Macro;
+use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
+use bumpalo::collections::Vec as BumpVec;
 
 impl<'a> Debug for TextBufferView<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -134,6 +139,10 @@ impl<'top> TextBufferView<'top> {
             data,
             offset,
         }
+    }
+
+    pub fn context(&self) -> EncodingContextRef<'top> {
+        self.context
     }
 
     pub fn local_lifespan<'a>(self) -> TextBufferView<'a>
@@ -368,7 +377,7 @@ impl<'top> TextBufferView<'top> {
     ) -> IonParseResult<'top, Option<LazyRawValueExpr<'top, TextEncoding_1_1>>> {
         whitespace_and_then(alt((
             Self::match_e_expression.map(|matched| Some(RawValueExpr::EExp(matched))),
-            value(None, tag(")")),
+            value(None, peek(tag(")"))),
             pair(
                 opt(Self::match_annotations),
                 // We need the s-expression parser to recognize the input `--3` as the operator `--` and the
@@ -488,7 +497,7 @@ impl<'top> TextBufferView<'top> {
     /// range of input bytes where the field name is found, and the value.
     pub fn match_struct_field_name_and_e_expression_1_1(
         self,
-    ) -> IonParseResult<'top, (MatchedFieldName<'top>, RawTextEExpression_1_1<'top>)> {
+    ) -> IonParseResult<'top, (MatchedFieldName<'top>, TextEExpression_1_1<'top>)> {
         terminated(
             separated_pair(
                 whitespace_and_then(Self::match_struct_field_name),
@@ -594,7 +603,7 @@ impl<'top> TextBufferView<'top> {
         // We check for IVMs first because the rules for a symbol identifier will match them.
         alt((
             Self::match_ivm::<TextEncoding_1_1>.map(RawStreamItem::VersionMarker),
-            Self::match_e_expression.map(RawStreamItem::EExpression),
+            Self::match_e_expression.map(RawStreamItem::EExp),
             Self::match_annotated_value_1_1
                 .map(LazyRawTextValue_1_1::from)
                 .map(RawStreamItem::Value),
@@ -1006,57 +1015,294 @@ impl<'top> TextBufferView<'top> {
         Ok((remaining, (matched, fields)))
     }
 
-    /// Matches an e-expression invoking a macro.
-    ///
-    /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
-    pub fn match_e_expression(self) -> IonParseResult<'top, RawTextEExpression_1_1<'top>> {
-        let (exp_body, _) = tag("(:")(self)?;
-        // TODO: Support macro ID kinds besides unqualified names
-        let (exp_body_after_id, (macro_id_bytes, _matched_symbol)) =
-            consumed(Self::match_identifier)(exp_body)?;
-        // Because the macro_id used identifier syntax, its bytes must be ASCII. We can safely unwrap.
-        let macro_name = macro_id_bytes.as_text().unwrap();
-        let macro_id = MacroIdRef::LocalName(macro_name);
+    pub fn match_e_expression_arg_group(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
+        alt((
+            Self::parser_with_arg(Self::match_explicit_arg_group, parameter),
+            Self::parser_with_arg(Self::match_rest, parameter),
+        ))(self)
+    }
 
-        // The rest of the e-expression uses s-expression syntax. Scan ahead to find the end of this
-        // expression.
-        let sexp_iter = RawTextSExpIterator_1_1::new(exp_body_after_id);
+    /// Higher-order helper that takes a closure and an argument to pass and constructs a new
+    /// parser that calls the closure with the provided argument.
+    pub fn parser_with_arg<A: 'top, O>(
+        mut parser: impl FnMut(Self, &'top A) -> IonParseResult<'top, O>,
+        arg_to_pass: &'top A,
+    ) -> impl Parser<Self, O, IonParseError<'top>> {
+        move |input: TextBufferView<'top>| parser(input, arg_to_pass)
+    }
+
+    pub fn match_explicit_arg_group(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
+        let (group_body, group_head) = alt((
+            // A trivially empty arg group: `(:)`
+            terminated(tag("(:"), peek(tag(")"))),
+            // An arg group that is not trivially empty, though it may only contain whitespace:
+            //   (: )
+            //   (: 1 2 3)
+            recognize(pair(tag("(:"), Self::match_whitespace)),
+        ))(self)?;
+
+        // The rest of the group uses s-expression syntax. Scan ahead to find the end of this
+        // group.
+        let sexp_iter = RawTextSExpIterator_1_1::new(group_body);
         // The sexp iterator holds the body of the expression. When finding the input span it occupies,
-        // we tell the iterator how many bytes comprised the head of the expression: two bytes
-        // for `(:` plus the length of the macro ID.
-        let initial_bytes_skipped = 2 + macro_id_bytes.len();
+        // we tell the iterator how many bytes comprised the head of the expression: `(:` followed
+        // by whitespace.
+        let initial_bytes_skipped = group_head.len();
         let (span, child_expr_cache) =
             match TextSExpSpanFinder_1_1::new(self.context.allocator(), sexp_iter)
                 .find_span(initial_bytes_skipped)
             {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
-                // If the complete container isn't available, return an incomplete.
+                // If the complete group isn't available, return an incomplete.
                 Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
                 // If invalid syntax was encountered, return a failure to prevent nom from trying
                 // other parser kinds.
                 Err(e) => {
                     return {
                         let error = InvalidInputError::new(self)
-                            .with_label(format!(
-                                "matching an e-expression invoking macro {}",
-                                macro_name
-                            ))
+                            .with_label("matching an e-expression argument group")
                             .with_description(format!("{}", e));
                         Err(nom::Err::Failure(IonParseError::Invalid(error)))
                     }
                 }
             };
-        // For the matched span, we use `self` again to include the opening `(:`
+        // For the matched span, we use `self` again to include the opening `(:` and whitespace.
+        // We also trim the
         let matched = self.slice(0, span.len());
         let remaining = self.slice_to_end(span.len());
-        let macro_invocation = RawTextEExpression_1_1::new(
-            macro_id,
-            EncodedTextMacroInvocation::new(macro_id_bytes.len() as u16),
-            matched,
-            child_expr_cache,
+        let arg_group = TextEExpArgGroup::new(parameter, matched, child_expr_cache);
+
+        Ok((remaining, arg_group))
+    }
+
+    /// Matches an e-expression invoking a macro.
+    ///
+    /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
+    pub fn match_e_expression(self) -> IonParseResult<'top, TextEExpression_1_1<'top>> {
+        let (eexp_body, _opening_tag) = tag("(:")(self)?;
+        // TODO: Support macro ID kinds besides unqualified names
+        let (exp_body_after_id, (macro_id_bytes, matched_symbol)) =
+            consumed(Self::match_identifier)(eexp_body)?;
+
+        let id = match matched_symbol
+            .read(self.context.allocator(), macro_id_bytes)
+            .expect("matched identifier but failed to read its bytes")
+        {
+            RawSymbolRef::SymbolId(_) => unreachable!("matched a text identifier, returned a SID"),
+            RawSymbolRef::Text(text) => MacroIdRef::LocalName(text),
+        };
+
+        let mut remaining = exp_body_after_id;
+        let mut arg_expr_cache = BumpVec::new_in(self.context.allocator());
+
+        let macro_ref: &'top Macro = self
+            .context()
+            .macro_table()
+            .macro_with_id(id)
+            .ok_or_else(|| {
+                nom::Err::Failure(IonParseError::Invalid(
+                    InvalidInputError::new(self)
+                        .with_description(format!("could not find macro with id {:?}", id)),
+                ))
+            })?
+            .reference();
+        let signature_params: &'top [Parameter] = macro_ref.signature().parameters();
+        for (index, param) in signature_params.iter().enumerate() {
+            let (input_after_match, maybe_arg) = remaining.match_argument_for(param)?;
+            remaining = input_after_match;
+            match maybe_arg {
+                Some(arg) => arg_expr_cache.push(arg),
+                None => {
+                    for param in &signature_params[index..] {
+                        if param.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
+                            return fatal_parse_error(
+                                self,
+                                format!(
+                                    "e-expression did not include an argument for param '{}'",
+                                    param.name()
+                                ),
+                            );
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        let (remaining, _end_of_eexp) = match whitespace_and_then(tag(")")).parse(remaining) {
+            Ok(result) => result,
+            Err(_e) => {
+                return fatal_parse_error(
+                    remaining,
+                    format!(
+                        "signature has {} parameter(s), e-expression had an extra argument",
+                        signature_params.len()
+                    ),
+                )
+            }
+        };
+
+        let matched_input = self.slice(0, remaining.offset() - self.offset());
+
+        let parameters = macro_ref.signature().parameters();
+        if arg_expr_cache.len() < parameters.len() {
+            // If expressions were not provided for all arguments, it was due to rest syntax.
+            // Non-required expressions in trailing position can be omitted.
+            // If we reach this point, the rest syntax check in the argument parsing logic above
+            // has already verified that using rest syntax was legal. We can add empty argument
+            // groups for each missing expression.
+            const EMPTY_ARG_TEXT: &str = "(: /* no expression specified */ )";
+            let last_explicit_arg_end = arg_expr_cache
+                .last()
+                .map(|arg| arg.expr().range().end)
+                .unwrap_or(remaining.offset);
+            for parameter in &parameters[arg_expr_cache.len()..] {
+                let buffer = TextBufferView::new_with_offset(
+                    self.context,
+                    EMPTY_ARG_TEXT.as_bytes(),
+                    last_explicit_arg_end,
+                );
+                arg_expr_cache.push(EExpArg::new(
+                    parameter,
+                    EExpArgExpr::ArgGroup(TextEExpArgGroup::new(parameter, buffer, &[])),
+                ));
+            }
+        }
+        debug_assert!(
+            arg_expr_cache.len() == parameters.len(),
+            "every parameter must have an argument, explicit or implicit"
         );
 
-        Ok((remaining, macro_invocation))
+        Ok((
+            remaining,
+            TextEExpression_1_1::new(id, matched_input, arg_expr_cache.into_bump_slice()),
+        ))
+    }
+
+    pub fn match_argument_for(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
+        use crate::lazy::expanded::template::ParameterCardinality::*;
+        match parameter.cardinality() {
+            ExactlyOne => {
+                let (remaining, arg) = self.match_exactly_one(parameter)?;
+                Ok((remaining, Some(arg)))
+            }
+            ZeroOrOne => self.match_zero_or_one(parameter),
+            ZeroOrMore => self.match_zero_or_more(parameter),
+            OneOrMore => self.match_one_or_more(parameter),
+        }
+    }
+
+    pub fn match_exactly_one(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, EExpArg<'top, TextEncoding_1_1>> {
+        let (remaining, maybe_expr) = whitespace_and_then(
+            Self::match_sexp_value_1_1.map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from)),
+        )
+        .parse(self)?;
+        match maybe_expr {
+            Some(expr) => Ok((remaining, EExpArg::new(parameter, expr))),
+            None => fatal_parse_error(
+                self,
+                format!(
+                    "expected argument for required parameter '{}'",
+                    parameter.name()
+                ),
+            ),
+        }
+    }
+
+    pub fn match_empty_arg_group(self) -> IonMatchResult<'top> {
+        recognize(pair(tag("(:"), whitespace_and_then(tag(")"))))(self)
+    }
+
+    pub fn match_zero_or_one(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
+        whitespace_and_then(alt((
+            Self::match_empty_arg_group.map(|_| None),
+            // TODO: Match a non-empty arg group and turn it into a failure with a helpful error message
+            Self::match_sexp_value_1_1.map(|maybe_expr| {
+                maybe_expr.map(|expr| {
+                    EExpArg::new(parameter, EExpArgExpr::<TextEncoding_1_1>::from(expr))
+                })
+            }),
+        )))
+        .parse(self)
+    }
+
+    pub fn match_zero_or_more(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
+        let (remaining, maybe_expr) = preceded(
+            Self::match_optional_comments_and_whitespace,
+            alt((
+                Self::parser_with_arg(Self::match_e_expression_arg_group, parameter)
+                    .map(|group| Some(EExpArg::new(parameter, EExpArgExpr::ArgGroup(group)))),
+                Self::match_sexp_value_1_1.map(|expr| {
+                    expr.map(EExpArgExpr::from)
+                        .map(|expr| EExpArg::new(parameter, expr))
+                }),
+                value(None, peek(tag(")"))),
+            )),
+        )(self)?;
+        Ok((remaining, maybe_expr))
+    }
+
+    pub fn match_one_or_more(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
+        if self.match_empty_arg_group().is_ok() {
+            return Err(nom::Err::Failure(IonParseError::Invalid(
+                InvalidInputError::new(self).with_description(format!(
+                    "parameter '{}' is one-or-more (`+`) and cannot accept an empty stream",
+                    parameter.name()
+                )),
+            )));
+        }
+
+        self.match_zero_or_more(parameter)
+    }
+
+    pub fn match_rest(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
+        if parameter.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
+            return Err(nom::Err::Error(IonParseError::Invalid(
+                InvalidInputError::new(self)
+                    .with_description("parameter does not support rest syntax"),
+            )));
+        }
+        let mut remaining = self;
+        let mut cache = BumpVec::new_in(self.context().allocator());
+        loop {
+            let (remaining_after_expr, maybe_expr) = alt((
+                value(None, whitespace_and_then(peek(tag(")")))),
+                Self::match_sexp_value_1_1,
+            ))
+            .parse(remaining)?;
+            if let Some(expr) = maybe_expr {
+                remaining = remaining_after_expr;
+                cache.push(expr);
+            } else {
+                return Ok((
+                    remaining,
+                    TextEExpArgGroup::new(parameter, self, cache.into_bump_slice()),
+                ));
+            }
+        }
     }
 
     /// Matches and returns a boolean value.
@@ -1537,7 +1783,7 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches an identifier (`foo`).
-    fn match_identifier(self) -> IonParseResult<'top, MatchedSymbol> {
+    pub(crate) fn match_identifier(self) -> IonParseResult<'top, MatchedSymbol> {
         let (remaining, identifier_text) = recognize(terminated(
             pair(
                 Self::identifier_initial_character,
@@ -2164,7 +2410,7 @@ impl<'data> nom::InputTakeAtPosition for TextBufferView<'data> {
 
 /// Takes a given parser and returns a new one that accepts any amount of leading whitespace before
 /// calling the original parser.
-fn whitespace_and_then<'data, P, O>(
+pub fn whitespace_and_then<'data, P, O>(
     parser: P,
 ) -> impl Parser<TextBufferView<'data>, O, IonParseError<'data>>
 where
@@ -2229,6 +2475,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::lazy::any_encoding::IonVersion;
+    use crate::lazy::expanded::compiler::TemplateCompiler;
+    use crate::lazy::expanded::template::{ParameterCardinality, ParameterEncoding};
     use crate::lazy::expanded::EncodingContext;
     use rstest::rstest;
 
@@ -2237,7 +2486,7 @@ mod tests {
     /// Stores an input string that can be tested against a given parser.
     struct MatchTest {
         input: String,
-        context: EncodingContextRef<'static>,
+        context: EncodingContext,
     }
 
     impl MatchTest {
@@ -2246,17 +2495,22 @@ mod tests {
         fn new(input: &str) -> Self {
             MatchTest {
                 input: input.to_string(),
-                // This uses `leak` to get an `EncodingContextRef` with a `static` lifetime
-                // for the sake of unit test simplicity.
-                context: EncodingContextRef::new(Box::leak(Box::new(EncodingContext::empty()))),
+                context: EncodingContext::for_ion_version(IonVersion::v1_1),
             }
+        }
+
+        fn register_macro(&mut self, text: &str) -> &mut Self {
+            let new_macro =
+                TemplateCompiler::compile_from_text(self.context.get_ref(), text).unwrap();
+            self.context.macro_table.add_macro(new_macro).unwrap();
+            self
         }
 
         fn try_match<'data, P, O>(&'data self, parser: P) -> IonParseResult<'data, usize>
         where
             P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
         {
-            let buffer = TextBufferView::new(self.context, self.input.as_bytes());
+            let buffer = TextBufferView::new(self.context.get_ref(), self.input.as_bytes());
             match_length(parser).parse(buffer)
         }
 
@@ -2704,10 +2958,14 @@ mod tests {
     #[test]
     fn test_match_sexp_1_1() {
         fn match_sexp(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_sexp_1_1));
+            MatchTest::new(input)
+                .register_macro("(macro foo (x*) null)")
+                .expect_match(match_length(TextBufferView::match_sexp_1_1));
         }
         fn mismatch_sexp(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_sexp_1_1));
+            MatchTest::new(input)
+                .register_macro("(macro foo (x*) null)")
+                .expect_mismatch(match_length(TextBufferView::match_sexp_1_1));
         }
         let good_inputs = &[
             "()",
@@ -2736,7 +2994,9 @@ mod tests {
     #[test]
     fn test_match_list_1_1() {
         fn match_list(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_list_1_1));
+            MatchTest::new(input)
+                .register_macro("(macro foo (x*) null)")
+                .expect_match(match_length(TextBufferView::match_list_1_1));
         }
         fn mismatch_list(input: &str) {
             MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_list_1_1));
@@ -2755,10 +3015,14 @@ mod tests {
     #[test]
     fn test_match_macro_invocation() {
         fn match_macro_invocation(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_e_expression));
+            MatchTest::new(input)
+                .register_macro("(macro foo (x*) null)")
+                .expect_match(match_length(TextBufferView::match_e_expression));
         }
         fn mismatch_macro_invocation(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_e_expression));
+            MatchTest::new(input)
+                .register_macro("(macro foo (x*) null)")
+                .expect_mismatch(match_length(TextBufferView::match_e_expression));
         }
         let good_inputs = &[
             "(:foo)",
@@ -2783,24 +3047,48 @@ mod tests {
     }
 
     #[rstest]
+    #[case::empty("(:)")]
+    #[case::empty_with_extra_spacing("(: )")]
+    #[case::single_value("(: 1)")]
+    #[case::multiple_values("(: 1 2 3)")]
+    #[case::eexp("(: foo 1 2 3)")]
+    #[case::eexp_with_sexp("(: (foo 1 2 3))")]
+    #[case::eexp_with_mixed_values("(: 1 2 3 {quux: [1, 2, 3]} 4 bar::5 baz::6)")]
+    fn match_eexp_arg_group(#[case] input: &str) {
+        let parameter = Parameter::new(
+            "x",
+            ParameterEncoding::Tagged,
+            ParameterCardinality::ZeroOrMore,
+            RestSyntaxPolicy::NotAllowed,
+        );
+        MatchTest::new(input)
+            .register_macro("(macro foo (x*) null)")
+            .expect_match(match_length(TextBufferView::parser_with_arg(
+                TextBufferView::match_explicit_arg_group,
+                &parameter,
+            )))
+    }
+
+    #[rstest]
     #[case::simple_e_exp("(:foo)")]
-    #[case::e_exp_in_e_exp("(:foo (:bar 1))")]
+    #[case::e_exp_in_e_exp("(:foo (bar 1))")]
     #[case::e_exp_in_list("[a, b, (:foo 1)]")]
     #[case::e_exp_in_sexp("(a (:foo 1) c)")]
-    // #[case::e_exp_in_struct_field("{a:(:foo)}")]
-    // #[case::e_exp_in_struct_field_with_comma("{a:(:foo),}")]
+    #[case::e_exp_in_struct_field("{a:(:foo)}")]
+    #[case::e_exp_in_struct_field_with_comma("{a:(:foo),}")]
     #[case::e_exp_in_struct_field_with_comma_and_second_field("{a:(:foo), b:2}")]
-    // #[case::e_exp_in_struct_field_with_space_before("{ a:(:foo)}")]
-    // #[case::e_exp_in_struct_field_with_space_after("{a:(:foo) }")]
+    #[case::e_exp_in_struct_field_with_space_before("{ a:(:foo)}")]
+    #[case::e_exp_in_struct_field_with_space_after("{a:(:foo) }")]
     #[case::e_exp_in_list_in_struct_field("{ a: [(:foo)] }")]
     #[case::e_exp_in_sexp_in_struct_field("{ a: ((:foo)) }")]
     #[case::e_exp_in_sexp_in_list("[a, b, ((:foo 1))]")]
     #[case::e_exp_in_sexp_in_sexp("(a ((:foo 1)) c)")]
     #[case::e_exp_in_list_in_list("[a, b, [(:foo 1)]]")]
     #[case::e_exp_in_list_in_sexp("(a [(:foo 1)] c)")]
-    // TODO: Uncomment the above cases when fixing https://github.com/amazon-ion/ion-rust/issues/653
     fn test_match_macro_invocation_in_context(#[case] input: &str) {
-        MatchTest::new(input).expect_match(match_length(TextBufferView::match_top_level_item_1_1));
+        MatchTest::new(input)
+            .register_macro("(macro foo (x*) null)")
+            .expect_match(match_length(TextBufferView::match_top_level_item_1_1));
     }
 
     #[test]
