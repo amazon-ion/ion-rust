@@ -30,11 +30,6 @@ pub trait HasRange {
 pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
     type Reader<'data>: LazyRawReader<'data, Self>;
-    /// Additional data (beyond the offset) that the reader will need in order to resume reading
-    /// from a different point in the stream.
-    // At the moment this feature is only used by `LazyAnyRawReader`, which needs to remember what
-    // encoding the stream was using during earlier read operations.
-    type ReaderSavedState: Copy + Default;
     /// A value (at any depth) in the input. This can be further inspected to access either its
     /// scalar data or, if it is a container, to view it as [`Self::List`], [`Self::SExp`] or
     /// [`Self::Struct`].  
@@ -343,11 +338,10 @@ pub(crate) mod private {
 
 pub trait LazyRawReader<'data, D: Decoder>: Sized {
     fn new(data: &'data [u8]) -> Self {
-        Self::resume_at_offset(data, 0, D::ReaderSavedState::default())
+        Self::resume_at_offset(data, 0, IonEncoding::default())
     }
 
-    fn resume_at_offset(data: &'data [u8], offset: usize, saved_state: D::ReaderSavedState)
-        -> Self;
+    fn resume_at_offset(data: &'data [u8], offset: usize, encoding: IonEncoding) -> Self;
 
     fn next<'top>(
         &'top mut self,
@@ -355,10 +349,6 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     ) -> IonResult<LazyRawStreamItem<'top, D>>
     where
         'data: 'top;
-
-    fn save_state(&self) -> D::ReaderSavedState {
-        D::ReaderSavedState::default()
-    }
 
     /// The stream byte offset at which the reader will begin parsing the next item to return.
     /// This position is not necessarily the first byte of the next value; it may be (e.g.) a NOP,

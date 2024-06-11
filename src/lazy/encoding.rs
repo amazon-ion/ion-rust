@@ -198,7 +198,6 @@ impl EncodingWithMacroSupport for TextEncoding_1_1 {}
 
 impl Decoder for BinaryEncoding_1_0 {
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
-    type ReaderSavedState = ();
     type Value<'top> = LazyRawBinaryValue_1_0<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_0<'top>;
     type List<'top> = LazyRawBinaryList_1_0<'top>;
@@ -212,7 +211,6 @@ impl Decoder for BinaryEncoding_1_0 {
 
 impl Decoder for TextEncoding_1_0 {
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
-    type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_0<'top>;
     type SExp<'top> = LazyRawTextSExp_1_0<'top>;
     type List<'top> = LazyRawTextList_1_0<'top>;
@@ -226,7 +224,6 @@ impl Decoder for TextEncoding_1_0 {
 
 impl Decoder for TextEncoding_1_1 {
     type Reader<'data> = LazyRawTextReader_1_1<'data>;
-    type ReaderSavedState = ();
     type Value<'top> = LazyRawTextValue_1_1<'top>;
     type SExp<'top> = LazyRawTextSExp_1_1<'top>;
     type List<'top> = LazyRawTextList_1_1<'top>;
@@ -239,14 +236,12 @@ impl Decoder for TextEncoding_1_1 {
 
 impl Decoder for BinaryEncoding_1_1 {
     type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
-    type ReaderSavedState = ();
     type Value<'top> = LazyRawBinaryValue_1_1<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
     type List<'top> = LazyRawBinaryList_1_1<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
     type FieldName<'top> = LazyRawBinaryFieldName_1_1<'top>;
     type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator_1_1<'top>;
-    // TODO: implement macros in 1.1
     type EExp<'top> = RawBinaryEExpression_1_1<'top>;
     type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_1<'top>;
 }

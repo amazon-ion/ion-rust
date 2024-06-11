@@ -2,7 +2,7 @@
 
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
-use crate::lazy::decoder::{Decoder, LazyRawReader, RawValueExpr, RawVersionMarker};
+use crate::lazy::decoder::{LazyRawReader, RawValueExpr, RawVersionMarker};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::EncodingContextRef;
@@ -113,7 +113,8 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
-        _saved_state: <BinaryEncoding_1_1 as Decoder>::ReaderSavedState,
+        // This argument is ignored by all raw readers except LazyRawAnyReader
+        _encoding: IonEncoding,
     ) -> Self {
         Self::new_with_offset(data, offset)
     }

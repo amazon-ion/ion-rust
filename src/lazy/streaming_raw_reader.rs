@@ -2,26 +2,25 @@ use std::cell::UnsafeCell;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, Read, StdinLock};
+use std::marker::PhantomData;
 
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
-use crate::{AnyEncoding, IonError, IonResult, LazyRawValue};
+use crate::{IonError, IonResult, LazyRawValue};
 
 /// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
 pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
-    // The Ion encoding that this reader recognizes.
-    encoding: Encoding,
+    // The type of decoder we're using. This type determines which `LazyRawReader` implementation
+    // is constructed for each slice of the input buffer.
+    decoder: PhantomData<Encoding>,
+    // The Ion encoding that this reader has been processing.
     // The StreamingRawReader works by reading the next value from the bytes currently available
     // in the buffer using a (non-streaming) raw reader. If the buffer is exhausted, it will read
-    // more data into the buffer and create a new raw reader. If any state needs to be preserved
-    // when moving from the old raw reader to the new one, that data's type will be set as the
-    // `Encoding`'s `ReaderSavedState`.
-    // At present, the only encoding that uses this is `AnyEncoding`, which needs to pass a record
-    // of the stream's detected encoding from raw reader to raw reader. For all other encodings,
-    // this is a zero-sized type and its associated operations are no-ops.
-    saved_state: Encoding::ReaderSavedState,
+    // more data into the buffer and create a new raw reader. If the raw reader uses `AnyEncoding`,
+    // the detected Ion encoding will be carried over from raw reader instance to raw reader instance.
+    detected_encoding: IonEncoding,
     // The absolute position of the reader within the overall stream. This is the index of the first
     // byte that has not yet been read.
     stream_position: usize,
@@ -47,11 +46,12 @@ pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
 const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
 impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
-    pub fn new(encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
+    pub fn new(_encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
-            encoding,
+            decoder: PhantomData,
+            // This will be overwritten when reading begins
+            detected_encoding: IonEncoding::default(),
             input: input.into_data_source().into(),
-            saved_state: Default::default(),
             stream_position: 0,
         }
     }
@@ -97,7 +97,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             >>::resume_at_offset(
                 available_bytes,
                 self.stream_position,
-                self.saved_state,
+                self.encoding(),
             ));
             let slice_reader = unsafe { &mut *unsafe_cell_reader.get() };
             let starting_position = slice_reader.position();
@@ -110,7 +110,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             let encoding = slice_reader_ref.encoding();
             let end_position = slice_reader_ref.position();
             // For the RawAnyReader, remember what encoding we detected for next time.
-            self.saved_state = slice_reader_ref.save_state();
+            self.detected_encoding = slice_reader_ref.encoding();
 
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
@@ -185,11 +185,9 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             return result;
         }
     }
-}
 
-impl<Input: IonInput> StreamingRawReader<AnyEncoding, Input> {
     pub fn encoding(&self) -> IonEncoding {
-        self.saved_state
+        self.detected_encoding
     }
 }
 

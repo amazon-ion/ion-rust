@@ -116,8 +116,9 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         SystemReader { expanding_reader }
     }
 
-    // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
-    // `$ion_symbol_table`.
+    /// Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
+    /// `$ion_symbol_table`. Caller is responsible for confirming the struct appeared at the top
+    /// level.
     pub(crate) fn is_symbol_table_struct(
         lazy_value: &'_ LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<bool> {
@@ -128,6 +129,29 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
             return Ok(symbol_ref?.matches_sid_or_text(3, "$ion_symbol_table"));
         };
         Ok(false)
+    }
+
+    /// Returns `true` if the provided [`LazyRawValue`] is an s-expression whose first annotation
+    /// is `$ion_encoding`. Caller is responsible for confirming the sexp appeared at the top
+    /// level AND that this stream is encoded using Ion 1.1.
+    pub(crate) fn is_encoding_directive_sexp(
+        lazy_value: &'_ LazyExpandedValue<'_, Encoding>,
+    ) -> IonResult<bool> {
+        if lazy_value.ion_type() != IonType::SExp {
+            return Ok(false);
+        }
+        if !lazy_value.has_annotations() {
+            return Ok(false);
+        }
+        // At this point, we've confirmed it's an annotated s-expression. We need to see if its
+        // first annotation has the text `$ion_encoding`, which may involve a lookup in the
+        // encoding context. We'll promote this LazyExpandedValue to a LazyValue to enable that.
+        let lazy_value = LazyValue::new(*lazy_value);
+        let first_annotation = lazy_value
+            .annotations()
+            .next()
+            .expect("already confirmed that there are annotations")?;
+        Ok(first_annotation.text() == Some("$ion_encoding"))
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
@@ -350,7 +374,9 @@ mod tests {
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::decoder::RawVersionMarker;
     use crate::lazy::system_stream_item::SystemStreamItem;
-    use crate::{v1_0::Binary, AnyEncoding, Catalog, IonResult, SymbolRef};
+    use crate::{
+        v1_0, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef, ValueWriter, Writer,
+    };
 
     use super::*;
 
@@ -368,13 +394,16 @@ mod tests {
         hello
         "#,
         )?;
-        let mut system_reader = SystemReader::new(Binary, ion_data);
+        let mut system_reader = SystemReader::new(v1_0::Binary, ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::VersionMarker(marker) => {
                     println!("ivm => v{}.{}", marker.major(), marker.minor())
                 }
                 SystemStreamItem::SymbolTable(ref s) => println!("symtab => {:?}", s),
+                SystemStreamItem::EncodingDirective(ref s) => {
+                    println!("encoding directive => {:?}", s)
+                }
                 SystemStreamItem::Value(ref v) => println!("value => {:?}", v.read()?),
                 SystemStreamItem::EndOfStream(_) => break,
             }
@@ -393,7 +422,7 @@ mod tests {
         )
         "#,
         )?;
-        let mut system_reader = SystemReader::new(Binary, ion_data);
+        let mut system_reader = SystemReader::new(v1_0::Binary, ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -420,7 +449,7 @@ mod tests {
         }
         "#,
         )?;
-        let mut system_reader = SystemReader::new(Binary, ion_data);
+        let mut system_reader = SystemReader::new(v1_0::Binary, ion_data);
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -438,6 +467,8 @@ mod tests {
 
     // === Shared Symbol Tables ===
 
+    use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
+    use crate::lazy::encoder::value_writer::AnnotatableWriter;
     use crate::{MapCatalog, SharedSymbolTable};
 
     fn system_reader_for<I: IonInput>(ion: I) -> SystemReader<AnyEncoding, I> {
@@ -691,6 +722,76 @@ mod tests {
         assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "foo");
         assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "bar");
         assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "quuz");
+        Ok(())
+    }
+
+    #[test]
+    fn detect_encoding_directive_text() -> IonResult<()> {
+        let text = r#"
+            $ion_1_1
+            $ion_encoding::((symbol_table ["foo", "bar", "baz"]))
+        "#;
+
+        let mut reader = SystemReader::new(AnyEncoding, text);
+        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 1));
+        reader.next_item()?.expect_encoding_directive()?;
+        Ok(())
+    }
+
+    #[test]
+    fn detect_encoding_directive_binary() -> IonResult<()> {
+        let mut writer = LazyRawBinaryWriter_1_1::new(Vec::new())?;
+        let mut directive = writer
+            .value_writer()
+            .with_annotations("$ion_encoding")?
+            .sexp_writer()?;
+        let mut symbol_table = directive.sexp_writer()?;
+        symbol_table.write_symbol("symbol_table")?;
+        symbol_table.write_list(["foo", "bar", "baz"])?;
+        symbol_table.close()?;
+        directive.close()?;
+        let binary_ion = writer.close()?;
+
+        let mut reader = SystemReader::new(AnyEncoding, binary_ion);
+        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 1));
+        reader.next_item()?.expect_encoding_directive()?;
+        Ok(())
+    }
+
+    #[test]
+    fn ignore_encoding_directive_text_1_0() -> IonResult<()> {
+        let text = r#"
+            $ion_1_0
+            // In Ion 1.0, this is just an annotated s-expression.
+            $ion_encoding::((symbol_table ["foo", "bar", "baz"]))
+        "#;
+
+        let mut reader = SystemReader::new(AnyEncoding, text);
+        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 0));
+        let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
+        assert!(sexp.annotations().are(["$ion_encoding"])?);
+        Ok(())
+    }
+
+    #[test]
+    fn ignore_encoding_directive_binary_1_0() -> IonResult<()> {
+        let mut writer = Writer::new(v1_0::Binary, Vec::new())?;
+        let mut directive = writer
+            .value_writer()
+            .with_annotations("$ion_encoding")?
+            .sexp_writer()?;
+        let mut symbol_table = directive.sexp_writer()?;
+        symbol_table.write_symbol("symbol_table")?;
+        symbol_table.write_list(["foo", "bar", "baz"])?;
+        symbol_table.close()?;
+        directive.close()?;
+        let bytes = writer.close()?;
+
+        let mut reader = SystemReader::new(AnyEncoding, bytes);
+        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 0));
+        let _ = reader.next_item()?.expect_symbol_table()?;
+        let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
+        assert!(sexp.annotations().are(["$ion_encoding"])?);
         Ok(())
     }
 }

@@ -1,13 +1,12 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::decoder::{Decoder, LazyRawReader, RawVersionMarker};
+use crate::lazy::decoder::{LazyRawReader, RawVersionMarker};
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::parse_result::AddContext;
-use crate::result::IonFailure;
 use crate::{Encoding, IonResult};
 
 /// A text Ion 1.0 reader that yields [`LazyRawStreamItem`]s representing the top level values found
@@ -76,18 +75,6 @@ impl<'data> LazyRawTextReader_1_0<'data> {
                 buffer_after_item,
             )?;
 
-        if let RawStreamItem::VersionMarker(version_marker) = matched_item {
-            // TODO: It is not the raw reader's responsibility to report this error. It should
-            //       surface the IVM to the caller, who can then either create a different reader
-            //       for the reported version OR raise an error.
-            //       See: https://github.com/amazon-ion/ion-rust/issues/644
-            let (major, minor) = version_marker.version();
-            if (major, minor) != (1, 0) {
-                return IonResult::decoding_error(format!(
-                    "Ion version {major}.{minor} is not supported"
-                ));
-            }
-        }
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
         self.local_offset = buffer_after_trailing_ws.offset() - self.stream_offset;
@@ -99,7 +86,8 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
-        _config: <TextEncoding_1_0 as Decoder>::ReaderSavedState,
+        // This argument is ignored by all raw readers except LazyRawAnyReader
+        _encoding: IonEncoding,
     ) -> Self {
         LazyRawTextReader_1_0::new_with_offset(data, offset)
     }

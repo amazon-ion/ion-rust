@@ -33,6 +33,7 @@
 //! that are ignored by the reader do not incur the cost of symbol table resolution.
 
 use std::cell::{Cell, UnsafeCell};
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::iter::empty;
 use std::ops::Deref;
@@ -47,6 +48,7 @@ use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
+use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression};
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
@@ -66,7 +68,8 @@ use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp,
+    AnyEncoding, Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
+    SymbolTable, Timestamp,
 };
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
@@ -74,6 +77,7 @@ use crate::{
 // stabilizes.
 pub mod compiler;
 pub mod e_expression;
+mod encoding_module;
 pub mod macro_evaluator;
 pub mod macro_table;
 pub mod sequence;
@@ -92,6 +96,7 @@ pub mod template;
 //  would need to be proved out first.
 #[derive(Debug)]
 pub struct EncodingContext {
+    pub(crate) modules: HashMap<String, EncodingModule>,
     pub(crate) macro_table: MacroTable,
     pub(crate) symbol_table: SymbolTable,
     pub(crate) allocator: BumpAllocator,
@@ -104,6 +109,7 @@ impl EncodingContext {
         allocator: BumpAllocator,
     ) -> Self {
         Self {
+            modules: HashMap::new(),
             macro_table,
             symbol_table,
             allocator,
@@ -179,6 +185,7 @@ impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
 /// A reader that evaluates macro invocations in the data stream and surfaces the resulting
 /// raw values to the caller.
 pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
+    encoding: Cell<IonEncoding>,
     raw_reader: UnsafeCell<StreamingRawReader<Encoding, Input>>,
     // The expanding raw reader needs to be able to return multiple values from a single expression.
     // For example, if the raw reader encounters this e-expression:
@@ -241,6 +248,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         catalog: Box<dyn Catalog>,
     ) -> Self {
         Self {
+            encoding: IonEncoding::default().into(),
             raw_reader: raw_reader.into(),
             evaluator_ptr: None.into(),
             encoding_context: EncodingContext::empty().into(),
@@ -358,6 +366,13 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                 expanded_struct: value.read()?.expect_struct().unwrap(),
             };
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
+        } else if self.encoding.get().version() == (1, 1)
+            && SystemReader::<_, Input>::is_encoding_directive_sexp(&value)?
+        {
+            let lazy_sexp = LazySExp {
+                expanded_sexp: value.read()?.expect_sexp().unwrap(),
+            };
+            return Ok(SystemStreamItem::EncodingDirective(lazy_sexp));
         }
         // Otherwise, it's an application value.
         let lazy_value = LazyValue::new(value);
@@ -397,17 +412,19 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     /// This method will consume and process as many system-level values as possible until it
     /// encounters an application-level value or the end of the stream.
     pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
+        use SystemStreamItem::*;
         loop {
             match self.next_item()? {
-                SystemStreamItem::VersionMarker(_marker) => {
+                VersionMarker(_marker) => {
                     // TODO: Handle version changes 1.0 <-> 1.1
                 }
-                SystemStreamItem::SymbolTable(_) => {
-                    // The symbol table is processed by `next_item` before it is returned. There's
-                    // nothing to be done here.
+                SymbolTable(_) | EncodingDirective(_) => {
+                    // Symbol tables and encoding directives are processed by the call to
+                    // `next_item`. We're looking for the next application value, so there's nothing
+                    // more to do here.
                 }
-                SystemStreamItem::Value(value) => return Ok(Some(value)),
-                SystemStreamItem::EndOfStream(_) => return Ok(None),
+                Value(value) => return Ok(Some(value)),
+                EndOfStream(_) => return Ok(None),
             }
         }
     }
@@ -441,7 +458,23 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             use crate::lazy::raw_stream_item::RawStreamItem::*;
             let raw_reader = unsafe { &mut *self.raw_reader.get() };
             match raw_reader.next(context_ref)? {
-                VersionMarker(marker) => return Ok(SystemStreamItem::VersionMarker(marker)),
+                VersionMarker(marker) => {
+                    use IonEncoding::*;
+                    let new_encoding = match (self.encoding.get().is_text(), marker.version()) {
+                        (true, (1, 0)) => Text_1_0,
+                        (true, (1, 1)) => Text_1_1,
+                        (false, (1, 0)) => Binary_1_0,
+                        (false, (1, 1)) => Binary_1_1,
+                        _ => {
+                            let (major, minor) = marker.version();
+                            return IonResult::decoding_error(format!(
+                                "unsupported Ion version: v{major}.{minor}"
+                            ));
+                        }
+                    };
+                    self.encoding.set(new_encoding);
+                    return Ok(SystemStreamItem::VersionMarker(marker));
+                }
                 // We got our value; return it.
                 Value(raw_value) => {
                     let value = LazyExpandedValue::from_literal(context_ref, raw_value);
@@ -775,12 +808,7 @@ impl<'top, Encoding: Decoder> Iterator for ExpandedAnnotationsIterator<'top, Enc
     }
 }
 
-// TODO: This type does not implement `Copy` because some of its variants can own heap resources.
-//       (Specifically: Int, Decimal, String, Symbol, Blob, Clob.) If we plumb the bump allocator all
-//       the way down to the raw readers, then the situations that require allocation can
-//       hold a 'top reference to a bump allocation instead of a static reference to a heap allocation.
-//       This will enable us to remove several calls to `clone()`, which can be much slower than copies.
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum ExpandedValueRef<'top, Encoding: Decoder> {
     Null(IonType),
     Bool(bool),

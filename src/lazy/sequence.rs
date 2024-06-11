@@ -6,8 +6,12 @@ use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::sequence::{
     ExpandedListIterator, ExpandedSExpIterator, LazyExpandedList, LazyExpandedSExp,
 };
+use crate::lazy::expanded::template::TemplateElement;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
-use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
+use crate::{
+    Annotations, Element, ExpandedListSource, ExpandedSExpSource, IntoAnnotatedElement,
+    LazyExpandedValue, LazyRawContainer, Sequence, Value,
+};
 use crate::{IonError, IonResult};
 
 /// A list in a binary Ion stream whose header has been parsed but whose body
@@ -74,6 +78,24 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     #[cfg(not(feature = "experimental-tooling-apis"))]
     pub(crate) fn expanded(&self) -> LazyExpandedList<'top, D> {
         self.expanded_list
+    }
+
+    pub fn as_value(&self) -> LazyValue<'top, D> {
+        let expanded_value = match self.expanded_list.source {
+            ExpandedListSource::ValueLiteral(v) => {
+                LazyExpandedValue::from_literal(self.expanded_list.context, v.as_value())
+            }
+            ExpandedListSource::Template(env, template_ref, _, fields_range) => {
+                let element = TemplateElement::new(
+                    template_ref,
+                    template_ref.body().expressions()[fields_range.start() - 1]
+                        .expect_element()
+                        .unwrap(),
+                );
+                LazyExpandedValue::from_template(self.expanded_list.context, env, element)
+            }
+        };
+        LazyValue::new(expanded_value)
     }
 
     /// Returns an iterator over the annotations on this value. If this value has no annotations,
@@ -216,6 +238,24 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
     #[cfg(not(feature = "experimental-tooling-apis"))]
     pub(crate) fn expanded(&self) -> LazyExpandedSExp<'top, D> {
         self.expanded_sexp
+    }
+
+    pub fn as_value(&self) -> LazyValue<'top, D> {
+        let expanded_value = match self.expanded_sexp.source {
+            ExpandedSExpSource::ValueLiteral(v) => {
+                LazyExpandedValue::from_literal(self.expanded_sexp.context, v.as_value())
+            }
+            ExpandedSExpSource::Template(env, template_ref, _, fields_range) => {
+                let element = TemplateElement::new(
+                    template_ref,
+                    template_ref.body().expressions()[fields_range.start() - 1]
+                        .expect_element()
+                        .unwrap(),
+                );
+                LazyExpandedValue::from_template(self.expanded_sexp.context, env, element)
+            }
+        };
+        LazyValue::new(expanded_value)
     }
 
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].

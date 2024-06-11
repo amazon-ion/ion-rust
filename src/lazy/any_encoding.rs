@@ -65,7 +65,6 @@ pub struct AnyEncoding;
 // underlying type.
 impl Decoder for AnyEncoding {
     type Reader<'data> = LazyRawAnyReader<'data>;
-    type ReaderSavedState = IonEncoding;
     type Value<'top> = LazyRawAnyValue<'top>;
     type SExp<'top> = LazyRawAnySExp<'top>;
     type List<'top> = LazyRawAnyList<'top>;
@@ -415,16 +414,16 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         }
         match raw_reader_type {
             IonEncoding::Text_1_0 => {
-                LazyRawTextReader_1_0::resume_at_offset(data, offset, ()).into()
+                LazyRawTextReader_1_0::resume_at_offset(data, offset, raw_reader_type).into()
             }
             IonEncoding::Binary_1_0 => {
-                LazyRawBinaryReader_1_0::resume_at_offset(data, offset, ()).into()
+                LazyRawBinaryReader_1_0::resume_at_offset(data, offset, raw_reader_type).into()
             }
             IonEncoding::Text_1_1 => {
-                LazyRawTextReader_1_0::resume_at_offset(data, offset, ()).into()
+                LazyRawTextReader_1_0::resume_at_offset(data, offset, raw_reader_type).into()
             }
             IonEncoding::Binary_1_1 => {
-                LazyRawBinaryReader_1_1::resume_at_offset(data, offset, ()).into()
+                LazyRawBinaryReader_1_1::resume_at_offset(data, offset, raw_reader_type).into()
             }
         }
     }
@@ -443,11 +442,6 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
             Text_1_1(r) => Ok(r.next(context)?.into()),
             Binary_1_1(r) => Ok(r.next(context)?.into()),
         }
-    }
-
-    #[inline]
-    fn save_state(&self) -> <AnyEncoding as Decoder>::ReaderSavedState {
-        self.encoding()
     }
 
     fn position(&self) -> usize {
