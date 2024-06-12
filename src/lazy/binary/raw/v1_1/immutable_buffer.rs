@@ -367,28 +367,26 @@ impl<'a> ImmutableBuffer<'a> {
         let header_offset = input.offset();
 
         loop {
-            let opcode = input.peek_opcode()?;
-            if opcode.opcode_type == OpcodeType::DelimitedContainerClose {
-                offsets.push(input.offset());
-                break;
-            } else {
-                let (flexsym, after) = input.read_flex_sym()?;
-                let field_offset = match flexsym.value() {
-                    FlexSymValue::SymbolRef(_sym) => input.offset(),
-                    FlexSymValue::Opcode(_op) => todo!(),
-                };
-                input = after;
-
-                let mut opcode = input.peek_opcode()?;
-                if opcode.opcode_type == OpcodeType::Nop {
-                    let res = input.consume_nop_padding(opcode)?;
-                    input = res.1;
-                    opcode = input.peek_opcode()?;
+            let (flexsym, after) = input.read_flex_sym()?;
+            let field_offset = match flexsym.value() {
+                FlexSymValue::SymbolRef(_sym) => input.offset(),
+                FlexSymValue::Opcode(Opcode { opcode_type: OpcodeType::DelimitedContainerClose, ..}) => {
+                    offsets.push(after.offset() - 1);
+                    break
                 }
-                let value = input.read_value(opcode)?;
-                input = input.consume(value.encoded_value.total_length());
-                offsets.push(field_offset);
+                _ => unreachable!(),
+            };
+            input = after;
+
+            let mut opcode = input.peek_opcode()?;
+            if opcode.opcode_type == OpcodeType::Nop {
+                let res = input.consume_nop_padding(opcode)?;
+                input = res.1;
+                opcode = input.peek_opcode()?;
             }
+            let value = input.read_value(opcode)?;
+            input = input.consume(value.encoded_value.total_length());
+            offsets.push(field_offset);
         }
 
         let header = head_opcode
