@@ -128,15 +128,20 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'
     }
 }
 
-enum StructType {
+enum StructMode {
     FlexSym,
     SymbolAddress,
+}
+
+enum SymAddressFieldName<'top> {
+    ModeChange,
+    FieldName(LazyRawBinaryFieldName_1_1<'top>),
 }
 
 pub struct RawBinaryStructIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
     bytes_to_skip: usize,
-    struct_type: StructType,
+    mode: StructMode,
     delimited_offsets: Option<&'top [usize]>,
 }
 
@@ -149,9 +154,9 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         RawBinaryStructIterator_1_1 {
             source: input,
             bytes_to_skip: 0,
-            struct_type: match opcode_type {
-                OpcodeType::Struct => StructType::SymbolAddress,
-                OpcodeType::StructDelimited => StructType::FlexSym,
+            mode: match opcode_type {
+                OpcodeType::Struct => StructMode::SymbolAddress,
+                OpcodeType::StructDelimited => StructMode::FlexSym,
                 _ => unreachable!("Unexpected opcode for structure"),
             },
             delimited_offsets,
@@ -167,6 +172,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         buffer: ImmutableBuffer<'top>,
     ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, ImmutableBuffer<'top>)>> {
         use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSymValue;
+        use crate::lazy::binary::raw::v1_1::Opcode;
 
         if buffer.is_empty() {
             return Ok(None);
@@ -175,10 +181,13 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         let (flex_sym, after) = buffer.read_flex_sym()?;
         let (sym, after) = match flex_sym.value() {
             FlexSymValue::SymbolRef(sym_ref) => (sym_ref, after),
-            FlexSymValue::Opcode(_opcode) => todo!(),
+            FlexSymValue::Opcode(Opcode{ opcode_type: OpcodeType::DelimitedContainerClose, ..}) => {
+                return Ok(None)
+            }
+            _ => unreachable!(),
         };
 
-        let matched_field_id = buffer.slice(0, flex_sym.size_in_bytes());
+        let matched_field_id = buffer.slice(0, after.offset() - buffer.offset());
         let field_name = LazyRawBinaryFieldName_1_1::new(sym, matched_field_id);
         Ok(Some((field_name, after)))
     }
@@ -188,18 +197,23 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// [`ImmutableBuffer`] positioned after the field name is returned.
     fn peek_field_symbol_addr(
         buffer: ImmutableBuffer<'top>,
-    ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, ImmutableBuffer<'top>)>> {
+    ) -> IonResult<Option<(SymAddressFieldName<'top>, ImmutableBuffer<'top>)>> {
         if buffer.is_empty() {
             return Ok(None);
         }
 
         let (symbol_address, after) = buffer.read_flex_uint()?;
-
         let field_id = symbol_address.value() as usize;
-        let matched_field_id = buffer.slice(0, symbol_address.size_in_bytes());
-        let field_name =
-            LazyRawBinaryFieldName_1_1::new(RawSymbolRef::SymbolId(field_id), matched_field_id);
-        Ok(Some((field_name, after)))
+
+        if field_id == 0 {
+            // Mode switch.
+            Ok(Some((SymAddressFieldName::ModeChange, after)))
+        } else {
+            let matched_field_id = buffer.slice(0, symbol_address.size_in_bytes());
+            let field_name =
+                LazyRawBinaryFieldName_1_1::new(RawSymbolRef::SymbolId(field_id), matched_field_id);
+            Ok(Some((SymAddressFieldName::FieldName(field_name), after)))
+        }
     }
 
     /// Helper function called by [`Self::peek_field`] in order to parse a struct field's value.
@@ -228,15 +242,22 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// struct. On success, returns both the field pair via [`LazyRawFieldExpr`] as well as the
     /// total bytes needed to skip the field.
     fn peek_field(
-        &self,
+        &mut self,
         input: ImmutableBuffer<'top>,
     ) -> IonResult<Option<(LazyRawFieldExpr<'top, BinaryEncoding_1_1>, usize)>> {
         let mut buffer = input;
         loop {
             // Peek at our field name.
-            let peek_result = match self.struct_type {
-                StructType::SymbolAddress => Self::peek_field_symbol_addr(buffer)?,
-                StructType::FlexSym => Self::peek_field_flexsym(buffer)?,
+            let peek_result = match self.mode {
+                StructMode::SymbolAddress => match Self::peek_field_symbol_addr(buffer)? {
+                    Some((SymAddressFieldName::ModeChange, after)) => {
+                        self.mode = StructMode::FlexSym;
+                        Self::peek_field_flexsym(after)?
+                    }
+                    Some((SymAddressFieldName::FieldName(fieldname), after)) => Some((fieldname, after)),
+                    None => None,
+                }
+                StructMode::FlexSym => Self::peek_field_flexsym(buffer)?,
             };
 
             let Some((field_name, after_name)) = peek_result else {
