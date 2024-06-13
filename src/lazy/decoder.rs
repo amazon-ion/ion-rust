@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
-use crate::lazy::any_encoding::IonEncoding;
+use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::encoding::{BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::EncodingContextRef;
@@ -55,13 +55,73 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
 }
 
 pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
+    /// Returns the major version of the Ion encoding to which the stream is switching.
     fn major(&self) -> u8 {
-        self.version().0
+        self.major_minor().0
     }
+
+    /// Returns the minor version of the Ion encoding to which the stream is switching.
     fn minor(&self) -> u8 {
-        self.version().1
+        self.major_minor().1
     }
-    fn version(&self) -> (u8, u8);
+
+    /// Returns a tuple representing the `(major, minor)` version pair for the Ion encoding
+    /// to which the stream is switching.
+    fn major_minor(&self) -> (u8, u8);
+
+    /// If this marker is encoded in binary Ion, returns `true`. Otherwise, returns `false`.
+    ///
+    /// Ion streams can switch versions (for example: from v1.0 to v1.1 or vice-versa), but they
+    /// cannot change formats (for example: from binary to text or vice-versa). Therefore the value
+    /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
+    /// that follows the IVM.
+    fn is_binary(&self) -> bool {
+        self.old_encoding().is_binary()
+    }
+
+    /// If this marker is encoded in text Ion, returns `true`. Otherwise, returns `false`.
+    ///
+    /// Ion streams can switch versions (for example: from v1.0 to v1.1 or vice-versa), but they
+    /// cannot change formats (for example: from binary to text or vice-versa). Therefore, the value
+    /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
+    /// that follows the IVM.
+    fn is_text(&self) -> bool {
+        self.old_encoding().is_text()
+    }
+
+    /// The `IonVersion` that was used to encode this IVM.
+    fn old_version(&self) -> IonVersion {
+        self.old_encoding().version()
+    }
+
+    /// If this marker's `(major, minor)` version pair represents a supported Ion version,
+    /// returns `Ok(ion_version)`. Otherwise, returns a decoding error. To access the marker's
+    /// version without confirming it is supported, see [`major_minor`](Self::major_minor).
+    fn new_version(&self) -> IonResult<IonVersion> {
+        match self.major_minor() {
+            (1, 0) => Ok(IonVersion::v1_0),
+            (1, 1) => Ok(IonVersion::v1_1),
+            (major, minor) => {
+                IonResult::decoding_error(format!("Ion version {major}.{minor} is not supported"))
+            }
+        }
+    }
+
+    fn old_encoding(&self) -> IonEncoding;
+
+    /// If this marker's `(major, minor)` version pair represents a supported Ion version,
+    /// returns `Ok(ion_encoding)`. Otherwise, returns a decoding error. To access the marker's
+    /// encoding information without confirming it is supported, see [`major_minor`](Self::major_minor) and
+    /// [`is_binary`](Self::is_binary)/[`is_text`](Self::is_text).
+    fn new_encoding(&self) -> IonResult<IonEncoding> {
+        let encoding = match (self.is_binary(), self.new_version()?) {
+            (true, IonVersion::v1_0) => IonEncoding::Binary_1_0,
+            (false, IonVersion::v1_0) => IonEncoding::Text_1_0,
+            (true, IonVersion::v1_1) => IonEncoding::Binary_1_1,
+            (false, IonVersion::v1_1) => IonEncoding::Text_1_1,
+        };
+        Ok(encoding)
+    }
 }
 
 /// An expression found in value position in either serialized Ion or a template.
@@ -337,11 +397,23 @@ pub(crate) mod private {
 }
 
 pub trait LazyRawReader<'data, D: Decoder>: Sized {
+    /// Constructs a new raw reader using decoder `D` that will read from `data`.
+    /// `data` must be the beginning of the stream. To continue reading from the middle of a
+    /// stream, see [`resume_at_offset`].
     fn new(data: &'data [u8]) -> Self {
         Self::resume_at_offset(data, 0, IonEncoding::default())
     }
 
-    fn resume_at_offset(data: &'data [u8], offset: usize, encoding: IonEncoding) -> Self;
+    /// Constructs a new raw reader using decoder `D` that will read from `data`.
+    ///
+    /// Automatically detecting the stream's encoding is only possible when `offset` is zero.
+    /// If offset is not zero, the caller must supply an `encoding_hint` indicating the expected
+    /// encoding. Encoding-specific raw readers will ignore this hint--the stream's encoding must be
+    /// the one that they support--but the [`LazyRawAnyReader`] will use it.
+    fn resume_at_offset(data: &'data [u8], offset: usize, encoding_hint: IonEncoding) -> Self;
+
+    /// Deconstructs this reader, returning a tuple of `(remaining_data, stream_offset, encoding)`.
+    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding);
 
     fn next<'top>(
         &'top mut self,
@@ -355,6 +427,13 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// a comment, or whitespace that the reader will traverse as part of matching the next item.
     fn position(&self) -> usize;
 
+    /// The Ion encoding of the stream that the reader has been processing.
+    ///
+    /// Note that:
+    /// * Before any items have been read from the stream, the encoding defaults
+    ///   to [`IonEncoding::Text_1_0`].
+    /// * When an IVM is encountered, the Ion version reported afterward can be different but the
+    ///   format (text vs binary) will remain the same.
     fn encoding(&self) -> IonEncoding;
 }
 

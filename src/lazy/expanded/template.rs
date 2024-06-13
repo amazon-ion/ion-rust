@@ -16,7 +16,7 @@ use crate::result::IonFailure;
 use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp, Value};
 
 /// A parameter in a user-defined macro's signature.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     name: String,
     encoding: ParameterEncoding,
@@ -37,7 +37,7 @@ impl Parameter {
 }
 
 /// The encoding used to serialize and deserialize the associated parameter.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ParameterEncoding {
     /// A 'tagged' type is one whose binary encoding begins with an opcode (sometimes called a 'tag'.)
     Tagged,
@@ -45,7 +45,7 @@ pub enum ParameterEncoding {
 }
 
 /// The sequence of parameters for which callers must pass expressions when invoking the macro.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MacroSignature {
     parameters: Vec<Parameter>,
 }
@@ -76,7 +76,7 @@ impl MacroSignature {
 /// ```
 /// This simplifies the use of machine-authored macros, which are always invoked by their address
 /// in the macro table rather than by a human-friendly name.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TemplateMacro {
     pub(crate) name: Option<String>,
     pub(crate) signature: MacroSignature,

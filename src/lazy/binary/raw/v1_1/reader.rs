@@ -2,12 +2,11 @@
 
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
-use crate::lazy::decoder::{LazyRawReader, RawValueExpr, RawVersionMarker};
+use crate::lazy::decoder::{LazyRawReader, RawValueExpr};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
-use crate::result::IonFailure;
 use crate::{Encoding, HasRange, IonResult};
 
 pub struct LazyRawBinaryReader_1_1<'data> {
@@ -43,12 +42,6 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
         'data: 'top,
     {
         let (marker, buffer_after_ivm) = buffer.read_ivm()?;
-        let (major, minor) = marker.version();
-        if (major, minor) != (1, 1) {
-            return IonResult::decoding_error(format!(
-                "unsupported version of Ion: v{major}.{minor}; only 1.1 is supported by this reader",
-            ));
-        }
         self.local_offset = buffer_after_ivm.offset() - self.stream_offset;
         Ok(LazyRawStreamItem::<BinaryEncoding_1_1>::VersionMarker(
             marker,
@@ -117,6 +110,14 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
         _encoding: IonEncoding,
     ) -> Self {
         Self::new_with_offset(data, offset)
+    }
+
+    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
+        (
+            &self.input[self.local_offset..],
+            self.position(),
+            self.encoding(),
+        )
     }
 
     fn next<'top>(

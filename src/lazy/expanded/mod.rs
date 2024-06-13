@@ -43,7 +43,7 @@ use bumpalo::Bump as BumpAllocator;
 use sequence::{LazyExpandedList, LazyExpandedSExp};
 
 use crate::element::iterators::SymbolsIterator;
-use crate::lazy::any_encoding::IonEncoding;
+use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
@@ -61,23 +61,20 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
-use crate::lazy::system_reader::{PendingLst, SystemReader};
+use crate::lazy::system_reader::{PendingContextChanges, SystemReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
-use crate::{
-    AnyEncoding, Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
-    SymbolTable, Timestamp,
-};
+use crate::{Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp};
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
 // stabilizes.
 pub mod compiler;
 pub mod e_expression;
-mod encoding_module;
+pub mod encoding_module;
 pub mod macro_evaluator;
 pub mod macro_table;
 pub mod sequence;
@@ -117,7 +114,11 @@ impl EncodingContext {
     }
 
     pub fn empty() -> Self {
-        Self::new(MacroTable::new(), SymbolTable::new(), BumpAllocator::new())
+        Self::new(
+            MacroTable::new(),
+            SymbolTable::new(IonVersion::default()),
+            BumpAllocator::new(),
+        )
     }
 
     pub fn get_ref(&self) -> EncodingContextRef {
@@ -185,7 +186,6 @@ impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
 /// A reader that evaluates macro invocations in the data stream and surfaces the resulting
 /// raw values to the caller.
 pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
-    encoding: Cell<IonEncoding>,
     raw_reader: UnsafeCell<StreamingRawReader<Encoding, Input>>,
     // The expanding raw reader needs to be able to return multiple values from a single expression.
     // For example, if the raw reader encounters this e-expression:
@@ -237,7 +237,7 @@ pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
     //
     // Holds information found in symbol tables and encoding directives (TODO) that can be applied
     // to the encoding context the next time the reader is between top-level expressions.
-    pending_lst: UnsafeCell<PendingLst>,
+    pending_context_changes: UnsafeCell<PendingContextChanges>,
     encoding_context: UnsafeCell<EncodingContext>,
     catalog: Box<dyn Catalog>,
 }
@@ -248,11 +248,10 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         catalog: Box<dyn Catalog>,
     ) -> Self {
         Self {
-            encoding: IonEncoding::default().into(),
             raw_reader: raw_reader.into(),
             evaluator_ptr: None.into(),
             encoding_context: EncodingContext::empty().into(),
-            pending_lst: PendingLst::new().into(),
+            pending_context_changes: PendingContextChanges::new().into(),
             catalog,
         }
     }
@@ -296,16 +295,16 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         context.allocator.reset();
     }
 
-    pub fn pending_lst(&self) -> &PendingLst {
+    pub fn pending_context_changes(&self) -> &PendingContextChanges {
         // If the user is able to call this method, the PendingLst is not being modified and it's
         // safe to immutably reference.
-        unsafe { &*self.pending_lst.get() }
+        unsafe { &*self.pending_context_changes.get() }
     }
 
-    pub fn pending_lst_mut(&mut self) -> &mut PendingLst {
+    pub fn pending_lst_mut(&mut self) -> &mut PendingContextChanges {
         // SAFETY: If the caller has a `&mut` reference to `self`, it is the only mutable reference
         //         that can modify `self.pending_lst`.
-        unsafe { &mut *self.pending_lst.get() }
+        unsafe { &mut *self.pending_context_changes.get() }
     }
 
     fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
@@ -329,25 +328,34 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         Self::ref_as_ptr(evaluator)
     }
 
-    /// Updates the encoding context with the information stored in the `PendingLst`.
-    // TODO: This only works on Ion 1.0 symbol tables for now, hence the name `PendingLst`
-    fn apply_pending_lst(pending_lst: &mut PendingLst, symbol_table: &mut SymbolTable) {
+    /// Updates the encoding context with the information stored in the `PendingContextChanges`.
+    fn apply_pending_context_changes(
+        pending_changes: &mut PendingContextChanges,
+        symbol_table: &mut SymbolTable,
+        macro_table: &mut MacroTable,
+    ) {
+        if let Some(mut module) = pending_changes.take_new_active_module() {
+            std::mem::swap(symbol_table, module.symbol_table_mut());
+            std::mem::swap(macro_table, module.macro_table_mut());
+            return;
+        }
+
         // If the symbol table's `imports` field had a value of `$ion_symbol_table`, then we're
         // appending the symbols it defined to the end of our existing local symbol table.
         // Otherwise, we need to clear the existing table before appending the new symbols.
-        if !pending_lst.is_lst_append {
+        if !pending_changes.is_lst_append {
             // We're setting the symbols list, not appending to it.
             symbol_table.reset();
         }
         // `drain()` empties the pending `imported_symbols` and `symbols` lists
-        for symbol in pending_lst.imported_symbols.drain(..) {
+        for symbol in pending_changes.imported_symbols.drain(..) {
             symbol_table.add_symbol(symbol);
         }
-        for symbol in pending_lst.symbols.drain(..) {
+        for symbol in pending_changes.symbols.drain(..) {
             symbol_table.add_symbol(symbol);
         }
-        pending_lst.is_lst_append = false;
-        pending_lst.has_changes = false;
+        pending_changes.is_lst_append = false;
+        pending_changes.has_changes = false;
     }
 
     /// Inspects a `LazyExpandedValue` to determine whether it is a symbol table or an
@@ -359,16 +367,23 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // If this value is a symbol table...
         if SystemReader::<_, Input>::is_symbol_table_struct(&value)? {
             // ...traverse it and record any new symbols in our `pending_lst`.
-            let pending_lst = unsafe { &mut *self.pending_lst.get() };
-            SystemReader::<_, Input>::process_symbol_table(pending_lst, &*self.catalog, &value)?;
-            pending_lst.has_changes = true;
+            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+            SystemReader::<_, Input>::process_symbol_table(
+                pending_changes,
+                &*self.catalog,
+                &value,
+            )?;
+            pending_changes.has_changes = true;
             let lazy_struct = LazyStruct {
                 expanded_struct: value.read()?.expect_struct().unwrap(),
             };
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
-        } else if self.encoding.get().version() == (1, 1)
+        } else if self.detected_encoding().version() == IonVersion::v1_1
             && SystemReader::<_, Input>::is_encoding_directive_sexp(&value)?
         {
+            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+            SystemReader::<_, Input>::process_encoding_directive(pending_changes, value)?;
+            pending_changes.has_changes = true;
             let lazy_sexp = LazySExp {
                 expanded_sexp: value.read()?.expect_sexp().unwrap(),
             };
@@ -397,13 +412,16 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // If the pending LST has changes to apply, do so.
         // SAFETY: Nothing else holds a reference to the `PendingLst`'s contents, so we can use the
         //         `UnsafeCell` to get a mutable reference to it.
-        let pending_lst: &mut PendingLst = unsafe { &mut *self.pending_lst.get() };
+        let pending_lst: &mut PendingContextChanges =
+            unsafe { &mut *self.pending_context_changes.get() };
         if pending_lst.has_changes {
             // SAFETY: Nothing else holds a reference to the `EncodingContext`'s contents, so we can use the
             //         `UnsafeCell` to get a mutable reference to its symbol table.
             let symbol_table: &mut SymbolTable =
                 &mut unsafe { &mut *self.encoding_context.get() }.symbol_table;
-            Self::apply_pending_lst(pending_lst, symbol_table);
+            let macro_table: &mut MacroTable =
+                &mut unsafe { &mut *self.encoding_context.get() }.macro_table;
+            Self::apply_pending_context_changes(pending_lst, symbol_table, macro_table);
         }
     }
 
@@ -415,18 +433,20 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         use SystemStreamItem::*;
         loop {
             match self.next_item()? {
-                VersionMarker(_marker) => {
-                    // TODO: Handle version changes 1.0 <-> 1.1
-                }
-                SymbolTable(_) | EncodingDirective(_) => {
-                    // Symbol tables and encoding directives are processed by the call to
-                    // `next_item`. We're looking for the next application value, so there's nothing
-                    // more to do here.
+                VersionMarker(_) | SymbolTable(_) | EncodingDirective(_) => {
+                    // System-level items are processed by the call to `next_item` before it returns.
+                    // We're looking for the next application value, so there's nothing more to do here.
                 }
                 Value(value) => return Ok(Some(value)),
                 EndOfStream(_) => return Ok(None),
             }
         }
+    }
+
+    pub fn detected_encoding(&self) -> IonEncoding {
+        // SAFETY: We have an immutable reference to `self`, so it's legal for us to have an immutable
+        //         reference to one of its fields.
+        unsafe { &*self.raw_reader.get() }.encoding()
     }
 
     /// Returns the next [`SystemStreamItem`] either by continuing to evaluate a macro invocation
@@ -459,20 +479,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             let raw_reader = unsafe { &mut *self.raw_reader.get() };
             match raw_reader.next(context_ref)? {
                 VersionMarker(marker) => {
-                    use IonEncoding::*;
-                    let new_encoding = match (self.encoding.get().is_text(), marker.version()) {
-                        (true, (1, 0)) => Text_1_0,
-                        (true, (1, 1)) => Text_1_1,
-                        (false, (1, 0)) => Binary_1_0,
-                        (false, (1, 1)) => Binary_1_1,
-                        _ => {
-                            let (major, minor) = marker.version();
-                            return IonResult::decoding_error(format!(
-                                "unsupported Ion version: v{major}.{minor}"
-                            ));
-                        }
-                    };
-                    self.encoding.set(new_encoding);
                     return Ok(SystemStreamItem::VersionMarker(marker));
                 }
                 // We got our value; return it.
@@ -543,13 +549,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             }
             Err(e) => Err(e),
         }
-    }
-}
-
-impl<Input: IonInput> ExpandingReader<AnyEncoding, Input> {
-    pub fn detected_encoding(&self) -> IonEncoding {
-        let raw_reader = unsafe { &*self.raw_reader.get() };
-        raw_reader.encoding()
     }
 }
 

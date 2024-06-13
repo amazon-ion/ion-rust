@@ -13,6 +13,7 @@ pub(crate) enum SymbolText {
     // This Symbol refers to a string in the symbol table
     Shared(Arc<str>),
     // This Symbol owns its own text
+    // TODO: Turn this into a Box<str>
     Owned(String),
     // This Symbol is equivalent to SID zero (`$0`)
     Unknown,

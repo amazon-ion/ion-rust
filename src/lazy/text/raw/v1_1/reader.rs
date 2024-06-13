@@ -50,6 +50,14 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
         }
     }
 
+    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
+        (
+            &self.input[self.local_offset..],
+            self.position(),
+            self.encoding(),
+        )
+    }
+
     fn next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
@@ -769,7 +777,7 @@ mod tests {
         let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
 
         // $ion_1_1
-        assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 1));
+        assert_eq!(reader.next(context)?.expect_ivm()?.major_minor(), (1, 1));
         // "foo"
         expect_next(context, reader, RawValueRef::String("foo".into()));
         // bar

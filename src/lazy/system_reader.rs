@@ -1,16 +1,20 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::any_encoding::IonEncoding;
+use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::decoder::Decoder;
+use crate::lazy::expanded::compiler::TemplateCompiler;
+use crate::lazy::expanded::encoding_module::EncodingModule;
+use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::{ExpandedValueRef, ExpandingReader, LazyExpandedValue};
+use crate::lazy::sequence::SExpIterator;
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, Catalog, Int, IonError, IonResult, IonType, LazyExpandedField, RawSymbolRef,
-    Symbol, SymbolTable,
+    AnyEncoding, Catalog, Int, IonError, IonResult, IonType, LazyExpandedField, LazySExp,
+    RawSymbolRef, Symbol, SymbolTable, ValueRef,
 };
 use std::ops::Deref;
 use std::sync::Arc;
@@ -81,20 +85,24 @@ pub struct SystemReader<Encoding: Decoder, Input: IonInput> {
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
 #[derive(Default)]
-pub struct PendingLst {
+pub struct PendingContextChanges {
     pub(crate) has_changes: bool,
     pub(crate) is_lst_append: bool,
-    pub(crate) symbols: Vec<Symbol>,
     pub(crate) imported_symbols: Vec<Symbol>,
+    pub(crate) symbols: Vec<Symbol>,
+    // A new encoding modules defined in the current encoding directive.
+    // TODO: Support for defining several modules
+    pub(crate) new_active_module: Option<EncodingModule>,
 }
 
-impl PendingLst {
+impl PendingContextChanges {
     pub fn new() -> Self {
         Self {
             has_changes: false,
             is_lst_append: false,
             symbols: Vec::new(),
             imported_symbols: Vec::new(),
+            new_active_module: None,
         }
     }
     pub fn local_symbols(&self) -> &[Symbol] {
@@ -102,6 +110,17 @@ impl PendingLst {
     }
     pub fn imported_symbols(&self) -> &[Symbol] {
         &self.imported_symbols
+    }
+    pub fn has_changes(&self) -> bool {
+        self.has_changes
+    }
+    pub fn new_active_module(&self) -> Option<&EncodingModule> {
+        self.new_active_module.as_ref()
+    }
+    /// If there's a new module defined, returns `Some(new_module)` and sets `self.new_module`
+    /// to `None`. If there is no new module defined, returns `None`.
+    pub(crate) fn take_new_active_module(&mut self) -> Option<EncodingModule> {
+        self.new_active_module.take()
     }
 }
 
@@ -158,8 +177,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         self.expanding_reader.context().symbol_table()
     }
 
-    pub fn pending_symtab_changes(&self) -> &PendingLst {
-        self.expanding_reader.pending_lst()
+    pub fn pending_context_changes(&self) -> &PendingContextChanges {
+        self.expanding_reader.pending_context_changes()
     }
 
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
@@ -182,10 +201,205 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         })
     }
 
+    pub(crate) fn process_encoding_directive(
+        pending_changes: &mut PendingContextChanges,
+        directive: LazyExpandedValue<'_, Encoding>,
+    ) -> IonResult<()> {
+        // We've already confirmed this is an annotated sexp
+        let directive = directive.read()?.expect_sexp()?;
+        for step in directive.iter() {
+            Self::process_encoding_directive_operation(pending_changes, step?)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn process_encoding_directive_operation(
+        pending_changes: &mut PendingContextChanges,
+        value: LazyExpandedValue<Encoding>,
+    ) -> IonResult<()> {
+        let operation_sexp = LazyValue::new(value).read()?.expect_sexp().map_err(|_| {
+            IonError::decoding_error(format!(
+                "found an encoding directive step that was not an s-expression: {value:?}"
+            ))
+        })?;
+
+        let mut values = operation_sexp.iter();
+        let first_value =
+            Self::expect_next_sexp_value("encoding directive operation name", &mut values)?;
+        let step_name_text =
+            Self::expect_symbol_text("encoding directive operation name", first_value)?;
+
+        match step_name_text {
+            "module" => todo!("defining a new named module"),
+            "symbol_table" => {
+                let symbol_table = Self::process_symbol_table_definition(operation_sexp)?;
+                let new_encoding_module = match pending_changes.take_new_active_module() {
+                    None => EncodingModule::new(
+                        "$ion_encoding".to_owned(),
+                        MacroTable::new(),
+                        symbol_table,
+                    ),
+                    Some(mut module) => {
+                        module.set_symbol_table(symbol_table);
+                        module
+                    }
+                };
+                pending_changes.new_active_module = Some(new_encoding_module);
+            }
+            "macro_table" => {
+                let macro_table = Self::process_macro_table_definition(operation_sexp)?;
+                let new_encoding_module = match pending_changes.take_new_active_module() {
+                    None => EncodingModule::new(
+                        "$ion_encoding".to_owned(),
+                        macro_table,
+                        SymbolTable::new(IonVersion::v1_1),
+                    ),
+                    Some(mut module) => {
+                        module.set_macro_table(macro_table);
+                        module
+                    }
+                };
+                pending_changes.new_active_module = Some(new_encoding_module);
+            }
+            _ => {
+                return IonResult::decoding_error(format!(
+                    "unsupported encoding directive step '{step_name_text}'"
+                ))
+            }
+        }
+        Ok(())
+    }
+
+    fn process_module_definition(
+        _pending_changes: &mut PendingContextChanges,
+        module: LazySExp<Encoding>,
+    ) -> IonResult<()> {
+        let mut args = module.iter();
+        // We've already looked at and validated the `name` to get to this point. We can skip it.
+        let _operation = args.next(); // 'module'
+        let module_name = Self::expect_next_sexp_value("a module name", &mut args)?;
+        let module_name_text = Self::expect_symbol_text("a module name", module_name)?;
+        let symbol_table_value =
+            Self::expect_next_sexp_value("a `symbol_table` operation", &mut args)?;
+        let symbol_table_operation =
+            Self::expect_sexp("a `symbol_table` operation", symbol_table_value)?;
+        let macro_table_value =
+            Self::expect_next_sexp_value("a `macro_table` operation", &mut args)?;
+        let macro_table_operation =
+            Self::expect_sexp("a `macro_table` operation", macro_table_value)?;
+
+        let symbol_table = Self::process_symbol_table_definition(symbol_table_operation)?;
+        let macro_table = Self::process_macro_table_definition(macro_table_operation)?;
+
+        // TODO: Register the new module in `pending_changes`.
+        let _encoding_module =
+            EncodingModule::new(module_name_text.to_owned(), macro_table, symbol_table);
+
+        Ok(())
+    }
+
+    fn process_symbol_table_definition(operation: LazySExp<Encoding>) -> IonResult<SymbolTable> {
+        let mut args = operation.iter();
+        let operation_name_value =
+            Self::expect_next_sexp_value("a `symbol_table` operation name", &mut args)?;
+        let operation_name =
+            Self::expect_symbol_text("the operation name `symbol_table`", operation_name_value)?;
+        if operation_name != "symbol_table" {
+            return IonResult::decoding_error(format!(
+                "expected a symbol table definition operation, but found: {operation:?}"
+            ));
+        }
+        let mut symbol_table = SymbolTable::new(IonVersion::v1_1);
+        for arg in args {
+            let symbol_list = arg?.read()?.expect_list()?;
+            for value in symbol_list {
+                match value?.read()? {
+                    ValueRef::String(s) => symbol_table.add_symbol_for_text(s.text()),
+                    ValueRef::Symbol(s) => symbol_table.add_symbol(s.to_owned()),
+                    other => {
+                        return IonResult::decoding_error(format!(
+                            "found a non-text value in symbols list: {other:?}"
+                        ))
+                    }
+                };
+            }
+        }
+        Ok(symbol_table)
+    }
+
+    fn process_macro_table_definition(operation: LazySExp<Encoding>) -> IonResult<MacroTable> {
+        let mut args = operation.iter();
+        let operation_name_value =
+            Self::expect_next_sexp_value("a `macro_table` operation name", &mut args)?;
+        let operation_name =
+            Self::expect_symbol_text("the operation name `macro_table`", operation_name_value)?;
+        if operation_name != "macro_table" {
+            return IonResult::decoding_error(format!(
+                "expected a macro table definition operation, but found: {operation:?}"
+            ));
+        }
+        let mut macro_table = MacroTable::new();
+        for arg in args {
+            let arg = arg?;
+            let context = operation.expanded_sexp.context;
+            let macro_def_sexp = arg.read()?.expect_sexp().map_err(|_| {
+                IonError::decoding_error(format!(
+                    "macro_table had a non-sexp parameter: {}",
+                    arg.ion_type()
+                ))
+            })?;
+            let new_macro = TemplateCompiler::compile_from_sexp(context, macro_def_sexp)?;
+            macro_table.add_macro(new_macro)?;
+        }
+        Ok(macro_table)
+    }
+
+    fn expect_next_sexp_value<'a>(
+        label: &str,
+        iter: &mut SExpIterator<'a, Encoding>,
+    ) -> IonResult<LazyValue<'a, Encoding>> {
+        iter.next().transpose()?.ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "expected {label} but found no more values in the s-expression"
+            ))
+        })
+    }
+
+    fn expect_sexp<'a>(
+        label: &str,
+        value: LazyValue<'a, Encoding>,
+    ) -> IonResult<LazySExp<'a, Encoding>> {
+        value.read()?.expect_sexp().map_err(|_| {
+            IonError::decoding_error(format!(
+                "expected an s-expression representing {label} but found a {}",
+                value.ion_type()
+            ))
+        })
+    }
+
+    fn expect_symbol_text<'a>(
+        label: &str,
+        lazy_value: LazyValue<'a, Encoding>,
+    ) -> IonResult<&'a str> {
+        lazy_value
+            .read()?
+            .expect_symbol()
+            .map_err(|_| {
+                IonError::decoding_error(format!(
+                    "found {label} with non-symbol type: {}",
+                    lazy_value.ion_type()
+                ))
+            })?
+            .text()
+            .ok_or_else(|| {
+                IonError::decoding_error(format!("found {label} that had undefined text ($0)"))
+            })
+    }
+
     // Traverses a symbol table, processing the `symbols` and `imports` fields as needed to
     // populate the `PendingLst`.
     pub(crate) fn process_symbol_table(
-        pending_lst: &mut PendingLst,
+        pending_lst: &mut PendingContextChanges,
         catalog: &dyn Catalog,
         symbol_table: &LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
@@ -231,7 +445,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     }
 
     fn clear_pending_lst_if_needed(
-        pending_lst: &mut PendingLst,
+        pending_lst: &mut PendingContextChanges,
         imports_value: LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         match imports_value.read()? {
@@ -264,7 +478,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     // Store any strings defined in the `symbols` field in the `PendingLst` for future application.
     fn process_symbols(
-        pending_lst: &mut PendingLst,
+        pending_lst: &mut PendingContextChanges,
         symbols: LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         if let ExpandedValueRef::List(list) = symbols.read()? {
@@ -287,7 +501,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     // Check for `imports: $ion_symbol_table`.
     fn process_imports(
-        pending_lst: &mut PendingLst,
+        pending_lst: &mut PendingContextChanges,
         catalog: &dyn Catalog,
         imports: LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
@@ -552,7 +766,7 @@ mod tests {
         // The reader has analyzed the symtab struct and identified what symbols will be added when
         // it advances beyond it.
         assert_eq!(
-            reader.pending_symtab_changes().local_symbols()[0].text(),
+            reader.pending_context_changes().local_symbols()[0].text(),
             Some("potato salad")
         );
 
@@ -562,11 +776,11 @@ mod tests {
         assert_eq!(reader.symbol_table().text_for(10), Some("potato salad"));
         // We can peak at the symbols that will be added by the second LST before they are applied.
         assert_eq!(
-            reader.pending_symtab_changes().imported_symbols(),
+            reader.pending_context_changes().imported_symbols(),
             &[Symbol::from("foo"), Symbol::from("bar")]
         );
         assert_eq!(
-            reader.pending_symtab_changes().local_symbols(),
+            reader.pending_context_changes().local_symbols(),
             &[Symbol::from("local_symbol")]
         );
         // Now we advance to the application data, confirming that the symbol IDs align with the
@@ -610,9 +824,9 @@ mod tests {
             .as_slice(),
             map_catalog,
         );
-        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 0));
+        assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 0));
         let _symtab = reader.next_item()?.expect_symbol_table()?;
-        let pending_imported_symbols = reader.pending_symtab_changes().imported_symbols();
+        let pending_imported_symbols = reader.pending_context_changes().imported_symbols();
         // This symbol table imports the symbols 'name' and 'foo'.
         assert_eq!(pending_imported_symbols[0].text(), Some("name"));
         assert_eq!(pending_imported_symbols[1].text(), Some("foo"));
@@ -733,7 +947,7 @@ mod tests {
         "#;
 
         let mut reader = SystemReader::new(AnyEncoding, text);
-        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 1));
+        assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 1));
         reader.next_item()?.expect_encoding_directive()?;
         Ok(())
     }
@@ -753,7 +967,7 @@ mod tests {
         let binary_ion = writer.close()?;
 
         let mut reader = SystemReader::new(AnyEncoding, binary_ion);
-        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 1));
+        assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 1));
         reader.next_item()?.expect_encoding_directive()?;
         Ok(())
     }
@@ -767,7 +981,7 @@ mod tests {
         "#;
 
         let mut reader = SystemReader::new(AnyEncoding, text);
-        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 0));
+        assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 0));
         let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
         assert!(sexp.annotations().are(["$ion_encoding"])?);
         Ok(())
@@ -788,10 +1002,78 @@ mod tests {
         let bytes = writer.close()?;
 
         let mut reader = SystemReader::new(AnyEncoding, bytes);
-        assert_eq!(reader.next_item()?.expect_ivm()?.version(), (1, 0));
+        assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 0));
         let _ = reader.next_item()?.expect_symbol_table()?;
         let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
         assert!(sexp.annotations().are(["$ion_encoding"])?);
+        Ok(())
+    }
+
+    #[test]
+    fn read_encoding_directive_new_active_module() -> IonResult<()> {
+        let ion = r#"
+            $ion_1_1
+            $ion_encoding::(
+                (symbol_table ["foo", "bar", "baz"])
+                (macro_table
+                    (macro seventeen () 17)
+                    (macro twelve () 12)))
+            (:seventeen)
+            (:twelve)
+        "#;
+        let mut reader = SystemReader::new(AnyEncoding, ion);
+        // Before reading any data, the reader defaults to expecting the Text v1.0 encoding,
+        // the only encoding that doesn't have to start with an IVM.
+        assert_eq!(reader.detected_encoding(), IonEncoding::Text_1_0);
+
+        // The first thing the reader encounters is an IVM. Verify that all of its accessors report
+        // the expected values.
+        let ivm = reader.next_item()?.expect_ivm()?;
+        assert_eq!(ivm.major_minor(), (1, 1));
+        assert_eq!(ivm.old_encoding(), IonEncoding::Text_1_0);
+        assert_eq!(ivm.new_encoding()?, IonEncoding::Text_1_1);
+        assert_eq!(ivm.is_text(), true);
+        assert_eq!(ivm.is_binary(), false);
+
+        // After encountering the IVM, the reader will have changed its detected encoding to Text v1.1.
+        assert_eq!(reader.detected_encoding(), IonEncoding::Text_1_1);
+
+        // The next stream item is an encoding directive that defines some symbols and some macros.
+        let _directive = reader.next_item()?.expect_encoding_directive()?;
+
+        // === Make sure it has the expected symbol definitions ===
+        let pending_changes = reader
+            .pending_context_changes()
+            .new_active_module()
+            .expect("this directive defines a new active module");
+        let new_symbol_table = pending_changes.symbol_table();
+        assert_eq!(
+            new_symbol_table.symbols(),
+            &[
+                Symbol::unknown_text(),
+                Symbol::from("foo"),
+                Symbol::from("bar"),
+                Symbol::from("baz")
+            ]
+        );
+
+        // === Make sure it has the expected macro definitions ====
+        let new_macro_table = pending_changes.macro_table();
+        // There are currently 3 supported system macros: void, values, and make_string.
+        // This directive defines two more.
+        assert_eq!(new_macro_table.len(), 2 + MacroTable::NUM_SYSTEM_MACROS);
+        assert_eq!(
+            new_macro_table.macro_with_id(3),
+            new_macro_table.macro_with_name("seventeen")
+        );
+        assert_eq!(
+            new_macro_table.macro_with_id(4),
+            new_macro_table.macro_with_name("twelve")
+        );
+
+        // Expand the e-expressions to make sure the macro definitions work as expected.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 17);
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 12);
         Ok(())
     }
 }

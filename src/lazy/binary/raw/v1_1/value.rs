@@ -5,28 +5,23 @@ use std::ops::Range;
 
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::span::Span;
-use crate::{
-    lazy::{
-        binary::{
-            encoded_value::{EncodedHeader, EncodedValue},
-            raw::{
-                v1_1::{
-                    annotations_iterator::RawBinaryAnnotationsIterator_1_1,
-                    immutable_buffer::ImmutableBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
-                    Header, OpcodeType,
-                },
-                value::ValueParseResult,
+use crate::{lazy::{
+    binary::{
+        encoded_value::{EncodedHeader, EncodedValue},
+        raw::{
+            v1_1::{
+                annotations_iterator::RawBinaryAnnotationsIterator_1_1,
+                immutable_buffer::ImmutableBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
+                Header, OpcodeType,
             },
+            value::ValueParseResult,
         },
-        decoder::{Decoder, LazyRawValue},
-        encoder::binary::v1_1::fixed_int::FixedInt,
-        encoding::BinaryEncoding_1_1,
-        raw_value_ref::RawValueRef,
     },
-    result::IonFailure,
-    types::{HasMinute, SymbolId, Timestamp, TimestampBuilder},
-    IonError, IonResult, IonType, RawSymbolRef,
-};
+    decoder::{Decoder, LazyRawValue},
+    encoder::binary::v1_1::fixed_int::FixedInt,
+    encoding::BinaryEncoding_1_1,
+    raw_value_ref::RawValueRef,
+}, result::IonFailure, types::{HasMinute, SymbolId, Timestamp, TimestampBuilder}, IonError, IonResult, IonType, RawSymbolRef, IonEncoding};
 use num_traits::PrimInt;
 
 const LONG_TIMESTAMP_OFFSET_BIAS: i32 = -60 * 24;
@@ -75,8 +70,12 @@ impl<'top> HasRange for LazyRawBinaryVersionMarker_1_1<'top> {
 }
 
 impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
-    fn version(&self) -> (u8, u8) {
+    fn major_minor(&self) -> (u8, u8) {
         (self.major, self.minor)
+    }
+
+    fn old_encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_1
     }
 }
 

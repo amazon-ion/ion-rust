@@ -66,8 +66,16 @@ impl TemplateCompiler {
         // TODO: This is a rudimentary implementation that panics instead of performing thorough
         //       validation. Where it does surface errors, the messages are too terse.
         let mut reader = Reader::new(v1_1::Text, expression.as_bytes())?;
-        let invocation = reader.expect_next()?.read()?.expect_sexp()?;
-        let mut values = invocation.iter();
+        let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
+
+        Self::compile_from_sexp(context, macro_def_sexp)
+    }
+
+    pub fn compile_from_sexp<'a, Encoding: Decoder>(
+        context: EncodingContextRef<'a>,
+        macro_def_sexp: LazySExp<'a, Encoding>,
+    ) -> Result<TemplateMacro, IonError> {
+        let mut values = macro_def_sexp.iter();
 
         let macro_keyword = values.next().expect("macro ID")?.read()?.expect_symbol()?;
         if macro_keyword != "macro" {

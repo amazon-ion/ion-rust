@@ -67,7 +67,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         // Erase the IVM that's created by default
         data_writer.output_mut().clear();
         // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
-        let symbol_table = SymbolTable::new();
+        let symbol_table = SymbolTable::new(E::instance().encoding().version());
         let encoding_context = WriteContext::new(
             symbol_table,
             E::DEFAULT_SYMBOL_CREATION_POLICY,

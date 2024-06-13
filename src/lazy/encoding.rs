@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 use std::io;
 
-use crate::lazy::any_encoding::{IonEncoding, LazyRawAnyValue};
+use crate::lazy::any_encoding::{IonEncoding, IonVersion, LazyRawAnyValue};
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
@@ -63,7 +63,21 @@ pub trait Encoding: Encoder + Decoder {
     }
 
     fn encoding(&self) -> IonEncoding;
+    fn instance() -> Self;
     fn name() -> &'static str;
+
+    fn is_binary() -> bool {
+        Self::instance().encoding().is_binary()
+    }
+
+    fn is_text() -> bool {
+        Self::instance().encoding().is_text()
+    }
+
+    fn ion_version() -> IonVersion {
+        Self::instance().encoding().version()
+    }
+
     fn default_write_config() -> WriteConfig<Self>;
 }
 
@@ -126,6 +140,10 @@ impl Encoding for BinaryEncoding_1_0 {
         IonEncoding::Binary_1_0
     }
 
+    fn instance() -> Self {
+        BinaryEncoding_1_0
+    }
+
     fn name() -> &'static str {
         "binary Ion v1.0"
     }
@@ -138,6 +156,10 @@ impl Encoding for BinaryEncoding_1_1 {
 
     fn encoding(&self) -> IonEncoding {
         IonEncoding::Binary_1_1
+    }
+
+    fn instance() -> Self {
+        BinaryEncoding_1_1
     }
 
     fn name() -> &'static str {
@@ -154,6 +176,10 @@ impl Encoding for TextEncoding_1_0 {
         IonEncoding::Text_1_0
     }
 
+    fn instance() -> Self {
+        TextEncoding_1_0
+    }
+
     fn name() -> &'static str {
         "text Ion v1.0"
     }
@@ -166,6 +192,10 @@ impl Encoding for TextEncoding_1_1 {
 
     fn encoding(&self) -> IonEncoding {
         IonEncoding::Text_1_1
+    }
+
+    fn instance() -> Self {
+        TextEncoding_1_1
     }
 
     fn name() -> &'static str {

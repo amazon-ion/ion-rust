@@ -54,7 +54,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
-use crate::{Encoding, IonResult, IonType, RawSymbolRef};
+use crate::{Encoding, IonResult, IonType, RawStreamItem, RawSymbolRef};
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
 #[derive(Debug, Clone, Copy)]
@@ -125,13 +125,23 @@ impl<'top> HasRange for LazyRawAnyVersionMarker<'top> {
 }
 
 impl<'top> RawVersionMarker<'top> for LazyRawAnyVersionMarker<'top> {
-    fn version(&self) -> (u8, u8) {
+    fn major_minor(&self) -> (u8, u8) {
         use LazyRawAnyVersionMarkerKind::*;
         match self.encoding {
-            Text_1_0(marker) => marker.version(),
-            Binary_1_0(marker) => marker.version(),
-            Text_1_1(marker) => marker.version(),
-            Binary_1_1(marker) => marker.version(),
+            Text_1_0(marker) => marker.major_minor(),
+            Binary_1_0(marker) => marker.major_minor(),
+            Text_1_1(marker) => marker.major_minor(),
+            Binary_1_1(marker) => marker.major_minor(),
+        }
+    }
+
+    fn old_encoding(&self) -> IonEncoding {
+        use LazyRawAnyVersionMarkerKind::*;
+        match self.encoding {
+            Text_1_0(_) => IonEncoding::Text_1_0,
+            Binary_1_0(_) => IonEncoding::Binary_1_0,
+            Text_1_1(_) => IonEncoding::Text_1_1,
+            Binary_1_1(_) => IonEncoding::Binary_1_1,
         }
     }
 }
@@ -300,7 +310,11 @@ impl<'top> Iterator for LazyRawAnyMacroArgsIterator<'top> {
 
 /// A lazy raw reader that can decode both text and binary Ion.
 pub struct LazyRawAnyReader<'data> {
-    encoding: RawReaderKind<'data>,
+    // If the reader encounters an IVM that changes the encoding, the new encoding will be stored
+    // here until `next()` is called again, at which point the reader will be swapped out for one
+    // that can read the new encoding.
+    new_encoding: Option<IonEncoding>,
+    encoding_reader: RawReaderKind<'data>,
 }
 
 impl<'data> LazyRawAnyReader<'data> {
@@ -315,6 +329,15 @@ impl<'data> LazyRawAnyReader<'data> {
     }
 }
 
+impl<'data> From<RawReaderKind<'data>> for LazyRawAnyReader<'data> {
+    fn from(encoding: RawReaderKind<'data>) -> Self {
+        Self {
+            new_encoding: None,
+            encoding_reader: encoding,
+        }
+    }
+}
+
 pub enum RawReaderKind<'data> {
     Text_1_0(LazyRawTextReader_1_0<'data>),
     Binary_1_0(LazyRawBinaryReader_1_0<'data>),
@@ -322,7 +345,39 @@ pub enum RawReaderKind<'data> {
     Binary_1_1(LazyRawBinaryReader_1_1<'data>),
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+impl<'data> RawReaderKind<'data> {
+    fn resume_at_offset(
+        data: &'data [u8],
+        stream_offset: usize,
+        encoding_hint: IonEncoding,
+    ) -> RawReaderKind {
+        use IonEncoding::*;
+        match encoding_hint {
+            Text_1_0 => RawReaderKind::Text_1_0(LazyRawTextReader_1_0::resume_at_offset(
+                data,
+                stream_offset,
+                encoding_hint,
+            )),
+            Binary_1_0 => RawReaderKind::Binary_1_0(LazyRawBinaryReader_1_0::resume_at_offset(
+                data,
+                stream_offset,
+                encoding_hint,
+            )),
+            Text_1_1 => RawReaderKind::Text_1_1(LazyRawTextReader_1_1::resume_at_offset(
+                data,
+                stream_offset,
+                encoding_hint,
+            )),
+            Binary_1_1 => RawReaderKind::Binary_1_1(LazyRawBinaryReader_1_1::resume_at_offset(
+                data,
+                stream_offset,
+                encoding_hint,
+            )),
+        }
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum IonEncoding {
     // In the absence of a binary IVM, readers must assume Ion 1.0 text data until a
@@ -355,77 +410,97 @@ impl IonEncoding {
         }
     }
 
-    pub fn version(&self) -> (u8, u8) {
+    pub fn version(&self) -> IonVersion {
         use IonEncoding::*;
         match self {
-            Text_1_0 | Binary_1_0 => (1, 0),
-            Text_1_1 | Binary_1_1 => (1, 1),
+            Text_1_0 | Binary_1_0 => IonVersion::v1_0,
+            Text_1_1 | Binary_1_1 => IonVersion::v1_1,
+        }
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub enum IonVersion {
+    #[default]
+    v1_0,
+    v1_1,
+}
+
+impl IonVersion {
+    pub fn major_minor(&self) -> (u8, u8) {
+        use IonVersion::*;
+        match self {
+            v1_0 => (1, 0),
+            v1_1 => (1, 1),
         }
     }
 }
 
 impl<'data> From<LazyRawTextReader_1_0<'data>> for LazyRawAnyReader<'data> {
     fn from(reader: LazyRawTextReader_1_0<'data>) -> Self {
-        LazyRawAnyReader {
-            encoding: RawReaderKind::Text_1_0(reader),
-        }
+        RawReaderKind::Text_1_0(reader).into()
     }
 }
 
 impl<'data> From<LazyRawTextReader_1_1<'data>> for LazyRawAnyReader<'data> {
     fn from(reader: LazyRawTextReader_1_1<'data>) -> Self {
-        LazyRawAnyReader {
-            encoding: RawReaderKind::Text_1_1(reader),
-        }
+        RawReaderKind::Text_1_1(reader).into()
     }
 }
 
 impl<'data> From<LazyRawBinaryReader_1_0<'data>> for LazyRawAnyReader<'data> {
     fn from(reader: LazyRawBinaryReader_1_0<'data>) -> Self {
-        LazyRawAnyReader {
-            encoding: RawReaderKind::Binary_1_0(reader),
-        }
+        RawReaderKind::Binary_1_0(reader).into()
     }
 }
 
 impl<'data> From<LazyRawBinaryReader_1_1<'data>> for LazyRawAnyReader<'data> {
     fn from(reader: LazyRawBinaryReader_1_1<'data>) -> Self {
-        LazyRawAnyReader {
-            encoding: RawReaderKind::Binary_1_1(reader),
-        }
+        RawReaderKind::Binary_1_1(reader).into()
     }
 }
 
 impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     fn new(data: &'data [u8]) -> Self {
-        let reader_type = Self::detect_encoding(data);
-        Self::resume_at_offset(data, 0, reader_type)
+        Self::resume_at_offset(data, 0, IonEncoding::default())
     }
 
-    fn resume_at_offset(
-        data: &'data [u8],
-        offset: usize,
-        mut raw_reader_type: IonEncoding,
-    ) -> Self {
+    fn resume_at_offset(data: &'data [u8], offset: usize, mut encoding_hint: IonEncoding) -> Self {
         if offset == 0 {
             // If we're at the beginning of the stream, the provided `raw_reader_type` may be a
             // default. We need to inspect the bytes to see if we should override it.
-            raw_reader_type = Self::detect_encoding(data);
+            encoding_hint = Self::detect_encoding(data);
         }
-        match raw_reader_type {
+        match encoding_hint {
             IonEncoding::Text_1_0 => {
-                LazyRawTextReader_1_0::resume_at_offset(data, offset, raw_reader_type).into()
+                LazyRawTextReader_1_0::resume_at_offset(data, offset, encoding_hint).into()
             }
             IonEncoding::Binary_1_0 => {
-                LazyRawBinaryReader_1_0::resume_at_offset(data, offset, raw_reader_type).into()
+                LazyRawBinaryReader_1_0::resume_at_offset(data, offset, encoding_hint).into()
             }
             IonEncoding::Text_1_1 => {
-                LazyRawTextReader_1_0::resume_at_offset(data, offset, raw_reader_type).into()
+                LazyRawTextReader_1_1::resume_at_offset(data, offset, encoding_hint).into()
             }
             IonEncoding::Binary_1_1 => {
-                LazyRawBinaryReader_1_1::resume_at_offset(data, offset, raw_reader_type).into()
+                LazyRawBinaryReader_1_1::resume_at_offset(data, offset, encoding_hint).into()
             }
         }
+    }
+
+    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
+        use RawReaderKind::*;
+        let (remaining_data, stream_offset, mut encoding) = match &self.encoding_reader {
+            Text_1_0(r) => r.stream_data(),
+            Binary_1_0(r) => r.stream_data(),
+            Text_1_1(r) => r.stream_data(),
+            Binary_1_1(r) => r.stream_data(),
+        };
+        // If we hit an IVM that changed the encoding but we haven't changed our reader yet,
+        // we still want to report the new encoding.
+        if let Some(new_encoding) = self.new_encoding {
+            encoding = new_encoding;
+        }
+        (remaining_data, stream_offset, encoding)
     }
 
     fn next<'top>(
@@ -435,18 +510,41 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     where
         'data: 'top,
     {
-        use RawReaderKind::*;
-        match &mut self.encoding {
-            Text_1_0(r) => Ok(r.next(context)?.into()),
-            Binary_1_0(r) => Ok(r.next()?.into()),
-            Text_1_1(r) => Ok(r.next(context)?.into()),
-            Binary_1_1(r) => Ok(r.next(context)?.into()),
+        // If we previously ran into an IVM that changed the stream encoding, replace our reader
+        // with one that can read the new encoding.
+        if let Some(new_encoding) = self.new_encoding.take() {
+            let (remaining_data, stream_offset, _) = self.stream_data();
+            let new_encoding_reader =
+                RawReaderKind::resume_at_offset(remaining_data, stream_offset, new_encoding);
+            self.encoding_reader = new_encoding_reader;
         }
+
+        use RawReaderKind::*;
+        let item: LazyRawStreamItem<AnyEncoding> = match &mut self.encoding_reader {
+            Text_1_0(r) => r.next(context)?.into(),
+            Binary_1_0(r) => r.next()?.into(),
+            Text_1_1(r) => r.next(context)?.into(),
+            Binary_1_1(r) => r.next(context)?.into(),
+        };
+
+        // If this item is an IVM:
+        //   * the encoding context will be reset, but this is handled by higher-level readers.
+        //   * the encoding itself may change, and we need to handle that at this level.
+        if let RawStreamItem::VersionMarker(ivm) = item {
+            let ivm_old_encoding = ivm.old_encoding();
+            let ivm_new_encoding = ivm.new_encoding()?;
+            if ivm_new_encoding != ivm_old_encoding {
+                // Save the new encoding; when `next()` is called again, we'll make a new reader.
+                self.new_encoding = Some(ivm_new_encoding);
+            }
+        }
+
+        Ok(item)
     }
 
     fn position(&self) -> usize {
         use RawReaderKind::*;
-        match &self.encoding {
+        match &self.encoding_reader {
             Text_1_0(r) => r.position(),
             Binary_1_0(r) => r.position(),
             Text_1_1(r) => r.position(),
@@ -456,7 +554,12 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
 
     fn encoding(&self) -> IonEncoding {
         use RawReaderKind::*;
-        match &self.encoding {
+        // If we hit an IVM that changed the encoding but we haven't changed our reader yet,
+        // we still want to report the new encoding.
+        if let Some(new_encoding) = self.new_encoding {
+            return new_encoding;
+        }
+        match &self.encoding_reader {
             Text_1_0(_) => IonEncoding::Text_1_0,
             Binary_1_0(_) => IonEncoding::Binary_1_0,
             Text_1_1(_) => IonEncoding::Text_1_1,
@@ -1495,7 +1598,7 @@ mod tests {
             let context = encoding_context.get_ref();
 
             let mut reader = LazyRawAnyReader::new(data);
-            assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 0));
+            assert_eq!(reader.next(context)?.expect_ivm()?.major_minor(), (1, 0));
             let _strukt = reader
                 .next(context)?
                 .expect_value()?
@@ -1560,6 +1663,162 @@ mod tests {
 
         test_input(text_data.as_bytes())?;
         test_input(&binary_data)?;
+
+        Ok(())
+    }
+
+    fn expect_version_change(
+        context_ref: EncodingContextRef,
+        reader: &mut LazyRawAnyReader,
+        encoding_before: IonEncoding,
+        encoding_after: IonEncoding,
+    ) -> IonResult<()> {
+        // The reader is using the expected encoding before we hit the IVM
+        assert_eq!(reader.encoding(), encoding_before);
+        // The next item is an IVM
+        let ivm = reader.next(context_ref)?.expect_ivm()?;
+        // The IVM correctly reports the expected before/after encodings
+        assert_eq!(ivm.old_encoding(), encoding_before);
+        assert_eq!(ivm.new_encoding()?, encoding_after);
+        // The reader is now using the new encoding
+        assert_eq!(reader.encoding(), encoding_after);
+        Ok(())
+    }
+
+    fn expect_int(
+        context_ref: EncodingContextRef,
+        reader: &mut LazyRawAnyReader,
+        expected_encoding: IonEncoding,
+        expected_int: i64,
+    ) -> IonResult<()> {
+        let value = reader.next(context_ref)?.expect_value()?;
+        let actual_int = value.read()?.expect_i64()?;
+        assert_eq!(actual_int, expected_int);
+        assert_eq!(reader.encoding(), expected_encoding);
+        Ok(())
+    }
+
+    #[test]
+    fn switch_text_versions() -> IonResult<()> {
+        const DATA: &str = r#"
+            1
+            $ion_1_0
+            2
+            $ion_1_1
+            3
+            $ion_1_1
+            4
+            $ion_1_0
+            5
+        "#;
+
+        let mut reader = LazyRawAnyReader::new(DATA.as_bytes());
+        let encoding_context = EncodingContext::empty();
+        let context_ref = encoding_context.get_ref();
+
+        expect_int(context_ref, &mut reader, IonEncoding::Text_1_0, 1)?;
+
+        // This IVM doesn't change the encoding.
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Text_1_0,
+            IonEncoding::Text_1_0,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Text_1_0, 2)?;
+
+        // This IVM changes the encoding from 1.0 text to 1.1 text
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Text_1_0,
+            IonEncoding::Text_1_1,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Text_1_1, 3)?;
+
+        // This IVM doesn't change the encoding.
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Text_1_1,
+            IonEncoding::Text_1_1,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Text_1_1, 4)?;
+
+        // This IVM changes the encoding from 1.1 text to 1.0 text
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Text_1_1,
+            IonEncoding::Text_1_0,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Text_1_0, 5)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn switch_binary_versions() -> IonResult<()> {
+        const DATA: &[u8] = &[
+            0xE0, 0x01, 0x00, 0xEA, // $ion_1_0
+            0x21, 0x02, // 2
+            0xE0, 0x01, 0x01, 0xEA, // $ion_1_1
+            0x61, 0x03, // 3
+            0xE0, 0x01, 0x01, 0xEA, // $ion_1_1
+            0x61, 0x04, // 4
+            0xE0, 0x01, 0x00, 0xEA, // $ion_1_0
+            0x21, 0x05, // 5
+        ];
+
+        let mut reader = LazyRawAnyReader::new(DATA);
+        let encoding_context = EncodingContext::empty();
+        let context_ref = encoding_context.get_ref();
+
+        // When the reader is constructed it peeks at the leading bytes to see if they're an IVM.
+        // In this case, they were a binary Ion v1.0 IVM, so the reader is already expecting to see
+        // binary 1.0 data. Reading the binary version marker tells the reader to switch encodings.
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Binary_1_0,
+            IonEncoding::Binary_1_0,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Binary_1_0, 2)?;
+
+        // This IVM changes the encoding from 1.0 binary to 1.1 binary
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Binary_1_0,
+            IonEncoding::Binary_1_1,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Binary_1_1, 3)?;
+
+        // This IVM doesn't change the encoding.
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Binary_1_1,
+            IonEncoding::Binary_1_1,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Binary_1_1, 4)?;
+
+        // This IVM changes the encoding from 1.1 binary to 1.0 binary
+        expect_version_change(
+            context_ref,
+            &mut reader,
+            IonEncoding::Binary_1_1,
+            IonEncoding::Binary_1_0,
+        )?;
+
+        expect_int(context_ref, &mut reader, IonEncoding::Binary_1_0, 5)?;
 
         Ok(())
     }

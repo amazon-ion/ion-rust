@@ -10,7 +10,7 @@ use crate::IonResult;
 /// This list parallels
 /// [`MacroExpansionKind`](crate::lazy::expanded::macro_evaluator::MacroExpansionKind),
 /// but its variants do not hold any associated state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MacroKind {
     Void,
     Values,
@@ -29,7 +29,7 @@ impl MacroKind {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MacroRef<'top> {
     address: MacroAddress,
     kind: &'top MacroKind,
@@ -73,6 +73,10 @@ impl Default for MacroTable {
 }
 
 impl MacroTable {
+    pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] =
+        &[MacroKind::Void, MacroKind::Values, MacroKind::MakeString];
+    pub const NUM_SYSTEM_MACROS: usize = Self::SYSTEM_MACRO_KINDS.len();
+
     pub fn new() -> Self {
         let macros_by_id = vec![MacroKind::Void, MacroKind::Values, MacroKind::MakeString];
         let mut macros_by_name = HashMap::default();
@@ -89,7 +93,8 @@ impl MacroTable {
         self.macros_by_address.len()
     }
 
-    pub fn macro_with_id(&'_ self, id: MacroIdRef<'_>) -> Option<MacroRef<'_>> {
+    pub fn macro_with_id<'a, I: Into<MacroIdRef<'a>>>(&'a self, id: I) -> Option<MacroRef<'a>> {
+        let id = id.into();
         match id {
             MacroIdRef::LocalName(name) => self.macro_with_name(name),
             MacroIdRef::LocalAddress(address) => self.macro_at_address(address),

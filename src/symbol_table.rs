@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::constants::v1_0;
+use crate::lazy::any_encoding::IonVersion;
 use crate::{Symbol, SymbolId};
 
 /// Stores mappings from Symbol IDs to text and vice-versa.
@@ -9,20 +10,24 @@ use crate::{Symbol, SymbolId};
 #[allow(clippy::len_without_is_empty)]
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
+    ion_version: IonVersion,
     symbols_by_id: Vec<Symbol>,
     ids_by_text: HashMap<Symbol, SymbolId>,
 }
 
 impl Default for SymbolTable {
     fn default() -> Self {
-        Self::new()
+        Self::new(IonVersion::v1_0)
     }
 }
 
 impl SymbolTable {
     /// Constructs a new symbol table pre-populated with the system symbols defined in the spec.
-    pub(crate) fn new() -> SymbolTable {
+    pub(crate) fn new(ion_version: IonVersion) -> SymbolTable {
+        // Enough to hold the 1.0 system table and several user symbols.
+        const INITIAL_SYMBOLS_CAPACITY: usize = 32;
         let mut symbol_table = SymbolTable {
+            ion_version,
             symbols_by_id: Vec::with_capacity(v1_0::SYSTEM_SYMBOLS.len()),
             ids_by_text: HashMap::new(),
         };
@@ -30,10 +35,16 @@ impl SymbolTable {
         symbol_table
     }
 
-    // Interns the v1.0 system symbols
+    /// Adds system symbols to the table.
     pub(crate) fn initialize(&mut self) {
         self.add_placeholder(); // $0
-        v1_0::SYSTEM_SYMBOLS[1..]
+
+        let remaining_system_symbols = match self.ion_version {
+            IonVersion::v1_0 => &v1_0::SYSTEM_SYMBOLS[1..],
+            IonVersion::v1_1 => &[],
+        };
+
+        remaining_system_symbols
             .iter()
             .copied()
             .map(Option::unwrap)

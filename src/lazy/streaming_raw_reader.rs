@@ -101,16 +101,15 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             ));
             let slice_reader = unsafe { &mut *unsafe_cell_reader.get() };
             let starting_position = slice_reader.position();
+            let old_encoding = slice_reader.encoding();
             let result = slice_reader.next(context);
             // We're done modifying `slice_reader`, but we need to read some of its fields. These
             // fields are _not_ the data to which `result` holds a reference. We have to circumvent
             // the borrow checker's limitation (described in a comment on the StreamingRawReader type)
             // by getting a second (read-only) reference to the reader.
             let slice_reader_ref = unsafe { &*unsafe_cell_reader.get() };
-            let encoding = slice_reader_ref.encoding();
+            let new_encoding = slice_reader_ref.encoding();
             let end_position = slice_reader_ref.position();
-            // For the RawAnyReader, remember what encoding we detected for next time.
-            self.detected_encoding = slice_reader_ref.encoding();
 
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
@@ -149,7 +148,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                 //
                 // To avoid this, we perform a final check for text readers who have emptied their
                 // buffer: we do not consider the item complete unless the input source is exhausted.
-                if encoding.is_text()
+                if old_encoding.is_text()
                     && bytes_read == available_bytes.len()
                     && !input_source_exhausted
                 {
@@ -180,6 +179,8 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                 // Update the streaming reader's position to reflect the number of bytes we
                 // just read.
                 self.stream_position = end_position;
+                // If the item read was an IVM, this will be a new value.
+                self.detected_encoding = new_encoding;
             }
 
             return result;
@@ -572,7 +573,7 @@ mod tests {
         let context = empty_context.get_ref();
         let mut reader = StreamingRawReader::new(v1_0::Text, IonStream::new(input));
 
-        assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 0));
+        assert_eq!(reader.next(context)?.expect_ivm()?.major_minor(), (1, 0));
         assert_eq!(
             reader
                 .next(context)?
