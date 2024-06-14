@@ -9,6 +9,7 @@ pub struct Opcode {
     pub opcode_type: OpcodeType,
     pub ion_type: Option<IonType>,
     pub low_nibble: u8,
+    pub byte: u8,
 }
 
 /// A statically defined array of TypeDescriptor that allows a binary reader to map a given
@@ -35,6 +36,7 @@ const DEFAULT_HEADER: Opcode = Opcode {
     opcode_type: OpcodeType::Nop,
     ion_type: None,
     low_nibble: 0,
+    byte: 0,
 };
 
 pub(crate) const fn init_opcode_cache() -> [Opcode; 256] {
@@ -56,6 +58,8 @@ impl Opcode {
         use OpcodeType::*;
 
         let (opcode_type, length_code, ion_type) = match (high_nibble, low_nibble) {
+            (0x0..=0x4, _) => (EExpressionWithAddress, low_nibble, None),
+            (0x5, _) => (EExpressionAddressFollows, low_nibble, None),
             (0x6, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
             (0x6, 0xA..=0xD) => (Float, low_nibble, Some(IonType::Float)),
             (0x6, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
@@ -88,6 +92,7 @@ impl Opcode {
             ion_type,
             opcode_type,
             low_nibble: length_code,
+            byte,
         }
     }
 
@@ -97,6 +102,14 @@ impl Opcode {
 
     pub fn is_nop(&self) -> bool {
         self.opcode_type == OpcodeType::Nop
+    }
+
+    pub fn is_e_expression(&self) -> bool {
+        use OpcodeType::*;
+        matches!(
+            self.opcode_type,
+            EExpressionWithAddress | EExpressionAddressFollows
+        )
     }
 
     pub fn is_ivm_start(&self) -> bool {

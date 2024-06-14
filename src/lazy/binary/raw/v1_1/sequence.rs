@@ -4,11 +4,9 @@ use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIt
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{
-    Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr, RawValueExpr,
-};
+use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::{IonResult, IonType};
+use crate::{HasRange, IonResult, IonType};
 use std::fmt::{Debug, Formatter};
 
 #[derive(Debug, Copy, Clone)]
@@ -151,13 +149,12 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_1<'top> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.source = self.source.consume(self.bytes_to_skip);
-        match self.source.peek_sequence_value() {
-            Ok(Some(output)) => {
-                self.bytes_to_skip = output.encoded_value.total_length;
-                Some(Ok(RawValueExpr::ValueLiteral(output)))
-            }
-            Ok(None) => None,
-            Err(e) => Some(Err(e)),
-        }
+        let item = match self.source.peek_sequence_value_expr() {
+            Ok(Some(expr)) => expr,
+            Ok(None) => return None,
+            Err(e) => return Some(Err(e)),
+        };
+        self.bytes_to_skip = item.range().len();
+        Some(Ok(item))
     }
 }

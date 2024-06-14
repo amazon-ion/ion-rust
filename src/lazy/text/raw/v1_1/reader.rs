@@ -5,7 +5,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 
 use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump as BumpAllocator;
 use nom::character::streaming::satisfy;
 
 use crate::lazy::any_encoding::IonEncoding;
@@ -17,6 +16,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBufferView;
@@ -32,6 +32,84 @@ pub struct LazyRawTextReader_1_1<'data> {
     stream_offset: usize,
     // The offset from the beginning of `input` at which the reader is positioned
     local_offset: usize,
+}
+
+impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'data> {
+    fn resume_at_offset(
+        data: &'data [u8],
+        offset: usize,
+        _config: <TextEncoding_1_1 as Decoder>::ReaderSavedState,
+    ) -> Self {
+        LazyRawTextReader_1_1 {
+            input: data,
+            // `data` begins at position `offset` within some larger stream. If `data` contains
+            // the entire stream, this will be zero.
+            stream_offset: offset,
+            // Start reading from the beginning of the slice `data`
+            local_offset: 0,
+        }
+    }
+
+    fn next<'top>(
+        &'top mut self,
+        context: EncodingContextRef<'top>,
+    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_1>>
+    where
+        'data: 'top,
+    {
+        let input = TextBufferView::new_with_offset(
+            context,
+            &self.input[self.local_offset..],
+            self.stream_offset + self.local_offset,
+        );
+        let (buffer_after_whitespace, _whitespace) = input
+            .match_optional_comments_and_whitespace()
+            .with_context("reading v1.1 whitespace/comments at the top level", input)?;
+        if buffer_after_whitespace.is_empty() {
+            return Ok(RawStreamItem::EndOfStream(EndPosition::new(
+                TextEncoding_1_1.encoding(),
+                buffer_after_whitespace.offset(),
+            )));
+        }
+
+        // Consume any trailing whitespace that followed this item. Doing this allows us to check
+        // whether this was the last item in the buffer by testing `buffer.is_empty()` afterward.
+        let (buffer_after_item, matched_item) = buffer_after_whitespace
+            .match_top_level_item_1_1()
+            .with_context("reading a v1.1 top-level value", buffer_after_whitespace)?;
+
+        let (buffer_after_trailing_ws, _trailing_ws) = buffer_after_item
+            .match_optional_comments_and_whitespace()
+            .with_context(
+                "reading trailing top-level whitespace/comments in v1.1",
+                buffer_after_item,
+            )?;
+
+        if let RawStreamItem::VersionMarker(marker) = matched_item {
+            // TODO: It is not the raw reader's responsibility to report this error. It should
+            //       surface the IVM to the caller, who can then either create a different reader
+            //       for the reported version OR raise an error.
+            //       See: https://github.com/amazon-ion/ion-rust/issues/644
+            let (major, minor) = marker.version();
+            if (major, minor) != (1, 1) {
+                return IonResult::decoding_error(format!(
+                    "Ion version {major}.{minor} is not supported"
+                ));
+            }
+        }
+        // Since we successfully matched the next value, we'll update the buffer
+        // so a future call to `next()` will resume parsing the remaining input.
+        self.local_offset = buffer_after_trailing_ws.offset() - self.stream_offset;
+        Ok(matched_item)
+    }
+
+    fn position(&self) -> usize {
+        self.stream_offset + self.local_offset
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Text_1_1
+    }
 }
 
 /// The index at which this macro can be found in the macro table.
@@ -132,84 +210,6 @@ pub struct EncodedTextMacroInvocation {
 impl EncodedTextMacroInvocation {
     pub fn new(id_length: u16) -> Self {
         Self { id_length }
-    }
-}
-
-impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'data> {
-    fn resume_at_offset(
-        data: &'data [u8],
-        offset: usize,
-        _config: <TextEncoding_1_1 as Decoder>::ReaderSavedState,
-    ) -> Self {
-        LazyRawTextReader_1_1 {
-            input: data,
-            // `data` begins at position `offset` within some larger stream. If `data` contains
-            // the entire stream, this will be zero.
-            stream_offset: offset,
-            // Start reading from the beginning of the slice `data`
-            local_offset: 0,
-        }
-    }
-
-    fn next<'top>(
-        &'top mut self,
-        allocator: &'top BumpAllocator,
-    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_1>>
-    where
-        'data: 'top,
-    {
-        let input = TextBufferView::new_with_offset(
-            allocator,
-            &self.input[self.local_offset..],
-            self.stream_offset + self.local_offset,
-        );
-        let (buffer_after_whitespace, _whitespace) = input
-            .match_optional_comments_and_whitespace()
-            .with_context("reading v1.1 whitespace/comments at the top level", input)?;
-        if buffer_after_whitespace.is_empty() {
-            return Ok(RawStreamItem::EndOfStream(EndPosition::new(
-                TextEncoding_1_1.encoding(),
-                buffer_after_whitespace.offset(),
-            )));
-        }
-
-        // Consume any trailing whitespace that followed this item. Doing this allows us to check
-        // whether this was the last item in the buffer by testing `buffer.is_empty()` afterward.
-        let (buffer_after_item, matched_item) = buffer_after_whitespace
-            .match_top_level_item_1_1()
-            .with_context("reading a v1.1 top-level value", buffer_after_whitespace)?;
-
-        let (buffer_after_trailing_ws, _trailing_ws) = buffer_after_item
-            .match_optional_comments_and_whitespace()
-            .with_context(
-                "reading trailing top-level whitespace/comments in v1.1",
-                buffer_after_item,
-            )?;
-
-        if let RawStreamItem::VersionMarker(marker) = matched_item {
-            // TODO: It is not the raw reader's responsibility to report this error. It should
-            //       surface the IVM to the caller, who can then either create a different reader
-            //       for the reported version OR raise an error.
-            //       See: https://github.com/amazon-ion/ion-rust/issues/644
-            let (major, minor) = marker.version();
-            if (major, minor) != (1, 1) {
-                return IonResult::decoding_error(format!(
-                    "Ion version {major}.{minor} is not supported"
-                ));
-            }
-        }
-        // Since we successfully matched the next value, we'll update the buffer
-        // so a future call to `next()` will resume parsing the remaining input.
-        self.local_offset = buffer_after_trailing_ws.offset() - self.stream_offset;
-        Ok(matched_item)
-    }
-
-    fn position(&self) -> usize {
-        self.stream_offset + self.local_offset
-    }
-
-    fn encoding(&self) -> IonEncoding {
-        IonEncoding::Text_1_1
     }
 }
 
@@ -741,17 +741,18 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
 
 #[cfg(test)]
 mod tests {
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;
 
     use super::*;
 
     fn expect_next<'top, 'data: 'top>(
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
         reader: &'top mut LazyRawTextReader_1_1<'data>,
         expected: RawValueRef<'top, TextEncoding_1_1>,
     ) {
         let lazy_value = reader
-            .next(allocator)
+            .next(context)
             .expect("advancing the reader failed")
             .expect_value()
             .expect("expected a value");
@@ -775,18 +776,19 @@ mod tests {
             false
        "#;
 
-        let allocator = BumpAllocator::new();
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
         let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
 
         // $ion_1_1
-        assert_eq!(reader.next(&allocator)?.expect_ivm()?.version(), (1, 1));
+        assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 1));
         // "foo"
-        expect_next(&allocator, reader, RawValueRef::String("foo".into()));
+        expect_next(context, reader, RawValueRef::String("foo".into()));
         // bar
-        expect_next(&allocator, reader, RawValueRef::Symbol("bar".into()));
+        expect_next(context, reader, RawValueRef::Symbol("bar".into()));
         // (baz null.string)
         let sexp = reader
-            .next(&allocator)?
+            .next(context)?
             .expect_value()?
             .read()?
             .expect_sexp()?;
@@ -801,10 +803,10 @@ mod tests {
         );
         assert!(children.next().is_none());
         // (:quux quuz)
-        let macro_invocation = reader.next(&allocator)?.expect_macro_invocation()?;
+        let macro_invocation = reader.next(context)?.expect_macro_invocation()?;
         assert_eq!(macro_invocation.id, MacroIdRef::LocalName("quux"));
-        expect_next(&allocator, reader, RawValueRef::Int(77.into()));
-        expect_next(&allocator, reader, RawValueRef::Bool(false));
+        expect_next(context, reader, RawValueRef::Int(77.into()));
+        expect_next(context, reader, RawValueRef::Bool(false));
         Ok(())
     }
 }

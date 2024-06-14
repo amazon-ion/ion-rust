@@ -1,18 +1,26 @@
+use std::fmt::{Debug, Formatter};
+use std::ops::Range;
+
+use bumpalo::collections::Vec as BumpVec;
+
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::raw::v1_1::e_expression::{EncodedBinaryEExp, RawBinaryEExpression_1_1};
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
 use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, OpcodeType, ION_1_1_OPCODES};
+use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoder::binary::v1_1::fixed_int::FixedInt;
 use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
+use crate::lazy::expanded::macro_table::MacroKind;
+use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
-use std::fmt::{Debug, Formatter};
-use std::ops::Range;
+use crate::{v1_1, HasRange, IonError, IonResult};
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -21,7 +29,7 @@ use std::ops::Range;
 /// and a copy of the `ImmutableBuffer` that starts _after_ the bytes that were parsed.
 ///
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ImmutableBuffer<'a> {
     // `data` is a slice of remaining data in the larger input stream.
     // `offset` is the position in the overall input stream where that slice begins.
@@ -32,6 +40,7 @@ pub struct ImmutableBuffer<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
+    context: EncodingContextRef<'a>,
 }
 
 impl<'a> Debug for ImmutableBuffer<'a> {
@@ -49,12 +58,20 @@ pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
 impl<'a> ImmutableBuffer<'a> {
     /// Constructs a new `ImmutableBuffer` that wraps `data`.
     #[inline]
-    pub fn new(data: &[u8]) -> ImmutableBuffer {
-        Self::new_with_offset(data, 0)
+    pub fn new(context: EncodingContextRef<'a>, data: &'a [u8]) -> ImmutableBuffer<'a> {
+        Self::new_with_offset(context, data, 0)
     }
 
-    pub fn new_with_offset(data: &[u8], offset: usize) -> ImmutableBuffer {
-        ImmutableBuffer { data, offset }
+    pub fn new_with_offset(
+        context: EncodingContextRef<'a>,
+        data: &'a [u8],
+        offset: usize,
+    ) -> ImmutableBuffer<'a> {
+        ImmutableBuffer {
+            data,
+            offset,
+            context,
+        }
     }
 
     /// Returns a slice containing all of the buffer's bytes.
@@ -75,6 +92,7 @@ impl<'a> ImmutableBuffer<'a> {
         ImmutableBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
+            context: self.context,
         }
     }
 
@@ -119,6 +137,7 @@ impl<'a> ImmutableBuffer<'a> {
         Self {
             data: &self.data[num_bytes_to_consume..],
             offset: self.offset + num_bytes_to_consume,
+            context: self.context,
         }
     }
 
@@ -143,7 +162,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
-                let matched = ImmutableBuffer::new_with_offset(bytes, self.offset);
+                let matched = ImmutableBuffer::new_with_offset(self.context, bytes, self.offset);
                 let marker = LazyRawBinaryVersionMarker_1_1::new(matched, *major, *minor);
                 Ok((marker, self.consume(IVM.len())))
             }
@@ -249,7 +268,9 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
-    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue_1_1<'a>>> {
+    pub(crate) fn peek_sequence_value_expr(
+        self,
+    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -266,7 +287,14 @@ impl<'a> ImmutableBuffer<'a> {
             // Otherwise, there's a value.
             type_descriptor = input.peek_opcode()?;
         }
-        Ok(Some(input.read_value(type_descriptor)?))
+        if type_descriptor.is_e_expression() {
+            return Ok(Some(RawValueExpr::EExp(
+                self.read_e_expression(type_descriptor)?,
+            )));
+        }
+        Ok(Some(RawValueExpr::ValueLiteral(
+            input.read_value(type_descriptor)?,
+        )))
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
@@ -339,11 +367,12 @@ impl<'a> ImmutableBuffer<'a> {
         let (annotations_seq, input_after_annotations) = self.read_annotations_sequence(opcode)?;
         let opcode = input_after_annotations.peek_opcode()?;
         let mut value = input_after_annotations.read_value_without_annotations(opcode)?;
-        value.encoded_value.annotations_header_length = annotations_seq.header_length;
+        let total_annotations_length =
+            annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
+        value.encoded_value.annotations_header_length = total_annotations_length as u16;
         value.encoded_value.annotations_sequence_length = annotations_seq.sequence_length;
         value.encoded_value.annotations_encoding = annotations_seq.encoding;
-        value.encoded_value.total_length +=
-            annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
+        value.encoded_value.total_length += total_annotations_length;
         // Rewind the input to include the annotations sequence
         value.input = self;
         Ok(value)
@@ -425,6 +454,66 @@ impl<'a> ImmutableBuffer<'a> {
     ) -> ParseResult<'a, EncodedAnnotations> {
         todo!()
     }
+
+    fn read_e_expression(self, opcode: Opcode) -> IonResult<RawBinaryEExpression_1_1<'a>> {
+        use OpcodeType::*;
+        let (macro_id, buffer_after_id) = match opcode.opcode_type {
+            EExpressionWithAddress => (
+                MacroIdRef::LocalAddress(opcode.byte as usize),
+                self.consume(1),
+            ),
+            EExpressionAddressFollows => todo!("e-expr with trailing address; {opcode:#0x?}",),
+            _ => unreachable!("read_e_expression called with invalid opcode"),
+        };
+
+        // TODO: When we support untagged parameter encodings, we need to use the signature's
+        //       parameter encodings to drive this process. For now--while everything is tagged
+        //       and cardinality is always required--we just loop `num_parameters` times.
+        let macro_def = self
+            .context
+            .macro_table
+            .macro_with_id(macro_id)
+            .ok_or_else(|| {
+                IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
+            })?;
+        use MacroKind::*;
+        let num_parameters = match macro_def.kind() {
+            Template(t) => t.signature().parameters().len(),
+            // Many system macros like `values`, `make_string`, etc take a variadic number of args.
+            _ => todo!("system macros require support for argument group encoding"),
+        };
+
+        let args_cache = self
+            .context
+            .allocator()
+            .alloc_with(|| BumpVec::with_capacity_in(num_parameters, self.context.allocator()));
+        // `args_buffer` will be partially consumed in each iteration of the loop below.
+        let mut args_buffer = buffer_after_id;
+        for _ in 0..num_parameters {
+            let value_expr = match args_buffer.peek_sequence_value_expr()? {
+                Some(expr) => expr,
+                None => {
+                    return IonResult::incomplete(
+                        "found an incomplete e-expression",
+                        buffer_after_id.offset(),
+                    )
+                }
+            };
+            args_buffer = args_buffer.consume(value_expr.range().len());
+            args_cache.push(value_expr);
+        }
+        let macro_id_encoded_length = buffer_after_id.offset() - self.offset();
+        let args_length = args_buffer.offset() + args_buffer.len() - buffer_after_id.offset();
+        let e_expression_buffer = self.slice(0, macro_id_encoded_length + args_length);
+
+        let e_expression = RawBinaryEExpression_1_1::new(
+            macro_id,
+            EncodedBinaryEExp::new(macro_id_encoded_length as u16),
+            e_expression_buffer,
+            args_cache,
+        );
+        Ok(e_expression)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -448,9 +537,15 @@ pub struct EncodedAnnotations {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lazy::expanded::compiler::TemplateCompiler;
+    use crate::lazy::expanded::macro_evaluator::RawEExpression;
+    use crate::lazy::expanded::EncodingContext;
+    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
-        let input = ImmutableBuffer::new(input.as_ref());
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
+        let input = ImmutableBuffer::new(context, input.as_ref());
         // We can peek at the first byte...
         assert_eq!(input.peek_next_byte(), Some(b'f'));
         // ...without modifying the input. Looking at the next 3 bytes still includes 'f'.
@@ -485,13 +580,127 @@ mod tests {
     fn validate_nop_length() {
         // read_nop_pad reads a single NOP value, this test ensures that we're tracking the right
         // size for these values.
-
-        let buffer = ImmutableBuffer::new(&[0xECu8]);
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
+        let buffer = ImmutableBuffer::new(context, &[0xECu8]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 1);
 
-        let buffer = ImmutableBuffer::new(&[0xEDu8, 0x05, 0x00, 0x00]);
+        let buffer = ImmutableBuffer::new(context, &[0xEDu8, 0x05, 0x00, 0x00]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 4);
+    }
+
+    fn eexp_test(
+        macro_source: &str,
+        encode_macro_fn: impl FnOnce(MacroAddress) -> Vec<u8>,
+        test_fn: impl FnOnce(RawBinaryEExpression_1_1) -> IonResult<()>,
+    ) -> IonResult<()> {
+        let mut context = EncodingContext::empty();
+        let template_macro = TemplateCompiler::compile_from_text(context.get_ref(), macro_source)?;
+        let macro_address = context.macro_table.add_macro(template_macro)?;
+        let opcode_byte = u8::try_from(macro_address).unwrap();
+        let binary_ion = encode_macro_fn(opcode_byte as usize);
+        let buffer = ImmutableBuffer::new(context.get_ref(), &binary_ion);
+        let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?;
+        assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
+        println!("{:?}", eexp);
+        assert_eq!(eexp.id, MacroIdRef::LocalAddress(opcode_byte as usize));
+        test_fn(eexp)
+    }
+
+    #[test]
+    fn read_eexp_without_args() -> IonResult<()> {
+        let macro_source = r#"
+            (macro seventeen () 17)
+        "#;
+        let encode_eexp_fn = |address: MacroAddress| vec![address as u8];
+        eexp_test(
+            macro_source,
+            encode_eexp_fn,
+            |eexp: RawBinaryEExpression_1_1| {
+                let mut args = eexp.raw_arguments();
+                assert!(args.next().is_none());
+                Ok(())
+            },
+        )
+    }
+
+    #[test]
+    fn read_eexp_with_one_arg() -> IonResult<()> {
+        let macro_source = r#"
+            (macro greet (name)
+                (make_string "Hello, " name "!")
+            )
+        "#;
+
+        #[rustfmt::skip]
+            let encode_eexp_fn = |address: MacroAddress| vec![
+            address as u8,
+            // === 8-byte string ====
+            0x98,
+            // M     i     c     h     e     l     l     e
+            0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
+        ];
+
+        let args_test = |eexp: RawBinaryEExpression_1_1| {
+            let mut args = eexp.raw_arguments();
+            assert_eq!(
+                args.next()
+                    .unwrap()?
+                    .expect_value()?
+                    .read()?
+                    .expect_string()?,
+                "Michelle"
+            );
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_two_args() -> IonResult<()> {
+        let macro_source = r#"
+            (macro greet (name day)
+                (make_string "Hello, " name "! Have a pleasant " day ".")
+            )
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            address as u8,
+            // === 8-byte string ====
+            0x98,
+            // M     i     c     h     e     l     l     e
+            0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
+            // === 7-byte string ===
+            0x97,
+            // T     u     e     s     d     a     y
+            0x54, 0x75, 0x65, 0x73, 0x64, 0x61, 0x79,
+        ];
+
+        let args_test = |eexp: RawBinaryEExpression_1_1| {
+            let mut args = eexp.raw_arguments();
+            assert_eq!(
+                args.next()
+                    .unwrap()?
+                    .expect_value()?
+                    .read()?
+                    .expect_string()?,
+                "Michelle"
+            );
+            assert_eq!(
+                args.next()
+                    .unwrap()?
+                    .expect_value()?
+                    .read()?
+                    .expect_string()?,
+                "Tuesday"
+            );
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
     }
 }

@@ -87,7 +87,7 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
             LazyRawValueExpr::<D>::ValueLiteral(value) => {
                 ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, value))
             }
-            LazyRawValueExpr::<D>::MacroInvocation(raw_invocation) => {
+            LazyRawValueExpr::<D>::EExp(raw_invocation) => {
                 let invocation = match raw_invocation.resolve(self.context) {
                     Ok(invocation) => invocation,
                     Err(e) => return Some(Err(e)),

@@ -1,11 +1,10 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
-use bumpalo::Bump as BumpAllocator;
-
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::encoding::{BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -77,11 +76,11 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
 /// When working with `RawValueExpr`s that always use a given decoder's `Value` and
 /// `MacroInvocation` associated types, consider using [`LazyRawValueExpr`] instead.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum RawValueExpr<V, M> {
+pub enum RawValueExpr<V, E> {
     /// A value literal. For example: `5`, `foo`, or `"hello"` in text.
     ValueLiteral(V),
     /// An Ion 1.1+ macro invocation. For example: `(:employee 12345 "Sarah" "Gonzalez")` in text.
-    MacroInvocation(M),
+    EExp(E),
 }
 
 // `RawValueExpr` above has no ties to a particular encoding. The `LazyRawValueExpr` type alias
@@ -102,7 +101,7 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
     pub fn expect_value(self) -> IonResult<V> {
         match self {
             RawValueExpr::ValueLiteral(v) => Ok(v),
-            RawValueExpr::MacroInvocation(_m) => IonResult::decoding_error(
+            RawValueExpr::EExp(_m) => IonResult::decoding_error(
                 "expected a value literal, but found a macro invocation ({:?})",
             ),
         }
@@ -114,7 +113,7 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
                 "expected a macro invocation but found a value literal ({:?})",
                 v
             )),
-            RawValueExpr::MacroInvocation(m) => Ok(m),
+            RawValueExpr::EExp(m) => Ok(m),
         }
     }
 }
@@ -123,7 +122,7 @@ impl<V: HasRange, M: HasRange> HasRange for RawValueExpr<V, M> {
     fn range(&self) -> Range<usize> {
         match self {
             RawValueExpr::ValueLiteral(value) => value.range(),
-            RawValueExpr::MacroInvocation(eexp) => eexp.range(),
+            RawValueExpr::EExp(eexp) => eexp.range(),
         }
     }
 }
@@ -132,7 +131,7 @@ impl<'top, V: HasSpan<'top>, M: HasSpan<'top>> HasSpan<'top> for RawValueExpr<V,
     fn span(&self) -> Span<'top> {
         match self {
             RawValueExpr::ValueLiteral(value) => value.span(),
-            RawValueExpr::MacroInvocation(eexp) => eexp.span(),
+            RawValueExpr::EExp(eexp) => eexp.span(),
         }
     }
 }
@@ -352,7 +351,7 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
 
     fn next<'top>(
         &'top mut self,
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, D>>
     where
         'data: 'top;

@@ -53,7 +53,7 @@ pub trait RawEExpression<'top, D: Decoder<EExp<'top> = Self>>:
     /// If the ID cannot be found in the `EncodingContext`, returns `Err`.
     fn resolve(self, context: EncodingContextRef<'top>) -> IonResult<EExpression<'top, D>> {
         let invoked_macro = context
-            .macro_table
+            .macro_table()
             .macro_with_id(self.id())
             .ok_or_else(|| {
                 IonError::decoding_error(format!("unrecognized macro ID {:?}", self.id()))
@@ -269,8 +269,8 @@ pub struct MacroEvaluator<'top, D: Decoder> {
 
 impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     pub fn new(context: EncodingContextRef<'top>, environment: Environment<'top, D>) -> Self {
-        let macro_stack = BumpVec::new_in(context.allocator);
-        let mut env_stack = BumpVec::new_in(context.allocator);
+        let macro_stack = BumpVec::new_in(context.allocator());
+        let mut env_stack = BumpVec::new_in(context.allocator());
         env_stack.push(environment);
         Self {
             macro_stack,
@@ -308,7 +308,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
         let capacity_hint = num_args_hint.1.unwrap_or(num_args_hint.0);
         let mut args = BumpVec::with_capacity_in(capacity_hint, allocator);
 
-        for arg in invocation.arguments(self.environment()) {
+        for arg in args_iter {
             args.push(arg?);
         }
         let environment = Environment::new(args);
@@ -574,7 +574,7 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
         }
 
         // Create a bump-allocated buffer to hold our constructed string
-        let mut buffer = BumpString::new_in(context.allocator);
+        let mut buffer = BumpString::new_in(context.allocator());
 
         // We need to eagerly evaluate all of the arguments to `make_string` to produce its next
         // (and only) value. However, because `&mut self` (the expansion state) lives in a stack
@@ -602,7 +602,7 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
         // Convert our BumpString<'bump> into a &'bump str that we can wrap in an `ExpandedValueRef`
         let constructed_text = buffer.into_bump_str();
         let expanded_value_ref: &'top ExpandedValueRef<'top, D> = context
-            .allocator
+            .allocator()
             .alloc_with(|| ExpandedValueRef::String(StrRef::from(constructed_text)));
         static EMPTY_ANNOTATIONS: &[&str] = &[];
 

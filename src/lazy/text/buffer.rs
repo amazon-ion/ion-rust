@@ -4,7 +4,6 @@ use std::ops::{Range, RangeFrom, RangeTo};
 use std::slice::Iter;
 use std::str::FromStr;
 
-use bumpalo::Bump as BumpAllocator;
 use nom::branch::alt;
 use nom::bytes::complete::{
     is_a as complete_is_a, is_not as complete_is_not, tag as complete_tag,
@@ -23,6 +22,7 @@ use nom::{AsBytes, CompareResult, IResult, InputLength, InputTake, Needed, Parse
 
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
@@ -104,7 +104,7 @@ pub struct TextBufferView<'top> {
     //                          offset: 6
     data: &'top [u8],
     offset: usize,
-    pub(crate) allocator: &'top BumpAllocator,
+    pub(crate) context: EncodingContextRef<'top>,
 }
 
 impl<'a> PartialEq for TextBufferView<'a> {
@@ -116,8 +116,8 @@ impl<'a> PartialEq for TextBufferView<'a> {
 impl<'top> TextBufferView<'top> {
     /// Constructs a new `TextBufferView` that wraps `data`, setting the view's `offset` to zero.
     #[inline]
-    pub fn new(allocator: &'top BumpAllocator, data: &'top [u8]) -> TextBufferView<'top> {
-        Self::new_with_offset(allocator, data, 0)
+    pub fn new(context: EncodingContextRef<'top>, data: &'top [u8]) -> TextBufferView<'top> {
+        Self::new_with_offset(context, data, 0)
     }
 
     /// Constructs a new `TextBufferView` that wraps `data`, setting the view's `offset` to the
@@ -125,12 +125,12 @@ impl<'top> TextBufferView<'top> {
     /// Note that `offset` is the index of the larger stream at which `data` begins and not an
     /// offset _into_ `data`.
     pub fn new_with_offset(
-        allocator: &'top BumpAllocator,
+        context: EncodingContextRef<'top>,
         data: &'top [u8],
         offset: usize,
     ) -> TextBufferView<'top> {
         TextBufferView {
-            allocator,
+            context,
             data,
             offset,
         }
@@ -152,7 +152,7 @@ impl<'top> TextBufferView<'top> {
         TextBufferView {
             data: &self.data[offset..offset + length],
             offset: self.offset + offset,
-            allocator: self.allocator,
+            context: self.context,
         }
     }
 
@@ -165,7 +165,7 @@ impl<'top> TextBufferView<'top> {
         TextBufferView {
             data: &self.data[offset..],
             offset: self.offset + offset,
-            allocator: self.allocator,
+            context: self.context,
         }
     }
 
@@ -367,7 +367,7 @@ impl<'top> TextBufferView<'top> {
         self,
     ) -> IonParseResult<'top, Option<LazyRawValueExpr<'top, TextEncoding_1_1>>> {
         whitespace_and_then(alt((
-            Self::match_e_expression.map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
+            Self::match_e_expression.map(|matched| Some(RawValueExpr::EExp(matched))),
             value(None, tag(")")),
             pair(
                 opt(Self::match_annotations),
@@ -641,19 +641,19 @@ impl<'top> TextBufferView<'top> {
             map(Self::match_list, |_matched_list| {
                 // TODO: Cache child expressions found in 1.0 list
                 let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
+                    bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::List(not_yet_used_in_1_0))
             }),
             map(Self::match_sexp, |_matched_sexp| {
                 // TODO: Cache child expressions found in 1.0 sexp
                 let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
+                    bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::SExp(not_yet_used_in_1_0))
             }),
             map(Self::match_struct, |_matched_struct| {
                 // TODO: Cache child expressions found in 1.0 struct
                 let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(self.allocator).into_bump_slice();
+                    bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
             }),
         )))
@@ -776,22 +776,26 @@ impl<'top> TextBufferView<'top> {
         // Scan ahead to find the end of this list.
         let list_body = self.slice_to_end(1);
         let sequence_iter = RawTextListIterator_1_1::new(list_body);
-        let (span, child_exprs) =
-            match TextListSpanFinder_1_1::new(self.allocator, sequence_iter).find_span() {
-                Ok((span, child_exprs)) => (span, child_exprs),
-                // If the complete container isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
-                // If invalid syntax was encountered, return a failure to prevent nom from trying
-                // other parser kinds.
-                Err(e) => {
-                    return {
-                        let error = InvalidInputError::new(self)
-                            .with_label("matching a v1.1 list")
-                            .with_description(format!("{}", e));
-                        Err(nom::Err::Failure(IonParseError::Invalid(error)))
-                    }
+        let (span, child_exprs) = match TextListSpanFinder_1_1::new(
+            self.context.allocator(),
+            sequence_iter,
+        )
+        .find_span()
+        {
+            Ok((span, child_exprs)) => (span, child_exprs),
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a v1.1 list")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
                 }
-            };
+            }
+        };
 
         // For the matched span, we use `self` again to include the opening `[`
         let matched = self.slice(0, span.len());
@@ -817,7 +821,7 @@ impl<'top> TextBufferView<'top> {
         let sexp_body = self.slice_to_end(1);
         let sexp_iter = RawTextSExpIterator_1_1::new(sexp_body);
         let (span, child_expr_cache) =
-            match TextSExpSpanFinder_1_1::new(self.allocator, sexp_iter).find_span(1) {
+            match TextSExpSpanFinder_1_1::new(self.context.allocator(), sexp_iter).find_span(1) {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
                 // If the complete container isn't available, return an incomplete.
                 Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
@@ -871,7 +875,7 @@ impl<'top> TextBufferView<'top> {
                 Self::match_e_expression,
                 Self::match_delimiter_after_list_value,
             )
-            .map(|matched| Some(RawValueExpr::MacroInvocation(matched))),
+            .map(|matched| Some(RawValueExpr::EExp(matched))),
             value(None, tag("]")),
             terminated(
                 Self::match_annotated_value_1_1.map(Some),
@@ -975,22 +979,26 @@ impl<'top> TextBufferView<'top> {
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
         let struct_iter = RawTextStructIterator_1_1::new(struct_body);
-        let (span, fields) =
-            match TextStructSpanFinder_1_1::new(self.allocator, struct_iter).find_span() {
-                Ok((span, fields)) => (span, fields),
-                // If the complete container isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
-                // If invalid syntax was encountered, return a failure to prevent nom from trying
-                // other parser kinds.
-                Err(e) => {
-                    return {
-                        let error = InvalidInputError::new(self)
-                            .with_label("matching a v1.1 struct")
-                            .with_description(format!("{}", e));
-                        Err(nom::Err::Failure(IonParseError::Invalid(error)))
-                    }
+        let (span, fields) = match TextStructSpanFinder_1_1::new(
+            self.context.allocator(),
+            struct_iter,
+        )
+        .find_span()
+        {
+            Ok((span, fields)) => (span, fields),
+            // If the complete container isn't available, return an incomplete.
+            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            // If invalid syntax was encountered, return a failure to prevent nom from trying
+            // other parser kinds.
+            Err(e) => {
+                return {
+                    let error = InvalidInputError::new(self)
+                        .with_label("matching a v1.1 struct")
+                        .with_description(format!("{}", e));
+                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
                 }
-            };
+            }
+        };
 
         // For the matched span, we use `self` again to include the opening `{`
         let matched = self.slice(0, span.len());
@@ -1017,26 +1025,27 @@ impl<'top> TextBufferView<'top> {
         // we tell the iterator how many bytes comprised the head of the expression: two bytes
         // for `(:` plus the length of the macro ID.
         let initial_bytes_skipped = 2 + macro_id_bytes.len();
-        let (span, child_expr_cache) = match TextSExpSpanFinder_1_1::new(self.allocator, sexp_iter)
-            .find_span(initial_bytes_skipped)
-        {
-            Ok((span, child_expr_cache)) => (span, child_expr_cache),
-            // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
-            // If invalid syntax was encountered, return a failure to prevent nom from trying
-            // other parser kinds.
-            Err(e) => {
-                return {
-                    let error = InvalidInputError::new(self)
-                        .with_label(format!(
-                            "matching an e-expression invoking macro {}",
-                            macro_name
-                        ))
-                        .with_description(format!("{}", e));
-                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+        let (span, child_expr_cache) =
+            match TextSExpSpanFinder_1_1::new(self.context.allocator(), sexp_iter)
+                .find_span(initial_bytes_skipped)
+            {
+                Ok((span, child_expr_cache)) => (span, child_expr_cache),
+                // If the complete container isn't available, return an incomplete.
+                Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+                // If invalid syntax was encountered, return a failure to prevent nom from trying
+                // other parser kinds.
+                Err(e) => {
+                    return {
+                        let error = InvalidInputError::new(self)
+                            .with_label(format!(
+                                "matching an e-expression invoking macro {}",
+                                macro_name
+                            ))
+                            .with_description(format!("{}", e));
+                        Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                    }
                 }
-            }
-        };
+            };
         // For the matched span, we use `self` again to include the opening `(:`
         let matched = self.slice(0, span.len());
         let remaining = self.slice_to_end(span.len());
@@ -2014,9 +2023,9 @@ impl<'data> nom::InputTake for TextBufferView<'data> {
 
     fn take_split(&self, count: usize) -> (Self, Self) {
         let (before, after) = self.data.split_at(count);
-        let buffer_before = TextBufferView::new_with_offset(self.allocator, before, self.offset());
+        let buffer_before = TextBufferView::new_with_offset(self.context, before, self.offset());
         let buffer_after =
-            TextBufferView::new_with_offset(self.allocator, after, self.offset() + count);
+            TextBufferView::new_with_offset(self.context, after, self.offset() + count);
         // Nom's convention is to place the remaining portion of the buffer first, which leads to
         // a potentially surprising reversed tuple order.
         (buffer_after, buffer_before)
@@ -2220,6 +2229,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::lazy::expanded::EncodingContext;
     use rstest::rstest;
 
     use super::*;
@@ -2227,7 +2237,7 @@ mod tests {
     /// Stores an input string that can be tested against a given parser.
     struct MatchTest {
         input: String,
-        allocator: BumpAllocator,
+        context: EncodingContextRef<'static>,
     }
 
     impl MatchTest {
@@ -2236,7 +2246,9 @@ mod tests {
         fn new(input: &str) -> Self {
             MatchTest {
                 input: input.to_string(),
-                allocator: BumpAllocator::new(),
+                // This uses `leak` to get an `EncodingContextRef` with a `static` lifetime
+                // for the sake of unit test simplicity.
+                context: EncodingContextRef::new(Box::leak(Box::new(EncodingContext::empty()))),
             }
         }
 
@@ -2244,7 +2256,7 @@ mod tests {
         where
             P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
         {
-            let buffer = TextBufferView::new(&self.allocator, self.input.as_bytes());
+            let buffer = TextBufferView::new(self.context, self.input.as_bytes());
             match_length(parser).parse(buffer)
         }
 
@@ -2890,8 +2902,9 @@ mod tests {
     }
 
     fn test_match_text_until_unescaped_str() {
-        let allocator = BumpAllocator::new();
-        let input = TextBufferView::new(&allocator, r" foo bar \''' baz''' quux ".as_bytes());
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
+        let input = TextBufferView::new(context, r" foo bar \''' baz''' quux ".as_bytes());
         let (_remaining, (matched, contains_escapes)) =
             input.match_text_until_unescaped_str(r#"'''"#).unwrap();
         assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");

@@ -267,7 +267,7 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_struct.annotations(),
-            symbol_table: self.expanded_struct.context.symbol_table,
+            symbol_table: self.expanded_struct.context.symbol_table(),
         }
     }
 }

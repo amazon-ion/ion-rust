@@ -100,6 +100,7 @@ mod tests {
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
+    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
@@ -263,9 +264,10 @@ mod tests {
         println!("{encoded_text}");
 
         let mut reader = LazyRawTextReader_1_1::new(encoded_text.as_bytes());
-        let bump = bumpalo::Bump::new();
-        let _marker = reader.next(&bump)?.expect_ivm()?;
-        let eexp = reader.next(&bump)?.expect_macro_invocation()?;
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
+        let _marker = reader.next(context)?.expect_ivm()?;
+        let eexp = reader.next(context)?.expect_macro_invocation()?;
         assert_eq!(MacroIdRef::LocalName("foo"), eexp.id());
         let mut args = eexp.raw_arguments();
         let int_arg = args.next().unwrap()?.expect_value()?.read()?.expect_int()?;

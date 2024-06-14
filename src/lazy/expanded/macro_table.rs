@@ -59,7 +59,7 @@ impl<'top> MacroRef<'top> {
 
 /// Allows callers to resolve a macro ID (that is: name or address) to a [`MacroKind`], confirming
 /// its validity and allowing evaluation to begin.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MacroTable {
     macros_by_address: Vec<MacroKind>,
     // Maps names to an address that can be used to query the Vec above.
@@ -83,6 +83,10 @@ impl MacroTable {
             macros_by_address: macros_by_id,
             macros_by_name,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.macros_by_address.len()
     }
 
     pub fn macro_with_id(&'_ self, id: MacroIdRef<'_>) -> Option<MacroRef<'_>> {

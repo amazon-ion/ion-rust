@@ -100,7 +100,7 @@ impl<'top, D: Decoder> LazyExpandedFieldName<'top, D> {
             LazyExpandedFieldName::RawName(context, name) => match name.read()? {
                 RawSymbolRef::Text(text) => Ok(text.into()),
                 RawSymbolRef::SymbolId(sid) => context
-                    .symbol_table
+                    .symbol_table()
                     .symbol_for(sid)
                     .map(AsSymbolRef::as_symbol_ref)
                     .ok_or_else(|| {
@@ -237,7 +237,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
     }
 
     pub fn bump_iter(&self) -> &'top mut ExpandedStructIterator<'top, D> {
-        self.context.allocator.alloc_with(|| self.iter())
+        self.context.allocator().alloc_with(|| self.iter())
     }
 
     pub fn find(&self, name: &str) -> IonResult<Option<LazyExpandedValue<'top, D>>> {

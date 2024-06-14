@@ -131,11 +131,11 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
-        self.expanding_reader.context().symbol_table
+        self.expanding_reader.context().symbol_table()
     }
 
     pub fn pending_symtab_changes(&self) -> &PendingLst {
-        self.expanding_reader.pending_symtab_changes()
+        self.expanding_reader.pending_lst()
     }
 
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a

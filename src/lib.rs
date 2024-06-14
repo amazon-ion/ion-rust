@@ -186,7 +186,7 @@ pub(crate) mod unsafe_helpers;
 
 #[cfg(feature = "experimental-ion-hash")]
 pub mod ion_hash;
-mod lazy;
+pub(crate) mod lazy;
 mod write_config;
 
 pub use crate::lazy::any_encoding::AnyEncoding;
