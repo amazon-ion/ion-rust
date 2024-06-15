@@ -67,7 +67,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         // Erase the IVM that's created by default
         data_writer.output_mut().clear();
         // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
-        let symbol_table = SymbolTable::new(E::instance().encoding().version());
+        let ion_version = E::ion_version();
+        let symbol_table = SymbolTable::new(ion_version);
         let encoding_context = WriteContext::new(
             symbol_table,
             E::DEFAULT_SYMBOL_CREATION_POLICY,
@@ -130,8 +131,30 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             ..
         } = self;
 
-        let num_existing_symbols = encoding_context.symbol_table.len();
         let num_pending_symbols = encoding_context.num_pending_symbols;
+        let num_existing_symbols = encoding_context.symbol_table.len() - num_pending_symbols;
+
+        let new_symbols_text = encoding_context
+            .symbol_table
+            .symbols_tail(num_pending_symbols)
+            .iter()
+            .enumerate()
+            .map(|(id, symbol)| format!("/* ${} = */ {symbol}", id + num_existing_symbols))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let current_symbols = encoding_context
+            .symbol_table
+            .symbols()
+            .iter()
+            .take(num_existing_symbols)
+            .enumerate()
+            .map(|(id, symbol)| format!("/* ${id} = */ {symbol}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        println!("symbol table:\n{current_symbols}",);
+        println!("Appending #{num_pending_symbols} ->\n{new_symbols_text}");
 
         let mut lst = directive_writer
             .value_writer()
@@ -145,7 +168,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
         let pending_symbols = encoding_context
             .symbol_table
-            .symbols_tail(num_existing_symbols - num_pending_symbols)
+            .symbols_tail(num_pending_symbols)
             .iter()
             .map(Symbol::text);
 

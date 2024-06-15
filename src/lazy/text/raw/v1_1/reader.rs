@@ -12,7 +12,6 @@ use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
-    RawVersionMarker,
 };
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
@@ -739,6 +738,7 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
 mod tests {
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;
+    use crate::RawVersionMarker;
 
     use super::*;
 

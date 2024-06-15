@@ -11,7 +11,10 @@ mod benchmark {
 #[cfg(feature = "experimental")]
 mod benchmark {
     use criterion::{black_box, Criterion};
-    use ion_rs::{v1_0, v1_1, ElementReader, Encoding, IonData, Reader, WriteConfig};
+    use ion_rs::v1_1::RawBinaryWriter;
+    use ion_rs::{
+        v1_0, v1_1, ElementReader, Encoding, IonData, Reader, SequenceWriter, WriteConfig,
+    };
     use ion_rs::{Decoder, Element, IonResult, LazyStruct, LazyValue, ValueRef};
 
     fn rewrite_as<E: Encoding>(
@@ -56,7 +59,7 @@ mod benchmark {
         Ok(count)
     }
 
-    pub fn criterion_benchmark(c: &mut Criterion) {
+    pub fn criterion_benchmark(c: &mut Criterion) -> IonResult<()> {
         const NUM_VALUES: usize = 10_000;
         let pretty_data_1_0 = r#"{
             'timestamp': 1670446800245,
@@ -69,7 +72,7 @@ mod benchmark {
         }"#.repeat(NUM_VALUES);
         let text_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Text).unwrap();
         let binary_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Binary).unwrap();
-        let template_text = r#"
+        let template_definition_text = r#"
             (macro event (timestamp thread_id thread_name client_num host_id parameters)
                 {
                     'timestamp': timestamp,
@@ -89,23 +92,61 @@ mod benchmark {
         "#;
 
         let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (:values "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
+        fn write_binary_1_1_data() -> IonResult<Vec<u8>> {
+            let mut writer = RawBinaryWriter::new(Vec::new())?;
+            // TODO: tagless encodings
+            for _ in 0..NUM_VALUES {
+                let mut eexp = writer.eexp_writer(3)?;
+                eexp.write(1670446800245i64)?
+                    .write(418)?
+                    .write("6")?
+                    .write("1")?
+                    .write("18b4fa")?;
+                let mut nested_eexp = eexp.eexp_writer(1)?;
+                nested_eexp
+                    .write("region 4")?
+                    .write("2022-12-07T20:59:59.744000Z")?;
+                nested_eexp.close()?;
+                eexp.close()?;
+            }
+            writer.close()
+        }
+
+        let binary_1_1_data = write_binary_1_1_data()?;
 
         println!("Bin  Ion 1.0 data size: {} bytes", binary_1_0_data.len());
+        println!("Bin  Ion 1.1 data size: {} bytes", binary_1_1_data.len());
         println!("Text Ion 1.0 data size: {} bytes", text_1_0_data.len());
         println!("Text Ion 1.1 data size: {} bytes", text_1_1_data.len());
 
         // As a sanity check, materialize the data from both the Ion 1.0 and 1.1 streams and make sure
         // that they are equivalent before we start measuring the time needed to read them.
+        // Here we load the text_1_0 data.
         let seq_1_0 = Reader::new(v1_1::Text, text_1_0_data.as_slice())
             .unwrap()
             .read_all_elements()
             .unwrap();
-        let mut reader_1_1 = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
-        reader_1_1.register_template(template_text).unwrap();
+
+        // === Binary equivalence check ===
+        let mut reader_1_1 = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
+        reader_1_1
+            .register_template(template_definition_text)
+            .unwrap();
         let seq_1_1 = reader_1_1.read_all_elements().unwrap();
         assert!(
             IonData::eq(&seq_1_0, &seq_1_1),
-            "Ion 1.0 sequence was not equal to the Ion 1.1 sequence"
+            "Binary Ion 1.1 sequence was not equal to the original Ion 1.0 sequence"
+        );
+
+        // === Text equivalence check ===
+        let mut reader_1_1 = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
+        reader_1_1
+            .register_template(template_definition_text)
+            .unwrap();
+        let seq_1_1 = reader_1_1.read_all_elements().unwrap();
+        assert!(
+            IonData::eq(&seq_1_0, &seq_1_1),
+            "Text Ion 1.1 sequence was not equal to the original Ion 1.0 sequence"
         );
 
         let mut binary_1_0_group = c.benchmark_group("binary 1.0");
@@ -166,7 +207,7 @@ mod benchmark {
         text_1_1_group.bench_function("scan all", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
-                reader.register_template(template_text).unwrap();
+                reader.register_template(template_definition_text).unwrap();
                 while let Some(item) = reader.next().unwrap() {
                     black_box(item);
                 }
@@ -175,7 +216,7 @@ mod benchmark {
         text_1_1_group.bench_function("read all", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
-                reader.register_template(template_text).unwrap();
+                reader.register_template(template_definition_text).unwrap();
                 let mut num_values = 0usize;
                 while let Some(item) = reader.next().unwrap() {
                     num_values += count_value_and_children(&item).unwrap();
@@ -186,7 +227,7 @@ mod benchmark {
         text_1_1_group.bench_function("read 'format' field", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
-                reader.register_template(template_text).unwrap();
+                reader.register_template(template_definition_text).unwrap();
                 let mut num_values = 0usize;
                 while let Some(value) = reader.next().unwrap() {
                     let s = value.read().unwrap().expect_struct().unwrap();
@@ -197,6 +238,7 @@ mod benchmark {
             })
         });
         text_1_1_group.finish();
+        Ok(())
     }
 }
 

@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::decoder::{LazyRawReader, RawVersionMarker};
+use crate::lazy::decoder::LazyRawReader;
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
@@ -125,7 +125,7 @@ mod tests {
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::raw_symbol_ref::AsRawSymbolRef;
-    use crate::{Decimal, IonType, RawSymbolRef, Timestamp};
+    use crate::{Decimal, IonType, RawSymbolRef, RawVersionMarker, Timestamp};
 
     use super::*;
 

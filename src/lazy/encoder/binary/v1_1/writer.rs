@@ -13,7 +13,7 @@ use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::Encoding;
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref};
 use crate::write_config::{WriteConfig, WriteConfigKind};
-use crate::IonResult;
+use crate::{IonEncoding, IonResult};
 
 /// A "raw"-level streaming binary Ion 1.1 writer. This writer does not provide encoding module
 /// management; symbol- and macro- related operations require the caller to perform their own
@@ -146,6 +146,15 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
 
     fn output_mut(&mut self) -> &mut W {
         &mut self.output
+    }
+
+    fn write_version_marker(&mut self) -> IonResult<()> {
+        self.output.write_all(&[0xE0, 0x01, 0x01, 0xEA])?;
+        Ok(())
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_1
     }
 }
 

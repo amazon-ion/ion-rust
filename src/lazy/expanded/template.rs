@@ -20,19 +20,22 @@ use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Tim
 pub struct Parameter {
     name: String,
     encoding: ParameterEncoding,
-    // TODO: Grouping
+    cardinality: ParameterCardinality,
 }
 
 impl Parameter {
-    pub fn new(name: String, encoding: ParameterEncoding) -> Self {
-        Self { name, encoding }
+    pub fn new(name: String, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> Self {
+        Self { name, encoding, cardinality }
     }
 
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
-    pub fn encoding(&self) -> &ParameterEncoding {
-        &self.encoding
+    pub fn encoding(&self) -> ParameterEncoding {
+        self.encoding
+    }
+    pub fn cardinality(&self) -> ParameterCardinality {
+        self.cardinality
     }
 }
 
@@ -44,6 +47,14 @@ pub enum ParameterEncoding {
     // TODO: tagless types, including fixed-width types and macros
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ParameterCardinality {
+    ExactlyOne,        // !
+    ZeroOrOne,  // ?
+    ZeroOrMore, // *
+    OneOrMore,  // +
+}
+
 /// The sequence of parameters for which callers must pass expressions when invoking the macro.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MacroSignature {
@@ -51,11 +62,8 @@ pub struct MacroSignature {
 }
 
 impl MacroSignature {
-    fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding) -> Self {
-        self.parameters.push(Parameter {
-            name: name.into(),
-            encoding,
-        });
+    fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> Self {
+        self.parameters.push(Parameter::new(name.into(), encoding, cardinality));
         self
     }
 

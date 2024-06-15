@@ -5,7 +5,7 @@ use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_table::MacroTable;
-use crate::lazy::expanded::{ExpandedValueRef, ExpandingReader, LazyExpandedValue};
+use crate::lazy::expanded::{ExpandingReader, LazyExpandedValue};
 use crate::lazy::sequence::SExpIterator;
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
@@ -13,7 +13,7 @@ use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, Catalog, Int, IonError, IonResult, IonType, LazyExpandedField, LazySExp,
+    AnyEncoding, Catalog, Int, IonError, IonResult, IonType, LazyField, LazySExp, LazyStruct,
     RawSymbolRef, Symbol, SymbolTable, ValueRef,
 };
 use std::ops::Deref;
@@ -86,6 +86,7 @@ pub struct SystemReader<Encoding: Decoder, Input: IonInput> {
 // the table defines in this structure so that they may be applied when the reader next advances.
 #[derive(Default)]
 pub struct PendingContextChanges {
+    pub(crate) switch_to_version: Option<IonVersion>,
     pub(crate) has_changes: bool,
     pub(crate) is_lst_append: bool,
     pub(crate) imported_symbols: Vec<Symbol>,
@@ -98,6 +99,7 @@ pub struct PendingContextChanges {
 impl PendingContextChanges {
     pub fn new() -> Self {
         Self {
+            switch_to_version: None,
             has_changes: false,
             is_lst_append: false,
             symbols: Vec::new(),
@@ -139,13 +141,14 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     /// `$ion_symbol_table`. Caller is responsible for confirming the struct appeared at the top
     /// level.
     pub(crate) fn is_symbol_table_struct(
-        lazy_value: &'_ LazyExpandedValue<'_, Encoding>,
+        expanded_value: &'_ LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<bool> {
+        let lazy_value = LazyValue::new(*expanded_value);
         if lazy_value.ion_type() != IonType::Struct {
             return Ok(false);
         }
         if let Some(symbol_ref) = lazy_value.annotations().next() {
-            return Ok(symbol_ref?.matches_sid_or_text(3, "$ion_symbol_table"));
+            return Ok(symbol_ref? == "$ion_symbol_table");
         };
         Ok(false)
     }
@@ -408,28 +411,41 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
         // We're interested in the `imports` field and the `symbols` field. Both are optional;
         // however, it is illegal to specify either field more than once.
-        let mut imports_field: Option<LazyExpandedField<Encoding>> = None;
-        let mut symbols_field: Option<LazyExpandedField<Encoding>> = None;
+        let mut imports_field: Option<LazyField<Encoding>> = None;
+        let mut symbols_field: Option<LazyField<Encoding>> = None;
+
+        let symbol_table = LazyStruct {
+            expanded_struct: symbol_table,
+        };
 
         // Iterate through the fields of the symbol table struct, taking note of `imports` and `symbols`
         // if we encounter them.
         for field_result in symbol_table.iter() {
             let field = field_result?;
-            if field.name().read_raw()?.matches_sid_or_text(6, "imports") {
-                if imports_field.is_some() {
-                    return IonResult::decoding_error(
-                        "found symbol table with multiple 'imports' fields",
-                    );
+            let Some(name) = field.name()?.text() else {
+                // If the field is $0, we don't care about it.
+                continue;
+            };
+            match name {
+                "imports" => {
+                    if imports_field.is_some() {
+                        return IonResult::decoding_error(
+                            "found symbol table with multiple 'imports' fields",
+                        );
+                    }
+                    imports_field = Some(field);
                 }
-                imports_field = Some(field);
-            } else if field.name().read_raw()?.matches_sid_or_text(7, "symbols") {
-                if symbols_field.is_some() {
-                    return IonResult::decoding_error(
-                        "found symbol table with multiple 'symbols' fields",
-                    );
+                "symbols" => {
+                    if symbols_field.is_some() {
+                        return IonResult::decoding_error(
+                            "found symbol table with multiple 'symbols' fields",
+                        );
+                    }
+                    symbols_field = Some(field);
                 }
-                symbols_field = Some(field);
-            }
+                // Other fields are ignored
+                _ => {}
+            };
         }
 
         if let Some(imports_field) = imports_field {
@@ -446,12 +462,11 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     fn clear_pending_lst_if_needed(
         pending_lst: &mut PendingContextChanges,
-        imports_value: LazyExpandedValue<'_, Encoding>,
+        imports_value: LazyValue<'_, Encoding>,
     ) -> IonResult<()> {
         match imports_value.read()? {
             // If this is an LST append, there's nothing to do.
-            ExpandedValueRef::Symbol(raw_symbol)
-                if raw_symbol.matches_sid_or_text(3, "$ion_symbol_table") => {}
+            ValueRef::Symbol(symbol) if symbol == "$ion_symbol_table" => {}
             // If this is NOT an LST append, it will eventually cause the SymbolTable to reset.
             // However, at this point in the processing the PendingLst may have symbols that have
             // not yet made it to the SymbolTable. This can happen when a single top-level e-expression
@@ -479,11 +494,11 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     // Store any strings defined in the `symbols` field in the `PendingLst` for future application.
     fn process_symbols(
         pending_lst: &mut PendingContextChanges,
-        symbols: LazyExpandedValue<'_, Encoding>,
+        symbols: LazyValue<'_, Encoding>,
     ) -> IonResult<()> {
-        if let ExpandedValueRef::List(list) = symbols.read()? {
+        if let ValueRef::List(list) = symbols.read()? {
             for symbol_text_result in list.iter() {
-                if let ExpandedValueRef::String(str_ref) = symbol_text_result?.read()? {
+                if let ValueRef::String(str_ref) = symbol_text_result?.read()? {
                     pending_lst
                         .symbols
                         .push(Symbol::shared(Arc::from(str_ref.deref())))
@@ -503,29 +518,27 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     fn process_imports(
         pending_lst: &mut PendingContextChanges,
         catalog: &dyn Catalog,
-        imports: LazyExpandedValue<'_, Encoding>,
+        imports: LazyValue<'_, Encoding>,
     ) -> IonResult<()> {
         match imports.read()? {
-            ExpandedValueRef::Symbol(symbol_ref) => {
-                if symbol_ref.matches_sid_or_text(3, "$ion_symbol_table") {
-                    pending_lst.is_lst_append = true;
-                }
-                // Any other symbol is ignored
+            // Any symbol other than `$ion_symbol_table` is ignored.
+            ValueRef::Symbol(symbol_ref) if symbol_ref == "$ion_symbol_table" => {
+                pending_lst.is_lst_append = true;
             }
-            ExpandedValueRef::List(list) => {
+            ValueRef::List(list) => {
                 for value in list.iter() {
-                    let ExpandedValueRef::Struct(import) = value?.read()? else {
+                    let ValueRef::Struct(import) = value?.read()? else {
                         // If there's a value in the imports list that isn't a struct, it's malformed.
                         // Ignore that value.
                         continue;
                     };
                     let name = match import.get("name")? {
                         // If `name` is missing, a non-string, or the empty string, ignore this import.
-                        Some(ExpandedValueRef::String(s)) if !s.is_empty() => s,
+                        Some(ValueRef::String(s)) if !s.is_empty() => s,
                         _ => continue,
                     };
                     let version: usize = match import.get("version")? {
-                        Some(ExpandedValueRef::Int(i)) if i > Int::ZERO => usize::try_from(i)
+                        Some(ValueRef::Int(i)) if i > Int::ZERO => usize::try_from(i)
                             .map_err(|_|
                             IonError::decoding_error(format!("found a symbol table import (name='{name}') with a version number too high to support: {i}")),
                         ),
@@ -542,12 +555,13 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     };
 
                     let max_id = match import.get("max_id")? {
-                        Some(ExpandedValueRef::Int(i)) if i >= Int::ZERO => usize::try_from(i)
-                            .map_err(|_| {
+                        Some(ValueRef::Int(i)) if i >= Int::ZERO => {
+                            usize::try_from(i).map_err(|_| {
                                 IonError::decoding_error(
                                     "found a `max_id` beyond the range of usize",
                                 )
-                            })?,
+                            })?
+                        }
                         // If the max_id is unspecified, negative, or an invalid data type, we'll import all of the symbols from the requested table.
                         _ => shared_table.symbols().len(),
                     };
@@ -1048,9 +1062,8 @@ mod tests {
             .expect("this directive defines a new active module");
         let new_symbol_table = pending_changes.symbol_table();
         assert_eq!(
-            new_symbol_table.symbols(),
+            new_symbol_table.symbols_tail(3),
             &[
-                Symbol::unknown_text(),
                 Symbol::from("foo"),
                 Symbol::from("bar"),
                 Symbol::from("baz")

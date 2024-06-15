@@ -18,7 +18,7 @@ pub struct LazyRawBinaryReader_1_1<'data> {
 }
 
 impl<'data> LazyRawBinaryReader_1_1<'data> {
-    fn new(input: &'data [u8]) -> Self {
+    pub(crate) fn new(input: &'data [u8]) -> Self {
         Self::new_with_offset(input, 0)
     }
 

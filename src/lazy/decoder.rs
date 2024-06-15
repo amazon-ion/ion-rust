@@ -1,16 +1,20 @@
 use std::fmt::Debug;
+use std::io::Write;
 use std::ops::Range;
 
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
+use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
+use crate::lazy::encoder::write_as_ion::{WriteableEExp, WriteableRawValue};
 use crate::lazy::encoding::{BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{Catalog, IonResult, IonType, RawSymbolRef};
+use crate::{v1_1, Catalog, IonResult, IonType, LazyRawWriter, RawSymbolRef};
 
 pub trait HasSpan<'top>: HasRange {
     fn span(&self) -> Span<'top>;
@@ -435,6 +439,61 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// * When an IVM is encountered, the Ion version reported afterward can be different but the
     ///   format (text vs binary) will remain the same.
     fn encoding(&self) -> IonEncoding;
+}
+
+pub trait TranscribeFromRawBinary<W: Write> {
+    type Encoding: Decoder;
+    type BinaryReader<'a>: LazyRawReader<'a, Self::Encoding>
+    where
+        W: 'a,
+        Self: 'a;
+
+    fn transcribe<'a>(&mut self, reader: &mut Self::BinaryReader<'a>) -> IonResult<()>
+    where
+        W: 'a;
+}
+
+impl<W: Write> TranscribeFromRawBinary<W> for LazyRawTextWriter_1_1<W> {
+    type Encoding = v1_1::Binary;
+    type BinaryReader<'a> = LazyRawBinaryReader_1_1<'a> where Self: 'a;
+
+    fn transcribe<'a>(&mut self, reader: &mut Self::BinaryReader<'a>) -> IonResult<()>
+    where
+        W: 'a,
+    {
+        use crate::lazy::encoder::value_writer::SequenceWriter;
+        const FLUSH_EVERY_N: usize = 100;
+        let encoding_context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let context_ref = encoding_context.get_ref();
+        let mut item_number: usize = 0;
+        loop {
+            let item = reader.next(context_ref)?;
+            use crate::RawStreamItem::*;
+            match item {
+                VersionMarker(_m) if item_number == 0 => {
+                    // The writer automatically emits an IVM at the head of the output.
+                }
+                VersionMarker(_m) => {
+                    // If the reader surfaces another IVM, write a matching one in the output.
+                    self.write_version_marker()?
+                }
+                Value(v) => {
+                    self.write(WriteableRawValue::new(v))?;
+                }
+                EExpression(e) => {
+                    self.write(WriteableEExp::new(e))?;
+                }
+                EndOfStream(_) => {
+                    self.flush()?;
+                    return Ok(());
+                }
+            }
+            item_number += 1;
+            if item_number % FLUSH_EVERY_N == 0 {
+                self.flush()?;
+            }
+        }
+    }
 }
 
 pub trait LazyRawContainer<'top, D: Decoder> {

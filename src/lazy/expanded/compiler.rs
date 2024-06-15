@@ -5,9 +5,9 @@ use std::ops::Range;
 
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::template::{
-    ExprRange, MacroSignature, Parameter, ParameterEncoding, TemplateBody, TemplateBodyElement,
-    TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro, TemplateStructIndex,
-    TemplateValue,
+    ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding, TemplateBody,
+    TemplateBodyElement, TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro,
+    TemplateStructIndex, TemplateValue,
 };
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
@@ -99,23 +99,58 @@ impl TemplateCompiler {
             }
         };
 
-        let params = values
+        let params_clause = values
             .next()
             .expect("parameters sexp")?
             .read()?
             .expect_sexp()?;
 
         let mut compiled_params = Vec::new();
-        for param_result in &params {
-            let compiled_param = Parameter::new(
-                param_result?
-                    .read()?
-                    .expect_symbol()?
-                    .text()
-                    .unwrap()
-                    .to_string(),
-                ParameterEncoding::Tagged,
-            );
+        // TODO: What does item mean here? doc
+        let mut param_items = params_clause.iter().peekable();
+
+        // TODO: Reuseable function for "Expect labeled symbol with text"
+        while let Some(item) = param_items.next().transpose()? {
+            let name = item
+                .read()?
+                .expect_symbol()?
+                .text()
+                .ok_or_else(|| {
+                    IonError::decoding_error("parameter name symbols must have defined text")
+                })?
+                .to_owned();
+
+            use ParameterCardinality::*;
+            let mut cardinality = ExactlyOne;
+            if let Some(next_item_result) = param_items.peek() {
+                let next_item = match next_item_result {
+                    Ok(item_ref) => *item_ref,
+                    // Because we are borrowing the peek()ed result, we must clone the error
+                    Err(e) => return Err(e.clone()),
+                };
+                let text = next_item.read()?.expect_symbol()?.text().ok_or_else(|| {
+                    IonError::decoding_error("found parameter clause item with unknown text")
+                })?;
+                cardinality = match text {
+                    "!" => ExactlyOne,
+                    "?" => ZeroOrOne,
+                    "*" => ZeroOrMore,
+                    "+" => OneOrMore,
+                    // This doesn't appear to be a cardinality specifier, it's probably a parameter.
+                    // Continue to the next iteration to process it as such.
+                    _ => {
+                        let compiled_param =
+                            Parameter::new(name, ParameterEncoding::Tagged, cardinality);
+                        compiled_params.push(compiled_param);
+                        continue;
+                    }
+                };
+                // If we reach this point, the item was a cardinality specifier and we're done
+                // processing it. We can discard the item and continue on to the next parameter.
+                let _cardinality_specifier = param_items.next().unwrap();
+            }
+
+            let compiled_param = Parameter::new(name, ParameterEncoding::Tagged, cardinality);
             compiled_params.push(compiled_param);
         }
         let signature = MacroSignature::new(compiled_params);

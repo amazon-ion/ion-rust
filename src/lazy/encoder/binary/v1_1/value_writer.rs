@@ -833,17 +833,20 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 #[cfg(test)]
 mod tests {
     use crate::ion_data::IonEq;
+    use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+    use crate::lazy::decoder::TranscribeFromRawBinary;
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
+    use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
     use crate::lazy::encoder::value_writer::ValueWriter;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsSExp};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
-        v1_1, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
-        Writer,
+        v1_1, Decimal, Element, Int, IonResult, IonType, LazyRawWriter, Null, RawSymbolRef,
+        SymbolId, TextFormat, Timestamp, Writer,
     };
     use num_traits::FloatConst;
     use rstest::rstest;
@@ -2949,6 +2952,49 @@ mod tests {
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
         writer.write_all(&original_sequence)?;
         let binary_data_1_1 = writer.close()?;
+        let output_sequence = Element::read_all(binary_data_1_1)?;
+        assert!(
+            original_sequence.ion_eq(&output_sequence),
+            "(original, after roundtrip)\n{}",
+            original_sequence.iter().zip(output_sequence.iter()).fold(
+                String::new(),
+                |mut text, (before, after)| {
+                    use std::fmt::Write;
+                    let is_eq = before.ion_eq(after);
+                    let flag = if is_eq { "" } else { "<- not IonEq" };
+                    writeln!(&mut text, "({}, {}) {}", before, after, flag).unwrap();
+                    text
+                }
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrippingx() -> IonResult<()> {
+        let ion_data_1_0: &str = r#"
+            foo::{}
+            bar::baz::{a: 1, b: 2, c: 3}
+            quux::quuz::waldo::{a: 1, b: nested::{c: 2, d: 3}, e: 4}
+        "#;
+        // This test uses application-level readers and writers to do its roundtripping. This means
+        // that tests involving annotations, symbol values, or struct field names will produce a
+        // symbol table.
+        let original_sequence = Element::read_all(ion_data_1_0)?;
+        println!(
+            "===\n{}",
+            original_sequence.encode_as(v1_1::Text.with_format(TextFormat::Pretty))?
+        );
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        writer.write_all(&original_sequence)?;
+        let binary_data_1_1 = writer.close()?;
+
+        println!("binary data: {binary_data_1_1:0x?}");
+        let mut binary_reader = LazyRawBinaryReader_1_1::new(&binary_data_1_1);
+        let mut text_writer = LazyRawTextWriter_1_1::new(Vec::new())?;
+        text_writer.transcribe(&mut binary_reader).unwrap();
+        let transcribed_text_1_1 = String::from_utf8(text_writer.close()?).expect("utf-8");
+        println!("Transcribed text ===\n{transcribed_text_1_1}\n===");
         let output_sequence = Element::read_all(binary_data_1_1)?;
         assert!(
             original_sequence.ion_eq(&output_sequence),

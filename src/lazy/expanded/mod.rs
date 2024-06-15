@@ -67,7 +67,10 @@ use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
-use crate::{Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp};
+use crate::{
+    Catalog, Decimal, HasRange, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
+    SymbolTable, Timestamp,
+};
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
@@ -111,6 +114,14 @@ impl EncodingContext {
             symbol_table,
             allocator,
         }
+    }
+
+    pub fn for_ion_version(version: IonVersion) -> Self {
+        Self::new(
+            MacroTable::new(),
+            SymbolTable::new(version),
+            BumpAllocator::new(),
+        )
     }
 
     pub fn empty() -> Self {
@@ -334,6 +345,14 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         symbol_table: &mut SymbolTable,
         macro_table: &mut MacroTable,
     ) {
+        if let Some(new_version) = pending_changes.switch_to_version.take() {
+            symbol_table.reset_to_version(new_version);
+            pending_changes.has_changes = false;
+            // If we're switching to a new version, the last stream item was a version marker
+            // and there are no other pending changes. The `take()` above clears the `switch_to_version`.
+            return;
+        }
+
         if let Some(mut module) = pending_changes.take_new_active_module() {
             std::mem::swap(symbol_table, module.symbol_table_mut());
             std::mem::swap(macro_table, module.macro_table_mut());
@@ -392,6 +411,22 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // Otherwise, it's an application value.
         let lazy_value = LazyValue::new(value);
         return Ok(SystemStreamItem::Value(lazy_value));
+    }
+
+    fn interpret_ivm<'top>(
+        &self,
+        marker: <Encoding as Decoder>::VersionMarker<'top>,
+    ) -> IonResult<SystemStreamItem<'top, Encoding>> {
+        let new_version = marker.new_version()?;
+        // If this is the first item in the stream or we're changing versions, we need to ensure
+        // the encoding context is set up for this version.
+        if marker.range().start == 0 || new_version != marker.old_version() {
+            // SAFETY: Version markers do not hold a reference to the symbol table.
+            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+            pending_changes.switch_to_version = Some(new_version);
+            pending_changes.has_changes = true;
+        }
+        Ok(SystemStreamItem::VersionMarker(marker))
     }
 
     /// This method is invoked just before the reader begins reading the next top-level expression
@@ -479,7 +514,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             let raw_reader = unsafe { &mut *self.raw_reader.get() };
             match raw_reader.next(context_ref)? {
                 VersionMarker(marker) => {
-                    return Ok(SystemStreamItem::VersionMarker(marker));
+                    return self.interpret_ivm(marker);
                 }
                 // We got our value; return it.
                 Value(raw_value) => {
