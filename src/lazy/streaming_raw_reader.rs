@@ -157,7 +157,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                         // Text containers and e-expressions have closing delimiters that allow us
                         // to tell that they're complete.
                         Value(v) if v.ion_type().is_container() => {}
-                        EExpression(_eexp) => {}
+                        EExp(_eexp) => {}
                         // IVMs (which look like symbols), scalar values, and the end of the
                         // stream are all cases where the reader looking at a fixed slice of the
                         // buffer may reach the wrong conclusion.

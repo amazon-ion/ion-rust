@@ -185,7 +185,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                 _index,
             ) => {
                 let annotations = template
-                    .body
+                    .body()
                     .annotations_storage()
                     .get(annotations.ops_range())
                     .unwrap();
@@ -218,7 +218,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                         self.context,
                         *environment,
                         *template,
-                        &template.body.expressions[expressions.ops_range()],
+                        &template.body().expressions[expressions.ops_range()],
                     ),
                 )
             }
@@ -267,8 +267,11 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                 //       offer an efficient implementation of 'get last' because that could require
                 //       fully evaluating one or more macros to find the last value.
                 let first_result_address = value_expr_addresses[0];
-                let first_result_expr =
-                    template.body.expressions.get(first_result_address).unwrap();
+                let first_result_expr = template
+                    .body()
+                    .expressions
+                    .get(first_result_address)
+                    .unwrap();
                 match first_result_expr {
                     // If the expression is a value literal, wrap it in a LazyExpandedValue and return it.
                     TemplateBodyValueExpr::Element(element) => {
@@ -590,6 +593,9 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                         // We've pushed the macro invocation onto the evaluator's stack, but further evaluation
                         // is needed to get our next field.
                         Continue(())
+                    }
+                    MacroInvocation(MacroExpr::ArgGroup(_group)) => {
+                        unreachable!("arg group inside a struct")
                     }
                 }
             }

@@ -1,9 +1,47 @@
 use std::collections::HashMap;
 
-use crate::lazy::expanded::template::{TemplateMacro, TemplateMacroRef};
+use crate::lazy::expanded::template::{
+    MacroSignature, Parameter, ParameterCardinality, ParameterEncoding, RestSyntaxPolicy,
+    TemplateBody, TemplateMacro, TemplateMacroRef,
+};
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::IonResult;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Macro {
+    name: Option<String>,
+    signature: MacroSignature,
+    kind: MacroKind,
+}
+
+impl Macro {
+    pub fn named(name: impl Into<String>, signature: MacroSignature, kind: MacroKind) -> Self {
+        Self::new(Some(name.into()), signature, kind)
+    }
+
+    pub fn anonymous(signature: MacroSignature, kind: MacroKind) -> Self {
+        Self::new(None, signature, kind)
+    }
+
+    pub fn new(name: Option<String>, signature: MacroSignature, kind: MacroKind) -> Self {
+        Self {
+            name,
+            signature,
+            kind,
+        }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_ref().map(|s| s.as_str())
+    }
+    pub fn signature(&self) -> &MacroSignature {
+        &self.signature
+    }
+    pub fn kind(&self) -> &MacroKind {
+        &self.kind
+    }
+}
 
 /// The kinds of macros supported by
 /// [`MacroEvaluator`](crate::lazy::expanded::macro_evaluator::MacroEvaluator).
@@ -15,45 +53,43 @@ pub enum MacroKind {
     Void,
     Values,
     MakeString,
-    Template(TemplateMacro),
-}
-
-impl MacroKind {
-    fn name(&self) -> &str {
-        match self {
-            MacroKind::Void => "void",
-            MacroKind::Values => "values",
-            MacroKind::MakeString => "make_string",
-            MacroKind::Template(template) => template.name(),
-        }
-    }
+    Template(TemplateBody),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MacroRef<'top> {
     address: MacroAddress,
-    kind: &'top MacroKind,
+    reference: &'top Macro,
 }
 
 impl<'top> MacroRef<'top> {
-    pub fn new(address: MacroAddress, kind: &'top MacroKind) -> Self {
-        Self { address, kind }
+    pub fn new(address: MacroAddress, reference: &'top Macro) -> Self {
+        Self { address, reference }
+    }
+
+    pub fn expect_template(self) -> IonResult<TemplateMacroRef<'top>> {
+        if let MacroKind::Template(body) = &self.kind() {
+            return Ok(TemplateMacroRef::new(self, body));
+        }
+        IonResult::decoding_error(format!(
+            "expected a template macro but found {:?}",
+            self.kind()
+        ))
     }
     pub fn address(&self) -> MacroAddress {
         self.address
     }
-    pub fn kind(&self) -> &'top MacroKind {
-        self.kind
+    pub fn reference(&self) -> &'top Macro {
+        self.reference
     }
-
-    pub fn expect_template(self) -> IonResult<TemplateMacroRef<'top>> {
-        if let MacroKind::Template(template) = &self.kind {
-            return Ok(TemplateMacroRef::new(self.address, template));
-        }
-        IonResult::decoding_error(format!(
-            "expected a template macro but found {:?}",
-            self.kind
-        ))
+    pub fn name(&'top self) -> Option<&'top str> {
+        self.reference.name()
+    }
+    pub fn signature(&'top self) -> &'top MacroSignature {
+        self.reference.signature()
+    }
+    pub fn kind(&self) -> &'top MacroKind {
+        self.reference.kind()
     }
 }
 
@@ -61,7 +97,7 @@ impl<'top> MacroRef<'top> {
 /// its validity and allowing evaluation to begin.
 #[derive(Debug, Clone)]
 pub struct MacroTable {
-    macros_by_address: Vec<MacroKind>,
+    macros_by_address: Vec<Macro>,
     // Maps names to an address that can be used to query the Vec above.
     macros_by_name: HashMap<String, usize>,
 }
@@ -78,10 +114,35 @@ impl MacroTable {
     pub const NUM_SYSTEM_MACROS: usize = Self::SYSTEM_MACRO_KINDS.len();
 
     pub fn new() -> Self {
-        let macros_by_id = vec![MacroKind::Void, MacroKind::Values, MacroKind::MakeString];
+        let macros_by_id = vec![
+            Macro::named("void", MacroSignature::new(vec![]), MacroKind::Void),
+            Macro::named(
+                "values",
+                MacroSignature::new(vec![Parameter::new(
+                    "expr_group",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )]),
+                MacroKind::Values,
+            ),
+            Macro::named(
+                "make_string",
+                MacroSignature::new(vec![Parameter::new(
+                    "expr_group",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )]),
+                MacroKind::MakeString,
+            ),
+        ];
         let mut macros_by_name = HashMap::default();
-        for (id, kind) in macros_by_id.iter().enumerate() {
-            macros_by_name.insert(kind.name().to_string(), id);
+        for (id, mac) in macros_by_id.iter().enumerate() {
+            if let Some(name) = mac.name() {
+                macros_by_name.insert(name.to_owned(), id);
+            }
+            // Anonymous macros are not entered into the macros_by_name lookup table
         }
         Self {
             macros_by_address: macros_by_id,
@@ -93,7 +154,7 @@ impl MacroTable {
         self.macros_by_address.len()
     }
 
-    pub fn macro_with_id<'a, I: Into<MacroIdRef<'a>>>(&'a self, id: I) -> Option<MacroRef<'a>> {
+    pub fn macro_with_id<'a, 'b, I: Into<MacroIdRef<'b>>>(&'a self, id: I) -> Option<MacroRef<'a>> {
         let id = id.into();
         match id {
             MacroIdRef::LocalName(name) => self.macro_with_name(name),
@@ -102,28 +163,37 @@ impl MacroTable {
     }
 
     pub fn macro_at_address(&self, address: usize) -> Option<MacroRef<'_>> {
-        let kind = self.macros_by_address.get(address)?;
-        Some(MacroRef { address, kind })
+        let reference = self.macros_by_address.get(address)?;
+        Some(MacroRef { address, reference })
     }
 
     pub fn address_for_name(&self, name: &str) -> Option<usize> {
         self.macros_by_name.get(name).copied()
     }
 
-    pub fn macro_with_name(&self, name: &str) -> Option<MacroRef<'_>> {
+    pub fn macro_with_name<'a, 'b>(&'a self, name: &'b str) -> Option<MacroRef<'a>> {
         let address = *self.macros_by_name.get(name)?;
-        let kind = self.macros_by_address.get(address)?;
-        Some(MacroRef { address, kind })
+        let reference = self.macros_by_address.get(address)?;
+        Some(MacroRef { address, reference })
     }
 
     pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
-        let name = template.name();
-        if self.macros_by_name.contains_key(name) {
-            return IonResult::decoding_error(format!("macro named '{name}' already exists"));
-        }
         let id = self.macros_by_address.len();
-        self.macros_by_name.insert(name.to_owned(), id);
-        self.macros_by_address.push(MacroKind::Template(template));
+        // If the macro has a name, make sure that name is not already in use and then add it.
+        if let Some(name) = template.name.as_ref().map(|n| n.as_str()) {
+            if self.macros_by_name.contains_key(name) {
+                return IonResult::decoding_error(format!("macro named '{name}' already exists"));
+            }
+            self.macros_by_name.insert(name.to_owned(), id);
+        }
+
+        let new_macro = Macro::new(
+            template.name,
+            template.signature,
+            MacroKind::Template(template.body),
+        );
+
+        self.macros_by_address.push(new_macro);
         Ok(id)
     }
 }

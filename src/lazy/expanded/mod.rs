@@ -522,7 +522,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                     return self.interpret_value(value);
                 }
                 // It's another macro invocation, we'll start evaluating it.
-                EExpression(e_exp) => {
+                EExp(e_exp) => {
                     let context = self.context();
                     let resolved_e_exp = e_exp.resolve(context_ref)?;
                     // Get the current evaluator or make a new one
@@ -642,8 +642,8 @@ impl<'top> TemplateVariableReference<'top> {
         }
     }
 
-    fn name(&self) -> &'top str {
-        self.template.signature.parameters()[self.signature_index()].name()
+    fn name(&self) -> &str {
+        self.template.signature().parameters()[self.signature_index()].name()
     }
 
     fn host_template(&self) -> TemplateMacroRef<'top> {

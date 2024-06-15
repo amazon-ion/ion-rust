@@ -5,9 +5,9 @@ use std::ops::Range;
 
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::template::{
-    ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding, TemplateBody,
-    TemplateBodyElement, TemplateBodyMacroInvocation, TemplateBodyValueExpr, TemplateMacro,
-    TemplateStructIndex, TemplateValue,
+    ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
+    RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateBodyMacroInvocation,
+    TemplateBodyValueExpr, TemplateMacro, TemplateStructIndex, TemplateValue,
 };
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
@@ -109,8 +109,10 @@ impl TemplateCompiler {
         // TODO: What does item mean here? doc
         let mut param_items = params_clause.iter().peekable();
 
+        let mut is_final_parameter = false;
         // TODO: Reuseable function for "Expect labeled symbol with text"
         while let Some(item) = param_items.next().transpose()? {
+            is_final_parameter |= param_items.peek().is_none();
             let name = item
                 .read()?
                 .expect_symbol()?
@@ -136,11 +138,17 @@ impl TemplateCompiler {
                     "?" => ZeroOrOne,
                     "*" => ZeroOrMore,
                     "+" => OneOrMore,
-                    // This doesn't appear to be a cardinality specifier, it's probably a parameter.
-                    // Continue to the next iteration to process it as such.
+                    // The next item doesn't appear to be a cardinality specifier, it's probably a parameter.
+                    // Finish processing this parameter, then move on to the next item.
                     _ => {
-                        let compiled_param =
-                            Parameter::new(name, ParameterEncoding::Tagged, cardinality);
+                        // We know there are more items in the signature, so this isn't the last parameter.
+                        // Therefore, rest syntax is not allowed.
+                        let compiled_param = Parameter::new(
+                            name,
+                            ParameterEncoding::Tagged,
+                            cardinality,
+                            RestSyntaxPolicy::NotAllowed,
+                        );
                         compiled_params.push(compiled_param);
                         continue;
                     }
@@ -148,9 +156,21 @@ impl TemplateCompiler {
                 // If we reach this point, the item was a cardinality specifier and we're done
                 // processing it. We can discard the item and continue on to the next parameter.
                 let _cardinality_specifier = param_items.next().unwrap();
+                is_final_parameter |= param_items.peek().is_none();
             }
 
-            let compiled_param = Parameter::new(name, ParameterEncoding::Tagged, cardinality);
+            let rest_syntax_policy = if is_final_parameter && cardinality != ExactlyOne {
+                RestSyntaxPolicy::Allowed
+            } else {
+                RestSyntaxPolicy::NotAllowed
+            };
+
+            let compiled_param = Parameter::new(
+                name,
+                ParameterEncoding::Tagged,
+                cardinality,
+                rest_syntax_policy,
+            );
             compiled_params.push(compiled_param);
         }
         let signature = MacroSignature::new(compiled_params);

@@ -1,14 +1,62 @@
 //! Types and traits representing an e-expression in an Ion stream.
 #![allow(non_camel_case_types)]
 
-use crate::lazy::decoder::{Decoder, LazyRawValueExpr};
+use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression, ValueExpr};
+use crate::lazy::expanded::macro_evaluator::MacroExpr::EExp;
+use crate::lazy::expanded::macro_evaluator::{
+    EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
+};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue};
+use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::IonResult;
 use std::fmt::{Debug, Formatter};
+
+#[derive(Copy, Clone)]
+pub struct ArgGroup<'top, D: Decoder> {
+    context: EncodingContextRef<'top>,
+    raw_arg_group: <D::EExp<'top> as RawEExpression<'top, D>>::ArgGroup,
+    invoked_macro: MacroRef<'top>,
+}
+
+impl<'top, D: Decoder> ArgGroup<'top, D> {
+    pub fn new(
+        raw_arg_group: <D::EExp<'top> as RawEExpression<'top, D>>::ArgGroup,
+        context: EncodingContextRef<'top>,
+    ) -> Self {
+        // TODO: Fully qualified, unambiguous ID
+        const VALUES_MACRO_ID: MacroIdRef<'static> = MacroIdRef::LocalAddress(1);
+        let invoked_macro = context
+            .macro_table()
+            .macro_with_id(VALUES_MACRO_ID)
+            .expect("`values` must be available");
+        Self {
+            context,
+            raw_arg_group,
+            invoked_macro,
+        }
+    }
+    pub fn context(&self) -> EncodingContextRef<'top> {
+        self.context
+    }
+    pub fn raw_arg_group(&self) -> <D::EExp<'top> as RawEExpression<'top, D>>::ArgGroup {
+        self.raw_arg_group
+    }
+    pub fn invoked_macro(&self) -> MacroRef<'top> {
+        self.invoked_macro
+    }
+    pub fn expressions(&self) -> ArgGroupIterator<'top, D> {
+        ArgGroupIterator::new(self.context, self.raw_arg_group())
+    }
+}
+
+impl<'top, D: Decoder> Debug for ArgGroup<'top, D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ArgGroup {:?}", self.raw_arg_group)
+    }
+}
 
 /// An e-expression (in Ion format `D`) that has been resolved in the current encoding context.
 #[derive(Copy, Clone)]
@@ -78,21 +126,25 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let raw_arg: LazyRawValueExpr<'top, D> = match self.raw_args.next()? {
+        let raw_arg: EExpArg<'top, D> = match self.raw_args.next()? {
             Ok(arg) => arg,
             Err(e) => return Some(Err(e)),
         };
 
-        let expr = match raw_arg {
-            LazyRawValueExpr::<D>::ValueLiteral(value) => {
+        let expr = match *raw_arg.expr() {
+            EExpArgExpr::<D>::ValueLiteral(value) => {
                 ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, value))
             }
-            LazyRawValueExpr::<D>::EExp(raw_invocation) => {
+            EExpArgExpr::<D>::EExp(raw_invocation) => {
                 let invocation = match raw_invocation.resolve(self.context) {
                     Ok(invocation) => invocation,
                     Err(e) => return Some(Err(e)),
                 };
                 ValueExpr::MacroInvocation(invocation.into())
+            }
+            EExpArgExpr::<D>::ArgGroup(group) => {
+                let arg_group = group.resolve(self.context);
+                ValueExpr::MacroInvocation(MacroExpr::ArgGroup(arg_group))
             }
         };
         Some(Ok(expr))
@@ -100,3 +152,44 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
 }
 
 pub type TextEExpression_1_1<'top> = EExpression<'top, TextEncoding_1_1>;
+
+pub struct ArgGroupIterator<'top, D: Decoder> {
+    context: EncodingContextRef<'top>,
+    expressions: <<<D as Decoder>::EExp<'top> as RawEExpression<'top, D>>::ArgGroup as IntoIterator>::IntoIter,
+}
+
+impl<'top, D: Decoder> ArgGroupIterator<'top, D> {
+    pub fn new(
+        context: EncodingContextRef<'top>,
+        arg_group: <<D as Decoder>::EExp<'top> as RawEExpression<'top, D>>::ArgGroup,
+    ) -> Self {
+        Self {
+            context,
+            expressions: arg_group.into_iter(),
+        }
+    }
+}
+
+impl<'top, D: Decoder> Iterator for ArgGroupIterator<'top, D> {
+    type Item = IonResult<ValueExpr<'top, D>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let expr = match self.expressions.next() {
+            None => return None,
+            Some(Err(e)) => return Some(Err(e)),
+            Some(Ok(expr)) => expr,
+        };
+        match expr {
+            RawValueExpr::ValueLiteral(v) => Some(Ok(ValueExpr::ValueLiteral(
+                LazyExpandedValue::from_literal(self.context, v),
+            ))),
+            RawValueExpr::EExp(e) => {
+                let resolved_eexp = match e.resolve(self.context) {
+                    Ok(eexp) => eexp,
+                    Err(e) => return Some(Err(e)),
+                };
+                Some(Ok(ValueExpr::MacroInvocation(EExp(resolved_eexp))))
+            }
+        }
+    }
+}

@@ -27,7 +27,7 @@ use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{LazyRawTextList_1_0, LazyRawTextSExp_1_0};
 use crate::lazy::text::raw::v1_1::reader::{
     LazyRawTextFieldName_1_1, LazyRawTextList_1_1, LazyRawTextReader_1_1, LazyRawTextSExp_1_1,
-    LazyRawTextStruct_1_1, RawTextEExpression_1_1,
+    LazyRawTextStruct_1_1, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
@@ -260,7 +260,7 @@ impl Decoder for TextEncoding_1_1 {
     type Struct<'top> = LazyRawTextStruct_1_1<'top>;
     type FieldName<'top> = LazyRawTextFieldName_1_1<'top>;
     type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
-    type EExp<'top> = RawTextEExpression_1_1<'top>;
+    type EExp<'top> = TextEExpression_1_1<'top>;
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_1<'top>;
 }
 

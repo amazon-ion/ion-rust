@@ -57,7 +57,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     {
         let item = match buffer.peek_sequence_value_expr()? {
             Some(RawValueExpr::ValueLiteral(lazy_value)) => RawStreamItem::Value(lazy_value),
-            Some(RawValueExpr::EExp(eexpr)) => RawStreamItem::EExpression(eexpr),
+            Some(RawValueExpr::EExp(eexpr)) => RawStreamItem::EExp(eexpr),
             None => self.end_of_stream(buffer.offset()),
         };
         let item_range = item.range();

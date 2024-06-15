@@ -13,23 +13,71 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
+use std::ops::Range;
 
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use crate::lazy::decoder::{Decoder, HasSpan, LazyRawValueExpr};
-use crate::lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator};
+use crate::lazy::expanded::e_expression::{
+    ArgGroup, ArgGroupIterator, EExpression, EExpressionArgsIterator,
+};
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    TemplateBodyValueExpr, TemplateBodyVariableReference, TemplateElement, TemplateMacroInvocation,
-    TemplateMacroInvocationArgsIterator, TemplateMacroRef, TemplateValue,
+    ParameterEncoding, TemplateBodyValueExpr, TemplateBodyVariableReference, TemplateElement,
+    TemplateMacroInvocation, TemplateMacroInvocationArgsIterator, TemplateMacroRef, TemplateValue,
 };
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue};
 use crate::lazy::str_ref::StrRef;
+use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, RawSymbolRef};
+use crate::{HasRange, IonError, IonResult, RawSymbolRef, Span};
+
+#[derive(Copy, Clone, Debug)]
+pub struct PlaceholderEExpressionArgGroup<'top, D: Decoder> {
+    spooky: PhantomData<&'top D>,
+}
+
+impl<'top, D: Decoder> IntoIterator for PlaceholderEExpressionArgGroup<'top, D> {
+    type Item = IonResult<LazyRawValueExpr<'top, D>>;
+    type IntoIter = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        todo!()
+    }
+}
+
+impl<'top, D: Decoder> HasRange for PlaceholderEExpressionArgGroup<'top, D> {
+    fn range(&self) -> Range<usize> {
+        todo!()
+    }
+}
+
+impl<'top, D: Decoder> HasSpan<'top> for PlaceholderEExpressionArgGroup<'top, D> {
+    fn span(&self) -> Span<'top> {
+        todo!()
+    }
+}
+
+impl<'top, D: Decoder> EExpressionArgGroup<'top, D> for PlaceholderEExpressionArgGroup<'top, D> {
+    fn encoding(&self) -> ParameterEncoding {
+        todo!()
+    }
+
+    fn resolve(self, _context: EncodingContextRef<'top>) -> ArgGroup<'top, D> {
+        todo!()
+    }
+}
+
+pub trait EExpressionArgGroup<'top, D: Decoder>:
+    HasSpan<'top> + Debug + Copy + Clone + IntoIterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
+{
+    fn encoding(&self) -> ParameterEncoding;
+    fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, D>;
+}
 
 /// The syntactic entity in format `D` that represents an e-expression. This expression has not
 /// yet been resolved in the current encoding context.
@@ -37,9 +85,13 @@ pub trait RawEExpression<'top, D: Decoder<EExp<'top> = Self>>:
     HasSpan<'top> + Debug + Copy + Clone
 {
     /// An iterator that yields the macro invocation's arguments in order.
-    type RawArgumentsIterator<'a>: Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
+    type RawArgumentsIterator<'a>: Iterator<Item = IonResult<EExpArg<'top, D>>>
     where
         Self: 'a;
+
+    /// A type that represents an argument group--several expressions that form a stream
+    /// passed as a single argument.
+    type ArgGroup: EExpressionArgGroup<'top, D>;
 
     /// The macro name or address specified at the head of this macro invocation.
     fn id(&self) -> MacroIdRef<'top>;
@@ -71,6 +123,8 @@ pub enum MacroExpr<'top, D: Decoder> {
     TemplateMacro(TemplateMacroInvocation<'top>),
     /// A macro invocation found in the data stream.
     EExp(EExpression<'top, D>),
+    /// An e-expression argument group. (A `values` call with special encoding.)
+    ArgGroup(ArgGroup<'top, D>),
 }
 
 impl<'top, D: Decoder> MacroExpr<'top, D> {
@@ -78,6 +132,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         match &self {
             MacroExpr::TemplateMacro(m) => m.id(),
             MacroExpr::EExp(e) => e.id(),
+            MacroExpr::ArgGroup(_) => MacroIdRef::LocalAddress(1), // `values`
         }
     }
 
@@ -87,6 +142,9 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
                 MacroExprArgsKind::<'top, D>::Macro(m.arguments(environment))
             }
             MacroExpr::EExp(e) => MacroExprArgsKind::<'top, D>::EExp(e.arguments()),
+            MacroExpr::ArgGroup(group) => {
+                MacroExprArgsKind::<'top, D>::ArgGroup(group.expressions())
+            }
         };
         MacroExprArgsIterator { source: args_kind }
     }
@@ -95,6 +153,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         match &self {
             MacroExpr::TemplateMacro(m) => m.invoked_macro(),
             MacroExpr::EExp(e) => e.invoked_macro(),
+            MacroExpr::ArgGroup(g) => g.invoked_macro(),
         }
     }
 
@@ -102,6 +161,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         match self {
             MacroExpr::TemplateMacro(t) => t.context(),
             MacroExpr::EExp(e) => e.context(),
+            MacroExpr::ArgGroup(g) => g.context(),
         }
     }
 }
@@ -109,6 +169,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
 pub enum MacroExprArgsKind<'top, D: Decoder> {
     Macro(TemplateMacroInvocationArgsIterator<'top, D>),
     EExp(EExpressionArgsIterator<'top, D>),
+    ArgGroup(ArgGroupIterator<'top, D>),
 }
 
 pub struct MacroExprArgsIterator<'top, D: Decoder> {
@@ -122,6 +183,7 @@ impl<'top, D: Decoder> Iterator for MacroExprArgsIterator<'top, D> {
         match &mut self.source {
             MacroExprArgsKind::Macro(m) => m.next(),
             MacroExprArgsKind::EExp(e) => e.next(),
+            MacroExprArgsKind::ArgGroup(g) => g.next(),
         }
     }
 
@@ -129,6 +191,7 @@ impl<'top, D: Decoder> Iterator for MacroExprArgsIterator<'top, D> {
         match &self.source {
             MacroExprArgsKind::Macro(m) => m.size_hint(),
             MacroExprArgsKind::EExp(e) => e.size_hint(),
+            MacroExprArgsKind::ArgGroup(g) => g.size_hint(),
         }
     }
 }
@@ -183,6 +246,7 @@ pub enum ValueExpr<'top, D: Decoder> {
 pub enum MacroExpansionKind<'top, D: Decoder> {
     Void,
     Values(ValuesExpansion<'top, D>),
+    ArgumentGroup(ArgumentGroupExpansion<'top, D>),
     MakeString(MakeStringExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
 }
@@ -205,12 +269,21 @@ impl<'top, D: Decoder> Debug for MacroExpansion<'top, D> {
         let name = match &self.kind {
             MacroExpansionKind::Void => "void",
             MacroExpansionKind::Values(_) => "values",
+            MacroExpansionKind::ArgumentGroup(_) => "arg group",
             MacroExpansionKind::MakeString(_) => "make_string",
             MacroExpansionKind::Template(t) => {
-                return write!(f, "<expansion of template '{}'>", t.template.name())
+                return if let Some(name) = t.template.name() {
+                    write!(f, "<expansion of template '{}'>", name)
+                } else {
+                    write!(
+                        f,
+                        "<expansion of anonymous template at address {}>",
+                        t.template.address()
+                    )
+                }
             }
         };
-        write!(f, "<expansion of macro '{name}'>")
+        write!(f, "<expansion of {name}>")
     }
 }
 
@@ -226,6 +299,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         match &mut self.kind {
             MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
             Values(values_expansion) => values_expansion.next(context, environment),
+            ArgumentGroup(group_expansion) => group_expansion.next(context, environment),
             // `void` is trivial and requires no delegation
             Void => Ok(None),
             Template(template_expansion) => template_expansion.next(context, environment),
@@ -325,7 +399,8 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     ) -> IonResult<MacroExpansion<'top, D>> {
         // Initialize a `MacroExpansionKind` with the state necessary to evaluate the requested
         // macro.
-        let expansion_kind = match invocation_to_evaluate.invoked_macro().kind() {
+        let macro_ref: MacroRef<'top> = invocation_to_evaluate.invoked_macro();
+        let expansion_kind = match macro_ref.kind() {
             MacroKind::Void => MacroExpansionKind::Void,
             MacroKind::Values => MacroExpansionKind::Values(ValuesExpansion {
                 arguments: invocation_to_evaluate.arguments(self.environment()),
@@ -334,9 +409,9 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
             MacroKind::MakeString => MacroExpansionKind::MakeString(MakeStringExpansion::new(
                 invocation_to_evaluate.arguments(self.environment()),
             )),
-            MacroKind::Template(template) => {
-                let template_address = invocation_to_evaluate.invoked_macro().address();
-                let template_ref = TemplateMacroRef::new(template_address, template);
+            MacroKind::Template(template_body) => {
+                let template_ref =
+                    TemplateMacroRef::new(invocation_to_evaluate.invoked_macro(), template_body);
                 let new_environment =
                     self.make_new_evaluation_environment(invocation_to_evaluate)?;
                 self.env_stack.push(new_environment);
@@ -524,6 +599,36 @@ impl<'top, D: Decoder> ValuesExpansion<'top, D> {
         _environment: Environment<'top, D>,
     ) -> IonResult<Option<ValueExpr<'top, D>>> {
         // We visit the argument expressions in the invocation in order from left to right.
+        self.arguments.next().transpose()
+    }
+}
+
+/// Though argument groups are not actually macro invocations, they behave very similarly to a call
+/// to `(:values ...)`. The primary difference is that they have a distinct syntax and their
+/// nested expressions are not necessarily tagged.
+pub struct ArgumentGroupExpansion<'top, D: Decoder> {
+    // Which argument the macro is in the process of expanding
+    arguments: MacroExprArgsIterator<'top, D>,
+    // The stack depth where this `values` call lives. When the stack shrinks below this depth,
+    // evaluation is complete.
+    initial_eval_stack_depth: usize,
+}
+
+impl<'top, D: Decoder> ArgumentGroupExpansion<'top, D> {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>, initial_eval_stack_depth: usize) -> Self {
+        Self {
+            arguments,
+            initial_eval_stack_depth,
+        }
+    }
+
+    /// Yields the next [`ValueExpr`] in this argument group's evaluation.
+    pub fn next(
+        &mut self,
+        _context: EncodingContextRef<'top>,
+        _environment: Environment<'top, D>,
+    ) -> IonResult<Option<ValueExpr<'top, D>>> {
+        // We visit the argument expressions in the group in order from left to right.
         self.arguments.next().transpose()
     }
 }
@@ -759,6 +864,222 @@ mod tests {
                 1 2 3 4 5
             "#,
         )
+    }
+
+    mod cardinality {
+
+        mod bang {
+            use crate::lazy::expanded::macro_evaluator::tests::eval_template_invocation;
+
+            #[test]
+            #[should_panic]
+            fn required_does_not_accept_empty_rest() {
+                eval_template_invocation(
+                    "(macro foo (x) (make_string x x))",
+                    r#"
+                (:foo)
+            "#,
+                    r#"
+                // should raise an error
+            "#,
+                )
+                .unwrap()
+            }
+
+            #[test]
+            #[should_panic]
+            fn required_does_not_accept_empty_arg_group() {
+                eval_template_invocation(
+                    "(macro foo (x) (make_string x x))",
+                    r#"
+                (:foo (:))
+            "#,
+                    r#"
+                // should raise an error
+            "#,
+                )
+                .unwrap()
+            }
+
+            #[test]
+            #[should_panic]
+            fn required_does_not_accept_populated_arg_group() {
+                eval_template_invocation(
+                    "(macro foo (x) (make_string x x))",
+                    r#"
+                (:foo (:))
+            "#,
+                    r#"
+                // should raise an error
+            "#,
+                )
+                .unwrap()
+            }
+        }
+
+        mod optional {
+            use crate::lazy::expanded::macro_evaluator::tests::eval_template_invocation;
+            use crate::IonResult;
+
+            #[test]
+            fn optional_accepts_empty_or_expr() -> IonResult<()> {
+                eval_template_invocation(
+                    "(macro foo (x?) (make_string x x))",
+                    r#"
+                (:foo)           // x is implicitly empty
+                (:foo (:))       // x is explicitly empty
+                (:foo (:   ))    // x is explicitly empty with extra whitespace
+                (:foo "a")       // x is "a"
+                (:foo (:foo a))  // x is `(:foo a)`
+            "#,
+                    r#"
+                ""
+                ""
+                ""
+                "aa"
+                "aaaa"
+            "#,
+                )
+            }
+
+            #[test]
+            #[should_panic]
+            fn optional_does_not_accept_populated_arg_groups() {
+                eval_template_invocation(
+                    "(macro foo (x?) (make_string x x))",
+                    r#"
+                (:foo (: "a"))
+            "#,
+                    r#"
+                // should raise an error
+            "#,
+                )
+                .unwrap()
+            }
+        }
+
+        mod star {
+            use crate::lazy::expanded::macro_evaluator::tests::eval_template_invocation;
+            use crate::IonResult;
+
+            #[test]
+            fn star_accepts_groups() -> IonResult<()> {
+                eval_template_invocation(
+                    "(macro foo (x y*) (make_string x y))",
+                    r#"
+                (:foo "hello" (: " there " "friend!" ))
+            "#,
+                    r#"
+                "hello there friend!"
+            "#,
+                )
+            }
+
+            #[test]
+            fn trailing_star_accepts_rest() -> IonResult<()> {
+                eval_template_invocation(
+                    "(macro foo (x y*) (make_string x y))",
+                    r#"
+                //     x       y1        y2
+                (:foo "hello" " there " "friend!")
+            "#,
+                    r#"
+                "hello there friend!"
+            "#,
+                )
+            }
+
+            #[test]
+            fn star_accepts_value_literal() -> IonResult<()> {
+                eval_template_invocation(
+                    "(macro foo (x y* z*) (make_string x y z))",
+                    r#"
+                //    x       y         z
+                (:foo "hello" " there " "friend!")
+            "#,
+                    r#"
+                "hello there friend!"
+            "#,
+                )
+            }
+
+            #[test]
+            fn omit_trailing_star() -> IonResult<()> {
+                eval_template_invocation(
+                    "(macro foo (x y*) (make_string x y))",
+                    r#"
+                (:foo "hello") // pass one arg, `y` will be an empty stream
+            "#,
+                    r#"
+                "hello"
+            "#,
+                )
+            }
+
+            #[test]
+            #[should_panic]
+            fn omit_only_last_trailing_star() {
+                eval_template_invocation(
+                    "(macro foo (x y* z*) (make_string x y))",
+                    r#"
+                (:foo "hello") // pass one arg, y and z cannot both be omitted
+            "#,
+                    r#"
+                // should raise an error
+            "#,
+                )
+                .unwrap()
+            }
+        }
+
+        mod plus {
+            use crate::lazy::expanded::macro_evaluator::tests::eval_template_invocation;
+
+            #[test]
+            #[should_panic]
+            fn plus_does_not_accept_empty_arg_group() {
+                eval_template_invocation(
+                    "(macro foo (x+) (make_string x x))",
+                    r#"
+                (:foo (:))
+            "#,
+                    r#"
+                // should raise an error
+            "#,
+                )
+                .unwrap()
+            }
+
+            #[test]
+            #[should_panic]
+            fn plus_does_not_accept_empty_rest() {
+                eval_template_invocation(
+                    "(macro foo (x+) (make_string x x))",
+                    r#"
+                (:foo)
+            "#,
+                    r#"
+                // should raise an error
+            "#,
+                )
+                .unwrap()
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn too_many_args() {
+        eval_template_invocation(
+            "(macro foo (x y) (make_string x y))",
+            r#"
+                (:foo "a" "b" "c")
+            "#,
+            r#"
+                // should raise an error
+            "#,
+        )
+        .unwrap()
     }
 
     #[test]

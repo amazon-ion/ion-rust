@@ -22,6 +22,7 @@ use crate::lazy::encoder::annotation_seq::AnnotationsVec;
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
 use crate::lazy::encoding::Encoding;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::v1_0::RawValueRef;
@@ -396,9 +397,55 @@ impl<'a, D: Decoder<EExp<'a> = RawEExp>, RawEExp: RawEExpression<'a, D> + 'a> Wr
         let mut eexp_writer = writer.eexp_writer(id)?;
         for arg_result in self.raw_eexp.raw_arguments() {
             let arg = arg_result?;
-            eexp_writer.write(WriteableRawValueExpr::<'_, D>::new(arg))?;
+            eexp_writer.write(WriteableEExpArg::<'_, D>::new(arg))?;
         }
         eexp_writer.close()
+    }
+}
+
+pub struct WriteableEExpArg<'a, D: Decoder> {
+    arg_expr: EExpArg<'a, D>,
+    spooky: PhantomData<&'a D>,
+}
+
+impl<'a, D: Decoder> WriteableEExpArg<'a, D> {
+    pub fn new(arg_expr: EExpArg<'a, D>) -> Self {
+        Self {
+            arg_expr,
+            spooky: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: Decoder> WriteAsIon for WriteableEExpArg<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        use EExpArgExpr::*;
+        match self.arg_expr.expr() {
+            // TODO: Untagged encodings
+            ValueLiteral(v) => WriteableRawValue::new(*v).write_as_ion(writer),
+            EExp(e) => WriteableEExp::new(*e).write_as_ion(writer),
+            ArgGroup(group) => WriteableEExpArgGroup::<'_, D>::new(*group).write_as_ion(writer),
+        }
+    }
+}
+
+pub struct WriteableEExpArgGroup<'a, D: Decoder> {
+    arg_group: <<D as Decoder>::EExp<'a> as RawEExpression<'a, D>>::ArgGroup,
+    spooky: PhantomData<&'a D>,
+}
+
+impl<'a, D: Decoder> WriteableEExpArgGroup<'a, D> {
+    pub fn new(arg_group: <<D as Decoder>::EExp<'a> as RawEExpression<'a, D>>::ArgGroup) -> Self {
+        Self {
+            arg_group,
+            spooky: PhantomData,
+        }
+    }
+}
+
+impl<'a, D: Decoder> WriteAsIon for WriteableEExpArgGroup<'a, D> {
+    fn write_as_ion<V: ValueWriter>(&self, _writer: V) -> IonResult<()> {
+        todo!()
     }
 }
 

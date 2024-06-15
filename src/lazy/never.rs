@@ -1,15 +1,18 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
-use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValueExpr};
+use crate::lazy::decoder::{Decoder, HasRange, HasSpan};
 use crate::lazy::encoder::annotation_seq::AnnotationSeq;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
     delegate_value_writer_to_self, AnnotatableWriter, ValueWriter,
 };
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
-use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{
+    MacroExpr, PlaceholderEExpressionArgGroup, RawEExpression,
+};
 use crate::lazy::span::Span;
+use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
@@ -36,7 +39,8 @@ impl HasRange for Never {
 // The compiler should optimize these methods away.
 impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
     // These use Box<dyn> to avoid defining yet another placeholder type.
-    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
+    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<EExpArg<'top, D>>>>;
+    type ArgGroup = PlaceholderEExpressionArgGroup<'top, D>;
 
     fn id(&self) -> MacroIdRef<'top> {
         unreachable!("macro in Ion 1.0 (method: id)")

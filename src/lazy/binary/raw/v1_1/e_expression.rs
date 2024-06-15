@@ -5,7 +5,9 @@ use std::ops::Range;
 
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::decoder::LazyRawValueExpr;
-use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::encoding::BinaryEncoding_1_1;
+use crate::lazy::expanded::macro_evaluator::{PlaceholderEExpressionArgGroup, RawEExpression};
+use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::{v1_1, HasRange, HasSpan, IonResult, Span};
 
@@ -26,7 +28,7 @@ pub struct RawBinaryEExpression_1_1<'top> {
     pub(crate) encoded_expr: EncodedBinaryEExp,
     pub(crate) input: ImmutableBuffer<'top>,
     pub(crate) id: MacroIdRef<'top>,
-    pub(crate) arg_expr_cache: &'top [LazyRawValueExpr<'top, v1_1::Binary>],
+    pub(crate) arg_cache: &'top [EExpArg<'top, v1_1::Binary>],
 }
 
 impl<'top> RawBinaryEExpression_1_1<'top> {
@@ -34,13 +36,13 @@ impl<'top> RawBinaryEExpression_1_1<'top> {
         id: MacroIdRef<'top>,
         encoded_expr: EncodedBinaryEExp,
         input: ImmutableBuffer<'top>,
-        arg_expr_cache: &'top [LazyRawValueExpr<'top, v1_1::Binary>],
+        arg_cache: &'top [EExpArg<'top, v1_1::Binary>],
     ) -> Self {
         Self {
             encoded_expr,
             input,
             id,
-            arg_expr_cache,
+            arg_cache,
         }
     }
 }
@@ -64,16 +66,17 @@ impl<'top> Debug for RawBinaryEExpression_1_1<'top> {
 }
 
 impl<'top> RawEExpression<'top, v1_1::Binary> for RawBinaryEExpression_1_1<'top> {
-    type RawArgumentsIterator<'a> = RawBinarySequenceCacheIterator_1_1<'top>
+    type RawArgumentsIterator<'a> = BinaryEExpArgsIterator_1_1<'top>
     where
         Self: 'a;
+    type ArgGroup = PlaceholderEExpressionArgGroup<'top, BinaryEncoding_1_1>;
 
     fn id(&self) -> MacroIdRef<'top> {
         self.id
     }
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator<'top> {
-        RawBinarySequenceCacheIterator_1_1::new(self.arg_expr_cache)
+        BinaryEExpArgsIterator_1_1::new(self.arg_cache)
     }
 }
 
@@ -97,6 +100,31 @@ impl<'top> Iterator for RawBinarySequenceCacheIterator_1_1<'top> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_expr = self.child_exprs.get(self.index)?;
+        self.index += 1;
+        Some(Ok(*next_expr))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BinaryEExpArgsIterator_1_1<'top> {
+    arg_exprs: &'top [EExpArg<'top, v1_1::Binary>],
+    index: usize,
+}
+
+impl<'top> BinaryEExpArgsIterator_1_1<'top> {
+    pub fn new(arg_exprs: &'top [EExpArg<'top, v1_1::Binary>]) -> Self {
+        Self {
+            arg_exprs,
+            index: 0,
+        }
+    }
+}
+
+impl<'top> Iterator for BinaryEExpArgsIterator_1_1<'top> {
+    type Item = IonResult<EExpArg<'top, v1_1::Binary>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_expr = self.arg_exprs.get(self.index)?;
         self.index += 1;
         Some(Ok(*next_expr))
     }

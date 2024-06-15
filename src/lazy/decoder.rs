@@ -513,7 +513,7 @@ where
             Value(v) => {
                 writer.write(WriteableRawValue::new(v))?;
             }
-            EExpression(e) => {
+            EExp(e) => {
                 writer.write(WriteableEExp::new(e))?;
             }
             EndOfStream(_) => {

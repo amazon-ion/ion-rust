@@ -123,7 +123,7 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
             },
             ExpandedListSource::Template(_environment, template, annotations, _sequence) => {
                 let annotations = template
-                    .body
+                    .body()
                     .annotations_storage()
                     .get(annotations.ops_range())
                     .unwrap();
@@ -141,7 +141,11 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
                 ExpandedListIteratorSource::ValueLiteral(evaluator, list.iter())
             }
             ExpandedListSource::Template(environment, template, _annotations, steps) => {
-                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
+                let steps = template
+                    .body()
+                    .expressions()
+                    .get(steps.ops_range())
+                    .unwrap();
                 let evaluator = MacroEvaluator::new(self.context, *environment);
                 ExpandedListIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
@@ -227,7 +231,7 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
             },
             ExpandedSExpSource::Template(_environment, template, annotations, _sequence) => {
                 let annotations = template
-                    .body
+                    .body()
                     .annotations_storage()
                     .get(annotations.ops_range())
                     .unwrap();
@@ -245,7 +249,11 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
                 ExpandedSExpIteratorSource::ValueLiteral(evaluator, sexp.iter())
             }
             ExpandedSExpSource::Template(environment, template, _annotations, steps) => {
-                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
+                let steps = template
+                    .body()
+                    .expressions()
+                    .get(steps.ops_range())
+                    .unwrap();
                 let evaluator = MacroEvaluator::new(self.context, *environment);
                 ExpandedSExpIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,

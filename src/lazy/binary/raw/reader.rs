@@ -325,7 +325,7 @@ mod tests {
                 }
                 Value(value) => println!("{:?}", value.read()?),
                 EndOfStream(_) => break,
-                EExpression(_) => unreachable!("No macros in Ion 1.0"),
+                EExp(_) => unreachable!("No macros in Ion 1.0"),
             }
         }
         Ok(())

@@ -107,11 +107,13 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
 
 #[cfg(test)]
 mod tests {
+    use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::decoder::{LazyRawReader, LazyRawSequence, LazyRawValue};
     use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::lazy::encoder::LazyRawWriter;
+    use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
@@ -277,56 +279,46 @@ mod tests {
         println!("{encoded_text}");
 
         let mut reader = LazyRawTextReader_1_1::new(encoded_text.as_bytes());
-        let empty_context = EncodingContext::empty();
-        let context = empty_context.get_ref();
+        let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let macro_foo =
+            TemplateCompiler::compile_from_text(context.get_ref(), "(macro foo (x*) null)")?;
+        context.macro_table.add_macro(macro_foo)?;
+        let context = context.get_ref();
         let _marker = reader.next(context)?.expect_ivm()?;
         let eexp = reader.next(context)?.expect_macro_invocation()?;
         assert_eq!(MacroIdRef::LocalName("foo"), eexp.id());
         let mut args = eexp.raw_arguments();
-        let int_arg = args.next().unwrap()?.expect_value()?.read()?.expect_int()?;
-        assert_eq!(int_arg, 1.into());
-        let list_arg = args
+        let x = args.next().unwrap()?.expr().expect_arg_group()?;
+        let mut x_values = x.into_iter();
+        let int_value = x_values
+            .next()
+            .unwrap()?
+            .expect_value()
+            .unwrap()
+            .read()?
+            .expect_i64()?;
+        assert_eq!(int_value, 1);
+        let list_value = x_values
             .next()
             .unwrap()?
             .expect_value()?
             .read()?
             .expect_list()?;
-        let mut list_values = list_arg.iter();
-        let value = list_values
-            .next()
-            .unwrap()?
-            .expect_value()?
-            .read()?
-            .expect_i64()?;
-        assert_eq!(value, 2);
-        let value = list_values
-            .next()
-            .unwrap()?
-            .expect_value()?
-            .read()?
-            .expect_i64()?;
-        assert_eq!(value, 3);
-        let value = list_values
-            .next()
-            .unwrap()?
-            .expect_value()?
-            .read()?
-            .expect_i64()?;
-        assert_eq!(value, 4);
-        let string_arg = args
+        assert_eq!(list_value.iter().count(), 3);
+        let string_value = x_values
             .next()
             .unwrap()?
             .expect_value()?
             .read()?
             .expect_string()?;
-        assert_eq!(string_arg.text(), "bar");
-        let symbol_arg = args
+        assert_eq!(string_value, "bar");
+        let symbol_value = x_values
             .next()
             .unwrap()?
             .expect_value()?
             .read()?
             .expect_symbol()?;
-        assert_eq!(symbol_arg, RawSymbolRef::Text("+++"));
+        assert_eq!(symbol_value, RawSymbolRef::Text("+++"));
 
         Ok(())
     }

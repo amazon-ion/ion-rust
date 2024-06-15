@@ -16,8 +16,9 @@ use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
-use crate::lazy::expanded::macro_table::MacroKind;
+use crate::lazy::expanded::template::Parameter;
 use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{v1_1, HasRange, IonError, IonResult};
@@ -268,6 +269,18 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
+    pub(crate) fn peek_eexp_arg_expr(self) -> IonResult<Option<EExpArgExpr<'a, v1_1::Binary>>> {
+        // TODO: Add support for arg groups
+        Ok(self
+            .peek_sequence_value_expr()?
+            .map(|value_expr| match value_expr {
+                RawValueExpr::ValueLiteral(v) => EExpArgExpr::ValueLiteral(v),
+                RawValueExpr::EExp(e) => EExpArgExpr::EExp(e),
+            }))
+    }
+
+    /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
+    /// and at the top level.
     pub(crate) fn peek_sequence_value_expr(
         self,
     ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
@@ -466,42 +479,47 @@ impl<'a> ImmutableBuffer<'a> {
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
 
-        // TODO: When we support untagged parameter encodings, we need to use the signature's
-        //       parameter encodings to drive this process. For now--while everything is tagged
-        //       and cardinality is always required--we just loop `num_parameters` times.
-        let macro_def = self
+        let macro_ref = self
             .context
-            .macro_table
+            .macro_table()
             .macro_with_id(macro_id)
             .ok_or_else(|| {
                 IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
-            })?;
-        use MacroKind::*;
-        let num_parameters = match macro_def.kind() {
-            Template(t) => t.signature().parameters().len(),
-            // Many system macros like `values`, `make_string`, etc take a variadic number of args.
-            _ => todo!("system macros require support for argument group encoding"),
-        };
+            })?
+            .reference();
+        let parameters: &'a [Parameter] = macro_ref.signature().parameters();
+        let mut params_iter = parameters.iter();
 
-        let args_cache = self
-            .context
-            .allocator()
-            .alloc_with(|| BumpVec::with_capacity_in(num_parameters, self.context.allocator()));
+        let mut args_cache = BumpVec::with_capacity_in(parameters.len(), self.context.allocator());
         // `args_buffer` will be partially consumed in each iteration of the loop below.
         let mut args_buffer = buffer_after_id;
-        for _ in 0..num_parameters {
-            let value_expr = match args_buffer.peek_sequence_value_expr()? {
+        while !args_buffer.is_empty() {
+            // TODO: Untagged encodings
+            let arg_expr = match args_buffer.peek_eexp_arg_expr()? {
                 Some(expr) => expr,
-                None => {
-                    return IonResult::incomplete(
-                        "found an incomplete e-expression",
-                        buffer_after_id.offset(),
-                    )
-                }
+                None => break,
             };
-            args_buffer = args_buffer.consume(value_expr.range().len());
-            args_cache.push(value_expr);
+
+            let param = params_iter.next().ok_or_else(|| {
+                IonError::decoding_error(format!(
+                    "found more arguments than parameters; unused argument: {:?}",
+                    arg_expr
+                ))
+            })?;
+
+            args_buffer = args_buffer.consume(arg_expr.range().len());
+            let arg = EExpArg::new(param, arg_expr);
+            args_cache.push(arg);
         }
+
+        let parameters = macro_ref.signature().parameters();
+        if args_cache.len() < parameters.len() {
+            return IonResult::decoding_error(format!(
+                "argument missing for parameter '{}'",
+                parameters[args_cache.len()].name()
+            ));
+        }
+
         let macro_id_encoded_length = buffer_after_id.offset() - self.offset();
         let args_length = args_buffer.offset() + args_buffer.len() - buffer_after_id.offset();
         let e_expression_buffer = self.slice(0, macro_id_encoded_length + args_length);
@@ -510,7 +528,7 @@ impl<'a> ImmutableBuffer<'a> {
             macro_id,
             EncodedBinaryEExp::new(macro_id_encoded_length as u16),
             e_expression_buffer,
-            args_cache,
+            args_cache.into_bump_slice(),
         );
         Ok(e_expression)
     }
@@ -654,6 +672,7 @@ mod tests {
             assert_eq!(
                 args.next()
                     .unwrap()?
+                    .expr()
                     .expect_value()?
                     .read()?
                     .expect_string()?,
@@ -691,6 +710,7 @@ mod tests {
             assert_eq!(
                 args.next()
                     .unwrap()?
+                    .expr()
                     .expect_value()?
                     .read()?
                     .expect_string()?,
@@ -699,6 +719,7 @@ mod tests {
             assert_eq!(
                 args.next()
                     .unwrap()?
+                    .expr()
                     .expect_value()?
                     .read()?
                     .expect_string()?,

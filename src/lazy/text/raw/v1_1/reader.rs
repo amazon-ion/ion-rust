@@ -21,8 +21,9 @@ use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
+use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
-use crate::{Encoding, IonResult, IonType, RawSymbolRef};
+use crate::{v1_1, Encoding, IonResult, IonType, RawSymbolRef};
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],
@@ -142,56 +143,54 @@ impl<'data> From<&'data str> for MacroIdRef<'data> {
 }
 
 #[derive(Copy, Clone)]
-pub struct RawTextEExpression_1_1<'top> {
-    pub(crate) encoded_expr: EncodedTextMacroInvocation,
+pub struct TextEExpression_1_1<'top> {
     pub(crate) input: TextBufferView<'top>,
     pub(crate) id: MacroIdRef<'top>,
-    pub(crate) arg_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
+    pub(crate) arg_cache: &'top [EExpArg<'top, TextEncoding_1_1>],
 }
 
-impl<'top> HasSpan<'top> for RawTextEExpression_1_1<'top> {
+impl<'top> HasSpan<'top> for TextEExpression_1_1<'top> {
     fn span(&self) -> Span<'top> {
         Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 
-impl<'top> HasRange for RawTextEExpression_1_1<'top> {
+impl<'top> HasRange for TextEExpression_1_1<'top> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
 }
 
-impl<'top> RawEExpression<'top, TextEncoding_1_1> for RawTextEExpression_1_1<'top> {
-    type RawArgumentsIterator<'a> = RawTextSequenceCacheIterator_1_1<'top> where Self: 'a;
+impl<'top> RawEExpression<'top, TextEncoding_1_1> for TextEExpression_1_1<'top> {
+    type RawArgumentsIterator<'a> = TextEExpArgsIterator_1_1<'top> where Self: 'a;
+    type ArgGroup = TextEExpArgGroup<'top>;
 
     fn id(&self) -> MacroIdRef<'top> {
         self.id
     }
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
-        RawTextSequenceCacheIterator_1_1::new(self.arg_expr_cache)
+        TextEExpArgsIterator_1_1::new(self.arg_cache)
     }
 }
 
-impl<'data> Debug for RawTextEExpression_1_1<'data> {
+impl<'data> Debug for TextEExpression_1_1<'data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // This is a text macro and the parser accepted it, so it's valid UTF-8. We can `unwrap()`.
         write!(f, "<macro invocation '{}'>", self.input.as_text().unwrap())
     }
 }
 
-impl<'top> RawTextEExpression_1_1<'top> {
+impl<'top> TextEExpression_1_1<'top> {
     pub(crate) fn new(
         id: MacroIdRef<'top>,
-        encoded_expr: EncodedTextMacroInvocation,
         input: TextBufferView<'top>,
-        child_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
+        arg_cache: &'top [EExpArg<'top, TextEncoding_1_1>],
     ) -> Self {
         Self {
-            encoded_expr,
             input,
             id,
-            arg_expr_cache: child_expr_cache,
+            arg_cache,
         }
     }
 }
@@ -351,6 +350,31 @@ impl<'top> Iterator for RawTextSequenceCacheIterator_1_1<'top> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_expr = self.child_exprs.get(self.index)?;
+        self.index += 1;
+        Some(Ok(*next_expr))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TextEExpArgsIterator_1_1<'top> {
+    arg_exprs: &'top [EExpArg<'top, v1_1::Text>],
+    index: usize,
+}
+
+impl<'top> TextEExpArgsIterator_1_1<'top> {
+    pub fn new(arg_exprs: &'top [EExpArg<'top, v1_1::Text>]) -> Self {
+        Self {
+            arg_exprs,
+            index: 0,
+        }
+    }
+}
+
+impl<'top> Iterator for TextEExpArgsIterator_1_1<'top> {
+    type Item = IonResult<EExpArg<'top, v1_1::Text>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_expr = self.arg_exprs.get(self.index)?;
         self.index += 1;
         Some(Ok(*next_expr))
     }
@@ -736,6 +760,8 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
 
 #[cfg(test)]
 mod tests {
+    use crate::lazy::any_encoding::IonVersion;
+    use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;
     use crate::RawVersionMarker;
@@ -772,9 +798,12 @@ mod tests {
             false
        "#;
 
-        let empty_context = EncodingContext::empty();
-        let context = empty_context.get_ref();
+        let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let macro_quux =
+            TemplateCompiler::compile_from_text(context.get_ref(), "(macro quux (x) null)")?;
+        context.macro_table.add_macro(macro_quux)?;
         let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
+        let context = context.get_ref();
 
         // $ion_1_1
         assert_eq!(reader.next(context)?.expect_ivm()?.major_minor(), (1, 1));

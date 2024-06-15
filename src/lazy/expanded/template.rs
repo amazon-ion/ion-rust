@@ -21,11 +21,12 @@ pub struct Parameter {
     name: String,
     encoding: ParameterEncoding,
     cardinality: ParameterCardinality,
+    rest_syntax_policy: RestSyntaxPolicy,
 }
 
 impl Parameter {
-    pub fn new(name: String, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> Self {
-        Self { name, encoding, cardinality }
+    pub fn new(name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality, rest_syntax_policy: RestSyntaxPolicy) -> Self {
+        Self { name: name.into(), encoding, cardinality, rest_syntax_policy }
     }
 
     pub fn name(&self) -> &str {
@@ -36,6 +37,9 @@ impl Parameter {
     }
     pub fn cardinality(&self) -> ParameterCardinality {
         self.cardinality
+    }
+    pub fn rest_syntax_policy(&self) -> RestSyntaxPolicy {
+        self.rest_syntax_policy
     }
 }
 
@@ -55,6 +59,12 @@ pub enum ParameterCardinality {
     OneOrMore,  // +
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum RestSyntaxPolicy {
+    NotAllowed,
+    Allowed
+}
+
 /// The sequence of parameters for which callers must pass expressions when invoking the macro.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MacroSignature {
@@ -70,10 +80,18 @@ impl MacroSignature {
     }
 
     fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> Self {
-        let param = Parameter::new(name.into(), encoding, cardinality);
-        if param.cardinality != ParameterCardinality::ExactlyOne {
-            self.num_variadic_params += 1;
+        // We're adding a new parameter, so the previous "final position" parameter is no longer in the final position.
+        // Disable rest syntax for that parameter.
+        if let Some(final_position_param) = self.parameters.last_mut() {
+            final_position_param.rest_syntax_policy = RestSyntaxPolicy::NotAllowed;
         }
+        let rest_syntax_policy = if cardinality == ParameterCardinality::ExactlyOne {
+            RestSyntaxPolicy::NotAllowed
+        } else {
+            self.num_variadic_params += 1;
+            RestSyntaxPolicy::Allowed
+        };
+        let param = Parameter::new(name.into(), encoding, cardinality, rest_syntax_policy);
         self.parameters.push(param);
         self
     }
@@ -203,24 +221,24 @@ impl TemplateMacro {
 pub struct TemplateMacroRef<'top> {
     // This field is only stored as a source of information for debugging. (For example, when showing
     // a macro evaluator stack trace.)
-    address: MacroAddress,
-    template: &'top TemplateMacro,
+    macro_ref: MacroRef<'top>,
+    template_body: &'top TemplateBody,
 }
 
 impl<'top> TemplateMacroRef<'top> {
-    pub fn new(address: MacroAddress, template: &'top TemplateMacro) -> Self {
-        Self { address, template }
+    pub fn new(macro_ref: MacroRef<'top>, template_body: &'top TemplateBody) -> Self {
+        Self { macro_ref, template_body }
     }
-    pub fn address(&self) -> MacroAddress {
-        self.address
+    pub fn body(&self) -> &'top TemplateBody {
+        self.template_body
     }
 }
 
 impl<'top> Deref for TemplateMacroRef<'top> {
-    type Target = &'top TemplateMacro;
+    type Target = MacroRef<'top>;
 
     fn deref(&self) -> &Self::Target {
-        &self.template
+        &self.macro_ref
     }
 }
 
@@ -293,7 +311,7 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                         self.template,
                         invoked_macro,
                         self.template
-                            .body
+                            .body()
                             .expressions()
                             .get(body_invocation.arg_expr_range().ops_range())
                             .unwrap(),
@@ -407,7 +425,7 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
                     self.template,
                     invoked_macro,
                     self.template
-                        .body
+                        .body()
                         .expressions()
                         .get(body_invocation.arg_expr_range().ops_range())
                         .unwrap(),
@@ -723,7 +741,7 @@ impl TemplateBodyMacroInvocation {
             .unwrap();
 
         let arg_expressions = host_template
-            .body
+            .body()
             .expressions()
             .get(self.arg_expr_range.ops_range())
             .unwrap();
