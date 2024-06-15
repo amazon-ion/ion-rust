@@ -514,7 +514,13 @@ impl<'a> ImmutableBuffer<'a> {
         );
         Ok(e_expression)
     }
+
+    fn read_eexp_bitmap(self) -> IonResult<EExpBitmap> {
+        todo!()
+    }
 }
+
+pub struct EExpBitmap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnnotationsEncoding {

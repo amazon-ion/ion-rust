@@ -49,7 +49,7 @@ pub enum ParameterEncoding {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ParameterCardinality {
-    ExactlyOne,        // !
+    ExactlyOne, // !
     ZeroOrOne,  // ?
     ZeroOrMore, // *
     OneOrMore,  // +
@@ -59,19 +59,93 @@ pub enum ParameterCardinality {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MacroSignature {
     parameters: Vec<Parameter>,
+    num_variadic_params: usize,
 }
 
 impl MacroSignature {
+    fn bitmap_size_in_bytes(&self) -> usize {
+        const BITS_PER_VARIADIC_PARAM: usize = 2;
+        const BITS_PER_BYTE: usize = 8;
+        ((self.num_variadic_params * BITS_PER_VARIADIC_PARAM) + 7) / 8
+    }
+
     fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> Self {
-        self.parameters.push(Parameter::new(name.into(), encoding, cardinality));
+        let param = Parameter::new(name.into(), encoding, cardinality);
+        if param.cardinality != ParameterCardinality::ExactlyOne {
+            self.num_variadic_params += 1;
+        }
+        self.parameters.push(param);
         self
+    }
+
+    fn constant() -> Self {
+        Self::new(Vec::new())
     }
 
     pub fn parameters(&self) -> &[Parameter] {
         &self.parameters
     }
     pub fn new(parameters: Vec<Parameter>) -> Self {
-        Self { parameters }
+        let num_variadic_params = parameters.iter().filter(|p| p.cardinality != ParameterCardinality::ExactlyOne).count();
+        Self { parameters, num_variadic_params }
+    }
+    pub fn num_variadic_params(&self) -> usize {
+        self.num_variadic_params
+    }
+}
+
+#[cfg(test)]
+mod macro_signature_tests {
+    use crate::IonResult;
+    use crate::lazy::expanded::template::{MacroSignature, ParameterCardinality, ParameterEncoding};
+
+    #[test]
+    fn bitmap_sizes() -> IonResult<()> {
+        let signature = MacroSignature::constant();
+        assert_eq!(signature.num_variadic_params(), 0);
+        assert_eq!(signature.bitmap_size_in_bytes(), 0);
+
+        let signature = MacroSignature::new(Vec::new())
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ExactlyOne);
+        assert_eq!(signature.num_variadic_params(), 0);
+        assert_eq!(signature.bitmap_size_in_bytes(), 0);
+
+        let signature = MacroSignature::new(Vec::new())
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        assert_eq!(signature.num_variadic_params(), 1);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        assert_eq!(signature.num_variadic_params(), 2);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        assert_eq!(signature.num_variadic_params(), 3);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        assert_eq!(signature.num_variadic_params(), 4);
+        assert_eq!(signature.bitmap_size_in_bytes(), 1);
+
+        let signature = MacroSignature::new(Vec::new())
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
+            .with_parameter("quuz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        assert_eq!(signature.num_variadic_params(), 5);
+        assert_eq!(signature.bitmap_size_in_bytes(), 2);
+
+        Ok(())
     }
 }
 

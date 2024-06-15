@@ -3,10 +3,14 @@ use std::io::Write;
 use std::ops::Range;
 
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
+use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
 use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
 use crate::lazy::encoder::write_as_ion::{WriteableEExp, WriteableRawValue};
-use crate::lazy::encoding::{BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0};
+use crate::lazy::encoding::{
+    BinaryEncoding, BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0,
+};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
@@ -14,7 +18,7 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{v1_1, Catalog, IonResult, IonType, LazyRawWriter, RawSymbolRef};
+use crate::{v1_0, v1_1, Catalog, IonResult, IonType, LazyRawWriter, RawSymbolRef};
 
 pub trait HasSpan<'top>: HasRange {
     fn span(&self) -> Span<'top>;
@@ -461,37 +465,65 @@ impl<W: Write> TranscribeFromRawBinary<W> for LazyRawTextWriter_1_1<W> {
     where
         W: 'a,
     {
-        use crate::lazy::encoder::value_writer::SequenceWriter;
-        const FLUSH_EVERY_N: usize = 100;
-        let encoding_context = EncodingContext::for_ion_version(IonVersion::v1_1);
-        let context_ref = encoding_context.get_ref();
-        let mut item_number: usize = 0;
-        loop {
-            let item = reader.next(context_ref)?;
-            use crate::RawStreamItem::*;
-            match item {
-                VersionMarker(_m) if item_number == 0 => {
-                    // The writer automatically emits an IVM at the head of the output.
-                }
-                VersionMarker(_m) => {
-                    // If the reader surfaces another IVM, write a matching one in the output.
-                    self.write_version_marker()?
-                }
-                Value(v) => {
-                    self.write(WriteableRawValue::new(v))?;
-                }
-                EExpression(e) => {
-                    self.write(WriteableEExp::new(e))?;
-                }
-                EndOfStream(_) => {
-                    self.flush()?;
-                    return Ok(());
-                }
+        transcribe_raw_binary_to_text(reader, self)
+    }
+}
+
+impl<W: Write> TranscribeFromRawBinary<W> for LazyRawTextWriter_1_0<W> {
+    type Encoding = v1_0::Binary;
+    type BinaryReader<'a> = LazyRawBinaryReader_1_0<'a> where Self: 'a;
+
+    fn transcribe<'a>(&mut self, reader: &mut Self::BinaryReader<'a>) -> IonResult<()>
+    where
+        W: 'a,
+    {
+        transcribe_raw_binary_to_text(reader, self)
+    }
+}
+
+// TODO: Doc comment
+fn transcribe_raw_binary_to_text<
+    'a,
+    W: Write + 'a,
+    InputEncoding: BinaryEncoding<'a>,
+    Reader: LazyRawReader<'a, InputEncoding>,
+    Writer: LazyRawWriter<W>,
+>(
+    reader: &mut Reader,
+    writer: &mut Writer,
+) -> IonResult<()>
+where
+    W: 'a,
+{
+    const FLUSH_EVERY_N: usize = 100;
+    let encoding_context = EncodingContext::for_ion_version(IonVersion::v1_1);
+    let context_ref = encoding_context.get_ref();
+    let mut item_number: usize = 0;
+    loop {
+        let item = reader.next(context_ref)?;
+        use crate::RawStreamItem::*;
+        match item {
+            VersionMarker(_m) if item_number == 0 => {
+                // The writer automatically emits an IVM at the head of the output.
             }
-            item_number += 1;
-            if item_number % FLUSH_EVERY_N == 0 {
-                self.flush()?;
+            VersionMarker(_m) => {
+                // If the reader surfaces another IVM, write a matching one in the output.
+                writer.write_version_marker()?
             }
+            Value(v) => {
+                writer.write(WriteableRawValue::new(v))?;
+            }
+            EExpression(e) => {
+                writer.write(WriteableEExp::new(e))?;
+            }
+            EndOfStream(_) => {
+                writer.flush()?;
+                return Ok(());
+            }
+        }
+        item_number += 1;
+        if item_number % FLUSH_EVERY_N == 0 {
+            writer.flush()?;
         }
     }
 }
