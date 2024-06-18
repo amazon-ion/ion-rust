@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::lazy::expanded::template::{
@@ -84,6 +85,11 @@ impl<'top> MacroRef<'top> {
     }
     pub fn name(&'top self) -> Option<&'top str> {
         self.reference.name()
+    }
+    pub fn id_text(&'top self) -> Cow<'top, str> {
+        self.name()
+            .map(|name| Cow::from(name))
+            .unwrap_or_else(move || Cow::from(format!("<address={}>", self.address())))
     }
     pub fn signature(&'top self) -> &'top MacroSignature {
         self.reference.signature()

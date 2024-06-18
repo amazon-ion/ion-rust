@@ -1,7 +1,9 @@
 use std::fmt::{Debug, Formatter};
+use std::mem::size_of;
 use std::ops::Range;
 
 use bumpalo::collections::Vec as BumpVec;
+use ice_code::ice;
 
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
@@ -487,28 +489,37 @@ impl<'a> ImmutableBuffer<'a> {
                 IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
             })?
             .reference();
-        let parameters: &'a [Parameter] = macro_ref.signature().parameters();
-        let mut params_iter = parameters.iter();
+        let signature = macro_ref.signature();
 
-        let mut args_cache = BumpVec::with_capacity_in(parameters.len(), self.context.allocator());
         // `args_buffer` will be partially consumed in each iteration of the loop below.
-        let mut args_buffer = buffer_after_id;
-        while !args_buffer.is_empty() {
-            // TODO: Untagged encodings
-            let arg_expr = match args_buffer.peek_eexp_arg_expr()? {
-                Some(expr) => expr,
-                None => break,
+        let (bitmap, mut args_buffer) = buffer_after_id.read_eexp_bitmap(
+            signature.num_variadic_params(),
+            signature.bitmap_size_in_bytes(),
+        )?;
+        let mut arg_groupings = bitmap.iter();
+
+        let parameters: &'a [Parameter] = signature.parameters();
+        let mut args_cache = BumpVec::with_capacity_in(parameters.len(), self.context.allocator());
+
+        for parameter in parameters {
+            let arg_grouping = if parameter.is_variadic() {
+                arg_groupings.next().unwrap()?
+            } else {
+                ArgGrouping::ValueLiteral
             };
 
-            let param = params_iter.next().ok_or_else(|| {
-                IonError::decoding_error(format!(
-                    "found more arguments than parameters; unused argument: {:?}",
-                    arg_expr
-                ))
-            })?;
-
+            let arg_expr = match arg_grouping {
+                ArgGrouping::Empty => todo!("binary arg groups"),
+                // TODO: Untagged encodings
+                ArgGrouping::ValueLiteral => {
+                    args_buffer.peek_eexp_arg_expr()?.ok_or_else(|| {
+                        IonError::incomplete("reading tagged e-expr args", args_buffer.offset)
+                    })?
+                }
+                ArgGrouping::ArgGroup => todo!("binary arg groups"),
+            };
             args_buffer = args_buffer.consume(arg_expr.range().len());
-            let arg = EExpArg::new(param, arg_expr);
+            let arg = EExpArg::new(parameter, arg_expr);
             args_cache.push(arg);
         }
 
@@ -533,13 +544,89 @@ impl<'a> ImmutableBuffer<'a> {
         Ok(e_expression)
     }
 
-    fn read_eexp_bitmap(self) -> IonResult<EExpBitmap> {
-        todo!()
+    fn read_eexp_bitmap(
+        self,
+        num_variadics: usize,
+        bitmap_size_in_bytes: usize,
+    ) -> ParseResult<'a, ArgGroupingBitmap> {
+        if num_variadics > ArgGroupingBitmap::MAX_VARIADIC_PARAMS {
+            return IonResult::decoding_error(ice!(format!(
+                "macro found with {num_variadics} variadic parameters; the max supported is {}",
+                ArgGroupingBitmap::MAX_VARIADIC_PARAMS
+            )));
+        };
+        let mut buffer = [0u8; size_of::<u64>()];
+        let bitmap_bytes = self.peek_n_bytes(bitmap_size_in_bytes).ok_or_else(|| {
+            IonError::incomplete("parsing an e-exp arg grouping bitmap", self.offset)
+        })?;
+        buffer[..bitmap_size_in_bytes].copy_from_slice(bitmap_bytes);
+        let bitmap_u64 = u64::from_le_bytes(buffer);
+        Ok((
+            ArgGroupingBitmap::new(num_variadics, bitmap_u64),
+            self.consume(bitmap_size_in_bytes),
+        ))
     }
 }
 
-pub struct EExpBitmap;
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ArgGroupingBitmap {
+    num_args: usize,
+    bits: u64,
+}
 
+impl ArgGroupingBitmap {
+    const BITS_PER_VARIADIC_PARAM: usize = 2;
+    const MAX_VARIADIC_PARAMS: usize = size_of::<u64>() / Self::BITS_PER_VARIADIC_PARAM;
+    pub(crate) fn new(num_args: usize, bits: u64) -> Self {
+        Self { num_args, bits }
+    }
+    pub fn iter(&self) -> ArgGroupingBitmapIterator {
+        ArgGroupingBitmapIterator {
+            remaining_args: self.num_args,
+            bits: self.bits,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ArgGrouping {
+    Empty,        // 00
+    ValueLiteral, // 01
+    ArgGroup,     // 10
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArgGroupingBitmapIterator {
+    remaining_args: usize,
+    bits: u64,
+}
+
+impl Iterator for ArgGroupingBitmapIterator {
+    type Item = IonResult<ArgGrouping>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining_args == 0 {
+            None
+        } else {
+            use ArgGrouping::*;
+            // Read the last two bits
+            let encoding = match self.bits & 0b11 {
+                0b00 => Empty,
+                0b01 => ValueLiteral,
+                0b10 => ArgGroup,
+                _ => {
+                    return Some(IonResult::decoding_error(
+                        "found e-expression argument using reserved bitmap entry",
+                    ))
+                }
+            };
+            // Discard the last two bits and decrement the number of remaining entries
+            self.bits >>= 2;
+            self.remaining_args -= 1;
+            Some(Ok(encoding))
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnnotationsEncoding {
     SymbolAddress,
@@ -560,11 +647,40 @@ pub struct EncodedAnnotations {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use rstest::rstest;
+
+    use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+
+    use super::*;
+
+    #[rstest]
+    #[case::no_args(0, &[0b00u8], &[])]
+    #[case::one_empty_arg(1, &[0b00u8], &[ArgGrouping::Empty])]
+    #[case::one_literal_arg(1, &[0b01u8], &[ArgGrouping::ValueLiteral])]
+    #[case::one_group_arg(1, &[0b10u8], &[ArgGrouping::ArgGroup])]
+    #[case::two_empty_args(2, &[0b0000u8], &[ArgGrouping::Empty, ArgGrouping::Empty])]
+    #[case::one_literal_one_group_arg(2, &[0b1001u8], &[ArgGrouping::ValueLiteral, ArgGrouping::ArgGroup])]
+    fn read_bitmaps(
+        #[case] num_args: usize,
+        #[case] bitmap_bytes: &[u8],
+        #[case] expected_entries: &[ArgGrouping],
+    ) -> IonResult<()> {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let buffer = ImmutableBuffer::new(context.get_ref(), bitmap_bytes);
+        let bitmap = buffer.read_eexp_bitmap(num_args, bitmap_bytes.len())?.0;
+
+        // Sanity test for inputs
+        assert_eq!(num_args, expected_entries.len());
+
+        for (actual, expected) in bitmap.iter().zip(expected_entries.iter()) {
+            assert_eq!(&actual?, expected);
+        }
+        Ok(())
+    }
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
         let empty_context = EncodingContext::empty();

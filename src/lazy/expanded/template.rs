@@ -41,6 +41,10 @@ impl Parameter {
     pub fn rest_syntax_policy(&self) -> RestSyntaxPolicy {
         self.rest_syntax_policy
     }
+    /// Returns true if this parameter is of any cardinality other than `ExactlyOne` (`!`).
+    pub fn is_variadic(&self) -> bool {
+        !matches!(self.cardinality, ParameterCardinality::ExactlyOne)
+    }
 }
 
 /// The encoding used to serialize and deserialize the associated parameter.
@@ -73,12 +77,6 @@ pub struct MacroSignature {
 }
 
 impl MacroSignature {
-    fn bitmap_size_in_bytes(&self) -> usize {
-        const BITS_PER_VARIADIC_PARAM: usize = 2;
-        const BITS_PER_BYTE: usize = 8;
-        ((self.num_variadic_params * BITS_PER_VARIADIC_PARAM) + 7) / 8
-    }
-
     fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> Self {
         // We're adding a new parameter, so the previous "final position" parameter is no longer in the final position.
         // Disable rest syntax for that parameter.
@@ -109,6 +107,11 @@ impl MacroSignature {
     }
     pub fn num_variadic_params(&self) -> usize {
         self.num_variadic_params
+    }
+    pub fn bitmap_size_in_bytes(&self) -> usize {
+        const BITS_PER_VARIADIC_PARAM: usize = 2;
+        const BITS_PER_BYTE: usize = 8;
+        ((self.num_variadic_params * BITS_PER_VARIADIC_PARAM) + 7) / 8
     }
 }
 
