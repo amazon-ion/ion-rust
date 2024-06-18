@@ -85,13 +85,22 @@ impl<'top> LazyRawBinaryStruct_1_1<'top> {
     }
 
     pub fn iter(&self) -> RawBinaryStructIterator_1_1<'top> {
-        // Get as much of the struct's body as is available in the input buffer.
-        // Reading a child value may fail as `Incomplete`
-        let buffer_slice = self.value.available_body();
-        RawBinaryStructIterator_1_1::new(
-            self.value.encoded_value.header.ion_type_code,
-            buffer_slice,
-        )
+        if self.value.is_delimited() {
+            RawBinaryStructIterator_1_1::new(
+                self.value.encoded_value.header.ion_type_code,
+                self.value.input.consume(1),
+                self.value.delimited_offsets,
+            )
+        } else {
+            // Get as much of the struct's body as is available in the input buffer.
+            // Reading a child value may fail as `Incomplete`
+            let buffer_slice = self.value.available_body();
+            RawBinaryStructIterator_1_1::new(
+                self.value.encoded_value.header.ion_type_code,
+                buffer_slice,
+                self.value.delimited_offsets,
+            )
+        }
     }
 }
 
@@ -119,30 +128,38 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'
     }
 }
 
-enum StructType {
+enum StructMode {
     FlexSym,
     SymbolAddress,
+}
+
+enum SymAddressFieldName<'top> {
+    ModeChange,
+    FieldName(LazyRawBinaryFieldName_1_1<'top>),
 }
 
 pub struct RawBinaryStructIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
     bytes_to_skip: usize,
-    struct_type: StructType,
+    mode: StructMode,
+    delimited_offsets: Option<&'top [usize]>,
 }
 
 impl<'top> RawBinaryStructIterator_1_1<'top> {
     pub(crate) fn new(
         opcode_type: OpcodeType,
         input: ImmutableBuffer<'top>,
+        delimited_offsets: Option<&'top [usize]>,
     ) -> RawBinaryStructIterator_1_1<'top> {
         RawBinaryStructIterator_1_1 {
             source: input,
             bytes_to_skip: 0,
-            struct_type: match opcode_type {
-                // TODO: Delimited struct handling
-                OpcodeType::Struct => StructType::SymbolAddress,
+            mode: match opcode_type {
+                OpcodeType::Struct => StructMode::SymbolAddress,
+                OpcodeType::StructDelimited => StructMode::FlexSym,
                 _ => unreachable!("Unexpected opcode for structure"),
             },
+            delimited_offsets,
         }
     }
 
@@ -155,6 +172,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         buffer: ImmutableBuffer<'top>,
     ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, ImmutableBuffer<'top>)>> {
         use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSymValue;
+        use crate::lazy::binary::raw::v1_1::Opcode;
 
         if buffer.is_empty() {
             return Ok(None);
@@ -163,10 +181,13 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         let (flex_sym, after) = buffer.read_flex_sym()?;
         let (sym, after) = match flex_sym.value() {
             FlexSymValue::SymbolRef(sym_ref) => (sym_ref, after),
-            FlexSymValue::Opcode(_opcode) => todo!(),
+            FlexSymValue::Opcode(Opcode{ opcode_type: OpcodeType::DelimitedContainerClose, ..}) => {
+                return Ok(None)
+            }
+            _ => unreachable!(),
         };
 
-        let matched_field_id = buffer.slice(0, flex_sym.size_in_bytes());
+        let matched_field_id = buffer.slice(0, after.offset() - buffer.offset());
         let field_name = LazyRawBinaryFieldName_1_1::new(sym, matched_field_id);
         Ok(Some((field_name, after)))
     }
@@ -176,18 +197,23 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// [`ImmutableBuffer`] positioned after the field name is returned.
     fn peek_field_symbol_addr(
         buffer: ImmutableBuffer<'top>,
-    ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, ImmutableBuffer<'top>)>> {
+    ) -> IonResult<Option<(SymAddressFieldName<'top>, ImmutableBuffer<'top>)>> {
         if buffer.is_empty() {
             return Ok(None);
         }
 
         let (symbol_address, after) = buffer.read_flex_uint()?;
-
         let field_id = symbol_address.value() as usize;
-        let matched_field_id = buffer.slice(0, symbol_address.size_in_bytes());
-        let field_name =
-            LazyRawBinaryFieldName_1_1::new(RawSymbolRef::SymbolId(field_id), matched_field_id);
-        Ok(Some((field_name, after)))
+
+        if field_id == 0 {
+            // Mode switch.
+            Ok(Some((SymAddressFieldName::ModeChange, after)))
+        } else {
+            let matched_field_id = buffer.slice(0, symbol_address.size_in_bytes());
+            let field_name =
+                LazyRawBinaryFieldName_1_1::new(RawSymbolRef::SymbolId(field_id), matched_field_id);
+            Ok(Some((SymAddressFieldName::FieldName(field_name), after)))
+        }
     }
 
     /// Helper function called by [`Self::peek_field`] in order to parse a struct field's value.
@@ -215,13 +241,23 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// Helper function called from [`Self::next`] to parse the current field and value from the
     /// struct. On success, returns both the field pair via [`LazyRawFieldExpr`] as well as the
     /// total bytes needed to skip the field.
-    fn peek_field(&self) -> IonResult<Option<(LazyRawFieldExpr<'top, BinaryEncoding_1_1>, usize)>> {
-        let mut buffer = self.source;
+    fn peek_field(
+        &mut self,
+        input: ImmutableBuffer<'top>,
+    ) -> IonResult<Option<(LazyRawFieldExpr<'top, BinaryEncoding_1_1>, usize)>> {
+        let mut buffer = input;
         loop {
             // Peek at our field name.
-            let peek_result = match self.struct_type {
-                StructType::SymbolAddress => Self::peek_field_symbol_addr(buffer)?,
-                StructType::FlexSym => Self::peek_field_flexsym(buffer)?,
+            let peek_result = match self.mode {
+                StructMode::SymbolAddress => match Self::peek_field_symbol_addr(buffer)? {
+                    Some((SymAddressFieldName::ModeChange, after)) => {
+                        self.mode = StructMode::FlexSym;
+                        Self::peek_field_flexsym(after)?
+                    }
+                    Some((SymAddressFieldName::FieldName(fieldname), after)) => Some((fieldname, after)),
+                    None => None,
+                }
+                StructMode::FlexSym => Self::peek_field_flexsym(buffer)?,
             };
 
             let Some((field_name, after_name)) = peek_result else {
@@ -246,7 +282,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
                 (Some(value), after) => (value, after),
             };
 
-            let bytes_to_skip = after_value.offset() - self.source.offset();
+            let bytes_to_skip = after_value.offset() - input.offset();
             return Ok(Some((
                 LazyRawFieldExpr::NameValue(field_name, value),
                 bytes_to_skip,
@@ -259,13 +295,40 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.source = self.source.consume(self.bytes_to_skip);
-        let (field_expr, bytes_to_skip) = match self.peek_field() {
-            Ok(Some((value, bytes_to_skip))) => (Some(Ok(value)), bytes_to_skip),
-            Ok(None) => (None, 0),
-            Err(e) => (Some(Err(e)), 0),
-        };
-        self.bytes_to_skip = bytes_to_skip;
-        field_expr
+        use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
+
+        if let Some(offsets) = self.delimited_offsets {
+            if offsets.len() <= 1 {
+                None
+            } else {
+                let offset = offsets.first().unwrap();
+                let input = self.source.consume(*offset - self.source.offset());
+                let field_expr = match input.peek_opcode() {
+                    Ok(Opcode {
+                        opcode_type: OpcodeType::DelimitedContainerClose,
+                        ..
+                    }) => None,
+                    Ok(_) => match self.peek_field(input) {
+                        Ok(Some((value, _))) => {
+                            self.delimited_offsets.replace(&offsets[1..]);
+                            Some(Ok(value))
+                        }
+                        Ok(None) => None,
+                        Err(e) => Some(Err(e)),
+                    },
+                    Err(e) => Some(Err(e)),
+                };
+                field_expr
+            }
+        } else {
+            self.source = self.source.consume(self.bytes_to_skip);
+            let (field_expr, bytes_to_skip) = match self.peek_field(self.source) {
+                Ok(Some((value, bytes_to_skip))) => (Some(Ok(value)), bytes_to_skip),
+                Ok(None) => (None, 0),
+                Err(e) => (Some(Err(e)), 0),
+            };
+            self.bytes_to_skip = bytes_to_skip;
+            field_expr
+        }
     }
 }
