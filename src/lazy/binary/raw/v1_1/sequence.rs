@@ -4,7 +4,7 @@ use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIt
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::{HasRange, IonResult, IonType};
 use std::fmt::{Debug, Formatter};
