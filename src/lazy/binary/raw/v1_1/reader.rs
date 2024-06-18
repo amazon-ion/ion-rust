@@ -147,8 +147,6 @@ mod tests {
     use crate::raw_symbol_ref::RawSymbolRef;
     use crate::{IonResult, IonType};
 
-    use bumpalo::Bump as BumpAllocator;
-
     #[test]
     fn nop() -> IonResult<()> {
         let data: Vec<u8> = vec![
@@ -718,7 +716,6 @@ mod tests {
     #[test]
     fn nested_sequence() -> IonResult<()> {
         let ion_data: &[u8] = &[0xF1, 0x61, 0x01, 0xF1, 0x61, 0x02, 0xF0, 0x61, 0x03, 0xF0];
-        let allocator = BumpAllocator::new();
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
 
@@ -830,8 +827,6 @@ mod tests {
             (&[0xF1, 0xEC, 0xF0], &[]),
         ];
 
-        let allocator = BumpAllocator::new();
-
         for (ion_data, expected_types) in tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
@@ -900,8 +895,6 @@ mod tests {
             // (<nop>) (delimited)
             (&[0xF2, 0xEC, 0xF0], &[]),
         ];
-
-        let allocator = BumpAllocator::new();
 
         for (ion_data, expected_types) in tests {
             let encoding_context = EncodingContext::empty();

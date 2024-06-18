@@ -359,8 +359,6 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     pub(crate) fn peek_delimited_struct(self) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
-        use crate::lazy::binary::raw::v1_1::OpcodeType;
-
         let head_opcode = self.peek_opcode()?;
         let mut input = self.consume(1);
         let mut offsets = BumpVec::<usize>::new_in(self.context.allocator());
