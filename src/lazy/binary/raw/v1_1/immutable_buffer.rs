@@ -7,7 +7,9 @@ use ice_code::ice;
 
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::v1_1::e_expression::{EncodedBinaryEExp, RawBinaryEExpression_1_1};
+use crate::lazy::binary::raw::v1_1::e_expression::{
+    BinaryEExpArgGroup, EncodedBinaryEExp, RawBinaryEExpression_1_1,
+};
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
@@ -281,6 +283,19 @@ impl<'a> ImmutableBuffer<'a> {
             }))
     }
 
+    fn expect_eexp_arg_expr(self, label: &'static str) -> IonResult<EExpArgExpr<'a, v1_1::Binary>> {
+        self.peek_eexp_arg_expr()?
+            .ok_or_else(|| IonError::incomplete(label, self.offset))
+    }
+
+    pub(crate) fn expect_sequence_value_expr(
+        self,
+        label: &'static str,
+    ) -> IonResult<LazyRawValueExpr<'a, v1_1::Binary>> {
+        self.peek_sequence_value_expr()?
+            .ok_or_else(|| IonError::incomplete(label, self.offset))
+    }
+
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
     pub(crate) fn peek_sequence_value_expr(
@@ -491,11 +506,11 @@ impl<'a> ImmutableBuffer<'a> {
             .reference();
         let signature = macro_ref.signature();
 
+        let bitmap_size_in_bytes = signature.bitmap_size_in_bytes();
         // `args_buffer` will be partially consumed in each iteration of the loop below.
-        let (bitmap, mut args_buffer) = buffer_after_id.read_eexp_bitmap(
-            signature.num_variadic_params(),
-            signature.bitmap_size_in_bytes(),
-        )?;
+        let (bitmap, args_buffer) = buffer_after_id
+            .read_eexp_bitmap(signature.num_variadic_params(), bitmap_size_in_bytes)?;
+        let mut remaining_args_buffer = args_buffer;
         let mut arg_groupings = bitmap.iter();
 
         let parameters: &'a [Parameter] = signature.parameters();
@@ -505,22 +520,51 @@ impl<'a> ImmutableBuffer<'a> {
             let arg_grouping = if parameter.is_variadic() {
                 arg_groupings.next().unwrap()?
             } else {
-                ArgGrouping::ValueLiteral
+                ArgGrouping::ValueExprLiteral
             };
 
+            // TODO: All arms assume tagged encoding for now.
             let arg_expr = match arg_grouping {
-                ArgGrouping::Empty => todo!("binary arg groups"),
-                // TODO: Untagged encodings
-                ArgGrouping::ValueLiteral => {
-                    args_buffer.peek_eexp_arg_expr()?.ok_or_else(|| {
-                        IonError::incomplete("reading tagged e-expr args", args_buffer.offset)
-                    })?
+                ArgGrouping::Empty => {
+                    let input = remaining_args_buffer.slice(0, 0);
+                    EExpArg::new(
+                        parameter,
+                        EExpArgExpr::ArgGroup(BinaryEExpArgGroup::new(parameter, input, &[])),
+                    )
                 }
-                ArgGrouping::ArgGroup => todo!("binary arg groups"),
+                ArgGrouping::ValueExprLiteral => {
+                    let expr =
+                        remaining_args_buffer.expect_eexp_arg_expr("reading tagged e-expr args")?;
+                    EExpArg::new(parameter, expr)
+                }
+                ArgGrouping::ArgGroup => {
+                    let (group_header_flex_uint, mut remaining_args_input) =
+                        remaining_args_buffer.read_flex_uint()?;
+                    let bytes_to_read = match group_header_flex_uint.value() {
+                        0 => todo!("delimited argument groups"),
+                        n_bytes => n_bytes as usize,
+                    };
+                    let mut bytes_read = 0;
+                    let mut expr_cache = BumpVec::new_in(self.context.allocator());
+                    while bytes_read < bytes_to_read {
+                        let value_expr = remaining_args_input
+                            .expect_sequence_value_expr("reading tagged arg group")?;
+                        expr_cache.push(value_expr);
+                        let expr_length = value_expr.range().len();
+                        remaining_args_input = remaining_args_input.consume(expr_length);
+                        bytes_read += expr_length;
+                    }
+                    let arg_group_length = group_header_flex_uint.size_in_bytes() + bytes_to_read;
+                    let arg_group = BinaryEExpArgGroup::new(
+                        parameter,
+                        remaining_args_buffer.slice(0, arg_group_length),
+                        expr_cache.into_bump_slice(),
+                    );
+                    EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group))
+                }
             };
-            args_buffer = args_buffer.consume(arg_expr.range().len());
-            let arg = EExpArg::new(parameter, arg_expr);
-            args_cache.push(arg);
+            remaining_args_buffer = remaining_args_buffer.consume(arg_expr.expr().range().len());
+            args_cache.push(arg_expr);
         }
 
         let parameters = macro_ref.signature().parameters();
@@ -532,8 +576,11 @@ impl<'a> ImmutableBuffer<'a> {
         }
 
         let macro_id_encoded_length = buffer_after_id.offset() - self.offset();
-        let args_length = args_buffer.offset() + args_buffer.len() - buffer_after_id.offset();
-        let e_expression_buffer = self.slice(0, macro_id_encoded_length + args_length);
+        let args_length = remaining_args_buffer.offset() - args_buffer.offset();
+        let e_expression_buffer = self.slice(
+            0,
+            macro_id_encoded_length + bitmap_size_in_bytes + args_length,
+        );
 
         let e_expression = RawBinaryEExpression_1_1::new(
             macro_id,
@@ -549,6 +596,7 @@ impl<'a> ImmutableBuffer<'a> {
         num_variadics: usize,
         bitmap_size_in_bytes: usize,
     ) -> ParseResult<'a, ArgGroupingBitmap> {
+        // TODO: Move this check to the compiler so it doesn't have to happen on each read
         if num_variadics > ArgGroupingBitmap::MAX_VARIADIC_PARAMS {
             return IonResult::decoding_error(ice!(format!(
                 "macro found with {num_variadics} variadic parameters; the max supported is {}",
@@ -590,9 +638,9 @@ impl ArgGroupingBitmap {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ArgGrouping {
-    Empty,        // 00
-    ValueLiteral, // 01
-    ArgGroup,     // 10
+    Empty,            // 00
+    ValueExprLiteral, // 01
+    ArgGroup,         // 10
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -612,7 +660,7 @@ impl Iterator for ArgGroupingBitmapIterator {
             // Read the last two bits
             let encoding = match self.bits & 0b11 {
                 0b00 => Empty,
-                0b01 => ValueLiteral,
+                0b01 => ValueExprLiteral,
                 0b10 => ArgGroup,
                 _ => {
                     return Some(IonResult::decoding_error(
@@ -649,21 +697,25 @@ pub struct EncodedAnnotations {
 mod tests {
     use rstest::rstest;
 
+    use crate::ion_data::IonEq;
     use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::expanded::compiler::TemplateCompiler;
-    use crate::lazy::expanded::macro_evaluator::RawEExpression;
+    use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression};
+    use crate::lazy::expanded::macro_table::MacroTable;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+    use crate::v1_0::RawValueRef;
+    use crate::{Element, ElementReader, Reader};
 
     use super::*;
 
     #[rstest]
     #[case::no_args(0, &[0b00u8], &[])]
     #[case::one_empty_arg(1, &[0b00u8], &[ArgGrouping::Empty])]
-    #[case::one_literal_arg(1, &[0b01u8], &[ArgGrouping::ValueLiteral])]
+    #[case::one_literal_arg(1, &[0b01u8], &[ArgGrouping::ValueExprLiteral])]
     #[case::one_group_arg(1, &[0b10u8], &[ArgGrouping::ArgGroup])]
     #[case::two_empty_args(2, &[0b0000u8], &[ArgGrouping::Empty, ArgGrouping::Empty])]
-    #[case::one_literal_one_group_arg(2, &[0b1001u8], &[ArgGrouping::ValueLiteral, ArgGrouping::ArgGroup])]
+    #[case::one_literal_one_group_arg(2, &[0b1001u8], &[ArgGrouping::ValueExprLiteral, ArgGrouping::ArgGroup])]
     fn read_bitmaps(
         #[case] num_args: usize,
         #[case] bitmap_bytes: &[u8],
@@ -845,5 +897,144 @@ mod tests {
         };
 
         eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_empty() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            // === Invoke macro ====
+            address as u8,
+            // === Argument grouping bitmap: empty ===
+            0b00,
+        ];
+
+        let args_test = |eexp: RawBinaryEExpression_1_1| {
+            let mut args = eexp.raw_arguments();
+            let arg_group = args.next().unwrap()?.expr().expect_arg_group()?;
+            let mut group_args = arg_group.iter();
+            assert!(group_args.next().is_none());
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_value_literal() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            // === Invoke macro ====
+            address as u8,
+            // === Argument grouping bitmap: value literal ===
+            0b01,
+            // === Value Literal ===
+            0x61, 0x01
+        ];
+
+        let args_test = |eexp: RawBinaryEExpression_1_1| {
+            let mut args = eexp.raw_arguments();
+            let arg1 = args.next().unwrap()?.expr().expect_value()?;
+            assert_eq!(arg1.read()?, RawValueRef::Int(1.into()));
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_arg_group() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        #[rustfmt::skip]
+        let encode_eexp_fn = |address: MacroAddress| vec![
+            // === Invoke macro ====
+            address as u8,
+            // === Argument group header: arg group ===
+            0b10,
+            // === Arg group ===
+            0x0D,       // FlexUInt: Byte length 6
+            0x61, 0x01, // Int 1
+            0x61, 0x02, // Int 2
+            0x61, 0x03, // Int 3
+        ];
+
+        let args_test = |eexp: RawBinaryEExpression_1_1| {
+            let mut args = eexp.raw_arguments();
+            let arg_group = args.next().unwrap()?.expr().expect_arg_group()?;
+            let mut group_exprs = arg_group.iter();
+            let group_arg1 = group_exprs.next().unwrap()?;
+            let group_arg2 = group_exprs.next().unwrap()?;
+            let group_arg3 = group_exprs.next().unwrap()?;
+            assert_eq!(
+                group_arg1.expect_value()?.read()?,
+                RawValueRef::Int(1.into())
+            );
+            assert_eq!(
+                group_arg2.expect_value()?.read()?,
+                RawValueRef::Int(2.into())
+            );
+            assert_eq!(
+                group_arg3.expect_value()?.read()?,
+                RawValueRef::Int(3.into())
+            );
+            assert!(group_exprs.next().is_none());
+            Ok(())
+        };
+
+        eexp_test(macro_source, encode_eexp_fn, args_test)
+    }
+
+    #[test]
+    fn read_eexp_with_star_parameter_arg_group_nested_eexp() -> IonResult<()> {
+        let macro_source = r#"
+            (macro wrap_in_list (values*) ["first", values, "last"])
+        "#;
+
+        let expected_text = r#"
+            [
+                "first",
+                1,
+                ["first", "last"],
+                3,
+                "last",
+            ]
+        "#;
+
+        let expected = Element::read_all(expected_text)?;
+
+        let macro_address = MacroTable::FIRST_USER_MACRO_ID as u8;
+        #[rustfmt::skip]
+        let data = vec![
+            // === Invoke macro ====
+            macro_address,
+            // === Argument group header: arg group ===
+            0b10,
+            // === Arg group ===
+            0x0D,          // FlexUInt: Byte length 6
+            0x61, 0x01,    // Int 1
+            macro_address, // Nested invocation of same macro
+            0b00,          // Empty group
+            0x61, 0x03,    // Int 3
+        ];
+
+        let mut reader = Reader::new(v1_1::Binary, data)?;
+        reader.register_template(macro_source)?;
+        let actual = reader.read_all_elements()?;
+        assert!(
+            actual.ion_eq(&expected),
+            "Actual sequence\n{actual:?}\nwas not IonEq to expected sequence\n{expected:?}"
+        );
+        Ok(())
     }
 }

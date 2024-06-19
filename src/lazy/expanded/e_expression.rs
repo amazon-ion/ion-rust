@@ -21,6 +21,7 @@ pub struct ArgGroup<'top, D: Decoder> {
     invoked_macro: MacroRef<'top>,
 }
 
+// TODO: Explain link between ArgGroup and `values` macro
 impl<'top, D: Decoder> ArgGroup<'top, D> {
     pub fn new(
         raw_arg_group: <D::EExp<'top> as RawEExpression<'top, D>>::ArgGroup,

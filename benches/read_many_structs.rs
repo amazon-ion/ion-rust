@@ -73,7 +73,7 @@ mod benchmark {
         let text_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Text).unwrap();
         let binary_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Binary).unwrap();
         let template_definition_text = r#"
-            (macro event (timestamp thread_id thread_name client_num host_id parameters)
+            (macro event (timestamp thread_id thread_name client_num host_id parameters*)
                 {
                     'timestamp': timestamp,
                     'threadId': thread_id,
@@ -91,28 +91,59 @@ mod benchmark {
             )
         "#;
 
-        let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (:values "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
-        fn write_binary_1_1_data() -> IonResult<Vec<u8>> {
-            let mut writer = RawBinaryWriter::new(Vec::new())?;
-            // TODO: tagless encodings
-            for _ in 0..NUM_VALUES {
-                let mut eexp = writer.eexp_writer(3)?;
-                eexp.write(1670446800245i64)?
-                    .write(418)?
-                    .write("6")?
-                    .write("1")?
-                    .write("18b4fa")?;
-                let mut nested_eexp = eexp.eexp_writer(1)?;
-                nested_eexp
-                    .write("region 4")?
-                    .write("2022-12-07T20:59:59.744000Z")?;
-                nested_eexp.close()?;
-                eexp.close()?;
-            }
-            writer.close()
-        }
+        let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
 
-        let binary_1_1_data = write_binary_1_1_data()?;
+        #[rustfmt::skip]
+        let mut binary_1_1_data_body: Vec<u8> = vec![
+            0x03, // Macro ID 3
+            0b10, // [NOTE: `0b`] `parameters*` arg is an arg group
+            0x66, // 6-byte integer (`timestamp` param)
+            0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
+            0x62, // 2-byte integer (`thread_id` param)
+            0xA2, 0x01,
+            0x91, // 1-byte string (`thread_name` param)
+            0x36,
+            0x91, // 1-byte string (`client_num` param)
+            0x31,
+            0x96, // 6-byte string (`host_id` param)
+            0x31, 0x38, 0x62, 0x34, 0x66, 0x61,
+            0x4D, // Arg group length prefix
+            0x98, // 8-byte string
+            0x72, 0x65, 0x67, 0x69,
+            0x6F, 0x6E, 0x20, 0x34,
+            0xF9, // Long-form, 27-byte string
+            0x37, 0x32, 0x30, 0x32,
+            0x32, 0x2D, 0x31, 0x32,
+            0x2D, 0x30, 0x37, 0x54,
+            0x32, 0x30, 0x3A, 0x35,
+            0x39, 0x3A, 0x35, 0x39,
+            0x2E, 0x37, 0x34, 0x34,
+            0x30, 0x30, 0x30, 0x5A,
+        ].repeat(NUM_VALUES);
+        // Ion v1.1 Version Marker
+        let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA];
+        binary_1_1_data.append(&mut binary_1_1_data_body);
+        // fn write_binary_1_1_data() -> IonResult<Vec<u8>> {
+        //     let mut writer = RawBinaryWriter::new(Vec::new())?;
+        //     // TODO: tagless encodings
+        //     for _ in 0..NUM_VALUES {
+        //         let mut eexp = writer.eexp_writer(3)?;
+        //         eexp.write(1670446800245i64)?
+        //             .write(418)?
+        //             .write("6")?
+        //             .write("1")?
+        //             .write("18b4fa")?;
+        //         let mut nested_eexp = eexp.eexp_writer(1)?;
+        //         nested_eexp
+        //             .write("region 4")?
+        //             .write("2022-12-07T20:59:59.744000Z")?;
+        //         nested_eexp.close()?;
+        //         eexp.close()?;
+        //     }
+        //     writer.close()
+        // }
+        //
+        // let binary_1_1_data = write_binary_1_1_data()?;
 
         println!("Bin  Ion 1.0 data size: {} bytes", binary_1_0_data.len());
         println!("Bin  Ion 1.1 data size: {} bytes", binary_1_1_data.len());

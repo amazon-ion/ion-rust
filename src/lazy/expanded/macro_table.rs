@@ -118,6 +118,9 @@ impl MacroTable {
     pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] =
         &[MacroKind::Void, MacroKind::Values, MacroKind::MakeString];
     pub const NUM_SYSTEM_MACROS: usize = Self::SYSTEM_MACRO_KINDS.len();
+    // When a user defines new macros, this is the first ID that will be assigned. This value
+    // is expected to change as development continues. It is currently used in several unit tests.
+    pub const FIRST_USER_MACRO_ID: usize = 3;
 
     pub fn new() -> Self {
         let macros_by_id = vec![

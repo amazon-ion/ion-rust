@@ -6,15 +6,32 @@ use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
 use crate::IonResult;
 use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter};
 use std::io;
 
 /// An iterable, addressable series of Ion [`Element`]s.
 ///
 /// A `Sequence` is not itself an Ion value type, but can represent a series of Ion values appearing
 /// in a [`List`](crate::List), a [`SExp`](crate::SExp), or at the top level.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Sequence {
     elements: Vec<Element>,
+}
+
+impl Debug for Sequence {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Sequence<")?;
+        let mut is_first = true;
+        for element in self {
+            if is_first {
+                write!(f, "{element}")?;
+            } else {
+                write!(f, ", {element}")?;
+                is_first = false;
+            }
+        }
+        write!(f, ">")
+    }
 }
 
 impl Sequence {

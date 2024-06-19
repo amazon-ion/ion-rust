@@ -13,8 +13,6 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
-use std::ops::Range;
 
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
@@ -34,49 +32,17 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{HasRange, IonError, IonResult, RawSymbolRef, Span};
-
-#[derive(Copy, Clone, Debug)]
-pub struct PlaceholderEExpressionArgGroup<'top, D: Decoder> {
-    spooky: PhantomData<&'top D>,
-}
-
-impl<'top, D: Decoder> IntoIterator for PlaceholderEExpressionArgGroup<'top, D> {
-    type Item = IonResult<LazyRawValueExpr<'top, D>>;
-    type IntoIter = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        todo!()
-    }
-}
-
-impl<'top, D: Decoder> HasRange for PlaceholderEExpressionArgGroup<'top, D> {
-    fn range(&self) -> Range<usize> {
-        todo!()
-    }
-}
-
-impl<'top, D: Decoder> HasSpan<'top> for PlaceholderEExpressionArgGroup<'top, D> {
-    fn span(&self) -> Span<'top> {
-        todo!()
-    }
-}
-
-impl<'top, D: Decoder> EExpressionArgGroup<'top, D> for PlaceholderEExpressionArgGroup<'top, D> {
-    fn encoding(&self) -> ParameterEncoding {
-        todo!()
-    }
-
-    fn resolve(self, _context: EncodingContextRef<'top>) -> ArgGroup<'top, D> {
-        todo!()
-    }
-}
+use crate::{IonError, IonResult, RawSymbolRef};
 
 pub trait EExpressionArgGroup<'top, D: Decoder>:
     HasSpan<'top> + Debug + Copy + Clone + IntoIterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
 {
     fn encoding(&self) -> ParameterEncoding;
     fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, D>;
+
+    fn iter(self) -> Self::IntoIter {
+        self.into_iter()
+    }
 }
 
 /// The syntactic entity in format `D` that represents an e-expression. This expression has not

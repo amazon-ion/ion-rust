@@ -6,7 +6,10 @@ use std::ops::Range;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::{PlaceholderEExpressionArgGroup, RawEExpression};
+use crate::lazy::expanded::e_expression::ArgGroup;
+use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression};
+use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::{v1_1, HasRange, HasSpan, IonResult, Span};
@@ -69,7 +72,7 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for RawBinaryEExpression_1_1<'top>
     type RawArgumentsIterator<'a> = BinaryEExpArgsIterator_1_1<'top>
     where
         Self: 'a;
-    type ArgGroup = PlaceholderEExpressionArgGroup<'top, BinaryEncoding_1_1>;
+    type ArgGroup = BinaryEExpArgGroup<'top>;
 
     fn id(&self) -> MacroIdRef<'top> {
         self.id
@@ -77,6 +80,77 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for RawBinaryEExpression_1_1<'top>
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator<'top> {
         BinaryEExpArgsIterator_1_1::new(self.arg_cache)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct BinaryEExpArgGroup<'top> {
+    parameter: &'top Parameter,
+    input: ImmutableBuffer<'top>,
+    expr_cache: &'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>],
+}
+
+impl<'top> BinaryEExpArgGroup<'top> {
+    pub fn new(
+        parameter: &'top Parameter,
+        input: ImmutableBuffer<'top>,
+        expr_cache: &'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>],
+    ) -> Self {
+        Self {
+            parameter,
+            input,
+            expr_cache,
+        }
+    }
+}
+
+impl<'top> HasRange for BinaryEExpArgGroup<'top> {
+    fn range(&self) -> Range<usize> {
+        self.input.range()
+    }
+}
+
+impl<'top> HasSpan<'top> for BinaryEExpArgGroup<'top> {
+    fn span(&self) -> Span<'top> {
+        Span::with_offset(self.input.offset(), self.input.bytes())
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct BinaryEExpArgGroupIterator<'top> {
+    expr_cache: &'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>],
+    index: usize,
+}
+
+impl<'top> Iterator for BinaryEExpArgGroupIterator<'top> {
+    type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let child_expr = self.expr_cache.get(self.index)?;
+        self.index += 1;
+        Some(Ok(*child_expr))
+    }
+}
+
+impl<'top> IntoIterator for BinaryEExpArgGroup<'top> {
+    type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
+    type IntoIter = BinaryEExpArgGroupIterator<'top>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BinaryEExpArgGroupIterator {
+            expr_cache: self.expr_cache,
+            index: 0,
+        }
+    }
+}
+
+impl<'top> EExpressionArgGroup<'top, BinaryEncoding_1_1> for BinaryEExpArgGroup<'top> {
+    fn encoding(&self) -> ParameterEncoding {
+        self.parameter.encoding()
+    }
+
+    fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, BinaryEncoding_1_1> {
+        ArgGroup::new(self, context)
     }
 }
 

@@ -1020,19 +1020,23 @@ impl<'top> TextBufferView<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         alt((
-            Self::match_explicit_arg_group,
-            Self::parser_for_param(parameter, Self::match_rest),
+            Self::parser_with_arg(Self::match_explicit_arg_group, parameter),
+            Self::parser_with_arg(Self::match_rest, parameter),
         ))(self)
     }
 
-    pub fn parser_for_param<O>(
-        parameter: &'top Parameter,
-        mut parser: impl FnMut(TextBufferView<'top>, &'top Parameter) -> IonParseResult<'top, O>,
-    ) -> impl Parser<TextBufferView<'top>, O, IonParseError<'top>> {
-        move |input: TextBufferView<'top>| parser(input, parameter)
+    // TODO: Doc comment
+    pub fn parser_with_arg<A: 'top, O>(
+        mut parser: impl FnMut(Self, &'top A) -> IonParseResult<'top, O>,
+        arg_to_pass: &'top A,
+    ) -> impl Parser<Self, O, IonParseError<'top>> {
+        move |input: TextBufferView<'top>| parser(input, arg_to_pass)
     }
 
-    pub fn match_explicit_arg_group(self) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
+    pub fn match_explicit_arg_group(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         let (group_body, group_head) = alt((
             // A trivially empty arg group: `(:)`
             terminated(tag("(:"), peek(tag(")"))),
@@ -1071,7 +1075,7 @@ impl<'top> TextBufferView<'top> {
         // We also trim the
         let matched = self.slice(0, span.len());
         let remaining = self.slice_to_end(span.len());
-        let arg_group = TextEExpArgGroup::new(matched, child_expr_cache);
+        let arg_group = TextEExpArgGroup::new(parameter, matched, child_expr_cache);
 
         Ok((remaining, arg_group))
     }
@@ -1112,7 +1116,7 @@ impl<'top> TextBufferView<'top> {
             let (input_after_match, maybe_arg) = remaining.match_argument_for(param)?;
             remaining = input_after_match;
             match maybe_arg {
-                Some(arg) => arg_expr_cache.push(dbg!(arg)),
+                Some(arg) => arg_expr_cache.push(arg),
                 None => {
                     for param in &signature_params[index..] {
                         if param.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
@@ -1164,7 +1168,7 @@ impl<'top> TextBufferView<'top> {
                 );
                 arg_expr_cache.push(EExpArg::new(
                     parameter,
-                    EExpArgExpr::ArgGroup(TextEExpArgGroup::new(buffer, &[])),
+                    EExpArgExpr::ArgGroup(TextEExpArgGroup::new(parameter, buffer, &[])),
                 ));
             }
         }
@@ -1184,15 +1188,14 @@ impl<'top> TextBufferView<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
         use crate::lazy::expanded::template::ParameterCardinality::*;
-        dbg!(parameter);
         match parameter.cardinality() {
             ExactlyOne => {
-                let (remaining, arg) = dbg!(self.match_exactly_one(parameter))?;
+                let (remaining, arg) = self.match_exactly_one(parameter)?;
                 Ok((remaining, Some(arg)))
             }
-            ZeroOrOne => dbg!(self.match_zero_or_one(parameter)),
-            ZeroOrMore => dbg!(self.match_zero_or_more(parameter)),
-            OneOrMore => dbg!(self.match_one_or_more(parameter)),
+            ZeroOrOne => self.match_zero_or_one(parameter),
+            ZeroOrMore => self.match_zero_or_more(parameter),
+            OneOrMore => self.match_one_or_more(parameter),
         }
     }
 
@@ -1240,11 +1243,10 @@ impl<'top> TextBufferView<'top> {
         self,
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
-        dbg!(parameter);
         let (remaining, maybe_expr) = preceded(
             Self::match_optional_comments_and_whitespace,
             alt((
-                Self::parser_for_param(parameter, Self::match_e_expression_arg_group)
+                Self::parser_with_arg(Self::match_e_expression_arg_group, parameter)
                     .map(|group| Some(EExpArg::new(parameter, EExpArgExpr::ArgGroup(group)))),
                 Self::match_sexp_value_1_1.map(|expr| {
                     expr.map(EExpArgExpr::from)
@@ -1291,12 +1293,12 @@ impl<'top> TextBufferView<'top> {
             ))
             .parse(remaining)?;
             if let Some(expr) = maybe_expr {
-                remaining = dbg!(remaining_after_expr);
+                remaining = remaining_after_expr;
                 cache.push(expr);
             } else {
                 return Ok((
                     remaining,
-                    TextEExpArgGroup::new(self, cache.into_bump_slice()),
+                    TextEExpArgGroup::new(parameter, self, cache.into_bump_slice()),
                 ));
             }
         }
@@ -2474,6 +2476,7 @@ where
 mod tests {
     use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::expanded::compiler::TemplateCompiler;
+    use crate::lazy::expanded::template::{ParameterCardinality, ParameterEncoding};
     use crate::lazy::expanded::EncodingContext;
     use rstest::rstest;
 
@@ -3053,9 +3056,18 @@ mod tests {
     #[case::eexp_with_sexp("(: (foo 1 2 3))")]
     #[case::eexp_with_mixed_values("(: 1 2 3 {quux: [1, 2, 3]} 4 bar::5 baz::6)")]
     fn match_eexp_arg_group(#[case] input: &str) {
+        let parameter = Parameter::new(
+            "x",
+            ParameterEncoding::Tagged,
+            ParameterCardinality::ZeroOrMore,
+            RestSyntaxPolicy::NotAllowed,
+        );
         MatchTest::new(input)
             .register_macro("(macro foo (x*) null)")
-            .expect_match(match_length(TextBufferView::match_explicit_arg_group))
+            .expect_match(match_length(TextBufferView::parser_with_arg(
+                TextBufferView::match_explicit_arg_group,
+                &parameter,
+            )))
     }
 
     #[rstest]

@@ -132,30 +132,6 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         } = self;
 
         let num_pending_symbols = encoding_context.num_pending_symbols;
-        let num_existing_symbols = encoding_context.symbol_table.len() - num_pending_symbols;
-
-        let new_symbols_text = encoding_context
-            .symbol_table
-            .symbols_tail(num_pending_symbols)
-            .iter()
-            .enumerate()
-            .map(|(id, symbol)| format!("/* ${} = */ {symbol}", id + num_existing_symbols))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let current_symbols = encoding_context
-            .symbol_table
-            .symbols()
-            .iter()
-            .take(num_existing_symbols)
-            .enumerate()
-            .map(|(id, symbol)| format!("/* ${id} = */ {symbol}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        println!("symbol table:\n{current_symbols}",);
-        println!("Appending #{num_pending_symbols} ->\n{new_symbols_text}");
-
         let mut lst = directive_writer
             .value_writer()
             .with_annotations(system_symbol_ids::ION_SYMBOL_TABLE)?
