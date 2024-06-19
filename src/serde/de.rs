@@ -10,7 +10,7 @@ use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
-use crate::{Decimal, IonError, IonResult, IonType, Timestamp};
+use crate::{Decimal, IonEncoding, IonError, IonResult, IonType, Timestamp};
 
 /// Generic method that can deserialize an object from any given type
 /// that implements `IonInput`.
@@ -20,19 +20,27 @@ where
     I: IonInput,
 {
     let mut reader = Reader::new(AnyEncoding, input)?;
+    let detected_encoding = reader.detected_encoding();
     let value = reader.expect_next()?;
-    let value_deserializer = ValueDeserializer::new(&value);
+    let value_deserializer = ValueDeserializer::new(&value, detected_encoding);
     T::deserialize(value_deserializer)
 }
 
 #[derive(Clone, Copy)]
 pub struct ValueDeserializer<'a, 'de> {
+    detected_encoding: IonEncoding,
     pub(crate) value: &'a LazyValue<'de, AnyEncoding>,
 }
 
 impl<'a, 'de> ValueDeserializer<'a, 'de> {
-    pub(crate) fn new(value: &'a LazyValue<'de, AnyEncoding>) -> Self {
-        Self { value }
+    pub(crate) fn new(
+        value: &'a LazyValue<'de, AnyEncoding>,
+        detected_encoding: IonEncoding,
+    ) -> Self {
+        Self {
+            value,
+            detected_encoding,
+        }
     }
 
     fn deserialize_as_sequence<V: Visitor<'de>>(
@@ -41,8 +49,8 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
     ) -> Result<V::Value, <Self as de::Deserializer<'de>>::Error> {
         use ValueRef::*;
         match self.value.read()? {
-            List(l) => visitor.visit_seq(SequenceIterator(l.iter())),
-            SExp(l) => visitor.visit_seq(SequenceIterator(l.iter())),
+            List(l) => visitor.visit_seq(SequenceIterator(l.iter(), self.detected_encoding)),
+            SExp(l) => visitor.visit_seq(SequenceIterator(l.iter(), self.detected_encoding)),
             _ => IonResult::decoding_error("expected a list or sexp"),
         }
     }
@@ -51,7 +59,7 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
         visitor: V,
     ) -> Result<V::Value, <Self as de::Deserializer<'de>>::Error> {
         let strukt = self.value.read()?.expect_struct()?;
-        let struct_as_map = StructAsMap::new(strukt.iter());
+        let struct_as_map = StructAsMap::new(strukt.iter(), self.detected_encoding);
 
         visitor.visit_map(struct_as_map)
     }
@@ -59,6 +67,10 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
 
 impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     type Error = IonError;
+
+    fn is_human_readable(&self) -> bool {
+        self.detected_encoding.is_text()
+    }
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -426,7 +438,7 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     }
 }
 
-pub(crate) struct SequenceIterator<S>(pub(crate) S);
+pub(crate) struct SequenceIterator<S>(pub(crate) S, IonEncoding);
 
 impl<'de, S> SeqAccess<'de> for SequenceIterator<S>
 where
@@ -441,7 +453,7 @@ where
         let Some(lazy_value) = self.0.next().transpose()? else {
             return Ok(None);
         };
-        let deserializer = ValueDeserializer::new(&lazy_value);
+        let deserializer = ValueDeserializer::new(&lazy_value, self.1);
         seed.deserialize(deserializer).map(Some)
     }
 }
@@ -449,13 +461,15 @@ where
 struct StructAsMap<'de> {
     iter: StructIterator<'de, AnyEncoding>,
     current_field: Option<LazyField<'de, AnyEncoding>>,
+    detected_encoding: IonEncoding,
 }
 
 impl<'de> StructAsMap<'de> {
-    pub fn new(iter: StructIterator<'de, AnyEncoding>) -> Self {
+    pub fn new(iter: StructIterator<'de, AnyEncoding>, detected_encoding: IonEncoding) -> Self {
         Self {
             iter,
             current_field: None,
+            detected_encoding,
         }
     }
 }
@@ -490,6 +504,7 @@ impl<'de> MapAccess<'de> for StructAsMap<'de> {
             // This method will only be called when `next_key_seed` reported another field,
             // so we can unwrap this safely.
             &self.current_field.as_ref().unwrap().value(),
+            self.detected_encoding,
         ))
     }
 }

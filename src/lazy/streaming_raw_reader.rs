@@ -47,13 +47,28 @@ pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
 const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
 impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
-    pub fn new(encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
-        StreamingRawReader {
+    pub fn new(encoding: Encoding, input: Input) -> IonResult<StreamingRawReader<Encoding, Input>> {
+        let mut me = StreamingRawReader {
             encoding,
             input: input.into_data_source().into(),
             saved_state: Default::default(),
             stream_position: 0,
+        };
+        me.detect_encoding()?;
+        Ok(me)
+    }
+
+    fn detect_encoding<'top>(&'top mut self) -> IonResult<()> {
+        if self.buffer_is_empty() {
+            self.pull_more_data_from_source()?;
         }
+
+        let available_bytes = unsafe { &*self.input.get() }.buffer();
+        let reader =
+            <Encoding::Reader<'top> as LazyRawReader<'top, Encoding>>::new(available_bytes);
+        self.saved_state = reader.save_state();
+
+        Ok(())
     }
 
     /// Gets a reference to the data source and tries to fill its buffer.
@@ -467,7 +482,7 @@ mod tests {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
         let ion = "";
-        let mut reader = StreamingRawReader::new(AnyEncoding, ion.as_bytes());
+        let mut reader = StreamingRawReader::new(AnyEncoding, ion.as_bytes()).unwrap();
         // We expect `Ok(EndOfStream)`, not `Err(Incomplete)`.
         expect_end_of_stream(reader.next(context)?)?;
         Ok(())
@@ -476,7 +491,7 @@ mod tests {
     fn read_example_stream(input: impl IonInput) -> IonResult<()> {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let mut reader = StreamingRawReader::new(AnyEncoding, input);
+        let mut reader = StreamingRawReader::new(AnyEncoding, input).unwrap();
         expect_string(reader.next(context)?, "foo")?;
         expect_string(reader.next(context)?, "bar")?;
         expect_string(reader.next(context)?, "baz")?;
@@ -524,7 +539,7 @@ mod tests {
     fn read_invalid_example_stream(input: impl IonInput) -> IonResult<()> {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let mut reader = StreamingRawReader::new(AnyEncoding, input);
+        let mut reader = StreamingRawReader::new(AnyEncoding, input).unwrap();
         let result = reader.next(context);
         // Because the input stream is exhausted, the incomplete value is illegal data and raises
         // a decoding error.
@@ -572,7 +587,7 @@ mod tests {
         // contains incomplete data that could be misinterpreted by a reader.
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let mut reader = StreamingRawReader::new(v1_0::Text, IonStream::new(input));
+        let mut reader = StreamingRawReader::new(v1_0::Text, IonStream::new(input)).unwrap();
 
         assert_eq!(reader.next(context)?.expect_ivm()?.version(), (1, 0));
         assert_eq!(

@@ -68,6 +68,7 @@ impl FieldEncoder for Never {
 }
 
 impl StructWriter for Never {
+    const IS_HUMAN_READABLE: bool = false;
     fn close(self) -> IonResult<()> {
         unreachable!("StructWriter::end in Never")
     }
@@ -102,6 +103,7 @@ impl ValueWriter for Never {
     type SExpWriter = Never;
     type StructWriter = Never;
     type EExpWriter = Never;
+    const IS_HUMAN_READABLE: bool = false;
 
     delegate_value_writer_to_self!();
 }

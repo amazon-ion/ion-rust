@@ -46,6 +46,8 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
     type StructWriter = TextStructWriter_1_1<'value, W>;
     type EExpWriter = TextEExpWriter_1_1<'value, W>;
 
+    const IS_HUMAN_READABLE: bool = true;
+
     // For all of the scalars, delegate to the existing 1.0 writing logic.
     delegate! {
         to self.value_writer_1_0 {
@@ -121,6 +123,7 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_1<'va
     type SExpWriter = TextSExpWriter_1_1<'value, W>;
     type StructWriter = TextStructWriter_1_1<'value, W>;
     type EExpWriter = TextEExpWriter_1_1<'value, W>;
+    const IS_HUMAN_READABLE: bool = true;
     // For all of the scalars, delegate to the existing 1.0 writing logic.
     delegate! {
         to self.value_writer_1_0 {
@@ -227,6 +230,7 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_1<'value, W> {
 }
 
 impl<'value, W: Write> StructWriter for TextStructWriter_1_1<'value, W> {
+    const IS_HUMAN_READABLE: bool = true;
     fn close(self) -> IonResult<()> {
         self.writer_1_0.close()
     }

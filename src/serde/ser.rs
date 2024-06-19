@@ -306,6 +306,10 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
                 .struct_writer()?,
         })
     }
+
+    fn is_human_readable(&self) -> bool {
+        V::IS_HUMAN_READABLE
+    }
 }
 
 pub struct SeqWriter<V: ValueWriter> {

@@ -664,6 +664,8 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_1<'value, 'top> {
 
     type EExpWriter = BinaryEExpWriter_1_1<'value, 'top>;
 
+    const IS_HUMAN_READABLE: bool = false;
+
     delegate_value_writer_to_self!();
 }
 
@@ -766,6 +768,8 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> 
     type SExpWriter = BinarySExpWriter_1_1<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_1<'value, 'top>;
     type EExpWriter = BinaryEExpWriter_1_1<'value, 'top>;
+
+    const IS_HUMAN_READABLE: bool = false;
 
     annotate_and_delegate_1_1!(
         IonType => write_null,

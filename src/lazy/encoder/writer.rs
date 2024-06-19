@@ -251,6 +251,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     type SExpWriter = ApplicationSExpWriter<'value, V>;
     type StructWriter = ApplicationStructWriter<'value, V>;
     type EExpWriter = ApplicationEExpWriter<'value, V>;
+    const IS_HUMAN_READABLE: bool = V::IS_HUMAN_READABLE;
 
     delegate! {
         to self.raw_value_writer {
@@ -403,6 +404,7 @@ impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V>
 }
 
 impl<'value, V: ValueWriter> StructWriter for ApplicationStructWriter<'value, V> {
+    const IS_HUMAN_READABLE: bool = V::IS_HUMAN_READABLE;
     fn close(self) -> IonResult<()> {
         self.raw_struct_writer.close()
     }

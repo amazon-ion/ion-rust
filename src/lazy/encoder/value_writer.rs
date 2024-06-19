@@ -53,6 +53,7 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     type SExpWriter: SequenceWriter<Resources = ()>;
     type StructWriter: StructWriter;
     type EExpWriter: EExpWriter<Resources = ()>;
+    const IS_HUMAN_READABLE: bool;
 
     fn write_null(self, ion_type: IonType) -> IonResult<()>;
     fn write_bool(self, value: bool) -> IonResult<()>;
@@ -236,6 +237,7 @@ impl<'field, StructWriterType: StructWriter> ValueWriter for FieldWriter<'field,
         <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::StructWriter;
     type EExpWriter =
         <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::EExpWriter;
+    const IS_HUMAN_READABLE: bool = StructWriterType::IS_HUMAN_READABLE;
 
     delegate_value_writer_to!(fallible closure |self_: Self| {
         self_.struct_writer.encode_field_name(self_.name)?;
@@ -287,6 +289,8 @@ impl<'field, StructWriterType: StructWriter> AnnotatableWriter
 impl<'field, StructWriterType: StructWriter> ValueWriter
     for AnnotatedFieldWriter<'field, StructWriterType>
 {
+    const IS_HUMAN_READABLE: bool = StructWriterType::IS_HUMAN_READABLE;
+
     type ListWriter =
         <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::ListWriter;
     type SExpWriter =
@@ -304,6 +308,7 @@ impl<'field, StructWriterType: StructWriter> ValueWriter
 }
 
 pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
+    const IS_HUMAN_READABLE: bool;
     /// Writes a struct field using the provided name/value pair.
     fn write<A: AsRawSymbolRef, V: WriteAsIon>(
         &mut self,

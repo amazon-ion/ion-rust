@@ -443,6 +443,7 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
 }
 
 impl<'value, W: Write> StructWriter for TextStructWriter_1_0<'value, W> {
+    const IS_HUMAN_READABLE: bool = true;
     fn close(self) -> IonResult<()> {
         self.end()
     }
@@ -473,6 +474,8 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_0<'va
     // Ion 1.0 does not support macros
     type EExpWriter = Never;
 
+    const IS_HUMAN_READABLE: bool = true;
+
     delegate_value_writer_to!(fallible closure |self_: Self| self_.encode_annotations());
 }
 
@@ -497,6 +500,8 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     type ListWriter = TextListWriter_1_0<'value, W>;
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
+
+    const IS_HUMAN_READABLE: bool = true;
 
     // Ion 1.0 does not support macros
     type EExpWriter = Never;

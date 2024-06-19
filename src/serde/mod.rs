@@ -204,12 +204,16 @@ pub use ser::{to_pretty, to_string};
 #[cfg(test)]
 #[cfg(feature = "experimental-serde")]
 mod tests {
+    use std::net::IpAddr;
+
     use crate::serde::{from_ion, to_pretty, to_string};
 
     use crate::{Decimal, Element, Timestamp};
     use chrono::{DateTime, FixedOffset, Utc};
     use serde::{Deserialize, Serialize};
     use serde_with::serde_as;
+
+    use super::ser::to_binary;
 
     #[test]
     fn test_struct() {
@@ -355,5 +359,23 @@ mod tests {
         let i = r#"'\'embedded quotes\''"#;
         let expected = String::from("'embedded quotes'");
         assert_eq!(expected, from_ion::<String, _>(i).unwrap());
+    }
+
+    #[test]
+    fn human_readable() {
+        // IpAddr has different repr based on if codec is considered
+        // human readable or not {true: string, false: byte array}
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        let expected_binary = [
+            224, 1, 0, 234, 235, 129, 131, 216, 134, 113, 3, 135, 179, 130, 86, 52, 233, 129, 138,
+            182, 33, 127, 32, 32, 33, 1,
+        ];
+        let expected_s = "\"127.0.0.1\" ";
+        let binary = to_binary(&ip).unwrap();
+        assert_eq!(&binary[..], &expected_binary[..]);
+        let s = to_string(&ip).unwrap();
+        assert_eq!(s, expected_s);
+        assert_eq!(&from_ion::<IpAddr, _>(s).unwrap(), &ip);
+        assert_eq!(&from_ion::<IpAddr, _>(binary).unwrap(), &ip);
     }
 }

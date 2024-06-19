@@ -288,6 +288,7 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
 
     type EExpWriter = Never;
+    const IS_HUMAN_READABLE: bool = false;
 
     delegate_value_writer_to_self!();
 }
@@ -411,6 +412,7 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
 
+    const IS_HUMAN_READABLE: bool = false;
     // Ion 1.0
     type EExpWriter = Never;
 

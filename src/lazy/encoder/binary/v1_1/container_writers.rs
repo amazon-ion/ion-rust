@@ -345,6 +345,7 @@ impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> StructWriter for BinaryStructWriter_1_1<'value, 'top> {
+    const IS_HUMAN_READABLE: bool = false;
     fn close(mut self) -> IonResult<()> {
         if let ContainerEncodingKind::Delimited(_) = &mut self.container_writer.encoder {
             // Write the FlexSym escape (FlexUInt 0). The container writer can emit the closing

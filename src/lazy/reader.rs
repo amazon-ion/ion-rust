@@ -9,7 +9,7 @@ use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
+use crate::{AnyEncoding, IonEncoding, IonError, IonResult};
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -71,6 +71,12 @@ pub(crate) enum NextApplicationValue<'top, D: Decoder> {
     EndOfStream,
 }
 
+impl<Input: IonInput> Reader<AnyEncoding, Input> {
+    pub fn detected_encoding(&self) -> IonEncoding {
+        self.system_reader.detected_encoding()
+    }
+}
+
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     /// Returns the next top-level value in the input stream as `Ok(Some(lazy_value))`.
     /// If there are no more top-level values in the stream, returns `Ok(None)`.
@@ -121,7 +127,7 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
         config: impl Into<ReadConfig<Encoding>>,
         ion_data: Input,
     ) -> IonResult<Reader<Encoding, Input>> {
-        let system_reader = SystemReader::new(config, ion_data);
+        let system_reader = SystemReader::new(config, ion_data)?;
         Ok(Reader { system_reader })
     }
 }

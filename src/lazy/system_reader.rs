@@ -109,11 +109,11 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     pub fn new(
         config: impl Into<ReadConfig<Encoding>>,
         input: Input,
-    ) -> SystemReader<Encoding, Input> {
+    ) -> IonResult<SystemReader<Encoding, Input>> {
         let config = config.into();
-        let raw_reader = StreamingRawReader::new(config.encoding(), input);
+        let raw_reader = StreamingRawReader::new(config.encoding(), input)?;
         let expanding_reader = ExpandingReader::new(raw_reader, config.catalog);
-        SystemReader { expanding_reader }
+        Ok(SystemReader { expanding_reader })
     }
 
     // Returns `true` if the provided [`LazyRawValue`] is a struct whose first annotation is
@@ -368,7 +368,7 @@ mod tests {
         hello
         "#,
         )?;
-        let mut system_reader = SystemReader::new(Binary, ion_data);
+        let mut system_reader = SystemReader::new(Binary, ion_data)?;
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::VersionMarker(marker) => {
@@ -393,7 +393,7 @@ mod tests {
         )
         "#,
         )?;
-        let mut system_reader = SystemReader::new(Binary, ion_data);
+        let mut system_reader = SystemReader::new(Binary, ion_data)?;
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -420,7 +420,7 @@ mod tests {
         }
         "#,
         )?;
-        let mut system_reader = SystemReader::new(Binary, ion_data);
+        let mut system_reader = SystemReader::new(Binary, ion_data)?;
         loop {
             match system_reader.next_item()? {
                 SystemStreamItem::Value(value) => {
@@ -441,14 +441,14 @@ mod tests {
     use crate::{MapCatalog, SharedSymbolTable};
 
     fn system_reader_for<I: IonInput>(ion: I) -> SystemReader<AnyEncoding, I> {
-        SystemReader::new(AnyEncoding, ion)
+        SystemReader::new(AnyEncoding, ion).unwrap()
     }
 
     fn system_reader_with_catalog_for<Input: IonInput>(
         input: Input,
         catalog: impl Catalog + 'static,
     ) -> SystemReader<AnyEncoding, Input> {
-        SystemReader::new(AnyEncoding.with_catalog(catalog), input)
+        SystemReader::new(AnyEncoding.with_catalog(catalog), input).unwrap()
     }
 
     #[test]
