@@ -58,7 +58,14 @@ mod benchmark {
         Ok(count)
     }
 
-    pub fn criterion_benchmark(c: &mut Criterion) -> IonResult<()> {
+    // This is the entrypoint for the benchmark.
+    pub fn criterion_benchmark(c: &mut Criterion) {
+        benchmark_body(c).unwrap()
+    }
+
+    // This function returns an `IonResult`, which allows all of its nested Ion library methods
+    // to use `?`. Its caller above (`criterion_benchmark`) simply unwraps() the result.
+    pub fn benchmark_body(c: &mut Criterion) -> IonResult<()> {
         const NUM_VALUES: usize = 10_000;
         let pretty_data_1_0 = r#"{
             'timestamp': 1670446800245,

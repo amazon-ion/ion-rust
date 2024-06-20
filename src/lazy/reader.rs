@@ -125,7 +125,6 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 }
 
-#[cfg(test)]
 use crate::lazy::{
     expanded::template::TemplateMacro,
     text::raw::v1_1::reader::MacroAddress,
@@ -136,14 +135,12 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     // reader's encoding supports macros--that check will happen when encoding directives are
     // supported.
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
-    #[cfg(test)]
     pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         self.system_reader
             .expanding_reader
             .register_template_src(template_definition)
     }
 
-    #[cfg(test)]
     pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
         self.system_reader.expanding_reader.register_template(template_macro)
     }
