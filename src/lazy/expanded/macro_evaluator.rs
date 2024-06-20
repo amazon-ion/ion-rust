@@ -145,6 +145,7 @@ pub struct MacroExprArgsIterator<'top, D: Decoder> {
 impl<'top, D: Decoder> Iterator for MacroExprArgsIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.source {
             MacroExprArgsKind::Macro(m) => m.next(),
@@ -309,8 +310,12 @@ pub struct MacroEvaluator<'top, D: Decoder> {
 
 impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     pub fn new(context: EncodingContextRef<'top>, environment: Environment<'top, D>) -> Self {
-        let macro_stack = BumpVec::new_in(context.allocator());
-        let mut env_stack = BumpVec::new_in(context.allocator());
+        const INITIAL_MACRO_STACK_CAPACITY: usize = 16;
+        const INITIAL_ENV_STACK_CAPACITY: usize = 16;
+        let macro_stack =
+            BumpVec::with_capacity_in(INITIAL_MACRO_STACK_CAPACITY, context.allocator());
+        let mut env_stack =
+            BumpVec::with_capacity_in(INITIAL_ENV_STACK_CAPACITY, context.allocator());
         env_stack.push(environment);
         Self {
             macro_stack,
@@ -645,14 +650,15 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
         }
 
         // Create a bump-allocated buffer to hold our constructed string
-        let mut buffer = BumpString::new_in(context.allocator());
+        const INITIAL_CAPACITY: usize = 32;
+        let mut buffer = BumpString::with_capacity_in(INITIAL_CAPACITY, context.allocator());
 
         // We need to eagerly evaluate all of the arguments to `make_string` to produce its next
         // (and only) value. However, because `&mut self` (the expansion state) lives in a stack
         // inside the evaluator, we cannot get a simultaneous mutable reference to the evaluator
         // itself. Instead, we use the bump allocator the make a transient macro evaluator
         // whose resources can be trivially reclaimed when the expansion is done.
-        let mut evaluator = MacroEvaluator::new(context, environment);
+        let mut maybe_evaluator: Option<MacroEvaluator<'top, D>> = None;
 
         for arg_result in &mut self.arguments {
             let arg_expr = arg_result?;
@@ -661,6 +667,10 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
                     Self::append_expanded_raw_text_value(context, &mut buffer, value.read()?)?
                 }
                 ValueExpr::MacroInvocation(invocation) => {
+                    let evaluator = match &mut maybe_evaluator {
+                        Some(inner) => inner,
+                        None => maybe_evaluator.insert(MacroEvaluator::new(context, environment)),
+                    };
                     for value_result in evaluator.evaluate(invocation)? {
                         let value = value_result?;
                         let expanded = value.read()?;
@@ -685,13 +695,13 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
 
     /// Appends a string fragment to the `BumpString` being constructed.
     fn append_expanded_raw_text_value(
-        context: EncodingContextRef<'_>,
+        context: EncodingContextRef<'top>,
         buffer: &mut BumpString,
-        value: ExpandedValueRef<'_, D>,
+        value: ExpandedValueRef<'top, D>,
     ) -> IonResult<()> {
-        match value {
-            ExpandedValueRef::String(text) => buffer.push_str(text.as_ref()),
-            ExpandedValueRef::Symbol(RawSymbolRef::Text(text)) => buffer.push_str(text.as_ref()),
+        let text = match value {
+            ExpandedValueRef::String(str_ref) => str_ref.text(),
+            ExpandedValueRef::Symbol(RawSymbolRef::Text(text)) => text,
             ExpandedValueRef::Symbol(RawSymbolRef::SymbolId(sid)) => {
                 let symbol = context.symbol_table.symbol_for(sid).ok_or_else(|| {
                     IonError::decoding_error(format!(
@@ -699,7 +709,7 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
                     ))
                 })?;
                 if let Some(text) = symbol.text() {
-                    buffer.push_str(text);
+                    text
                 } else {
                     return IonResult::decoding_error(format!(
                         "found a symbol ID {sid} with unknown text in call to `make_string`"
@@ -712,7 +722,8 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
                     other
                 ))
             }
-        }
+        };
+        buffer.push_str(text.as_ref());
         Ok(())
     }
 }
@@ -809,7 +820,7 @@ mod tests {
         expected: &str,
     ) -> IonResult<()> {
         let mut reader = Reader::new(v1_1::Text, invocation.as_bytes())?;
-        let _macro_address = reader.register_template(template_definition)?;
+        let _macro_address = reader.register_template_src(template_definition)?;
         let actual = reader.read_all_elements()?;
         let mut expected_reader = Reader::new(v1_1::Text, expected.as_bytes())?;
         let expected = expected_reader.read_all_elements()?;

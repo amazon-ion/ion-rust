@@ -487,6 +487,12 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
 
     /// Pulls a single unexpanded field expression from the source iterator and sets `state` according to
     /// the expression's kind.
+    // fn next_from_iterator<I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>>(
+    //     context: EncodingContextRef<'top>,
+    //     state: &mut ExpandedStructIteratorState<'top, D>,
+    //     evaluator: &mut MacroEvaluator<'top, D>,
+    //     iter: &mut I,
+    // ) -> ControlFlow<Option<IonResult<LazyExpandedField<'top, D>>>> {
     fn next_from_iterator<I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>>(
         context: EncodingContextRef<'top>,
         state: &mut ExpandedStructIteratorState<'top, D>,

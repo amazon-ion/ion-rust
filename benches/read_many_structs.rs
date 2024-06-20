@@ -3,6 +3,7 @@ use criterion::{criterion_group, criterion_main};
 #[cfg(not(feature = "experimental"))]
 mod benchmark {
     use criterion::Criterion;
+
     pub fn criterion_benchmark(_c: &mut Criterion) {
         panic!("This benchmark requires the 'experimental' feature to work; try again with `--features experimental`");
     }
@@ -11,10 +12,8 @@ mod benchmark {
 #[cfg(feature = "experimental")]
 mod benchmark {
     use criterion::{black_box, Criterion};
-    use ion_rs::v1_1::RawBinaryWriter;
-    use ion_rs::{
-        v1_0, v1_1, ElementReader, Encoding, IonData, Reader, SequenceWriter, WriteConfig,
-    };
+
+    use ion_rs::{v1_0, v1_1, ElementReader, Encoding, IonData, Reader, WriteConfig};
     use ion_rs::{Decoder, Element, IonResult, LazyStruct, LazyValue, ValueRef};
 
     fn rewrite_as<E: Encoding>(
@@ -161,7 +160,7 @@ mod benchmark {
         // === Binary equivalence check ===
         let mut reader_1_1 = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
         reader_1_1
-            .register_template(template_definition_text)
+            .register_template_src(template_definition_text)
             .unwrap();
         let seq_1_1 = reader_1_1.read_all_elements().unwrap();
         assert!(
@@ -172,7 +171,7 @@ mod benchmark {
         // === Text equivalence check ===
         let mut reader_1_1 = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
         reader_1_1
-            .register_template(template_definition_text)
+            .register_template_src(template_definition_text)
             .unwrap();
         let seq_1_1 = reader_1_1.read_all_elements().unwrap();
         assert!(
@@ -199,7 +198,61 @@ mod benchmark {
                 let _ = black_box(num_values);
             })
         });
+        binary_1_0_group.bench_function("read 'format' field", |b| {
+            b.iter(|| {
+                let mut reader = Reader::new(v1_0::Binary, binary_1_0_data.as_slice()).unwrap();
+                let mut num_values = 0usize;
+                while let Some(value) = reader.next().unwrap() {
+                    let s = value.read().unwrap().expect_struct().unwrap();
+                    let parameters_list = s.find_expected("format").unwrap();
+                    num_values += count_value_and_children(&parameters_list).unwrap();
+                }
+                let _ = black_box(num_values);
+            })
+        });
         binary_1_0_group.finish();
+
+        let mut binary_1_1_group = c.benchmark_group("binary 1.1");
+        binary_1_1_group.bench_function("scan all", |b| {
+            b.iter(|| {
+                let mut reader = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
+                reader
+                    .register_template_src(template_definition_text)
+                    .unwrap();
+                while let Some(item) = reader.next().unwrap() {
+                    black_box(item);
+                }
+            })
+        });
+        binary_1_1_group.bench_function("read all", |b| {
+            b.iter(|| {
+                let mut reader = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
+                reader
+                    .register_template_src(template_definition_text)
+                    .unwrap();
+                let mut num_values = 0usize;
+                while let Some(item) = reader.next().unwrap() {
+                    num_values += count_value_and_children(&item).unwrap();
+                }
+                let _ = black_box(num_values);
+            })
+        });
+        binary_1_1_group.bench_function("read 'format' field", |b| {
+            b.iter(|| {
+                let mut reader = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
+                reader
+                    .register_template_src(template_definition_text)
+                    .unwrap();
+                let mut num_values = 0usize;
+                while let Some(value) = reader.next().unwrap() {
+                    let s = value.read().unwrap().expect_struct().unwrap();
+                    let parameters_list = s.find_expected("format").unwrap();
+                    num_values += count_value_and_children(&parameters_list).unwrap();
+                }
+                let _ = black_box(num_values);
+            })
+        });
+        binary_1_1_group.finish();
 
         let mut text_1_0_group = c.benchmark_group("text 1.0");
         text_1_0_group.bench_function("scan all", |b| {
@@ -238,7 +291,9 @@ mod benchmark {
         text_1_1_group.bench_function("scan all", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
-                reader.register_template(template_definition_text).unwrap();
+                reader
+                    .register_template_src(template_definition_text)
+                    .unwrap();
                 while let Some(item) = reader.next().unwrap() {
                     black_box(item);
                 }
@@ -247,7 +302,9 @@ mod benchmark {
         text_1_1_group.bench_function("read all", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
-                reader.register_template(template_definition_text).unwrap();
+                reader
+                    .register_template_src(template_definition_text)
+                    .unwrap();
                 let mut num_values = 0usize;
                 while let Some(item) = reader.next().unwrap() {
                     num_values += count_value_and_children(&item).unwrap();
@@ -258,7 +315,9 @@ mod benchmark {
         text_1_1_group.bench_function("read 'format' field", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();
-                reader.register_template(template_definition_text).unwrap();
+                reader
+                    .register_template_src(template_definition_text)
+                    .unwrap();
                 let mut num_values = 0usize;
                 while let Some(value) = reader.next().unwrap() {
                     let s = value.read().unwrap().expect_struct().unwrap();

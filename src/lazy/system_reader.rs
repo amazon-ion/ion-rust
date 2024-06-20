@@ -143,10 +143,10 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     pub(crate) fn is_symbol_table_struct(
         expanded_value: &'_ LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<bool> {
-        let lazy_value = LazyValue::new(*expanded_value);
-        if lazy_value.ion_type() != IonType::Struct {
+        if expanded_value.ion_type() != IonType::Struct || !expanded_value.has_annotations() {
             return Ok(false);
         }
+        let lazy_value = LazyValue::new(*expanded_value);
         if let Some(symbol_ref) = lazy_value.annotations().next() {
             return Ok(symbol_ref? == "$ion_symbol_table");
         };

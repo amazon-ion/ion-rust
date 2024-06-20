@@ -11,7 +11,7 @@ use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression
 use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::{v1_1, HasRange, HasSpan, IonResult, Span};
 
 #[derive(Copy, Clone)]
@@ -30,13 +30,13 @@ impl EncodedBinaryEExp {
 pub struct RawBinaryEExpression_1_1<'top> {
     pub(crate) encoded_expr: EncodedBinaryEExp,
     pub(crate) input: ImmutableBuffer<'top>,
-    pub(crate) id: MacroIdRef<'top>,
+    pub(crate) address: MacroAddress,
     pub(crate) arg_cache: &'top [EExpArg<'top, v1_1::Binary>],
 }
 
 impl<'top> RawBinaryEExpression_1_1<'top> {
     pub fn new(
-        id: MacroIdRef<'top>,
+        address: MacroAddress,
         encoded_expr: EncodedBinaryEExp,
         input: ImmutableBuffer<'top>,
         arg_cache: &'top [EExpArg<'top, v1_1::Binary>],
@@ -44,7 +44,7 @@ impl<'top> RawBinaryEExpression_1_1<'top> {
         Self {
             encoded_expr,
             input,
-            id,
+            address,
             arg_cache,
         }
     }
@@ -75,7 +75,7 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for RawBinaryEExpression_1_1<'top>
     type ArgGroup = BinaryEExpArgGroup<'top>;
 
     fn id(&self) -> MacroIdRef<'top> {
-        self.id
+        MacroIdRef::LocalAddress(self.address)
     }
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator<'top> {
@@ -201,5 +201,11 @@ impl<'top> Iterator for BinaryEExpArgsIterator_1_1<'top> {
         let next_expr = self.arg_exprs.get(self.index)?;
         self.index += 1;
         Some(Ok(*next_expr))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let num_args = self.arg_exprs.len();
+        // Tells the macro evaluator how much space to allocate to hold these arguments
+        (num_args, Some(num_args))
     }
 }

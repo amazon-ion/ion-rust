@@ -378,6 +378,12 @@ impl<'top> Iterator for TextEExpArgsIterator_1_1<'top> {
         self.index += 1;
         Some(Ok(*next_expr))
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let num_args = self.arg_exprs.len();
+        // Tells the macro evaluator how much space to allocate to hold these arguments
+        (num_args, Some(num_args))
+    }
 }
 
 /// Wraps a [`RawTextSExpIterator_1_1`] (which parses the body of a sexp) and caches the child

@@ -269,8 +269,14 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
 
     // TODO: This method is temporary. It will be removed when the ability to read 1.1 encoding
     //       directives from the input stream is available. Until then, template creation is manual.
-    pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
+    #[cfg(test)]
+    pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         let template_macro: TemplateMacro = self.compile_template(template_definition)?;
+        self.register_template(template_macro)
+    }
+
+    #[cfg(test)]
+    pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
         self.add_macro(template_macro)
     }
 
@@ -760,6 +766,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
+    #[inline]
     pub fn read(&self) -> IonResult<ExpandedValueRef<'top, Encoding>> {
         use ExpandedValueSource::*;
         match &self.source {

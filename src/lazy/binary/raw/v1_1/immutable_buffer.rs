@@ -3,7 +3,6 @@ use std::mem::size_of;
 use std::ops::Range;
 
 use bumpalo::collections::Vec as BumpVec;
-use ice_code::ice;
 
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
@@ -23,7 +22,6 @@ use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::template::Parameter;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{v1_1, HasRange, IonError, IonResult};
 
@@ -152,8 +150,15 @@ impl<'a> ImmutableBuffer<'a> {
         if self.is_empty() {
             return IonResult::incomplete("an opcode", self.offset());
         }
+        Ok(self.peek_opcode_unchecked())
+    }
+
+    /// Reads the first byte in the buffer *without confirming one is available* and returns it
+    /// as an [Opcode].
+    #[inline]
+    pub(crate) fn peek_opcode_unchecked(&self) -> Opcode {
         let next_byte = self.data[0];
-        Ok(ION_1_1_OPCODES[next_byte as usize])
+        ION_1_1_OPCODES[next_byte as usize]
     }
 
     /// Reads the first four bytes in the buffer as an Ion version marker. If it is successful,
@@ -231,9 +236,6 @@ impl<'a> ImmutableBuffer<'a> {
     /// Calls [`Self::read_nop_pad`] in a loop until the buffer is empty or an opcode
     /// is encountered that is not a NOP.
     #[inline(never)]
-    // NOP padding is not widely used in Ion 1.0. This method is annotated with `inline(never)`
-    // to avoid the compiler bloating other methods on the hot path with its rarely used
-    // instructions.
     pub fn consume_nop_padding(self, mut opcode: Opcode) -> ParseResult<'a, ()> {
         let mut buffer = self;
         // Skip over any number of NOP regions
@@ -252,6 +254,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// from the buffer to interpret as the value's length. If it is successful, returns an `Ok(_)`
     /// containing a [FlexUInt] representation of the value's length. If no additional bytes were
     /// read, the returned `FlexUInt`'s `size_in_bytes()` method will return `0`.
+    #[inline]
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, FlexUInt> {
         let length = match header.length_type() {
             LengthType::InOpcode(n) => {
@@ -273,19 +276,15 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
-    pub(crate) fn peek_eexp_arg_expr(self) -> IonResult<Option<EExpArgExpr<'a, v1_1::Binary>>> {
-        // TODO: Add support for arg groups
-        Ok(self
-            .peek_sequence_value_expr()?
-            .map(|value_expr| match value_expr {
-                RawValueExpr::ValueLiteral(v) => EExpArgExpr::ValueLiteral(v),
-                RawValueExpr::EExp(e) => EExpArgExpr::EExp(e),
-            }))
-    }
-
+    #[inline]
     fn expect_eexp_arg_expr(self, label: &'static str) -> IonResult<EExpArgExpr<'a, v1_1::Binary>> {
-        self.peek_eexp_arg_expr()?
-            .ok_or_else(|| IonError::incomplete(label, self.offset))
+        // TODO: Add support for arg groups
+        let raw_value_expr = self.expect_sequence_value_expr(label)?;
+        let arg_expr = match raw_value_expr {
+            RawValueExpr::ValueLiteral(v) => EExpArgExpr::ValueLiteral(v),
+            RawValueExpr::EExp(e) => EExpArgExpr::EExp(e),
+        };
+        Ok(arg_expr)
     }
 
     pub(crate) fn expect_sequence_value_expr(
@@ -298,7 +297,25 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
+    #[inline]
     pub(crate) fn peek_sequence_value_expr(
+        self,
+    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+        let opcode = self.peek_opcode_unchecked();
+        if opcode.is_nop() {
+            return self.peek_sequence_value_with_nops();
+        }
+        if opcode.is_e_expression() {
+            return Ok(Some(RawValueExpr::EExp(self.read_e_expression(opcode)?)));
+        }
+        Ok(Some(RawValueExpr::ValueLiteral(self.read_value(opcode)?)))
+    }
+
+    #[inline(never)]
+    pub(crate) fn peek_sequence_value_with_nops(
         self,
     ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
         if self.is_empty() {
@@ -487,29 +504,33 @@ impl<'a> ImmutableBuffer<'a> {
 
     fn read_e_expression(self, opcode: Opcode) -> IonResult<RawBinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
-        let (macro_id, buffer_after_id) = match opcode.opcode_type {
-            EExpressionWithAddress => (
-                MacroIdRef::LocalAddress(opcode.byte as usize),
-                self.consume(1),
-            ),
+        // Read the address of the macro to invoke
+        let (macro_address, buffer_after_id) = match opcode.opcode_type {
+            EExpressionWithAddress => (opcode.byte as usize, self.consume(1)),
             EExpressionAddressFollows => todo!("e-expr with trailing address; {opcode:#0x?}",),
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
 
+        // Get a reference to the macro that lives at that address
         let macro_ref = self
             .context
             .macro_table()
-            .macro_with_id(macro_id)
+            .macro_at_address(macro_address)
             .ok_or_else(|| {
-                IonError::decoding_error(format!("invocation of unknown macro '{macro_id:?}'"))
+                IonError::decoding_error(format!(
+                    "invocation of macro at unknown address '{macro_address:?}'"
+                ))
             })?
             .reference();
         let signature = macro_ref.signature();
-
         let bitmap_size_in_bytes = signature.bitmap_size_in_bytes();
         // `args_buffer` will be partially consumed in each iteration of the loop below.
-        let (bitmap, args_buffer) = buffer_after_id
-            .read_eexp_bitmap(signature.num_variadic_params(), bitmap_size_in_bytes)?;
+        let (bitmap, args_buffer) = if signature.num_variadic_params() == 0 {
+            (ArgGroupingBitmap::new(0, 0), buffer_after_id)
+        } else {
+            buffer_after_id
+                .read_eexp_bitmap(signature.num_variadic_params(), bitmap_size_in_bytes)?
+        };
         let mut remaining_args_buffer = args_buffer;
         let mut arg_groupings = bitmap.iter();
 
@@ -545,7 +566,7 @@ impl<'a> ImmutableBuffer<'a> {
                         n_bytes => n_bytes as usize,
                     };
                     let mut bytes_read = 0;
-                    let mut expr_cache = BumpVec::new_in(self.context.allocator());
+                    let mut expr_cache = BumpVec::with_capacity_in(8, self.context.allocator());
                     while bytes_read < bytes_to_read {
                         let value_expr = remaining_args_input
                             .expect_sequence_value_expr("reading tagged arg group")?;
@@ -583,7 +604,7 @@ impl<'a> ImmutableBuffer<'a> {
         );
 
         let e_expression = RawBinaryEExpression_1_1::new(
-            macro_id,
+            macro_address,
             EncodedBinaryEExp::new(macro_id_encoded_length as u16),
             e_expression_buffer,
             args_cache.into_bump_slice(),
@@ -598,10 +619,10 @@ impl<'a> ImmutableBuffer<'a> {
     ) -> ParseResult<'a, ArgGroupingBitmap> {
         // TODO: Move this check to the compiler so it doesn't have to happen on each read
         if num_variadics > ArgGroupingBitmap::MAX_VARIADIC_PARAMS {
-            return IonResult::decoding_error(ice!(format!(
+            return IonResult::decoding_error(format!(
                 "macro found with {num_variadics} variadic parameters; the max supported is {}",
                 ArgGroupingBitmap::MAX_VARIADIC_PARAMS
-            )));
+            ));
         };
         let mut buffer = [0u8; size_of::<u64>()];
         let bitmap_bytes = self.peek_n_bytes(bitmap_size_in_bytes).ok_or_else(|| {
@@ -628,6 +649,7 @@ impl ArgGroupingBitmap {
     pub(crate) fn new(num_args: usize, bits: u64) -> Self {
         Self { num_args, bits }
     }
+    #[inline]
     pub fn iter(&self) -> ArgGroupingBitmapIterator {
         ArgGroupingBitmapIterator {
             remaining_args: self.num_args,
@@ -703,7 +725,7 @@ mod tests {
     use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression};
     use crate::lazy::expanded::macro_table::MacroTable;
     use crate::lazy::expanded::EncodingContext;
-    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+    use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
     use crate::v1_0::RawValueRef;
     use crate::{Element, ElementReader, Reader};
 
@@ -797,7 +819,7 @@ mod tests {
         let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?;
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
         println!("{:?}", eexp);
-        assert_eq!(eexp.id, MacroIdRef::LocalAddress(opcode_byte as usize));
+        assert_eq!(eexp.id(), MacroIdRef::LocalAddress(opcode_byte as usize));
         test_fn(eexp)
     }
 
@@ -1029,7 +1051,7 @@ mod tests {
         ];
 
         let mut reader = Reader::new(v1_1::Binary, data)?;
-        reader.register_template(macro_source)?;
+        reader.register_template_src(macro_source)?;
         let actual = reader.read_all_elements()?;
         assert!(
             actual.ion_eq(&expected),

@@ -3,7 +3,6 @@
 
 use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::MacroExpr::EExp;
 use crate::lazy::expanded::macro_evaluator::{
     EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
 };
@@ -150,6 +149,10 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
         };
         Some(Ok(expr))
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.raw_args.size_hint()
+    }
 }
 
 pub type TextEExpression_1_1<'top> = EExpression<'top, TextEncoding_1_1>;
@@ -189,7 +192,9 @@ impl<'top, D: Decoder> Iterator for ArgGroupIterator<'top, D> {
                     Ok(eexp) => eexp,
                     Err(e) => return Some(Err(e)),
                 };
-                Some(Ok(ValueExpr::MacroInvocation(EExp(resolved_eexp))))
+                Some(Ok(ValueExpr::MacroInvocation(MacroExpr::EExp(
+                    resolved_eexp,
+                ))))
             }
         }
     }
