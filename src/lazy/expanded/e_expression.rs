@@ -131,9 +131,9 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
             Err(e) => return Some(Err(e)),
         };
 
-        let expr = match *raw_arg.expr() {
+        let expr = match raw_arg.expr() {
             EExpArgExpr::<D>::ValueLiteral(value) => {
-                ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, value))
+                ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, *value))
             }
             EExpArgExpr::<D>::EExp(raw_invocation) => {
                 let invocation = match raw_invocation.resolve(self.context) {

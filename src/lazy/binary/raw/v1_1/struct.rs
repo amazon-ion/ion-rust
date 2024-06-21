@@ -208,7 +208,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         } else {
             buffer
                 .read_value(opcode)
-                .map(|v| (Some(v), v.input.consume(v.encoded_value.total_length)))
+                .map(|(v, remaining)| (Some(v), remaining))
         }
     }
 

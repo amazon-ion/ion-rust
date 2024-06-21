@@ -26,6 +26,15 @@ pub trait HasSpan<'top>: HasRange {
 
 pub trait HasRange {
     fn range(&self) -> Range<usize>;
+
+    /// Returns the number of bytes this encoded item occupies.
+    ///
+    /// This method is equivalent to calling `.range().len()`, but types have the option to
+    /// override its implementation if the length can be found more quickly without computing the
+    /// range first.
+    fn byte_length(&self) -> usize {
+        self.range().len()
+    }
 }
 
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization

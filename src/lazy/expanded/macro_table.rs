@@ -91,7 +91,7 @@ impl<'top> MacroRef<'top> {
             .map(|name| Cow::from(name))
             .unwrap_or_else(move || Cow::from(format!("<address={}>", self.address())))
     }
-    pub fn signature(&'top self) -> &'top MacroSignature {
+    pub fn signature(self) -> &'top MacroSignature {
         self.reference.signature()
     }
     pub fn kind(&self) -> &'top MacroKind {

@@ -60,10 +60,10 @@ pub trait RawEExpression<'top, D: Decoder<EExp<'top> = Self>>:
     type ArgGroup: EExpressionArgGroup<'top, D>;
 
     /// The macro name or address specified at the head of this macro invocation.
-    fn id(&self) -> MacroIdRef<'top>;
+    fn id(self) -> MacroIdRef<'top>;
 
     /// The arguments that follow the macro name or address in this macro invocation.
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'top>;
+    fn raw_arguments(self) -> Self::RawArgumentsIterator<'top>;
 
     /// Looks up the macro invoked by this E-expression in the given `EncodingContext`.
     /// If the lookup is successful, returns an `Ok` containing a resolved `EExpression` that holds
@@ -188,7 +188,9 @@ impl<'top, D: Decoder> ArgExpr<'top, D> {
     ) -> IonResult<ValueExpr<'top, D>> {
         match self {
             ArgExpr::ValueLiteral(value) => Ok(ValueExpr::ValueLiteral(*value)),
-            ArgExpr::Variable(variable) => environment.get_expected(variable.signature_index()),
+            ArgExpr::Variable(variable) => {
+                Ok(environment.get_expected(variable.signature_index())?)
+            }
             ArgExpr::MacroInvocation(invocation) => Ok(ValueExpr::MacroInvocation(*invocation)),
         }
     }

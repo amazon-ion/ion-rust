@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::raw::v1_1::immutable_buffer::{ImmutableBuffer, ParseResult};
 use crate::lazy::decoder::{LazyRawReader, RawValueExpr};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
@@ -51,18 +51,19 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     fn read_value_expr<'top>(
         &'top mut self,
         buffer: ImmutableBuffer<'top>,
-    ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
+    ) -> ParseResult<'top, LazyRawStreamItem<'top, BinaryEncoding_1_1>>
     where
         'data: 'top,
     {
-        let item = match buffer.peek_sequence_value_expr()? {
+        let (maybe_expr, remaining) = buffer.read_sequence_value_expr()?;
+        let item = match maybe_expr {
             Some(RawValueExpr::ValueLiteral(lazy_value)) => RawStreamItem::Value(lazy_value),
             Some(RawValueExpr::EExp(eexpr)) => RawStreamItem::EExp(eexpr),
             None => self.end_of_stream(buffer.offset()),
         };
         let item_range = item.range();
         self.local_offset = item_range.end - self.stream_offset;
-        Ok(item)
+        Ok((item, remaining))
     }
 
     pub fn next<'top>(
@@ -92,7 +93,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
         if type_descriptor.is_ivm_start() {
             return self.read_ivm(buffer);
         }
-        self.read_value_expr(buffer)
+        self.read_value_expr(buffer).map(|res| res.0)
     }
 }
 

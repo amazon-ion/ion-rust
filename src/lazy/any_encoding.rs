@@ -240,7 +240,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
     type ArgGroup = AnyEExpArgGroup<'top>;
     type RawArgumentsIterator<'a> = AnyEExpArgsIterator<'top,>  where Self: 'a;
 
-    fn id(&self) -> MacroIdRef<'top> {
+    fn id(self) -> MacroIdRef<'top> {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
             Text_1_1(ref m) => m.id(),
@@ -248,7 +248,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
         }
     }
 
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
+    fn raw_arguments(self) -> Self::RawArgumentsIterator<'top> {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
             Text_1_1(e) => AnyEExpArgsIterator {

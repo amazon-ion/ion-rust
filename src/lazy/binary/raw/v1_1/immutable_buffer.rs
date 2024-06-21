@@ -2,13 +2,9 @@ use std::fmt::{Debug, Formatter};
 use std::mem::size_of;
 use std::ops::Range;
 
-use bumpalo::collections::Vec as BumpVec;
-
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::raw::v1_1::e_expression::{
-    BinaryEExpArgGroup, EncodedBinaryEExp, RawBinaryEExpression_1_1,
-};
+use crate::lazy::binary::raw::v1_1::e_expression::{EncodedBinaryEExp, RawBinaryEExpression_1_1};
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
@@ -19,11 +15,12 @@ use crate::lazy::encoder::binary::v1_1::fixed_uint::FixedUInt;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
+use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::template::Parameter;
 use crate::lazy::expanded::EncodingContextRef;
-use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
+use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
 use crate::result::IonFailure;
-use crate::{v1_1, HasRange, IonError, IonResult};
+use crate::{v1_1, IonError, IonResult};
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -56,6 +53,13 @@ impl<'a> Debug for ImmutableBuffer<'a> {
     }
 }
 
+impl<'a> PartialEq for ImmutableBuffer<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.offset == other.offset && self.data == other.data
+    }
+}
+
+/// When `Ok`, contains the value that was matched/parsed and the remainder of the input buffer.
 pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
 
 impl<'a> ImmutableBuffer<'a> {
@@ -277,76 +281,92 @@ impl<'a> ImmutableBuffer<'a> {
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
     #[inline]
-    fn expect_eexp_arg_expr(self, label: &'static str) -> IonResult<EExpArgExpr<'a, v1_1::Binary>> {
-        // TODO: Add support for arg groups
-        let raw_value_expr = self.expect_sequence_value_expr(label)?;
+    pub(crate) fn expect_eexp_arg_expr(
+        self,
+        label: &'static str,
+    ) -> ParseResult<'a, EExpArgExpr<'a, v1_1::Binary>> {
+        let (raw_value_expr, remaining_input) = self.expect_sequence_value_expr(label)?;
         let arg_expr = match raw_value_expr {
             RawValueExpr::ValueLiteral(v) => EExpArgExpr::ValueLiteral(v),
             RawValueExpr::EExp(e) => EExpArgExpr::EExp(e),
         };
-        Ok(arg_expr)
+        Ok((arg_expr, remaining_input))
     }
 
     pub(crate) fn expect_sequence_value_expr(
         self,
         label: &'static str,
-    ) -> IonResult<LazyRawValueExpr<'a, v1_1::Binary>> {
-        self.peek_sequence_value_expr()?
-            .ok_or_else(|| IonError::incomplete(label, self.offset))
+    ) -> ParseResult<'a, LazyRawValueExpr<'a, v1_1::Binary>> {
+        let (maybe_value_expr, remaining_input) = self.read_sequence_value_expr()?;
+        let value_expr =
+            maybe_value_expr.ok_or_else(|| IonError::incomplete(label, self.offset))?;
+        Ok((value_expr, remaining_input))
+    }
+
+    #[inline]
+    pub(crate) fn match_tagged_value_repr(self) -> ParseResult<'a, ImmutableBuffer<'a>> {
+        let mut input = self;
+        let mut opcode = self.peek_opcode()?;
+        debug_assert!(
+            opcode.ion_type.is_some()
+                || opcode.is_annotations_sequence()
+                || opcode.is_e_expression(),
+            "match_tagged_value_repr called on non-value opcode"
+        );
+        if opcode.is_e_expression() {
+            return self
+                .read_e_expression(opcode)
+                .map(|(eexp, buf)| (eexp.input, buf));
+        }
+        if opcode.is_annotations_sequence() {
+            let (_encoded_annotations, remaining) = input.read_annotations_sequence(opcode)?;
+            input = remaining;
+            opcode = input.peek_opcode()?;
+        }
+        input = input.consume(1);
+        let header = opcode.to_header().unwrap();
+        let (length, _) = input.read_value_length(header)?;
+        let total_bytes = 1 + length.size_in_bytes() + length.value() as usize;
+        Ok((self.slice(0, total_bytes), self.consume(total_bytes)))
     }
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
     #[inline]
-    pub(crate) fn peek_sequence_value_expr(
+    pub(crate) fn read_sequence_value_expr(
         self,
-    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
+    ) -> ParseResult<'a, Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
         if self.is_empty() {
-            return Ok(None);
-        }
-        let opcode = self.peek_opcode_unchecked();
-        if opcode.is_nop() {
-            return self.peek_sequence_value_with_nops();
-        }
-        if opcode.is_e_expression() {
-            return Ok(Some(RawValueExpr::EExp(self.read_e_expression(opcode)?)));
-        }
-        Ok(Some(RawValueExpr::ValueLiteral(self.read_value(opcode)?)))
-    }
-
-    #[inline(never)]
-    pub(crate) fn peek_sequence_value_with_nops(
-        self,
-    ) -> IonResult<Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
-        if self.is_empty() {
-            return Ok(None);
+            return Ok((None, self));
         }
         let mut input = self;
-        let mut type_descriptor = input.peek_opcode()?;
-        // If we find a NOP...
-        if type_descriptor.is_nop() {
-            // ...skip through NOPs until we found the next non-NOP byte.
-            (_, input) = self.consume_nop_padding(type_descriptor)?;
-            // If there is no next byte, we're out of values.
-            if input.is_empty() {
-                return Ok(None);
+        // Read the next byte in the input as an opcode.
+        let opcode = match input.peek_opcode_unchecked() {
+            opcode if opcode.is_nop() => {
+                let (_matched, input_after_nop) = input.consume_nop_padding(opcode)?;
+                if input_after_nop.is_empty() {
+                    return Ok((None, input_after_nop));
+                }
+                input = input_after_nop;
+                input.peek_opcode_unchecked()
             }
-            // Otherwise, there's a value.
-            type_descriptor = input.peek_opcode()?;
-        }
-        if type_descriptor.is_e_expression() {
-            return Ok(Some(RawValueExpr::EExp(
-                self.read_e_expression(type_descriptor)?,
-            )));
-        }
-        Ok(Some(RawValueExpr::ValueLiteral(
-            input.read_value(type_descriptor)?,
-        )))
+            opcode => opcode,
+        };
+
+        // At this point we have an opcode that is not a NOP.
+        let (value_expr, remaining_input) = if opcode.is_e_expression() {
+            let (eexp, remaining_input) = self.read_e_expression(opcode)?;
+            (RawValueExpr::EExp(eexp), remaining_input)
+        } else {
+            let (value, remaining_input) = self.read_value(opcode)?;
+            (RawValueExpr::ValueLiteral(value), remaining_input)
+        };
+        Ok((Some(value_expr), remaining_input))
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
-    pub fn read_value(self, opcode: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    pub fn read_value(self, opcode: Opcode) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         if opcode.is_annotations_sequence() {
             self.read_annotated_value(opcode)
         } else {
@@ -359,7 +379,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_value_without_annotations(
         self,
         type_descriptor: Opcode,
-    ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    ) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         let input = self;
         let header = type_descriptor
             .to_header()
@@ -389,7 +409,7 @@ impl<'a> ImmutableBuffer<'a> {
             // If this value has a field ID or annotations, this will be replaced by the caller.
             input: self,
         };
-        Ok(lazy_value)
+        Ok((lazy_value, self.consume(total_length)))
     }
 
     pub fn read_fixed_int(self, length: usize) -> ParseResult<'a, FixedInt> {
@@ -410,10 +430,11 @@ impl<'a> ImmutableBuffer<'a> {
 
     /// Reads an annotations wrapper and its associated value from the buffer. The caller must confirm
     /// that the next byte in the buffer (`type_descriptor`) begins an annotations wrapper.
-    fn read_annotated_value(self, opcode: Opcode) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    fn read_annotated_value(self, opcode: Opcode) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         let (annotations_seq, input_after_annotations) = self.read_annotations_sequence(opcode)?;
         let opcode = input_after_annotations.peek_opcode()?;
-        let mut value = input_after_annotations.read_value_without_annotations(opcode)?;
+        let (mut value, input_after_value) =
+            input_after_annotations.read_value_without_annotations(opcode)?;
         let total_annotations_length =
             annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
         value.encoded_value.annotations_header_length = total_annotations_length as u16;
@@ -422,7 +443,7 @@ impl<'a> ImmutableBuffer<'a> {
         value.encoded_value.total_length += total_annotations_length;
         // Rewind the input to include the annotations sequence
         value.input = self;
-        Ok(value)
+        Ok((value, input_after_value))
     }
 
     fn read_annotations_sequence(self, opcode: Opcode) -> ParseResult<'a, EncodedAnnotations> {
@@ -502,8 +523,9 @@ impl<'a> ImmutableBuffer<'a> {
         todo!()
     }
 
-    fn read_e_expression(self, opcode: Opcode) -> IonResult<RawBinaryEExpression_1_1<'a>> {
+    fn read_e_expression(self, opcode: Opcode) -> ParseResult<'a, RawBinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
+
         // Read the address of the macro to invoke
         let (macro_address, buffer_after_id) = match opcode.opcode_type {
             EExpressionWithAddress => (opcode.byte as usize, self.consume(1)),
@@ -524,18 +546,21 @@ impl<'a> ImmutableBuffer<'a> {
             .reference();
         let signature = macro_ref.signature();
         let bitmap_size_in_bytes = signature.bitmap_size_in_bytes();
-        // `args_buffer` will be partially consumed in each iteration of the loop below.
-        let (bitmap, args_buffer) = if signature.num_variadic_params() == 0 {
+
+        let (bitmap, input_after_bitmap) = if signature.num_variadic_params() == 0 {
             (ArgGroupingBitmap::new(0, 0), buffer_after_id)
         } else {
             buffer_after_id
                 .read_eexp_bitmap(signature.num_variadic_params(), bitmap_size_in_bytes)?
         };
-        let mut remaining_args_buffer = args_buffer;
-        let mut arg_groupings = bitmap.iter();
 
+        // `remaining_args_buffer` will be partially consumed in each iteration of the loop below.
+        let mut remaining_input = input_after_bitmap;
+        let mut arg_groupings = bitmap.iter();
         let parameters: &'a [Parameter] = signature.parameters();
-        let mut args_cache = BumpVec::with_capacity_in(parameters.len(), self.context.allocator());
+
+        // This loop aims to identify the bytes that the e-expression's arguments occupy so they
+        // can be fully parsed later on during evaluation.
 
         for parameter in parameters {
             let arg_grouping = if parameter.is_variadic() {
@@ -545,71 +570,41 @@ impl<'a> ImmutableBuffer<'a> {
             };
 
             // TODO: All arms assume tagged encoding for now.
-            let arg_expr = match arg_grouping {
+            let input_after_arg = match arg_grouping {
                 ArgGrouping::Empty => {
-                    let input = remaining_args_buffer.slice(0, 0);
-                    EExpArg::new(
-                        parameter,
-                        EExpArgExpr::ArgGroup(BinaryEExpArgGroup::new(parameter, input, &[])),
-                    )
+                    // This argument does not occupy any further bytes in the stream.
+                    remaining_input
                 }
                 ArgGrouping::ValueExprLiteral => {
-                    let expr =
-                        remaining_args_buffer.expect_eexp_arg_expr("reading tagged e-expr args")?;
-                    EExpArg::new(parameter, expr)
+                    let (_expr, remaining) = remaining_input.match_tagged_value_repr()?;
+                    remaining
                 }
                 ArgGrouping::ArgGroup => {
-                    let (group_header_flex_uint, mut remaining_args_input) =
-                        remaining_args_buffer.read_flex_uint()?;
-                    let bytes_to_read = match group_header_flex_uint.value() {
+                    let (group_header_flex_uint, input_after_header) =
+                        remaining_input.read_flex_uint()?;
+                    let group_body_length = match group_header_flex_uint.value() {
                         0 => todo!("delimited argument groups"),
                         n_bytes => n_bytes as usize,
                     };
-                    let mut bytes_read = 0;
-                    let mut expr_cache = BumpVec::with_capacity_in(8, self.context.allocator());
-                    while bytes_read < bytes_to_read {
-                        let value_expr = remaining_args_input
-                            .expect_sequence_value_expr("reading tagged arg group")?;
-                        expr_cache.push(value_expr);
-                        let expr_length = value_expr.range().len();
-                        remaining_args_input = remaining_args_input.consume(expr_length);
-                        bytes_read += expr_length;
-                    }
-                    let arg_group_length = group_header_flex_uint.size_in_bytes() + bytes_to_read;
-                    let arg_group = BinaryEExpArgGroup::new(
-                        parameter,
-                        remaining_args_buffer.slice(0, arg_group_length),
-                        expr_cache.into_bump_slice(),
-                    );
-                    EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group))
+                    input_after_header.consume(group_body_length)
                 }
             };
-            remaining_args_buffer = remaining_args_buffer.consume(arg_expr.expr().range().len());
-            args_cache.push(arg_expr);
+            remaining_input = input_after_arg;
         }
 
-        let parameters = macro_ref.signature().parameters();
-        if args_cache.len() < parameters.len() {
-            return IonResult::decoding_error(format!(
-                "argument missing for parameter '{}'",
-                parameters[args_cache.len()].name()
-            ));
-        }
+        let eexp_total_length = remaining_input.offset() - self.offset();
+        let matched_eexp_bytes = self.slice(0, eexp_total_length);
 
         let macro_id_encoded_length = buffer_after_id.offset() - self.offset();
-        let args_length = remaining_args_buffer.offset() - args_buffer.offset();
-        let e_expression_buffer = self.slice(
-            0,
-            macro_id_encoded_length + bitmap_size_in_bytes + args_length,
-        );
-
-        let e_expression = RawBinaryEExpression_1_1::new(
-            macro_address,
-            EncodedBinaryEExp::new(macro_id_encoded_length as u16),
-            e_expression_buffer,
-            args_cache.into_bump_slice(),
-        );
-        Ok(e_expression)
+        Ok((
+            RawBinaryEExpression_1_1::new(
+                MacroRef::new(macro_address, macro_ref),
+                bitmap,
+                matched_eexp_bytes,
+                EncodedBinaryEExp::new(macro_id_encoded_length as u8, bitmap_size_in_bytes as u8),
+            ),
+            remaining_input,
+        ))
     }
 
     fn read_eexp_bitmap(
@@ -665,7 +660,7 @@ pub enum ArgGrouping {
     ArgGroup,         // 10
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ArgGroupingBitmapIterator {
     remaining_args: usize,
     bits: u64,
@@ -816,7 +811,7 @@ mod tests {
         let opcode_byte = u8::try_from(macro_address).unwrap();
         let binary_ion = encode_macro_fn(opcode_byte as usize);
         let buffer = ImmutableBuffer::new(context.get_ref(), &binary_ion);
-        let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?;
+        let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?.0;
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
         println!("{:?}", eexp);
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(opcode_byte as usize));
@@ -1057,6 +1052,21 @@ mod tests {
             actual.ion_eq(&expected),
             "Actual sequence\n{actual:?}\nwas not IonEq to expected sequence\n{expected:?}"
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::int(&[0x61, 0x01])] // 1
+    #[case::string(&[0x93, 0x66, 0x6F, 0x6F])] // "foo"
+    #[case::annotated_int(&[0xE7, 0x1B, 0x66, 0x6F, 0x6F, 0x61, 0x01])] // foo::1
+    fn tagged_value_skipping(#[case] bytes: &[u8]) -> IonResult<()> {
+        let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let input = ImmutableBuffer::new(empty_context.get_ref(), bytes);
+        let expected_remaining =
+            ImmutableBuffer::new_with_offset(empty_context.get_ref(), &[], bytes.len());
+        let (matched, remaining) = input.match_tagged_value_repr()?;
+        assert_eq!(matched, input);
+        assert_eq!(remaining, expected_remaining);
         Ok(())
     }
 }

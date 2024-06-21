@@ -1,13 +1,15 @@
 #![allow(non_camel_case_types)]
 
+use std::fmt::{Debug, Formatter};
+
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
+use crate::lazy::binary::raw::v1_1::e_expression::try_or_some_err;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::{HasRange, IonResult, IonType};
-use std::fmt::{Debug, Formatter};
+use crate::{IonResult, IonType};
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryList_1_1<'top> {
@@ -131,16 +133,12 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
 }
 
 pub struct RawBinarySequenceIterator_1_1<'top> {
-    source: ImmutableBuffer<'top>,
-    bytes_to_skip: usize,
+    input: ImmutableBuffer<'top>,
 }
 
 impl<'top> RawBinarySequenceIterator_1_1<'top> {
     pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator_1_1<'top> {
-        RawBinarySequenceIterator_1_1 {
-            source: input,
-            bytes_to_skip: 0,
-        }
+        RawBinarySequenceIterator_1_1 { input }
     }
 }
 
@@ -148,13 +146,11 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_1<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.source = self.source.consume(self.bytes_to_skip);
-        let item = match self.source.peek_sequence_value_expr() {
-            Ok(Some(expr)) => expr,
-            Ok(None) => return None,
-            Err(e) => return Some(Err(e)),
-        };
-        self.bytes_to_skip = item.range().len();
-        Some(Ok(item))
+        let (maybe_item, remaining_input) = try_or_some_err!(self.input.read_sequence_value_expr());
+        if let Some(item) = maybe_item {
+            self.input = remaining_input;
+            return Some(Ok(item));
+        }
+        None
     }
 }

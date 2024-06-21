@@ -99,11 +99,11 @@ impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
 
     type ArgGroup = NeverArgGroup<'top, D>;
 
-    fn id(&self) -> MacroIdRef<'top> {
+    fn id(self) -> MacroIdRef<'top> {
         unreachable!("<Never as RawEExpression>::id")
     }
 
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'top> {
+    fn raw_arguments(self) -> Self::RawArgumentsIterator<'top> {
         unreachable!("<Never as RawEExpression>::raw_arguments")
     }
 }
