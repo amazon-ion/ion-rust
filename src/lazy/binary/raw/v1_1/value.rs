@@ -123,7 +123,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_1>> {
         if self.is_null() {
             let ion_type = if self.encoded_value.header.ion_type_code == OpcodeType::TypedNull {
-                let body = self.value_body()?;
+                let body = self.value_body();
                 ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
             } else {
                 IonType::Null
@@ -206,18 +206,28 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     /// Returns the encoded byte slice representing this value's data.
-    pub(crate) fn value_body(&self) -> IonResult<&'top [u8]> {
+    /// For this raw value to have been created, lexing had to indicate that the complete value
+    /// was available. Because of that invariant, this method will always succeed.
+    pub(crate) fn value_body(&self) -> &'top [u8] {
         let value_total_length = self.encoded_value.total_length();
-        if self.input.len() < value_total_length {
-            return IonResult::incomplete(
-                "only part of the requested value is available in the buffer",
-                self.input.offset(),
-            );
-        }
         let value_body_length = self.encoded_value.value_body_length();
         let value_offset = value_total_length - value_body_length;
-        Ok(self.input.bytes_range(value_offset, value_body_length))
+        self.input.bytes_range(value_offset, value_body_length)
     }
+
+    // /// Returns the encoded byte slice representing this value's data.
+    // pub(crate) fn value_body(&self) -> IonResult<&'top [u8]> {
+    //     let value_total_length = self.encoded_value.total_length();
+    //     if self.input.len() < value_total_length {
+    //         return IonResult::incomplete(
+    //             "only part of the requested value is available in the buffer",
+    //             self.input.offset(),
+    //         );
+    //     }
+    //     let value_body_length = self.encoded_value.value_body_length();
+    //     let value_offset = value_total_length - value_body_length;
+    //     Ok(self.input.bytes_range(value_offset, value_body_length))
+    // }
 
     /// Returns an [`ImmutableBuffer`] containing whatever bytes of this value's body are currently
     /// available. This method is used to construct lazy containers, which are not required to be
@@ -259,7 +269,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             }
             (OpcodeType::LargeInteger, 0x6) => {
                 // We have a FlexUInt size, then big int.
-                let value_bytes = self.value_body()?;
+                let value_bytes = self.value_body();
                 FixedInt::read(value_bytes, value_bytes.len(), 0)?.into()
             }
             _ => unreachable!("integer encoding with illegal length_code found"),
@@ -303,7 +313,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         } else {
             use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 
-            let value_bytes = self.value_body()?;
+            let value_bytes = self.value_body();
             let exponent = FlexInt::read(value_bytes, 0)?;
             let coefficient_size = self.encoded_value.value_body_length - exponent.size_in_bytes();
             let coefficient = FixedInt::read(
@@ -482,7 +492,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         const MONTH_MASK_16BIT: u16 = 0x07_80;
 
         let length_code = self.encoded_value.header.low_nibble();
-        let value_bytes = self.value_body()?;
+        let value_bytes = self.value_body();
 
         // Year is biased offset by 1970, and is held in the lower 7 bits of the first byte.
         let ts_builder = Timestamp::with_year((value_bytes[0] & 0x7F) as u32 + 1970);
@@ -544,7 +554,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         const SECOND_MASK_16BIT: u16 = 0x0F_C0;
         const OFFSET_MASK_16BIT: u16 = 0x3F_FC;
 
-        let value_bytes = self.value_body()?;
+        let value_bytes = self.value_body();
         let value_length = self.encoded_value.value_body_length;
 
         if value_length < 2 || value_length == 4 || value_length == 5 {
@@ -651,7 +661,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         let type_code = self.encoded_value.header.ion_type_code;
         if type_code == OpcodeType::InlineSymbol {
-            let raw_bytes = self.value_body()?;
+            let raw_bytes = self.value_body();
             let text = std::str::from_utf8(raw_bytes)
                 .map_err(|_| IonError::decoding_error("found symbol with invalid UTF-8 data"))?;
             Ok(RawValueRef::Symbol(RawSymbolRef::from(text)))
@@ -668,7 +678,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         use crate::lazy::str_ref::StrRef;
 
         debug_assert!(self.encoded_value.ion_type() == IonType::String);
-        let raw_bytes = self.value_body()?;
+        let raw_bytes = self.value_body();
         let text = std::str::from_utf8(raw_bytes)
             .map_err(|_| IonError::decoding_error("found string with invalid UTF-8 data"))?;
         Ok(RawValueRef::String(StrRef::from(text)))
@@ -678,7 +688,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn read_blob(&self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Blob);
 
-        let raw_bytes = self.value_body()?;
+        let raw_bytes = self.value_body();
         Ok(RawValueRef::Blob(raw_bytes.into()))
     }
 
@@ -686,7 +696,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn read_clob(&'top self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Clob);
 
-        let raw_bytes = self.value_body()?;
+        let raw_bytes = self.value_body();
         Ok(RawValueRef::Clob(raw_bytes.into()))
     }
 

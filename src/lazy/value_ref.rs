@@ -182,7 +182,7 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         }
     }
 
-    pub fn expect_text(&self) -> IonResult<&'_ str> {
+    pub fn expect_text(self) -> IonResult<&'top str> {
         use ValueRef::*;
         match self {
             String(string) => Ok(string.text()),

@@ -264,22 +264,13 @@ impl<'a> ImmutableBuffer<'a> {
     /// read, the returned `FlexUInt`'s `size_in_bytes()` method will return `0`.
     #[inline]
     pub fn read_value_length(self, header: Header) -> ParseResult<'a, FlexUInt> {
-        let length = match header.length_type() {
+        match header.length_type() {
             LengthType::InOpcode(n) => {
                 // FlexUInt represents the length, but is not physically present, hence the 0 size.
-                FlexUInt::new(0, n as u64)
+                Ok((FlexUInt::new(0, n as u64), self))
             }
-            LengthType::FlexUIntFollows => {
-                let (flexuint, _) = self.read_flex_uint()?;
-                flexuint
-            }
-        };
-
-        let remaining = self;
-
-        // TODO: Validate length to ensure it is a reasonable value.
-
-        Ok((length, remaining))
+            LengthType::FlexUIntFollows => self.read_flex_uint(),
+        }
     }
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
@@ -334,6 +325,23 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((self.slice(0, total_bytes), self.consume(total_bytes)))
     }
 
+    /// Returns `true` if the opcode was updated to one that follows the NOP.
+    /// Returns `false` if there was no more data following the NOP.
+    #[inline(never)]
+    pub(crate) fn opcode_after_nop(&mut self, opcode: &mut Opcode) -> IonResult<bool> {
+        let (_matched, input_after_nop) = self.consume_nop_padding(*opcode)?;
+        if let Some(new_opcode) = input_after_nop
+            .peek_next_byte()
+            .map(|b| ION_1_1_OPCODES[b as usize])
+        {
+            *opcode = new_opcode;
+            *self = input_after_nop;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
     #[inline]
@@ -345,25 +353,24 @@ impl<'a> ImmutableBuffer<'a> {
         }
         let mut input = self;
         // Read the next byte in the input as an opcode.
-        let opcode = match input.peek_opcode_unchecked() {
-            opcode if opcode.is_nop() => {
-                let (_matched, input_after_nop) = input.consume_nop_padding(opcode)?;
-                if input_after_nop.is_empty() {
-                    return Ok((None, input_after_nop));
-                }
-                input = input_after_nop;
-                input.peek_opcode_unchecked()
+        let mut opcode = input.peek_opcode_unchecked();
+        if opcode.is_nop() {
+            // This updates both 'input' and 'opcode'
+            if !input.opcode_after_nop(&mut opcode)? {
+                return Ok((None, input));
             }
-            opcode => opcode,
-        };
+        }
 
         // At this point we have an opcode that is not a NOP.
         let (value_expr, remaining_input) = if opcode.is_e_expression() {
-            let (eexp, remaining_input) = self.read_e_expression(opcode)?;
+            let (eexp, remaining_input) = match input.read_e_expression(opcode) {
+                Ok(e) => e,
+                Err(e) => return Err(e),
+            };
             let value_expr_ref = &*self.context().allocator().alloc_with(|| eexp);
             (RawValueExpr::EExp(value_expr_ref), remaining_input)
         } else {
-            let (value, remaining_input) = self.read_value(opcode)?;
+            let (value, remaining_input) = input.read_value(opcode)?;
             let value_expr_ref = &*self.context().allocator().alloc_with(|| value);
             (RawValueExpr::ValueLiteral(value_expr_ref), remaining_input)
         };
@@ -392,7 +399,13 @@ impl<'a> ImmutableBuffer<'a> {
             .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
 
         let header_offset = input.offset();
-        let (length, _) = input.consume(1).read_value_length(header)?;
+
+        let length = match header.length_type() {
+            LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),
+            // This call to `read_value_length` is not inlined, so we avoid the method call
+            // if possible.
+            _ => input.consume(1).read_value_length(header)?.0,
+        };
         let length_length = length.size_in_bytes() as u8;
         let value_length = length.value() as usize; // ha
         let total_length = 1 // Header byte

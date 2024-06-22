@@ -32,7 +32,7 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, RawSymbolRef};
+use crate::{IonError, IonResult, LazyValue, RawSymbolRef};
 
 pub trait EExpressionArgGroup<'top, D: Decoder>:
     HasSpan<'top> + Debug + Copy + Clone + IntoIterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
@@ -663,8 +663,11 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
         for arg_result in &mut self.arguments {
             let arg_expr = arg_result?;
             match arg_expr {
-                ValueExpr::ValueLiteral(value) => {
-                    Self::append_expanded_raw_text_value(context, &mut buffer, value.read()?)?
+                ValueExpr::ValueLiteral(expanded_value) => {
+                    // Self::append_expanded_raw_text_value(context, &mut buffer, value.read()?)?
+                    let value = LazyValue::new(expanded_value);
+                    let text = value.read()?.expect_text()?;
+                    buffer.push_str(text);
                 }
                 ValueExpr::MacroInvocation(invocation) => {
                     let evaluator = match &mut maybe_evaluator {
@@ -672,9 +675,10 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
                         None => maybe_evaluator.insert(MacroEvaluator::new(context, environment)),
                     };
                     for value_result in evaluator.evaluate(invocation)? {
-                        let value = value_result?;
-                        let expanded = value.read()?;
-                        Self::append_expanded_raw_text_value(context, &mut buffer, expanded)?
+                        let value = LazyValue::new(value_result?);
+                        let text = value.read()?.expect_text()?;
+                        buffer.push_str(text);
+                        // Self::append_expanded_raw_text_value(context, &mut buffer, expanded)?
                     }
                 }
             }
