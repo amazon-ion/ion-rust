@@ -1155,7 +1155,7 @@ impl<'top> TextBufferView<'top> {
             // If we reach this point, the rest syntax check in the argument parsing logic above
             // has already verified that using rest syntax was legal. We can add empty argument
             // groups for each missing expression.
-            const EMPTY_ARG_TEXT: &'static str = "(: /* no expression specified */ )";
+            const EMPTY_ARG_TEXT: &str = "(: /* no expression specified */ )";
             let last_explicit_arg_end = arg_expr_cache
                 .last()
                 .map(|arg| arg.expr().range().end)

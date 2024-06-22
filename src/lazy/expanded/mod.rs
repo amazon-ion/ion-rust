@@ -774,7 +774,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                 *environment,
                 element,
             )),
-            Constructed(_annotations, value) => Ok((*value).clone()),
+            Constructed(_annotations, value) => Ok(*(*value)),
         }
     }
 

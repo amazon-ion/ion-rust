@@ -34,7 +34,7 @@ impl Macro {
     }
 
     pub fn name(&self) -> Option<&str> {
-        self.name.as_ref().map(|s| s.as_str())
+        self.name.as_deref()
     }
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
@@ -88,7 +88,7 @@ impl<'top> MacroRef<'top> {
     }
     pub fn id_text(&'top self) -> Cow<'top, str> {
         self.name()
-            .map(|name| Cow::from(name))
+            .map(Cow::from)
             .unwrap_or_else(move || Cow::from(format!("<address={}>", self.address())))
     }
     pub fn signature(self) -> &'top MacroSignature {
@@ -180,7 +180,7 @@ impl MacroTable {
         self.macros_by_name.get(name).copied()
     }
 
-    pub fn macro_with_name<'a, 'b>(&'a self, name: &'b str) -> Option<MacroRef<'a>> {
+    pub fn macro_with_name<'a>(&'a self, name: &str) -> Option<MacroRef<'a>> {
         let address = *self.macros_by_name.get(name)?;
         let reference = self.macros_by_address.get(address)?;
         Some(MacroRef { address, reference })
@@ -189,7 +189,7 @@ impl MacroTable {
     pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
-        if let Some(name) = template.name.as_ref().map(|n| n.as_str()) {
+        if let Some(name) = template.name.as_deref() {
             if self.macros_by_name.contains_key(name) {
                 return IonResult::decoding_error(format!("macro named '{name}' already exists"));
             }

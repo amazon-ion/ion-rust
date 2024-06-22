@@ -362,7 +362,7 @@ impl<'a, D: Decoder, RawValue: LazyRawValue<'a, D>> WriteAsIon
         if self.raw_value.has_annotations() {
             let mut annotations = AnnotationsVec::new();
             for annotation in self.raw_value.annotations() {
-                annotations.push(annotation?.into());
+                annotations.push(annotation?);
             }
             self.raw_value
                 .read()?

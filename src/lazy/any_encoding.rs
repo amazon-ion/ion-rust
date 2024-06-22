@@ -244,7 +244,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
             Text_1_1(ref m) => m.id(),
-            Binary_1_1(ref m) => m.id(),
+            Binary_1_1(m) => m.id(),
         }
     }
 
