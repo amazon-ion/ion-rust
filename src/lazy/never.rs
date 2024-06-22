@@ -93,9 +93,7 @@ impl ValueWriter for Never {
 }
 
 impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
-    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item=IonResult<EExpArg<'top, D>>>>
-    where
-        Self: 'a;
+    type RawArgumentsIterator = Box<dyn Iterator<Item = IonResult<EExpArg<'top, D>>>>;
 
     type ArgGroup = NeverArgGroup<'top, D>;
 
@@ -103,7 +101,7 @@ impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
         unreachable!("<Never as RawEExpression>::id")
     }
 
-    fn raw_arguments(self) -> Self::RawArgumentsIterator<'top> {
+    fn raw_arguments(self) -> Self::RawArgumentsIterator {
         unreachable!("<Never as RawEExpression>::raw_arguments")
     }
 }

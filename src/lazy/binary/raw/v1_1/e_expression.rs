@@ -69,35 +69,33 @@ impl<'top> RawBinaryEExpression_1_1<'top> {
     }
 }
 
-impl<'top> HasSpan<'top> for RawBinaryEExpression_1_1<'top> {
+impl<'top> HasSpan<'top> for &'top RawBinaryEExpression_1_1<'top> {
     fn span(&self) -> Span<'top> {
         Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 
-impl<'top> HasRange for RawBinaryEExpression_1_1<'top> {
+impl<'top> HasRange for &'top RawBinaryEExpression_1_1<'top> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
 }
 
-impl<'top> Debug for RawBinaryEExpression_1_1<'top> {
+impl<'top> Debug for &'top RawBinaryEExpression_1_1<'top> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "<e-expression invoking id '{}'>", self.id())
     }
 }
 
-impl<'top> RawEExpression<'top, v1_1::Binary> for RawBinaryEExpression_1_1<'top> {
-    type RawArgumentsIterator<'a> = BinaryEExpArgsIterator_1_1<'top>
-    where
-        Self: 'a;
+impl<'top> RawEExpression<'top, v1_1::Binary> for &'top RawBinaryEExpression_1_1<'top> {
+    type RawArgumentsIterator = BinaryEExpArgsIterator_1_1<'top>;
     type ArgGroup = BinaryEExpArgGroup<'top>;
 
     fn id(self) -> MacroIdRef<'top> {
         MacroIdRef::LocalAddress(self.macro_ref.address())
     }
 
-    fn raw_arguments(self) -> Self::RawArgumentsIterator<'top> {
+    fn raw_arguments(self) -> Self::RawArgumentsIterator {
         BinaryEExpArgsIterator_1_1::new(
             self.bitmap.iter(),
             self.input.consume(self.encoded_eexp.header_length()),

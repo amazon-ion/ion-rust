@@ -119,7 +119,7 @@ impl<'top, D: Decoder> From<EExpression<'top, D>> for MacroExpr<'top, D> {
 
 pub struct EExpressionArgsIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
-    raw_args: <D::EExp<'top> as RawEExpression<'top, D>>::RawArgumentsIterator<'top>,
+    raw_args: <D::EExp<'top> as RawEExpression<'top, D>>::RawArgumentsIterator,
 }
 
 impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {

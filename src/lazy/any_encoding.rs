@@ -188,7 +188,7 @@ pub struct LazyRawAnyEExpression<'top> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawAnyEExpressionKind<'top> {
     Text_1_1(TextEExpression_1_1<'top>),
-    Binary_1_1(RawBinaryEExpression_1_1<'top>),
+    Binary_1_1(&'top RawBinaryEExpression_1_1<'top>),
 }
 
 impl<'top> LazyRawAnyEExpression<'top> {
@@ -208,8 +208,8 @@ impl<'top> From<TextEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
         }
     }
 }
-impl<'top> From<RawBinaryEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
-    fn from(binary_invocation: RawBinaryEExpression_1_1<'top>) -> Self {
+impl<'top> From<&'top RawBinaryEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
+    fn from(binary_invocation: &'top RawBinaryEExpression_1_1<'top>) -> Self {
         LazyRawAnyEExpression {
             encoding: LazyRawAnyEExpressionKind::Binary_1_1(binary_invocation),
         }
@@ -237,8 +237,8 @@ impl<'top> HasRange for LazyRawAnyEExpression<'top> {
 }
 
 impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
+    type RawArgumentsIterator = AnyEExpArgsIterator<'top>;
     type ArgGroup = AnyEExpArgGroup<'top>;
-    type RawArgumentsIterator<'a> = AnyEExpArgsIterator<'top,>  where Self: 'a;
 
     fn id(self) -> MacroIdRef<'top> {
         use LazyRawAnyEExpressionKind::*;
@@ -248,7 +248,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
         }
     }
 
-    fn raw_arguments(self) -> Self::RawArgumentsIterator<'top> {
+    fn raw_arguments(self) -> Self::RawArgumentsIterator {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
             Text_1_1(e) => AnyEExpArgsIterator {
@@ -342,13 +342,13 @@ pub enum LazyRawAnyEExpArgsIteratorKind<'top> {
         <TextEExpression_1_1<'top> as RawEExpression<
                 'top,
                 TextEncoding_1_1,
-            >>::RawArgumentsIterator<'top>,
+            >>::RawArgumentsIterator,
     ),
     Binary_1_1(
-        <RawBinaryEExpression_1_1<'top> as RawEExpression<
+        <&'top RawBinaryEExpression_1_1<'top> as RawEExpression<
             'top,
             BinaryEncoding_1_1,
-        >>::RawArgumentsIterator<'top>,
+        >>::RawArgumentsIterator,
     ),
 }
 pub struct AnyEExpArgsIterator<'top> {
@@ -686,7 +686,7 @@ pub enum LazyRawValueKind<'top> {
     Text_1_0(LazyRawTextValue_1_0<'top>),
     Binary_1_0(LazyRawBinaryValue_1_0<'top>),
     Text_1_1(LazyRawTextValue_1_1<'top>),
-    Binary_1_1(LazyRawBinaryValue_1_1<'top>),
+    Binary_1_1(&'top LazyRawBinaryValue_1_1<'top>),
 }
 
 impl<'top> From<LazyRawTextValue_1_0<'top>> for LazyRawAnyValue<'top> {
@@ -713,8 +713,8 @@ impl<'top> From<LazyRawTextValue_1_1<'top>> for LazyRawAnyValue<'top> {
     }
 }
 
-impl<'top> From<LazyRawBinaryValue_1_1<'top>> for LazyRawAnyValue<'top> {
-    fn from(value: LazyRawBinaryValue_1_1<'top>) -> Self {
+impl<'top> From<&'top LazyRawBinaryValue_1_1<'top>> for LazyRawAnyValue<'top> {
+    fn from(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
         LazyRawAnyValue {
             encoding: LazyRawValueKind::Binary_1_1(value),
         }

@@ -266,13 +266,16 @@ impl Decoder for TextEncoding_1_1 {
 
 impl Decoder for BinaryEncoding_1_1 {
     type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
-    type Value<'top> = LazyRawBinaryValue_1_1<'top>;
+    // TODO: * Change this to `'top` and see if that leads to big wins in the binary reader
+    //       * Do the same for `EExp`.
+    //       * Remove the `<'a>` from RawEExprArgsIterator
+    type Value<'top> = &'top LazyRawBinaryValue_1_1<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
     type List<'top> = LazyRawBinaryList_1_1<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
     type FieldName<'top> = LazyRawBinaryFieldName_1_1<'top>;
     type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator_1_1<'top>;
-    type EExp<'top> = RawBinaryEExpression_1_1<'top>;
+    type EExp<'top> = &'top RawBinaryEExpression_1_1<'top>;
     type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_1<'top>;
 }
 
@@ -290,7 +293,7 @@ pub trait RawValueLiteral {}
 
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
 impl<'top> RawValueLiteral for LazyRawBinaryValue_1_0<'top> {}
-impl<'top> RawValueLiteral for LazyRawBinaryValue_1_1<'top> {}
+impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_1<'top> {}
 impl<'top> RawValueLiteral for LazyRawAnyValue<'top> {}
 
 #[cfg(test)]

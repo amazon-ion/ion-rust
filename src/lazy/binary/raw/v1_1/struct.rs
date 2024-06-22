@@ -54,7 +54,7 @@ impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_1<'top> {
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryStruct_1_1<'top> {
-    pub(crate) value: LazyRawBinaryValue_1_1<'top>,
+    pub(crate) value: &'top LazyRawBinaryValue_1_1<'top>,
 }
 
 impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_1<'top> {
@@ -96,7 +96,7 @@ impl<'top> LazyRawBinaryStruct_1_1<'top> {
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'top> {
-    fn from_value(value: LazyRawBinaryValue_1_1<'top>) -> Self {
+    fn from_value(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
         LazyRawBinaryStruct_1_1 { value }
     }
 }
@@ -243,7 +243,10 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
                     buffer = after;
                     continue; // No value for this field, loop to try next field.
                 }
-                (Some(value), after) => (value, after),
+                (Some(value), after) => {
+                    let value_ref = &*self.source.context().allocator().alloc_with(|| value);
+                    (value_ref, after)
+                }
             };
 
             let bytes_to_skip = after_value.offset() - self.source.offset();

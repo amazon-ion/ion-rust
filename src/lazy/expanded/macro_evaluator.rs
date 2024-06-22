@@ -51,9 +51,7 @@ pub trait RawEExpression<'top, D: Decoder<EExp<'top> = Self>>:
     HasSpan<'top> + Debug + Copy + Clone
 {
     /// An iterator that yields the macro invocation's arguments in order.
-    type RawArgumentsIterator<'a>: Iterator<Item = IonResult<EExpArg<'top, D>>>
-    where
-        Self: 'a;
+    type RawArgumentsIterator: Iterator<Item = IonResult<EExpArg<'top, D>>>;
 
     /// A type that represents an argument group--several expressions that form a stream
     /// passed as a single argument.
@@ -63,7 +61,7 @@ pub trait RawEExpression<'top, D: Decoder<EExp<'top> = Self>>:
     fn id(self) -> MacroIdRef<'top>;
 
     /// The arguments that follow the macro name or address in this macro invocation.
-    fn raw_arguments(self) -> Self::RawArgumentsIterator<'top>;
+    fn raw_arguments(self) -> Self::RawArgumentsIterator;
 
     /// Looks up the macro invoked by this E-expression in the given `EncodingContext`.
     /// If the lookup is successful, returns an `Ok` containing a resolved `EExpression` that holds

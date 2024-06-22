@@ -81,6 +81,10 @@ impl<'a> ImmutableBuffer<'a> {
         }
     }
 
+    pub fn context(&self) -> EncodingContextRef<'a> {
+        self.context
+    }
+
     /// Returns a slice containing all of the buffer's bytes.
     pub fn bytes(&self) -> &'a [u8] {
         self.data
@@ -356,10 +360,12 @@ impl<'a> ImmutableBuffer<'a> {
         // At this point we have an opcode that is not a NOP.
         let (value_expr, remaining_input) = if opcode.is_e_expression() {
             let (eexp, remaining_input) = self.read_e_expression(opcode)?;
-            (RawValueExpr::EExp(eexp), remaining_input)
+            let value_expr_ref = &*self.context().allocator().alloc_with(|| eexp);
+            (RawValueExpr::EExp(value_expr_ref), remaining_input)
         } else {
             let (value, remaining_input) = self.read_value(opcode)?;
-            (RawValueExpr::ValueLiteral(value), remaining_input)
+            let value_expr_ref = &*self.context().allocator().alloc_with(|| value);
+            (RawValueExpr::ValueLiteral(value_expr_ref), remaining_input)
         };
         Ok((Some(value_expr), remaining_input))
     }
@@ -813,7 +819,7 @@ mod tests {
         let buffer = ImmutableBuffer::new(context.get_ref(), &binary_ion);
         let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?.0;
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
-        println!("{:?}", eexp);
+        println!("{:?}", &eexp);
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(opcode_byte as usize));
         test_fn(eexp)
     }
