@@ -16,9 +16,10 @@ use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
+use crate::lazy::str_ref::StrRef;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{v1_0, v1_1, Catalog, IonResult, IonType, LazyRawWriter, RawSymbolRef};
+use crate::{v1_0, v1_1, Catalog, Int, IonResult, IonType, LazyRawWriter, RawSymbolRef};
 
 pub trait HasSpan<'top>: HasRange {
     fn span(&self) -> Span<'top>;
@@ -549,6 +550,13 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn has_annotations(&self) -> bool;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn read(&self) -> IonResult<RawValueRef<'top, D>>;
+    fn read_string(&self) -> IonResult<StrRef<'top>> {
+        self.read()?.expect_string()
+    }
+
+    fn read_int(&self) -> IonResult<Int> {
+        self.read()?.expect_int()
+    }
 
     fn annotations_span(&self) -> Span<'top>;
 

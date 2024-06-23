@@ -47,6 +47,7 @@ impl EncodedBinaryEExp {
 
 #[derive(Copy, Clone)]
 pub struct RawBinaryEExpression_1_1<'top> {
+    cache: Option<&'top [EExpArgExpr<'top, BinaryEncoding_1_1>]>,
     macro_ref: MacroRef<'top>,
     bitmap: ArgGroupingBitmap,
     pub(crate) input: ImmutableBuffer<'top>,

@@ -3,12 +3,13 @@ use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::{ExpandedAnnotationsIterator, ExpandedValueRef, LazyExpandedValue};
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
+use crate::lazy::str_ref::StrRef;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError, IonResult, IonType,
-    RawSymbolRef, SymbolRef, SymbolTable, Value,
+    Annotations, Element, ExpandedValueSource, Int, IntoAnnotatedElement, IonError, IonResult,
+    IonType, RawSymbolRef, SymbolRef, SymbolTable, Value,
 };
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -262,6 +263,12 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     pub fn read(&self) -> IonResult<ValueRef<'top, D>> {
         use ExpandedValueRef::*;
 
+        match self.ion_type() {
+            IonType::String => return Ok(ValueRef::String(self.read_string()?)),
+            IonType::Int => return Ok(ValueRef::Int(self.read_int()?)),
+            _ => {}
+        }
+
         let value_ref = match self.expanded_value.read()? {
             Null(ion_type) => ValueRef::Null(ion_type),
             Bool(b) => ValueRef::Bool(b),
@@ -304,6 +311,14 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
             }
         };
         Ok(value_ref)
+    }
+
+    fn read_string(&self) -> IonResult<StrRef<'top>> {
+        self.expanded_value.read_string()
+    }
+
+    fn read_int(&self) -> IonResult<Int> {
+        self.expanded_value.read_int()
     }
 }
 

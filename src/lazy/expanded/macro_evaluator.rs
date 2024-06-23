@@ -412,6 +412,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     /// with a `depth_to_exhaust` of `0`; see that method's documentation for more details.
     // Clippy complains that `next` will be confused for the iterator method of the same name.
     #[allow(clippy::should_implement_trait)]
+    #[inline]
     pub fn next(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
         self.next_at_or_above_depth(0)
     }

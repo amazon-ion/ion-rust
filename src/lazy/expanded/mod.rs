@@ -765,6 +765,50 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
     }
 
     #[inline]
+    pub fn read_string(&self) -> IonResult<StrRef<'top>> {
+        use ExpandedValueSource::*;
+        match &self.source {
+            ValueLiteral(value) => value.read_string(),
+            Template(_environment, element) => {
+                if let TemplateValue::String(s) = element.value() {
+                    Ok(StrRef::from(s.text()))
+                } else {
+                    unreachable!("expected string");
+                }
+            }
+            Constructed(_annotations, value) => {
+                if let ExpandedValueRef::String(s) = value {
+                    Ok(*s)
+                } else {
+                    unreachable!("expected constructed string")
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn read_int(&self) -> IonResult<Int> {
+        use ExpandedValueSource::*;
+        match &self.source {
+            ValueLiteral(value) => value.read_int(),
+            Template(_environment, element) => {
+                if let TemplateValue::Int(i) = element.value() {
+                    Ok(*i)
+                } else {
+                    unreachable!("expected int");
+                }
+            }
+            Constructed(_annotations, value) => {
+                if let ExpandedValueRef::Int(i) = value {
+                    Ok(*i)
+                } else {
+                    unreachable!("expected constructed int")
+                }
+            }
+        }
+    }
+
+    #[inline]
     pub fn read(&self) -> IonResult<ExpandedValueRef<'top, Encoding>> {
         use ExpandedValueSource::*;
         match &self.source {

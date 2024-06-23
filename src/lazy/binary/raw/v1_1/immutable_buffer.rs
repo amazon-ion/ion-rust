@@ -318,9 +318,11 @@ impl<'a> ImmutableBuffer<'a> {
             input = remaining;
             opcode = input.peek_opcode()?;
         }
-        input = input.consume(1);
         let header = opcode.to_header().unwrap();
-        let (length, _) = input.read_value_length(header)?;
+        let length = match header.length_type() {
+            LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),
+            LengthType::FlexUIntFollows => FlexUInt::read(&input.bytes()[1..], self.offset() + 1)?,
+        };
         let total_bytes = 1 + length.size_in_bytes() + length.value() as usize;
         Ok((self.slice(0, total_bytes), self.consume(total_bytes)))
     }
@@ -361,17 +363,18 @@ impl<'a> ImmutableBuffer<'a> {
             }
         }
 
+        let allocator = self.context().allocator();
         // At this point we have an opcode that is not a NOP.
         let (value_expr, remaining_input) = if opcode.is_e_expression() {
             let (eexp, remaining_input) = match input.read_e_expression(opcode) {
                 Ok(e) => e,
                 Err(e) => return Err(e),
             };
-            let value_expr_ref = &*self.context().allocator().alloc_with(|| eexp);
+            let value_expr_ref = &*allocator.alloc_with(|| eexp);
             (RawValueExpr::EExp(value_expr_ref), remaining_input)
         } else {
             let (value, remaining_input) = input.read_value(opcode)?;
-            let value_expr_ref = &*self.context().allocator().alloc_with(|| value);
+            let value_expr_ref = &*allocator.alloc_with(|| value);
             (RawValueExpr::ValueLiteral(value_expr_ref), remaining_input)
         };
         Ok((Some(value_expr), remaining_input))
