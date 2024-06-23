@@ -36,7 +36,7 @@ use std::cell::{Cell, UnsafeCell};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::iter::empty;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 
 use bumpalo::Bump as BumpAllocator;
 
@@ -68,8 +68,8 @@ use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
-    Catalog, Decimal, HasRange, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
-    SymbolTable, Timestamp,
+    Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
+    Span, SymbolTable, Timestamp,
 };
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
@@ -322,12 +322,14 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         unsafe { &mut *self.pending_context_changes.get() }
     }
 
+    #[inline]
     fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
         let typed_ptr: *mut T = ptr.cast();
         unsafe { &mut *typed_ptr }
     }
 
     /// Dereferences a raw pointer storing the address of the active MacroEvaluator.
+    #[inline]
     fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut MacroEvaluator<'top, Encoding> {
         Self::ptr_to_mut_ref(evaluator_ptr)
     }
@@ -381,9 +383,21 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         pending_changes.has_changes = false;
     }
 
+    // #[inline]
+    fn interpret_value<'top>(
+        &self,
+        value: LazyExpandedValue<'top, Encoding>,
+    ) -> IonResult<SystemStreamItem<'top, Encoding>> {
+        if value.has_annotations() && matches!(value.ion_type(), IonType::Struct | IonType::SExp) {
+            self.fully_interpret_value(value)
+        } else {
+            Ok(SystemStreamItem::Value(LazyValue::new(value)))
+        }
+    }
+
     /// Inspects a `LazyExpandedValue` to determine whether it is a symbol table or an
     /// application-level value. Returns it as the appropriate variant of `SystemStreamItem`.
-    fn interpret_value<'top>(
+    fn fully_interpret_value<'top>(
         &self,
         value: LazyExpandedValue<'top, Encoding>,
     ) -> IonResult<SystemStreamItem<'top, Encoding>> {
@@ -498,8 +512,20 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
 
         // If there's already an active macro evaluator, that means the reader is still in the process
         // of expanding a macro invocation it previously encountered. See if it has a value to give us.
-        if let Some(stream_item) = self.next_from_evaluator()? {
-            return Ok(stream_item);
+        // if let Some(stream_item) = self.next_from_evaluator()? {
+        //     return Ok(stream_item);
+        // }
+        if let Some(ptr) = self.evaluator_ptr.get() {
+            // If there's already an evaluator, dereference the pointer.
+            let evaluator = Self::ptr_to_evaluator(ptr);
+            match evaluator.next() {
+                Ok(Some(value)) => return self.interpret_value(value),
+                Ok(None) => {}
+                Err(e) => return Err(e),
+            }
+            if let Some(value) = evaluator.next()? {
+                return self.interpret_value(value);
+            }
         }
 
         // Otherwise, we're now between top level expressions. Take this opportunity to apply any
@@ -536,20 +562,24 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                         // If there's not, make a new one.
                         None => context
                             .allocator
-                            // E-expressions always have an empty environment
+                            // E-expressions always have an empty environment at the base of the stack
                             .alloc_with(move || {
                                 MacroEvaluator::new(context_ref, Environment::empty())
                             }),
                     };
                     // Push the invocation onto the evaluation stack.
-                    evaluator.push(resolved_e_exp)?;
+                    match evaluator.push(resolved_e_exp) {
+                        Ok(_) => {}
+                        Err(e) => return Err(e),
+                    }
+                    // evaluator.push(resolved_e_exp)?;
                     self.evaluator_ptr
                         .set(Some(Self::evaluator_to_ptr(evaluator)));
 
                     // Try to get a value by starting to evaluate the e-expression.
-                    if let Some(value) = self.next_from_evaluator()? {
+                    if let Some(value) = evaluator.next()? {
                         // If we get a value, return it.
-                        return Ok(value);
+                        return self.interpret_value(value);
                     } else {
                         // If the expression was equivalent to `(:void)`, return to the top of
                         // the loop and get the next expression.
@@ -764,7 +794,6 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
-    #[inline]
     pub fn read_string(&self) -> IonResult<StrRef<'top>> {
         use ExpandedValueSource::*;
         match &self.source {
@@ -786,7 +815,27 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
-    #[inline]
+    pub fn read_symbol(&self) -> IonResult<RawSymbolRef<'top>> {
+        use ExpandedValueSource::*;
+        match &self.source {
+            ValueLiteral(value) => value.read_symbol(),
+            Template(_environment, element) => {
+                if let TemplateValue::Symbol(s) = element.value() {
+                    Ok(RawSymbolRef::from(s))
+                } else {
+                    unreachable!("expected symbol");
+                }
+            }
+            Constructed(_annotations, value) => {
+                if let ExpandedValueRef::Symbol(s) = value {
+                    Ok(*s)
+                } else {
+                    unreachable!("expected constructed symbol")
+                }
+            }
+        }
+    }
+
     pub fn read_int(&self) -> IonResult<Int> {
         use ExpandedValueSource::*;
         match &self.source {
@@ -828,6 +877,27 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
 
     pub fn source(&self) -> ExpandedValueSource<'top, Encoding> {
         self.source
+    }
+
+    pub fn expect_value_literal(&self) -> IonResult<Encoding::Value<'top>> {
+        if let ExpandedValueSource::ValueLiteral(literal) = self.source {
+            return Ok(literal);
+        }
+        IonResult::decoding_error("expected LazyExpandedValue to be a literal")
+    }
+
+    pub fn range(&self) -> Option<Range<usize>> {
+        if let ExpandedValueSource::ValueLiteral(value) = &self.source {
+            return Some(value.range());
+        }
+        None
+    }
+
+    pub fn span(&self) -> Option<Span<'top>> {
+        if let ExpandedValueSource::ValueLiteral(value) = &self.source {
+            return Some(value.span());
+        }
+        None
     }
 }
 

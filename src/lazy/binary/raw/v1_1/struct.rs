@@ -243,10 +243,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
                     buffer = after;
                     continue; // No value for this field, loop to try next field.
                 }
-                (Some(value), after) => {
-                    let value_ref = &*self.source.context().allocator().alloc_with(|| value);
-                    (value_ref, after)
-                }
+                (Some(value), after) => (&*after.context().allocator().alloc_with(|| value), after),
             };
 
             let bytes_to_skip = after_value.offset() - self.source.offset();

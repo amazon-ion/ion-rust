@@ -1,5 +1,3 @@
-use bumpalo::collections::Vec as BumpVec;
-
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{Decoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression, ValueExpr};
@@ -33,10 +31,8 @@ pub struct Environment<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> Environment<'top, D> {
-    pub(crate) fn new(args: BumpVec<'top, ValueExpr<'top, D>>) -> Self {
-        Environment {
-            expressions: args.into_bump_slice(),
-        }
+    pub(crate) fn new(args: &'top [ValueExpr<'top, D>]) -> Self {
+        Environment { expressions: args }
     }
 
     /// Returns the expression for the corresponding signature index -- the variable's offset within

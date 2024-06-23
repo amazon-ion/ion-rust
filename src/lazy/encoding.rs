@@ -266,9 +266,6 @@ impl Decoder for TextEncoding_1_1 {
 
 impl Decoder for BinaryEncoding_1_1 {
     type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
-    // TODO: * Change this to `'top` and see if that leads to big wins in the binary reader
-    //       * Do the same for `EExp`.
-    //       * Remove the `<'a>` from RawEExprArgsIterator
     type Value<'top> = &'top LazyRawBinaryValue_1_1<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
     type List<'top> = LazyRawBinaryList_1_1<'top>;

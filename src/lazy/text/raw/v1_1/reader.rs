@@ -169,7 +169,7 @@ impl<'top> RawEExpression<'top, TextEncoding_1_1> for TextEExpression_1_1<'top> 
         self.id
     }
 
-    fn raw_arguments(self) -> Self::RawArgumentsIterator {
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
         TextEExpArgsIterator_1_1::new(self.arg_cache)
     }
 }

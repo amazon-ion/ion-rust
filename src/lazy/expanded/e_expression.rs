@@ -10,8 +10,11 @@ use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::IonResult;
+use crate::{Environment, HasRange, HasSpan, IonResult, Span};
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
+
+use bumpalo::collections::Vec as BumpVec;
 
 #[derive(Copy, Clone)]
 pub struct ArgGroup<'top, D: Decoder> {
@@ -50,6 +53,36 @@ impl<'top, D: Decoder> ArgGroup<'top, D> {
     pub fn expressions(&self) -> ArgGroupIterator<'top, D> {
         ArgGroupIterator::new(self.context, self.raw_arg_group())
     }
+    pub fn new_evaluation_environment(&self) -> IonResult<Environment<'top, D>> {
+        let allocator = self.context.allocator();
+        let num_args = self.invoked_macro().signature().parameters().len();
+        let mut env_exprs = BumpVec::with_capacity_in(num_args, allocator);
+        // Populate the environment by parsing the arguments from input
+        for expr in self.raw_arg_group() {
+            let value_expr = match expr? {
+                RawValueExpr::ValueLiteral(value) => {
+                    ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, value))
+                }
+                RawValueExpr::EExp(eexp) => {
+                    ValueExpr::MacroInvocation(MacroExpr::EExp(eexp.resolve(self.context)?))
+                }
+            };
+            env_exprs.push(value_expr);
+        }
+        Ok(Environment::new(env_exprs.into_bump_slice()))
+    }
+}
+
+impl<'top, D: Decoder> HasRange for ArgGroup<'top, D> {
+    fn range(&self) -> Range<usize> {
+        self.raw_arg_group.range()
+    }
+}
+
+impl<'top, D: Decoder> HasSpan<'top> for ArgGroup<'top, D> {
+    fn span(&self) -> Span<'top> {
+        self.raw_arg_group.span()
+    }
 }
 
 impl<'top, D: Decoder> Debug for ArgGroup<'top, D> {
@@ -76,11 +109,28 @@ impl<'top, D: Decoder> EExpression<'top, D> {
     pub fn invoked_macro(&self) -> MacroRef<'top> {
         self.invoked_macro
     }
+
+    pub(crate) fn new_evaluation_environment(&self) -> IonResult<Environment<'top, D>> {
+        self.raw_invocation
+            .make_evaluation_environment(self.context)
+    }
 }
 
 impl<'top, D: Decoder> Debug for EExpression<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "EExpression {:?}", self.raw_invocation)
+    }
+}
+
+impl<'top, D: Decoder> HasRange for EExpression<'top, D> {
+    fn range(&self) -> Range<usize> {
+        self.raw_invocation.range()
+    }
+}
+
+impl<'top, D: Decoder> HasSpan<'top> for EExpression<'top, D> {
+    fn span(&self) -> Span<'top> {
+        self.raw_invocation.span()
     }
 }
 
@@ -144,7 +194,7 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
             }
             EExpArgExpr::<D>::ArgGroup(group) => {
                 let arg_group = group.resolve(self.context);
-                ValueExpr::MacroInvocation(MacroExpr::ArgGroup(arg_group))
+                ValueExpr::MacroInvocation(MacroExpr::EExpArgGroup(arg_group))
             }
         };
         Some(Ok(expr))

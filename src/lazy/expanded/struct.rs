@@ -600,7 +600,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                         // is needed to get our next field.
                         Continue(())
                     }
-                    MacroInvocation(MacroExpr::ArgGroup(_group)) => {
+                    MacroInvocation(MacroExpr::EExpArgGroup(_group)) => {
                         unreachable!("arg group inside a struct")
                     }
                 }

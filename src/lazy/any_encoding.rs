@@ -248,7 +248,7 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
         }
     }
 
-    fn raw_arguments(self) -> Self::RawArgumentsIterator {
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
             Text_1_1(e) => AnyEExpArgsIterator {

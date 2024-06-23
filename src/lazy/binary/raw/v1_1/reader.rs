@@ -2,12 +2,13 @@
 
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::{ImmutableBuffer, ParseResult};
+use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
 use crate::lazy::decoder::{LazyRawReader, RawValueExpr};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
-use crate::{Encoding, HasRange, IonResult};
+use crate::{Encoding, IonResult};
 
 pub struct LazyRawBinaryReader_1_1<'data> {
     input: &'data [u8],
@@ -61,8 +62,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
             Some(RawValueExpr::EExp(eexpr)) => RawStreamItem::EExp(eexpr),
             None => self.end_of_stream(buffer.offset()),
         };
-        let item_range = item.range();
-        self.local_offset = item_range.end - self.stream_offset;
+        self.local_offset = remaining.offset() - self.stream_offset;
         Ok((item, remaining))
     }
 
@@ -73,27 +73,20 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     where
         'data: 'top,
     {
-        let mut buffer = ImmutableBuffer::new_with_offset(
-            context,
-            self.input.get(self.local_offset..).unwrap(),
-            self.position(),
-        );
-
-        if buffer.is_empty() {
+        let data = &self.input[self.local_offset..];
+        let Some(&first_byte) = data.get(0) else {
+            return Ok(self.end_of_stream(self.position()));
+        };
+        let mut buffer = ImmutableBuffer::new_with_offset(context, data, self.position());
+        let mut opcode = ION_1_1_OPCODES[first_byte as usize];
+        if opcode.is_nop() && !buffer.opcode_after_nop(&mut opcode)? {
             return Ok(self.end_of_stream(buffer.offset()));
         }
-
-        let type_descriptor = buffer.peek_opcode()?;
-        if type_descriptor.is_nop() {
-            (_, buffer) = buffer.consume_nop_padding(type_descriptor)?;
-            if buffer.is_empty() {
-                return Ok(self.end_of_stream(buffer.offset()));
-            }
-        }
-        if type_descriptor.is_ivm_start() {
+        if opcode.is_ivm_start() {
             return self.read_ivm(buffer);
         }
-        self.read_value_expr(buffer).map(|res| res.0)
+        let (item, _remaining) = self.read_value_expr(buffer)?;
+        Ok(item)
     }
 }
 

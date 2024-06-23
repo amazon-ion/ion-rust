@@ -554,6 +554,10 @@ pub trait LazyRawValue<'top, D: Decoder>:
         self.read()?.expect_string()
     }
 
+    fn read_symbol(&self) -> IonResult<RawSymbolRef<'top>> {
+        self.read()?.expect_symbol()
+    }
+
     fn read_int(&self) -> IonResult<Int> {
         self.read()?.expect_int()
     }

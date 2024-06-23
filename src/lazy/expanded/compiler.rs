@@ -1,7 +1,8 @@
 //! Compiles template definition language (TDL) expressions into a form suitable for fast incremental
 //! evaluation.
-use std::collections::HashMap;
 use std::ops::Range;
+
+use rustc_hash::FxHashMap;
 
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::template::{
@@ -496,12 +497,12 @@ impl TemplateCompiler {
                 ExprRange::empty(),
                 // Creating a new HashMap does not allocate; we'll overwrite this value with an
                 // actual map of field names to indexes at the end of the method.
-                HashMap::new(),
+                FxHashMap::default(),
             ),
         );
         definition.push_element(struct_element);
 
-        let mut fields: TemplateStructIndex = HashMap::new();
+        let mut fields: TemplateStructIndex = FxHashMap::default();
         let struct_start = definition.expressions.len();
         for field_result in &lazy_struct {
             let field = field_result?;
@@ -569,7 +570,7 @@ impl TemplateCompiler {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use rustc_hash::FxHashMap;
 
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::template::{
@@ -748,7 +749,7 @@ mod tests {
         expect_value(&template, 4, TemplateValue::Int(Int::from(300)))?;
         expect_annotations(&template, 4, ["a", "b"]);
         expect_variable(&template, 5, 0)?;
-        let mut struct_index = HashMap::new();
+        let mut struct_index = FxHashMap::default();
         struct_index.insert(Symbol::from("y"), vec![8]);
         expect_value(
             &template,

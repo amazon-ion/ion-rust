@@ -214,6 +214,9 @@ macro_rules! v1_x_reader_writer {
             lazy::sequence::{LazyList, LazySExp},
             lazy::encoder::value_writer::{ValueWriter, StructWriter, SequenceWriter, EExpWriter},
             lazy::any_encoding::IonEncoding,
+            lazy::expanded::compiler::TemplateCompiler,
+            lazy::expanded::EncodingContext,
+            lazy::any_encoding::IonVersion,
         };
     };
 }

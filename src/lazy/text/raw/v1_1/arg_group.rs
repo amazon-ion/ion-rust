@@ -3,12 +3,14 @@ use std::ops::Range;
 use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::e_expression::ArgGroup;
-use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{
+    EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
+};
 use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::result::IonFailure;
-use crate::{Decoder, HasRange, HasSpan, IonResult, Span};
+use crate::{Decoder, HasRange, HasSpan, IonResult, LazyExpandedValue, Span};
 
 #[derive(Copy, Clone, Debug)]
 pub struct EExpArg<'top, D: Decoder> {
@@ -27,6 +29,21 @@ impl<'top, D: Decoder> EExpArg<'top, D> {
 
     pub fn expr(&self) -> &EExpArgExpr<'top, D> {
         &self.expr
+    }
+
+    pub fn resolve(&self, context: EncodingContextRef<'top>) -> IonResult<ValueExpr<'top, D>> {
+        let value_expr = match self.expr {
+            EExpArgExpr::ValueLiteral(value) => {
+                ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(context, value))
+            }
+            EExpArgExpr::EExp(eexp) => {
+                ValueExpr::MacroInvocation(MacroExpr::EExp(eexp.resolve(context)?))
+            }
+            EExpArgExpr::ArgGroup(group) => {
+                ValueExpr::MacroInvocation(MacroExpr::EExpArgGroup(group.resolve(context)))
+            }
+        };
+        Ok(value_expr)
     }
 }
 

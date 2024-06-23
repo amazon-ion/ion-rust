@@ -1,19 +1,20 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 
+use rustc_hash::FxHashMap;
+
+use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp, Value};
 use crate::lazy::decoder::Decoder;
+use crate::lazy::expanded::{
+    EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
+};
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, ValueExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
-use crate::lazy::expanded::{
-    EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
-};
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
-use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp, Value};
 
 /// A parameter in a user-defined macro's signature.
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +100,7 @@ impl MacroSignature {
     }
 
     pub fn parameters(&self) -> &[Parameter] {
-        &self.parameters
+        self.parameters.as_slice()
     }
     pub fn new(parameters: Vec<Parameter>) -> Self {
         let num_variadic_params = parameters.iter().filter(|p| p.cardinality != ParameterCardinality::ExactlyOne).count();
@@ -277,16 +278,11 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             // If the evaluator's stack is not empty, give it the opportunity to yield a value.
-            if self.evaluator.macro_stack_depth() > 0 {
-                match self.evaluator.next().transpose() {
-                    Some(value) => return Some(value),
-                    None => {
-                        // The stack did not produce values and is empty, pull
-                        // the next expression from `self.value_expressions`
-                    }
-                }
+            if let Some(value) = self.evaluator.next().transpose() {
+                return Some(value);
             }
-            // We didn't get a value from the evaluator, so pull the next expansion step.
+            // The stack did not produce values and is empty, pull the next expression from `self.value_expressions`
+            // and start expanding it.
             let step = self.value_expressions.get(self.index)?;
             self.index += 1;
             return match step {
@@ -465,7 +461,7 @@ pub struct TemplateBody {
 
 impl TemplateBody {
     pub fn expressions(&self) -> &[TemplateBodyValueExpr] {
-        &self.expressions
+        self.expressions.as_slice()
     }
     pub fn annotations_storage(&self) -> &[Symbol] {
         &self.annotations_storage
@@ -1025,7 +1021,7 @@ pub enum TemplateValue {
 /// A mapping of struct field names to one or more template body addresses that have that
 /// field name. This type is used to allow field lookups within a template struct to happen in
 /// constant rather than linear time.
-pub type TemplateStructIndex = HashMap<Symbol, Vec<usize>>;
+pub type TemplateStructIndex = FxHashMap<Symbol, Vec<usize>>;
 
 impl TemplateValue {
     pub fn is_null(&self) -> bool {

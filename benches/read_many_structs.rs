@@ -13,7 +13,10 @@ mod benchmark {
 mod benchmark {
     use criterion::{black_box, Criterion};
 
-    use ion_rs::{v1_0, v1_1, ElementReader, Encoding, IonData, Reader, WriteConfig};
+    use ion_rs::{
+        v1_0, v1_1, ElementReader, Encoding, EncodingContext, IonData, IonVersion, Reader,
+        TemplateCompiler, WriteConfig,
+    };
     use ion_rs::{Decoder, Element, IonResult, LazyStruct, LazyValue, ValueRef};
 
     fn rewrite_as<E: Encoding>(
@@ -78,41 +81,98 @@ mod benchmark {
         }"#.repeat(NUM_VALUES);
         let text_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Text).unwrap();
         let binary_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Binary).unwrap();
+        // let template_definition_text = r#"
+        //     (macro event (timestamp thread_id thread_name client_num host_id parameters*)
+        //         {
+        //             'timestamp': timestamp,
+        //             'threadId': thread_id,
+        //             'threadName': (make_string "scheduler-thread-" thread_name),
+        //             'loggerName': "com.example.organization.product.component.ClassName",
+        //             'logLevel': (quote INFO),
+        //             'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
+        //             'parameters': [
+        //                 "SUCCESS",
+        //                 (make_string "example-client-" client_num),
+        //                 (make_string "aws-us-east-5f-" host_id),
+        //                 parameters
+        //             ]
+        //         }
+        //     )
+        // "#;
+
         let template_definition_text = r#"
             (macro event (timestamp thread_id thread_name client_num host_id parameters*)
                 {
                     'timestamp': timestamp,
                     'threadId': thread_id,
-                    'threadName': (make_string "scheduler-thread-" thread_name),
+                    'threadName': thread_name,
                     'loggerName': "com.example.organization.product.component.ClassName",
                     'logLevel': (quote INFO),
                     'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
                     'parameters': [
                         "SUCCESS",
-                        (make_string "example-client-" client_num),
-                        (make_string "aws-us-east-5f-" host_id),
+                        client_num,
+                        host_id,
                         parameters
                     ]
                 }
             )
         "#;
 
-        let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
+        // let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
+        let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
+
+        // #[rustfmt::skip]
+        // let mut binary_1_1_data_body: Vec<u8> = vec![
+        //     0x03, // Macro ID 3
+        //     0b10, // [NOTE: `0b`] `parameters*` arg is an arg group
+        //     0x66, // 6-byte integer (`timestamp` param)
+        //     0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
+        //     0x62, // 2-byte integer (`thread_id` param)
+        //     0xA2, 0x01,
+        //     0x91, // 1-byte string (`thread_name` param)
+        //     0x36,
+        //     0x91, // 1-byte string (`client_num` param)
+        //     0x31,
+        //     0x96, // 6-byte string (`host_id` param)
+        //     0x31, 0x38, 0x62, 0x34, 0x66, 0x61,
+        //     0x4D, // Arg group length prefix
+        //     0x98, // 8-byte string
+        //     0x72, 0x65, 0x67, 0x69,
+        //     0x6F, 0x6E, 0x20, 0x34,
+        //     0xF9, // Long-form, 27-byte string
+        //     0x37, 0x32, 0x30, 0x32,
+        //     0x32, 0x2D, 0x31, 0x32,
+        //     0x2D, 0x30, 0x37, 0x54,
+        //     0x32, 0x30, 0x3A, 0x35,
+        //     0x39, 0x3A, 0x35, 0x39,
+        //     0x2E, 0x37, 0x34, 0x34,
+        //     0x30, 0x30, 0x30, 0x5A,
+        // ].repeat(NUM_VALUES);
 
         #[rustfmt::skip]
         let mut binary_1_1_data_body: Vec<u8> = vec![
             0x03, // Macro ID 3
-            0b10, // [NOTE: `0b`] `parameters*` arg is an arg group
+            0b10, // [NOTE: `0b` prefix] `parameters*` arg is an arg group
             0x66, // 6-byte integer (`timestamp` param)
             0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
             0x62, // 2-byte integer (`thread_id` param)
             0xA2, 0x01,
-            0x91, // 1-byte string (`thread_name` param)
-            0x36,
-            0x91, // 1-byte string (`client_num` param)
-            0x31,
-            0x96, // 6-byte string (`host_id` param)
-            0x31, 0x38, 0x62, 0x34, 0x66, 0x61,
+            0xF9, // long-form string (`thread_name` param)
+            0x25, // FlexUInt byte length 18
+            // "scheduler-thread-6"
+            0x73, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6C, 0x65, 0x72, 0x2D, 0x74, 0x68, 0x72, 0x65, 0x61, 0x64, 0x2D, 0x36,
+            0xF9, // 1-byte string (`client_num` param)
+            0x21, // FlexUInt byte length 16
+             // "example-client-1"
+            0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65, 0x2D, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x2D, 0x31,
+            0xF9, // long-form string (`host_id` param)
+            0x2B, // FlexUInt byte length 21
+            // "aws-us-east-5f-18b4fa"
+            0x61, 0x77, 0x73, 0x2D, 0x75, 0x73,
+            0x2D, 0x65, 0x61, 0x73, 0x74, 0x2D,
+            0x35, 0x66, 0x2D, 0x31, 0x38, 0x62,
+            0x34, 0x66, 0x61,
             0x4D, // Arg group length prefix
             0x98, // 8-byte string
             0x72, 0x65, 0x67, 0x69,
@@ -126,6 +186,7 @@ mod benchmark {
             0x2E, 0x37, 0x34, 0x34,
             0x30, 0x30, 0x30, 0x5A,
         ].repeat(NUM_VALUES);
+
         // Ion v1.1 Version Marker
         let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA];
         binary_1_1_data.append(&mut binary_1_1_data_body);
@@ -222,7 +283,7 @@ mod benchmark {
         let mut binary_1_1_group = c.benchmark_group("binary 1.1");
         binary_1_1_group.bench_function("scan all", |b| {
             b.iter(|| {
-                let mut reader = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_1::Binary, &binary_1_1_data).unwrap();
                 reader
                     .register_template_src(template_definition_text)
                     .unwrap();
@@ -245,16 +306,20 @@ mod benchmark {
             })
         });
         binary_1_1_group.bench_function("read 'format' field", |b| {
+            let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
+            let compiled_macro = TemplateCompiler::compile_from_text(
+                empty_context.get_ref(),
+                template_definition_text,
+            )
+            .unwrap();
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
-                reader
-                    .register_template_src(template_definition_text)
-                    .unwrap();
+                reader.register_template(compiled_macro.clone()).unwrap();
                 let mut num_values = 0usize;
                 while let Some(value) = reader.next().unwrap() {
                     let s = value.read().unwrap().expect_struct().unwrap();
-                    let parameters_list = s.find_expected("format").unwrap();
-                    num_values += count_value_and_children(&parameters_list).unwrap();
+                    let format_field_value = s.find_expected("format").unwrap();
+                    num_values += count_value_and_children(&format_field_value).unwrap();
                 }
                 let _ = black_box(num_values);
             })

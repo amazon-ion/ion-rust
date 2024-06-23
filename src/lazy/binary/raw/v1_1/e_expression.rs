@@ -9,13 +9,17 @@ use crate::lazy::binary::raw::v1_1::immutable_buffer::{
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::e_expression::ArgGroup;
-use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{
+    EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
+};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::template::{MacroSignature, Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::{v1_1, HasRange, HasSpan, IonResult, Span};
+use crate::{v1_1, Environment, HasRange, HasSpan, IonResult, Span};
+
+use bumpalo::collections::Vec as BumpVec;
 
 #[derive(Copy, Clone)]
 pub struct EncodedBinaryEExp {
@@ -47,7 +51,7 @@ impl EncodedBinaryEExp {
 
 #[derive(Copy, Clone)]
 pub struct RawBinaryEExpression_1_1<'top> {
-    cache: Option<&'top [EExpArgExpr<'top, BinaryEncoding_1_1>]>,
+    cache: Option<&'top [ValueExpr<'top, BinaryEncoding_1_1>]>,
     macro_ref: MacroRef<'top>,
     bitmap: ArgGroupingBitmap,
     pub(crate) input: ImmutableBuffer<'top>,
@@ -66,7 +70,16 @@ impl<'top> RawBinaryEExpression_1_1<'top> {
             input,
             macro_ref,
             encoded_eexp,
+            cache: None,
         }
+    }
+
+    pub fn with_arg_expr_cache(
+        mut self,
+        cache: &'top [ValueExpr<'top, BinaryEncoding_1_1>],
+    ) -> Self {
+        self.cache = Some(cache);
+        self
     }
 }
 
@@ -96,12 +109,31 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top RawBinaryEExpression_1_1
         MacroIdRef::LocalAddress(self.macro_ref.address())
     }
 
-    fn raw_arguments(self) -> Self::RawArgumentsIterator {
-        BinaryEExpArgsIterator_1_1::new(
-            self.bitmap.iter(),
-            self.input.consume(self.encoded_eexp.header_length()),
-            self.macro_ref.signature(),
-        )
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
+        let signature = self.macro_ref.signature();
+        let args_input = self.input.consume(self.encoded_eexp.header_length());
+        if let Some(cache) = self.cache {
+            return BinaryEExpArgsIterator_1_1::for_cache(signature, args_input.offset(), cache);
+        }
+        BinaryEExpArgsIterator_1_1::for_input(self.bitmap.iter(), args_input, signature)
+    }
+
+    fn make_evaluation_environment(
+        &self,
+        context: EncodingContextRef<'top>,
+    ) -> IonResult<Environment<'top, BinaryEncoding_1_1>> {
+        if let Some(cache) = self.cache {
+            return Ok(Environment::new(cache));
+        }
+        let allocator = context.allocator();
+        let num_args = self.macro_ref.signature().parameters().len();
+        let mut env_exprs = BumpVec::with_capacity_in(num_args, allocator);
+        // Populate the environment by parsing the arguments from input
+        for expr in self.raw_arguments() {
+            env_exprs.push(expr?.resolve(context)?);
+        }
+
+        Ok(Environment::new(env_exprs.into_bump_slice()))
     }
 }
 
@@ -121,23 +153,74 @@ pub(crate) use try_or_some_err;
 
 #[derive(Debug, Clone)]
 pub struct BinaryEExpArgsIterator_1_1<'top> {
+    signature: &'top MacroSignature,
+    source: BinaryEExpArgsSource<'top>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BinaryEExpArgsInputIter<'top> {
     bitmap_iter: ArgGroupingBitmapIterator,
     remaining_args_buffer: ImmutableBuffer<'top>,
-    signature: &'top MacroSignature,
     param_index: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct BinaryEExpArgsCacheIter<'top> {
+    initial_offset: usize,
+    // TODO: Doc comment about higher-level expressions
+    exprs: &'top [ValueExpr<'top, BinaryEncoding_1_1>],
+    expr_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum BinaryEExpArgsSource<'top> {
+    Input(BinaryEExpArgsInputIter<'top>),
+    Cache(BinaryEExpArgsCacheIter<'top>),
+}
+
 impl<'top> BinaryEExpArgsIterator_1_1<'top> {
-    pub fn new(
+    pub fn for_input(
         groupings_iter: ArgGroupingBitmapIterator,
         remaining_args_buffer: ImmutableBuffer<'top>,
         signature: &'top MacroSignature,
     ) -> Self {
         Self {
-            bitmap_iter: groupings_iter,
-            remaining_args_buffer,
+            source: BinaryEExpArgsSource::Input(BinaryEExpArgsInputIter {
+                bitmap_iter: groupings_iter,
+                remaining_args_buffer,
+                param_index: 0,
+            }),
             signature,
-            param_index: 0,
+        }
+    }
+
+    pub fn for_cache(
+        signature: &'top MacroSignature,
+        initial_offset: usize,
+        cache: &'top [ValueExpr<'top, BinaryEncoding_1_1>],
+    ) -> Self {
+        Self {
+            source: BinaryEExpArgsSource::Cache(BinaryEExpArgsCacheIter {
+                exprs: cache,
+                initial_offset,
+                expr_index: 0,
+            }),
+            signature,
+        }
+    }
+
+    pub fn offset(&self) -> usize {
+        match &self.source {
+            BinaryEExpArgsSource::Input(i) => i.remaining_args_buffer.offset(),
+            // If there weren't any args, then the iterator's position is where it started.
+            BinaryEExpArgsSource::Cache(c) if c.exprs.is_empty() => c.initial_offset,
+            BinaryEExpArgsSource::Cache(c) => {
+                match c.exprs.get(c.expr_index) {
+                    Some(value_expr) => value_expr.range().unwrap().end,
+                    // If the iterator is exhausted, then its offset is the end of the last arg expr.
+                    None => c.exprs[c.expr_index - 1].range().unwrap().end,
+                }
+            }
         }
     }
 }
@@ -146,62 +229,78 @@ impl<'top> Iterator for BinaryEExpArgsIterator_1_1<'top> {
     type Item = IonResult<EExpArg<'top, v1_1::Binary>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let parameter = self.signature.parameters().get(self.param_index)?;
+        let input_iter = match &mut self.source {
+            BinaryEExpArgsSource::Input(input_iter) => input_iter,
+            BinaryEExpArgsSource::Cache(ref mut cache_iter) => {
+                let parameter = self.signature.parameters().get(cache_iter.expr_index)?;
+                let cache_entry = cache_iter.exprs.get(cache_iter.expr_index).unwrap();
+                let next_expr = match cache_entry {
+                    ValueExpr::ValueLiteral(value) => {
+                        let value_literal = try_or_some_err!(value.expect_value_literal());
+                        EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_literal))
+                    }
+                    ValueExpr::MacroInvocation(invocation) => {
+                        let expr = match invocation {
+                            MacroExpr::TemplateMacro(_) => {
+                                unreachable!("e-expression cannot be a TDL macro invocation")
+                            }
+                            MacroExpr::EExp(eexp) => EExpArgExpr::EExp(eexp.raw_invocation),
+                            MacroExpr::EExpArgGroup(group) => {
+                                EExpArgExpr::ArgGroup(group.raw_arg_group())
+                            }
+                        };
+                        EExpArg::new(parameter, expr)
+                    }
+                };
+                cache_iter.expr_index += 1;
+                return Some(Ok(next_expr));
+            }
+        };
+        let parameter = self.signature.parameters().get(input_iter.param_index)?;
         let arg_grouping = if parameter.is_variadic() {
-            try_or_some_err!(self.bitmap_iter.next().unwrap())
+            try_or_some_err!(input_iter.bitmap_iter.next().unwrap())
         } else {
             ArgGrouping::ValueExprLiteral
         };
-        // TODO: This code path actually, fully reads e-expressions. Change the IB.read_e_expr method
-        //       to read as little of them as possible and return a BinEExpression
         let (arg_expr, remaining_input) = match arg_grouping {
             ArgGrouping::Empty => {
-                let input = self.remaining_args_buffer.slice(0, 0);
+                let input = input_iter.remaining_args_buffer.slice(0, 0);
                 let expr = EExpArgExpr::ArgGroup(BinaryEExpArgGroup::new(parameter, input, 0));
-                (EExpArg::new(parameter, expr), self.remaining_args_buffer)
+                (
+                    EExpArg::new(parameter, expr),
+                    input_iter.remaining_args_buffer,
+                )
             }
             ArgGrouping::ValueExprLiteral => {
                 let (expr, remaining) = try_or_some_err! {
-                    self
+                    input_iter
                         .remaining_args_buffer
                         .expect_eexp_arg_expr("reading tagged e-expr arg")
                 };
                 (EExpArg::new(parameter, expr), remaining)
             }
             ArgGrouping::ArgGroup => {
-                let (group_header_flex_uint, mut remaining_args_input) =
-                    try_or_some_err!(self.remaining_args_buffer.read_flex_uint());
+                let (group_header_flex_uint, _remaining_args_input) =
+                    try_or_some_err!(input_iter.remaining_args_buffer.read_flex_uint());
                 let bytes_to_read = match group_header_flex_uint.value() {
                     0 => todo!("delimited argument groups"),
                     n_bytes => n_bytes as usize,
                 };
-                let mut bytes_read = 0;
-                // skip through the arg group to identify its span without fully reading it
-                while bytes_read < bytes_to_read {
-                    let (value_repr, remaining) = try_or_some_err! {
-                        // remaining_args_input
-                        //     .expect_sequence_value_expr("reading arg group, encoding=Tagged")
-                        remaining_args_input.match_tagged_value_repr()
-                    };
-                    // let expr_length = value_expr.range().len();
-                    remaining_args_input = remaining;
-                    bytes_read += value_repr.len();
-                }
                 let arg_group_length = group_header_flex_uint.size_in_bytes() + bytes_to_read;
                 let arg_group = BinaryEExpArgGroup::new(
                     parameter,
-                    self.remaining_args_buffer.slice(0, arg_group_length),
+                    input_iter.remaining_args_buffer.slice(0, arg_group_length),
                     group_header_flex_uint.size_in_bytes() as u8,
                 );
                 (
                     EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group)),
-                    remaining_args_input,
+                    input_iter.remaining_args_buffer.consume(arg_group_length),
                 )
             }
         };
 
-        self.param_index += 1;
-        self.remaining_args_buffer = remaining_input;
+        input_iter.param_index += 1;
+        input_iter.remaining_args_buffer = remaining_input;
         Some(Ok(arg_expr))
     }
 

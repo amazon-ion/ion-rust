@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use std::convert::identity;
 use std::fmt::Debug;
 use std::ops::Range;
 
@@ -121,39 +122,6 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         )
     }
 
-    fn read_string(&self) -> IonResult<StrRef<'top>> {
-        debug_assert!(self.encoded_value.ion_type() == IonType::String);
-        debug_assert!(!self.is_null());
-        let raw_bytes = self.value_body();
-        let text = std::str::from_utf8(raw_bytes)
-            .map_err(|_| IonError::decoding_error("found string with invalid UTF-8 data"))?;
-        Ok(StrRef::from(text))
-    }
-
-    fn read_int(&self) -> IonResult<Int> {
-        debug_assert!(self.encoded_value.ion_type() == IonType::Int);
-        debug_assert!(!self.is_null());
-
-        let header = &self.encoded_value.header();
-        let representation = header.type_code();
-
-        let value = match (representation, header.low_nibble as usize) {
-            (OpcodeType::Integer, 0x0) => 0.into(),
-            (OpcodeType::Integer, n) => {
-                // We have n bytes following that make up our integer.
-                self.value_body_buffer().read_fixed_int(n)?.0.into()
-            }
-            (OpcodeType::LargeInteger, 0x6) => {
-                // We have a FlexUInt size, then big int.
-                let body_bytes = self.value_body();
-                FixedInt::read(body_bytes, body_bytes.len(), 0)?.into()
-            }
-            _ => unreachable!("integer encoding with illegal length_code found"),
-        };
-
-        Ok(value)
-    }
-
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_1>> {
         if self.is_null() {
             let ion_type = if self.encoded_value.header.ion_type_code == OpcodeType::TypedNull {
@@ -172,7 +140,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             IonType::Float => self.read_float(),
             IonType::Decimal => self.read_decimal(),
             IonType::Timestamp => self.read_timestamp(),
-            IonType::Symbol => self.read_symbol(),
+            IonType::Symbol => Ok(RawValueRef::Symbol(self.read_symbol()?)),
             IonType::String => Ok(RawValueRef::String(self.read_string()?)),
             IonType::Clob => self.read_clob(),
             IonType::Blob => self.read_blob(),
@@ -180,6 +148,18 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             IonType::SExp => self.read_sexp(),
             IonType::Struct => self.read_struct(),
         }
+    }
+
+    fn read_int(&self) -> IonResult<Int> {
+        LazyRawBinaryValue_1_1::read_int(self)
+    }
+
+    fn read_string(&self) -> IonResult<StrRef<'top>> {
+        LazyRawBinaryValue_1_1::read_string(self)
+    }
+
+    fn read_symbol(&self) -> IonResult<RawSymbolRef<'top>> {
+        LazyRawBinaryValue_1_1::read_symbol(self)
     }
 
     fn annotations_span(&self) -> Span<'top> {
@@ -285,10 +265,31 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         Ok(RawValueRef::Bool(value))
     }
 
-    /// Helper method called by [`Self::read`]. Reads the current value as an int.
-    #[inline]
-    fn parse_int(&'top self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
-        Ok(RawValueRef::Int(self.read_int()?))
+    fn read_int(&self) -> IonResult<Int> {
+        debug_assert!(self.encoded_value.ion_type() == IonType::Int);
+        debug_assert!(!self.is_null());
+
+        let header = &self.encoded_value.header();
+        let representation = header.type_code();
+
+        let value = match (representation, header.low_nibble as usize) {
+            (OpcodeType::Integer, 0x0) => 0.into(),
+            (OpcodeType::Integer, n) => {
+                // We have n bytes following that make up our integer.
+                self.value_body_buffer().read_fixed_int(n)?.0.into()
+            }
+            (OpcodeType::LargeInteger, 0x6) => {
+                let read_large_int = identity(#[inline(never)] || {
+                    // We have a FlexUInt size, then big int.
+                    let body_bytes = self.value_body();
+                    Ok(FixedInt::read(body_bytes, body_bytes.len(), 0)?.into())
+                });
+                return read_large_int();
+            }
+            _ => unreachable!("integer encoding with illegal length_code found"),
+        };
+
+        Ok(value)
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
@@ -657,6 +658,16 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         }
     }
 
+    #[inline]
+    fn read_string(&self) -> IonResult<StrRef<'top>> {
+        debug_assert!(self.encoded_value.ion_type() == IonType::String);
+        debug_assert!(!self.is_null());
+        let raw_bytes = self.value_body();
+        let text = std::str::from_utf8(raw_bytes)
+            .map_err(|_| IonError::decoding_error("found string with invalid UTF-8 data"))?;
+        Ok(StrRef::from(text))
+    }
+
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&'top self) -> IonResult<SymbolId> {
         let biases: [usize; 3] = [0, 256, 65792];
@@ -671,17 +682,17 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a symbol.
-    fn read_symbol(&'top self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
+    fn read_symbol(&'top self) -> IonResult<RawSymbolRef<'top>> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         let type_code = self.encoded_value.header.ion_type_code;
         if type_code == OpcodeType::InlineSymbol {
             let raw_bytes = self.value_body();
             let text = std::str::from_utf8(raw_bytes)
                 .map_err(|_| IonError::decoding_error("found symbol with invalid UTF-8 data"))?;
-            Ok(RawValueRef::Symbol(RawSymbolRef::from(text)))
+            Ok(RawSymbolRef::from(text))
         } else if type_code == OpcodeType::SymbolAddress {
             let symbol_id = self.read_symbol_id()?;
-            Ok(RawValueRef::Symbol(RawSymbolRef::SymbolId(symbol_id)))
+            Ok(RawSymbolRef::SymbolId(symbol_id))
         } else {
             unreachable!("invalid Opcode type found for symbol");
         }

@@ -263,10 +263,13 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     pub fn read(&self) -> IonResult<ValueRef<'top, D>> {
         use ExpandedValueRef::*;
 
-        match self.ion_type() {
-            IonType::String => return Ok(ValueRef::String(self.read_string()?)),
-            IonType::Int => return Ok(ValueRef::Int(self.read_int()?)),
-            _ => {}
+        if !self.is_null() {
+            match self.ion_type() {
+                IonType::Int => return Ok(ValueRef::Int(self.read_int()?)),
+                IonType::String => return Ok(ValueRef::String(self.read_string()?)),
+                IonType::Symbol => return Ok(ValueRef::Symbol(self.read_symbol()?)),
+                _ => {}
+            }
         }
 
         let value_ref = match self.expanded_value.read()? {
@@ -315,6 +318,29 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
 
     fn read_string(&self) -> IonResult<StrRef<'top>> {
         self.expanded_value.read_string()
+    }
+
+    fn read_symbol(&self) -> IonResult<SymbolRef<'top>> {
+        let raw_symbol = self.expanded_value.read_symbol()?;
+        let symbol = match raw_symbol {
+            RawSymbolRef::SymbolId(sid) => self
+                .expanded_value
+                .context
+                .symbol_table()
+                .symbol_for(sid)
+                .ok_or_else(
+                    #[inline(never)]
+                    || {
+                        IonError::decoding_error(format!(
+                            "found a symbol ID (${}) that was not in the symbol table",
+                            sid
+                        ))
+                    },
+                )?
+                .into(),
+            RawSymbolRef::Text(text) => text.into(),
+        };
+        Ok(symbol)
     }
 
     fn read_int(&self) -> IonResult<Int> {
