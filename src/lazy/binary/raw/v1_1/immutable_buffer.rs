@@ -469,7 +469,7 @@ impl<'a> ImmutableBuffer<'a> {
             input_after_annotations.read_value_without_annotations(opcode)?;
         let total_annotations_length =
             annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
-        value.encoded_value.annotations_header_length = total_annotations_length as u8;
+        value.encoded_value.annotations_header_length = annotations_seq.header_length;
         value.encoded_value.annotations_sequence_length = annotations_seq.sequence_length;
         value.encoded_value.annotations_encoding = annotations_seq.encoding;
         value.encoded_value.total_length += total_annotations_length;

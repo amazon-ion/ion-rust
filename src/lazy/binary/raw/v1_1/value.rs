@@ -202,7 +202,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         let sequence_length = self.encoded_value.annotations_sequence_length as usize;
         let sequence = self
             .input
-            .slice(annotations_header_length - sequence_length, sequence_length);
+            .slice(annotations_header_length, sequence_length);
         sequence
     }
 
