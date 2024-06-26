@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
@@ -13,24 +12,18 @@ use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::symbol_ref::AsSymbolRef;
-use crate::write_config::WriteConfig;
+use crate::write_config::{WriteConfig, WriteConfigKind};
 use crate::Value::Null;
 use crate::{Decimal, IonError, IonResult, IonType, TextFormat, Timestamp};
-
-pub fn write_to<T: Serialize, E: Encoding, O: Write>(
-    value: &T,
-    writer: &mut Writer<E, O>,
-) -> IonResult<()> {
-    let serializer = ValueSerializer::new(writer.value_writer());
-    value.serialize(serializer)
-}
 
 fn write_with_config<T: Serialize, E: Encoding>(
     value: &T,
     config: WriteConfig<E>,
 ) -> IonResult<Vec<u8>> {
+    let is_human_readable = matches!(config.kind, WriteConfigKind::Text(_));
     let mut writer = Writer::new(config, vec![])?;
-    write_to(value, &mut writer)?;
+    let serializer = ValueSerializer::new(writer.value_writer(), is_human_readable);
+    value.serialize(serializer)?;
     writer.close()
 }
 
@@ -74,13 +67,15 @@ where
 /// Implements a standard serializer for Ion
 pub struct ValueSerializer<'a, V: ValueWriter> {
     pub(crate) value_writer: V,
+    pub(crate) is_human_readable: bool,
     lifetime: PhantomData<&'a ()>,
 }
 
 impl<'a, V: ValueWriter> ValueSerializer<'a, V> {
-    pub fn new(value_writer: V) -> Self {
+    pub fn new(value_writer: V, is_human_readable: bool) -> Self {
         Self {
             value_writer,
+            is_human_readable,
             lifetime: PhantomData,
         }
     }
@@ -97,6 +92,12 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     type SerializeMap = MapWriter<V>;
     type SerializeStruct = MapWriter<V>;
     type SerializeStructVariant = MapWriter<V::AnnotatedValueWriter<'a>>;
+
+    /// Determine whether Serialize implementations should serialize in human-readable form.
+    /// For binary Ion this will return `false` and for text Ion this will return `true`.
+    fn is_human_readable(&self) -> bool {
+        self.is_human_readable
+    }
 
     /// Serialize a boolean to a bool value
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
@@ -236,18 +237,21 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     {
         value.serialize(ValueSerializer::new(
             self.value_writer.with_annotations([variant])?,
+            self.is_human_readable,
         ))
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         Ok(SeqWriter {
             seq_writer: self.value_writer.list_writer()?,
+            is_human_readable: self.is_human_readable,
         })
     }
 
     fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         Ok(SeqWriter {
             seq_writer: self.value_writer.list_writer()?,
+            is_human_readable: self.is_human_readable,
         })
     }
 
@@ -258,6 +262,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
         Ok(SeqWriter {
             seq_writer: self.value_writer.list_writer()?,
+            is_human_readable: self.is_human_readable,
         })
     }
 
@@ -273,12 +278,14 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
                 .value_writer
                 .with_annotations([variant])?
                 .list_writer()?,
+            is_human_readable: self.is_human_readable,
         })
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(MapWriter {
             map_writer: self.value_writer.struct_writer()?,
+            is_human_readable: self.is_human_readable,
         })
     }
 
@@ -289,6 +296,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     ) -> Result<Self::SerializeStruct, Self::Error> {
         Ok(MapWriter {
             map_writer: self.value_writer.struct_writer()?,
+            is_human_readable: self.is_human_readable,
         })
     }
 
@@ -304,12 +312,14 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
                 .value_writer
                 .with_annotations([variant])?
                 .struct_writer()?,
+            is_human_readable: self.is_human_readable,
         })
     }
 }
 
 pub struct SeqWriter<V: ValueWriter> {
     seq_writer: V::ListWriter,
+    is_human_readable: bool,
 }
 
 impl<V: ValueWriter> Deref for SeqWriter<V> {
@@ -334,7 +344,8 @@ impl<V: ValueWriter> ser::SerializeSeq for SeqWriter<V> {
     where
         T: ?Sized + Serialize,
     {
-        value.serialize(ValueSerializer::new(self.value_writer()))
+        let is_human_readable = self.is_human_readable;
+        value.serialize(ValueSerializer::new(self.value_writer(), is_human_readable))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
@@ -350,7 +361,8 @@ impl<V: ValueWriter> ser::SerializeTuple for SeqWriter<V> {
     where
         T: ?Sized + Serialize,
     {
-        value.serialize(ValueSerializer::new(self.value_writer()))
+        let is_human_readable = self.is_human_readable;
+        value.serialize(ValueSerializer::new(self.value_writer(), is_human_readable))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
@@ -366,7 +378,8 @@ impl<V: ValueWriter> ser::SerializeTupleStruct for SeqWriter<V> {
     where
         T: ?Sized + Serialize,
     {
-        value.serialize(ValueSerializer::new(self.value_writer()))
+        let is_human_readable = self.is_human_readable;
+        value.serialize(ValueSerializer::new(self.value_writer(), is_human_readable))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
@@ -382,7 +395,8 @@ impl<V: ValueWriter> ser::SerializeTupleVariant for SeqWriter<V> {
     where
         T: ?Sized + Serialize,
     {
-        value.serialize(ValueSerializer::new(self.value_writer()))
+        let is_human_readable = self.is_human_readable;
+        value.serialize(ValueSerializer::new(self.value_writer(), is_human_readable))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
@@ -392,6 +406,7 @@ impl<V: ValueWriter> ser::SerializeTupleVariant for SeqWriter<V> {
 
 pub struct MapWriter<V: ValueWriter> {
     map_writer: V::StructWriter,
+    is_human_readable: bool,
 }
 
 impl<V: ValueWriter> Deref for MapWriter<V> {
@@ -427,7 +442,8 @@ impl<V: ValueWriter> ser::SerializeMap for MapWriter<V> {
     where
         T: ?Sized + Serialize,
     {
-        let serializer = ValueSerializer::new(self.make_value_writer());
+        let is_human_readable = self.is_human_readable;
+        let serializer = ValueSerializer::new(self.make_value_writer(), is_human_readable);
         value.serialize(serializer)
     }
 
@@ -444,7 +460,8 @@ impl<V: ValueWriter> ser::SerializeStructVariant for MapWriter<V> {
     where
         T: ?Sized + Serialize,
     {
-        let serializer = ValueSerializer::new(self.field_writer(key));
+        let is_human_readable = self.is_human_readable;
+        let serializer = ValueSerializer::new(self.field_writer(key), is_human_readable);
         value.serialize(serializer)
     }
 
@@ -461,7 +478,8 @@ impl<V: ValueWriter> ser::SerializeStruct for MapWriter<V> {
     where
         T: ?Sized + Serialize,
     {
-        let serializer = ValueSerializer::new(self.field_writer(key));
+        let is_human_readable = self.is_human_readable;
+        let serializer = ValueSerializer::new(self.field_writer(key), is_human_readable);
         value.serialize(serializer)
     }
 
