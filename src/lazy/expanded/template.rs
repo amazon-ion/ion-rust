@@ -5,6 +5,7 @@ use std::ops::{Deref, Range};
 use rustc_hash::FxHashMap;
 
 use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp, Value};
+use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
@@ -78,7 +79,7 @@ pub struct MacroSignature {
 }
 
 impl MacroSignature {
-    fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> Self {
+    fn with_parameter(mut self, name: impl Into<String>, encoding: ParameterEncoding, cardinality: ParameterCardinality) -> IonResult<Self> {
         // We're adding a new parameter, so the previous "final position" parameter is no longer in the final position.
         // Disable rest syntax for that parameter.
         if let Some(final_position_param) = self.parameters.last_mut() {
@@ -88,23 +89,36 @@ impl MacroSignature {
             RestSyntaxPolicy::NotAllowed
         } else {
             self.num_variadic_params += 1;
+            if self.num_variadic_params > ArgGroupingBitmap::MAX_VARIADIC_PARAMS {
+                return IonResult::decoding_error(format!(
+                    "macro found with {} variadic parameters; the max supported is {}",
+                    self.num_variadic_params,
+                    ArgGroupingBitmap::MAX_VARIADIC_PARAMS,
+                ));
+            };
             RestSyntaxPolicy::Allowed
         };
         let param = Parameter::new(name.into(), encoding, cardinality, rest_syntax_policy);
         self.parameters.push(param);
-        self
+        Ok(self)
     }
 
     fn constant() -> Self {
-        Self::new(Vec::new())
+        Self::new(Vec::new()).unwrap()
     }
 
     pub fn parameters(&self) -> &[Parameter] {
         self.parameters.as_slice()
     }
-    pub fn new(parameters: Vec<Parameter>) -> Self {
+    pub fn new(parameters: Vec<Parameter>) -> IonResult<Self> {
         let num_variadic_params = parameters.iter().filter(|p| p.cardinality != ParameterCardinality::ExactlyOne).count();
-        Self { parameters, num_variadic_params }
+        if num_variadic_params > ArgGroupingBitmap::MAX_VARIADIC_PARAMS {
+            return IonResult::decoding_error(format!(
+                "macro found with {num_variadic_params} variadic parameters; the max supported is {}",
+                ArgGroupingBitmap::MAX_VARIADIC_PARAMS
+            ));
+        };
+        Ok(Self { parameters, num_variadic_params })
     }
     pub fn num_variadic_params(&self) -> usize {
         self.num_variadic_params
@@ -127,43 +141,43 @@ mod macro_signature_tests {
         assert_eq!(signature.num_variadic_params(), 0);
         assert_eq!(signature.bitmap_size_in_bytes(), 0);
 
-        let signature = MacroSignature::new(Vec::new())
-            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ExactlyOne);
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ExactlyOne)?;
         assert_eq!(signature.num_variadic_params(), 0);
         assert_eq!(signature.bitmap_size_in_bytes(), 0);
 
-        let signature = MacroSignature::new(Vec::new())
-            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
         assert_eq!(signature.num_variadic_params(), 1);
         assert_eq!(signature.bitmap_size_in_bytes(), 1);
 
-        let signature = MacroSignature::new(Vec::new())
-            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
         assert_eq!(signature.num_variadic_params(), 2);
         assert_eq!(signature.bitmap_size_in_bytes(), 1);
 
-        let signature = MacroSignature::new(Vec::new())
-            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
         assert_eq!(signature.num_variadic_params(), 3);
         assert_eq!(signature.bitmap_size_in_bytes(), 1);
 
-        let signature = MacroSignature::new(Vec::new())
-            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
         assert_eq!(signature.num_variadic_params(), 4);
         assert_eq!(signature.bitmap_size_in_bytes(), 1);
 
-        let signature = MacroSignature::new(Vec::new())
-            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)
-            .with_parameter("quuz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne);
+        let signature = MacroSignature::new(Vec::new())?
+            .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("quux", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
+            .with_parameter("quuz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
         assert_eq!(signature.num_variadic_params(), 5);
         assert_eq!(signature.bitmap_size_in_bytes(), 2);
 
@@ -747,7 +761,7 @@ impl TemplateBodyMacroInvocation {
 
         TemplateMacroInvocation {
             context,
-            host_template,
+            host_template_address: host_template.macro_ref.address(),
             invoked_macro,
             arg_expressions,
         }
@@ -761,7 +775,7 @@ pub struct TemplateMacroInvocation<'top> {
     context: EncodingContextRef<'top>,
     // The definition of the template in which this macro invocation appears. This is useful as
     // debugging information / viewing in stack traces.
-    host_template: TemplateMacroRef<'top>,
+    host_template_address: MacroAddress,
     // The macro being invoked
     invoked_macro: MacroRef<'top>,
     // The range of value expressions in the host template's body that are arguments to the
@@ -782,13 +796,16 @@ impl<'top> Debug for TemplateMacroInvocation<'top> {
 impl<'top> TemplateMacroInvocation<'top> {
     pub fn new(
         context: EncodingContextRef<'top>,
+        // This is a full `TemplateMacroRef` instead of just a `MacroAddress` to enforce that the
+        // address we store in this type had to come from a resolved reference. See the helper method
+        // `host_template` for details.
         host_template: TemplateMacroRef<'top>,
         invoked_macro: MacroRef<'top>,
         arg_expressions: &'top [TemplateBodyValueExpr],
     ) -> Self {
         Self {
             context,
-            host_template,
+            host_template_address: host_template.macro_ref.address(),
             invoked_macro,
             arg_expressions,
         }
@@ -803,8 +820,19 @@ impl<'top> TemplateMacroInvocation<'top> {
     ) -> TemplateMacroInvocationArgsIterator<'top, D> {
         TemplateMacroInvocationArgsIterator::new(environment, *self)
     }
+    pub fn host_template_address(&self) -> MacroAddress {
+        self.host_template_address
+    }
+    /// Helper method to access the definition of the host template. Useful for debugging,
+    /// but not required for macro expansion.
     pub fn host_template(&self) -> TemplateMacroRef<'top> {
-        self.host_template
+        // We only store the macro address (8 bytes) instead of the full `TemplateMacroRef` (24 bytes)
+        // for size savings. Because the address was copied from a resolved `TemplateMacroRef` in the
+        // constructor and the encoding context is frozen for the duration of `'top`, we can safely
+        // assume that the address maps to a template macro in the current encoding context. This
+        // allows us to call `unwrap()` freely.
+        let macro_ref = self.context().macro_table().macro_at_address(self.host_template_address).unwrap();
+        macro_ref.expect_template().unwrap()
     }
     pub fn arg_expressions(&self) -> &'top [TemplateBodyValueExpr] {
         self.arg_expressions

@@ -197,7 +197,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     fn peek_value(
         buffer: ImmutableBuffer<'top>,
     ) -> IonResult<(Option<LazyRawBinaryValue_1_1<'top>>, ImmutableBuffer<'top>)> {
-        let opcode = buffer.peek_opcode()?;
+        let opcode = buffer.expect_opcode()?;
         if opcode.is_nop() {
             let after_nops = buffer.consume_nop_padding(opcode)?.1;
             if after_nops.is_empty() {

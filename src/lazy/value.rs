@@ -275,29 +275,9 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         let value_ref = match self.expanded_value.read()? {
             Null(ion_type) => ValueRef::Null(ion_type),
             Bool(b) => ValueRef::Bool(b),
-            Int(i) => ValueRef::Int(i),
             Float(f) => ValueRef::Float(f),
             Decimal(d) => ValueRef::Decimal(d),
             Timestamp(t) => ValueRef::Timestamp(t),
-            String(s) => ValueRef::String(s),
-            Symbol(s) => {
-                let symbol = match s {
-                    RawSymbolRef::SymbolId(sid) => self
-                        .expanded_value
-                        .context
-                        .symbol_table()
-                        .symbol_for(sid)
-                        .ok_or_else(|| {
-                            IonError::decoding_error(format!(
-                                "found a symbol ID (${}) that was not in the symbol table",
-                                sid
-                            ))
-                        })?
-                        .into(),
-                    RawSymbolRef::Text(text) => text.into(),
-                };
-                ValueRef::Symbol(symbol)
-            }
             Blob(b) => ValueRef::Blob(b),
             Clob(c) => ValueRef::Clob(c),
             SExp(s) => {
@@ -312,6 +292,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
                 let lazy_struct = LazyStruct { expanded_struct: s };
                 ValueRef::Struct(lazy_struct)
             }
+            _ => unreachable!("int, string, and symbol have already been handled"),
         };
         Ok(value_ref)
     }

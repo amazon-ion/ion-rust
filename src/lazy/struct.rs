@@ -312,7 +312,11 @@ impl<'top, D: Decoder> Iterator for StructIterator<'top, D> {
     type Item = IonResult<LazyField<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        StructIterator::next_field(self).transpose()
+        match StructIterator::next_field(self) {
+            Ok(Some(field)) => Some(Ok(field)),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        }
     }
 }
 

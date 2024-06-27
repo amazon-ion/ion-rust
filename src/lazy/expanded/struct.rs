@@ -34,7 +34,7 @@ pub enum UnexpandedField<'top, D: Decoder> {
     TemplateNameMacro(SymbolRef<'top>, TemplateMacroInvocation<'top>),
     TemplateNameVariable(
         SymbolRef<'top>,
-        // The variable name and the expression to which it referred.
+        // The parameter definition and the expression to which it referred.
         // The expression may be either a raw value or a template element, so it's represented
         // as a `ValueExpr`, which can accommodate both.
         (TemplateVariableReference<'top>, ValueExpr<'top, D>),
@@ -200,7 +200,9 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         let source = match &self.source {
             ExpandedStructSource::ValueLiteral(raw_struct) => {
                 ExpandedStructIteratorSource::ValueLiteral(
-                    MacroEvaluator::new(self.context, Environment::empty()),
+                    self.context
+                        .allocator()
+                        .alloc_with(|| MacroEvaluator::new(self.context, Environment::empty())),
                     raw_struct.unexpanded_fields(self.context),
                 )
             }
@@ -211,7 +213,10 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                 expressions,
                 _index,
             ) => {
-                let evaluator = MacroEvaluator::new(self.context, *environment);
+                let evaluator = self
+                    .context
+                    .allocator()
+                    .alloc_with(|| MacroEvaluator::new(self.context, *environment));
                 ExpandedStructIteratorSource::Template(
                     evaluator,
                     TemplateStructUnexpandedFieldsIterator::new(
@@ -330,13 +335,13 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
     ValueLiteral(
         // Giving the struct iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
-        MacroEvaluator<'top, D>,
+        &'top mut MacroEvaluator<'top, D>,
         RawStructUnexpandedFieldsIterator<'top, D>,
     ),
     // The struct we're iterating over is a value in a TDL template. It may contain macro
     // invocations that need to be evaluated.
     Template(
-        MacroEvaluator<'top, D>,
+        &'top mut MacroEvaluator<'top, D>,
         TemplateStructUnexpandedFieldsIterator<'top, D>,
     ),
     // TODO: Constructed
@@ -373,7 +378,7 @@ enum ExpandedStructIteratorState<'top, D: Decoder> {
     // This variant holds a pointer to that struct's iterator living in the
     // EncodingContext's bump allocator.
     InliningAStruct(
-        LazyExpandedStruct<'top, D>,
+        &'top mut LazyExpandedStruct<'top, D>,
         &'top mut ExpandedStructIterator<'top, D>,
     ),
 }
@@ -579,7 +584,14 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                         return Break(Some(Ok(LazyExpandedField::from_template(
                             variable_ref.template,
                             name_symbol,
-                            value.via_variable(variable_ref),
+                            value.via_variable(
+                                variable_ref
+                                    .template
+                                    .signature()
+                                    .parameters()
+                                    .get(variable_ref.signature_index as usize)
+                                    .unwrap(),
+                            ),
                         ))))
                     }
                     MacroInvocation(MacroExpr::EExp(eexp)) => {
@@ -631,7 +643,8 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
             }
         };
         let iter: &'top mut ExpandedStructIterator<'top, D> = struct_.bump_iter();
-        *state = ExpandedStructIteratorState::InliningAStruct(struct_, iter);
+        let struct_ref = invocation.context().allocator().alloc_with(|| struct_);
+        *state = ExpandedStructIteratorState::InliningAStruct(struct_ref, iter);
         Ok(())
     }
 }

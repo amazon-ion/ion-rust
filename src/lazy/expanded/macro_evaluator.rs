@@ -137,7 +137,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         }
     }
 
-    fn context(&self) -> EncodingContextRef<'top> {
+    pub(crate) fn context(&self) -> EncodingContextRef<'top> {
         match self {
             MacroExpr::TemplateMacro(t) => t.context(),
             MacroExpr::EExp(e) => e.context(),
@@ -388,9 +388,10 @@ pub struct MacroEvaluator<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> MacroEvaluator<'top, D> {
+    #[inline]
     pub fn new(context: EncodingContextRef<'top>, environment: Environment<'top, D>) -> Self {
         const INITIAL_MACRO_STACK_CAPACITY: usize = 8;
-        const INITIAL_ENV_STACK_CAPACITY: usize = 4;
+        const INITIAL_ENV_STACK_CAPACITY: usize = 8;
         let macro_stack =
             BumpVec::with_capacity_in(INITIAL_MACRO_STACK_CAPACITY, context.allocator());
         let mut env_stack =
@@ -484,9 +485,6 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     #[allow(clippy::should_implement_trait)]
     #[inline(always)]
     pub fn next(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
-        if self.macro_stack.is_empty() {
-            return Ok(None);
-        }
         self.next_at_or_above_depth(0)
     }
 

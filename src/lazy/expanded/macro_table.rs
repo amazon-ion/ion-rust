@@ -124,7 +124,11 @@ impl MacroTable {
 
     pub fn new() -> Self {
         let macros_by_id = vec![
-            Macro::named("void", MacroSignature::new(vec![]), MacroKind::Void),
+            Macro::named(
+                "void",
+                MacroSignature::new(vec![]).unwrap(),
+                MacroKind::Void,
+            ),
             Macro::named(
                 "values",
                 MacroSignature::new(vec![Parameter::new(
@@ -132,7 +136,8 @@ impl MacroTable {
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
-                )]),
+                )])
+                .unwrap(),
                 MacroKind::Values,
             ),
             Macro::named(
@@ -142,7 +147,8 @@ impl MacroTable {
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
-                )]),
+                )])
+                .unwrap(),
                 MacroKind::MakeString,
             ),
         ];

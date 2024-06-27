@@ -54,7 +54,7 @@ use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    TemplateElement, TemplateMacro, TemplateMacroRef, TemplateValue,
+    Parameter, TemplateElement, TemplateMacro, TemplateMacroRef, TemplateValue,
 };
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -519,12 +519,14 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             // If there's already an evaluator, dereference the pointer.
             let evaluator = Self::ptr_to_evaluator(ptr);
             match evaluator.next() {
-                Ok(Some(value)) => return self.interpret_value(value),
+                Ok(Some(value)) => {
+                    if evaluator.macro_stack_depth() == 0 {
+                        self.evaluator_ptr.set(None);
+                    }
+                    return self.interpret_value(value);
+                }
                 Ok(None) => {}
                 Err(e) => return Err(e),
-            }
-            if let Some(value) = evaluator.next()? {
-                return self.interpret_value(value);
             }
         }
 
@@ -572,12 +574,15 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                         Ok(_) => {}
                         Err(e) => return Err(e),
                     }
-                    // evaluator.push(resolved_e_exp)?;
-                    self.evaluator_ptr
-                        .set(Some(Self::evaluator_to_ptr(evaluator)));
 
                     // Try to get a value by starting to evaluate the e-expression.
                     if let Some(value) = evaluator.next()? {
+                        // If we get a value and the evaluator isn't empty yet, save its pointer
+                        // so we can try to get more out of it when `next()` is called again.
+                        if evaluator.macro_stack_depth() > 0 {
+                            self.evaluator_ptr
+                                .set(Some(Self::evaluator_to_ptr(evaluator)));
+                        }
                         // If we get a value, return it.
                         return self.interpret_value(value);
                     } else {
@@ -696,7 +701,7 @@ pub struct LazyExpandedValue<'top, Encoding: Decoder> {
     pub(crate) source: ExpandedValueSource<'top, Encoding>,
     // If this value came from a variable reference in a template macro expansion, the
     // template and the name of the variable can be found here.
-    pub(crate) variable: Option<TemplateVariableReference<'top>>,
+    pub(crate) variable: Option<&'top Parameter>,
 }
 
 impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
@@ -741,7 +746,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
-    pub(crate) fn via_variable(mut self, variable_ref: TemplateVariableReference<'top>) -> Self {
+    pub(crate) fn via_variable(mut self, variable_ref: &'top Parameter) -> Self {
         self.variable = Some(variable_ref);
         self
     }

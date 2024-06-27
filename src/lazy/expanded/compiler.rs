@@ -174,7 +174,7 @@ impl TemplateCompiler {
             );
             compiled_params.push(compiled_param);
         }
-        let signature = MacroSignature::new(compiled_params);
+        let signature = MacroSignature::new(compiled_params)?;
         let body = values.next().expect("template body")?;
         let mut compiled_body = TemplateBody {
             expressions: Vec::new(),

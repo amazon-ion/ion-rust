@@ -150,14 +150,17 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         }
     }
 
+    #[inline]
     fn read_int(&self) -> IonResult<Int> {
         LazyRawBinaryValue_1_1::read_int(self)
     }
 
+    #[inline]
     fn read_string(&self) -> IonResult<StrRef<'top>> {
         LazyRawBinaryValue_1_1::read_string(self)
     }
 
+    #[inline]
     fn read_symbol(&self) -> IonResult<RawSymbolRef<'top>> {
         LazyRawBinaryValue_1_1::read_symbol(self)
     }

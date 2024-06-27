@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 use crate::lazy::binary::raw::v1_1::immutable_buffer::{
-    ArgGrouping, ArgGroupingBitmap, ArgGroupingBitmapIterator, ImmutableBuffer,
+    ArgGrouping, ArgGroupingBitmapIterator, ImmutableBuffer,
 };
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::encoding::BinaryEncoding_1_1;
@@ -22,24 +22,22 @@ use crate::{v1_1, Environment, HasRange, HasSpan, IonResult, Span};
 use bumpalo::collections::Vec as BumpVec;
 
 #[derive(Copy, Clone)]
-pub struct EncodedBinaryEExp {
-    // The number of bytes that were used to encode the e-expression's opcode.
-    // This is 1+ in tagged contexts, and will be zero when the e-expression is used as a macro-shaped
-    // argument.
-    address_length: u8,
+pub struct BinaryEExpHeader {
+    // The number of bytes that were used to encode the e-expression's opcode and address.
+    opcode_and_address_length: u8,
     // The number of bytes that were used to encode the e-expression's arg grouping bitmap, if any.
     bitmap_length: u8,
 }
 
-impl EncodedBinaryEExp {
+impl BinaryEExpHeader {
     pub fn new(opcode_length: u8, bitmap_length: u8) -> Self {
         Self {
-            address_length: opcode_length,
+            opcode_and_address_length: opcode_length,
             bitmap_length,
         }
     }
     pub fn address_length(&self) -> usize {
-        self.address_length as usize
+        self.opcode_and_address_length as usize
     }
     pub fn bitmap_length(&self) -> usize {
         self.bitmap_length as usize
@@ -53,23 +51,31 @@ impl EncodedBinaryEExp {
 pub struct RawBinaryEExpression_1_1<'top> {
     cache: Option<&'top [ValueExpr<'top, BinaryEncoding_1_1>]>,
     macro_ref: MacroRef<'top>,
-    bitmap: ArgGroupingBitmap,
+    bitmap_bits: u64,
+    // The index of `input` at which the bitmap can be found. If there is no bitmap, this index
+    // will be the beginning of the args_
+    bitmap_offset: u8,
+    // The index at which the arguments to the e-expression begin within `input`. This index is
+    // the first position after the opcode, address, length, and bitmap.
+    args_offset: u8,
+
     pub(crate) input: ImmutableBuffer<'top>,
-    encoded_eexp: EncodedBinaryEExp,
 }
 
 impl<'top> RawBinaryEExpression_1_1<'top> {
     pub fn new(
         macro_ref: MacroRef<'top>,
-        bitmap: ArgGroupingBitmap,
+        bitmap_bits: u64,
         input: ImmutableBuffer<'top>,
-        encoded_eexp: EncodedBinaryEExp,
+        bitmap_offset: u8,
+        args_offset: u8,
     ) -> Self {
         Self {
-            bitmap,
+            bitmap_bits,
             input,
             macro_ref,
-            encoded_eexp,
+            bitmap_offset,
+            args_offset,
             cache: None,
         }
     }
@@ -111,11 +117,13 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top RawBinaryEExpression_1_1
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator {
         let signature = self.macro_ref.signature();
-        let args_input = self.input.consume(self.encoded_eexp.header_length());
+        let args_input = self.input.consume(self.args_offset as usize);
         if let Some(cache) = self.cache {
             return BinaryEExpArgsIterator_1_1::for_cache(signature, args_input.offset(), cache);
         }
-        BinaryEExpArgsIterator_1_1::for_input(self.bitmap.iter(), args_input, signature)
+        let bitmap_iterator =
+            ArgGroupingBitmapIterator::new(signature.parameters().len(), self.bitmap_bits);
+        BinaryEExpArgsIterator_1_1::for_input(bitmap_iterator, args_input, signature)
     }
 
     fn make_evaluation_environment(

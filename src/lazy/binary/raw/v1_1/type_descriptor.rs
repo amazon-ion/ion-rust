@@ -76,6 +76,7 @@ impl Opcode {
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
+            (0xF, 0x5) => (EExpressionWithLengthPrefix, low_nibble, None),
             (0xF, 0x6) => (LargeInteger, low_nibble, Some(IonType::Int)),
             (0xF, 0x7) => (Decimal, 0xFF, Some(IonType::Decimal)),
             (0xF, 0x8) => (TimestampLong, low_nibble, Some(IonType::Timestamp)),
@@ -108,7 +109,7 @@ impl Opcode {
         use OpcodeType::*;
         matches!(
             self.opcode_type,
-            EExpressionWithAddress | EExpressionAddressFollows
+            EExpressionWithAddress | EExpressionAddressFollows | EExpressionWithLengthPrefix
         )
     }
 
