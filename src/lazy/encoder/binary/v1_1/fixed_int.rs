@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use ice_code::ice as cold_path;
-
 use crate::decimal::coefficient::Coefficient;
 use crate::result::IonFailure;
 use crate::{Int, IonResult};
@@ -37,9 +35,9 @@ impl FixedInt {
         }
 
         if size_in_bytes > MAX_INT_SIZE_IN_BYTES {
-            return cold_path! {{
-                IonResult::decoding_error("found a FixedInt that was larger than the supported maximum")
-            }};
+            return IonResult::decoding_error(
+                "found a FixedInt that was larger than the supported maximum",
+            );
         }
 
         const BUFFER_SIZE: usize = MAX_INT_SIZE_IN_BYTES;

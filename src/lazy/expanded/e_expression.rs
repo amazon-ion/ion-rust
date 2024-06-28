@@ -1,20 +1,23 @@
 //! Types and traits representing an e-expression in an Ion stream.
 #![allow(non_camel_case_types)]
 
-use crate::lazy::decoder::{Decoder, RawValueExpr};
-use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::macro_evaluator::{
-    EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
-};
-use crate::lazy::expanded::macro_table::MacroRef;
-use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue};
-use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::{Environment, HasRange, HasSpan, IonResult, Span};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 use bumpalo::collections::Vec as BumpVec;
+
+use crate::lazy::decoder::{Decoder, RawValueExpr};
+use crate::lazy::encoding::TextEncoding_1_1;
+use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
+use crate::lazy::expanded::macro_evaluator::{
+    EExpressionArgGroup, MacroEvaluator, MacroExpansionKind, MacroExpansionStep, MacroExpr,
+    RawEExpression, ValueExpr,
+};
+use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
+use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue};
+use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::{Environment, HasRange, HasSpan, IonResult, Span};
 
 #[derive(Copy, Clone)]
 pub struct ArgGroup<'top, D: Decoder> {
@@ -113,6 +116,35 @@ impl<'top, D: Decoder> EExpression<'top, D> {
     pub(crate) fn new_evaluation_environment(&self) -> IonResult<Environment<'top, D>> {
         self.raw_invocation
             .make_evaluation_environment(self.context)
+    }
+
+    pub(crate) fn expand_to_single_value(&self) -> IonResult<LazyExpandedValue<'top, D>> {
+        let (env, mut expansion) = match MacroEvaluator::expansion_for_singleton_template(*self) {
+            Ok(expansion) => expansion,
+            Err(e) => return Err(e),
+        };
+        match expansion.next(env) {
+            Ok(MacroExpansionStep::FinalStep(Some(ValueExpr::ValueLiteral(value)))) => Ok(value),
+            Err(e) => Err(e),
+            _ => unreachable!("e-expression-backed lazy values must yield a single value literal"),
+        }
+    }
+
+    pub fn expansion_analysis(&self) -> Option<ExpansionAnalysis> {
+        if let MacroKind::Template(body) = self.invoked_macro().kind() {
+            Some(body.expansion_analysis())
+        } else {
+            None
+        }
+    }
+
+    pub fn expansion_singleton(&self) -> Option<ExpansionSingleton> {
+        self.expansion_analysis()?.expansion_singleton()
+    }
+    /// Caller must guarantee that this e-expression invokes a template and that the template
+    /// has a `ExpansionSingleton`. If these prerequisites are not met, this method will panic.
+    pub fn require_expansion_singleton(&self) -> ExpansionSingleton {
+        self.expansion_singleton().unwrap()
     }
 }
 

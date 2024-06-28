@@ -288,6 +288,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
             ValueExpr::ValueLiteral(value) => {
                 use ExpandedValueSource::*;
                 match value.source {
+                    EExp(_) => todo!(),
                     ValueLiteral(literal) => Some(literal.range()),
                     Template(_, _) => None,
                     Constructed(_, _) => None,
@@ -377,7 +378,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
     ///   * produces another value.
     ///   * encounters another macro or variable that needs to be expanded.
     ///   * is completed.
-    fn next(
+    pub fn next(
         &mut self,
         environment: Environment<'top, D>,
     ) -> IonResult<MacroExpansionStep<'top, D>> {
@@ -454,6 +455,28 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
         // The stack is never completely empty; the 'root' evaluator is created with an empty
         // environment at the base of the stack.
         *self.env_stack.last().unwrap()
+    }
+
+    // TODO: Package this as its own OneShotMacroEvaluator for easier re-use.
+    pub(crate) fn expansion_for_singleton_template(
+        invocation: EExpression<'top, D>,
+    ) -> IonResult<(Environment<'top, D>, MacroExpansion<'top, D>)> {
+        let macro_ref: MacroRef<'top> = invocation.invoked_macro();
+        let MacroKind::Template(template_body) = macro_ref.kind() else {
+            unreachable!("this can only be called for singleton template macros")
+        };
+        let template_ref = TemplateMacroRef::new(macro_ref, template_body);
+        let new_environment = invocation.new_evaluation_environment()?;
+        let kind = MacroExpansionKind::Template(TemplateExpansion::new(template_ref));
+
+        Ok((
+            new_environment,
+            MacroExpansion {
+                kind,
+                invocation: MacroExpr::from(invocation),
+                is_complete: false,
+            },
+        ))
     }
 
     /// Initializes a [`MacroExpansion`] that contains the necessary state to incrementally evaluate

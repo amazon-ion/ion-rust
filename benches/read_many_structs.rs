@@ -99,34 +99,9 @@ mod benchmark {
         //         }
         //     )
         // "#;
-
-        let template_definition_text = r#"
-            (macro event (timestamp thread_id thread_name client_num host_id parameters*)
-                {
-                    'timestamp': timestamp,
-                    'threadId': thread_id,
-                    'threadName': thread_name,
-                    'loggerName': "com.example.organization.product.component.ClassName",
-                    'logLevel': (quote INFO),
-                    'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
-                    'parameters': [
-                        "SUCCESS",
-                        client_num,
-                        host_id,
-                        parameters
-                    ]
-                }
-            )
-        "#;
-
-        let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
-        let compiled_macro =
-            TemplateCompiler::compile_from_text(empty_context.get_ref(), template_definition_text)
-                .unwrap();
-
+        //
         // let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
-        let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
-
+        //
         // #[rustfmt::skip]
         // let mut binary_1_1_data_body: Vec<u8> = vec![
         //     0x03, // Macro ID 3
@@ -154,6 +129,27 @@ mod benchmark {
         //     0x2E, 0x37, 0x34, 0x34,
         //     0x30, 0x30, 0x30, 0x5A,
         // ].repeat(NUM_VALUES);
+
+        let template_definition_text = r#"
+            (macro event (timestamp thread_id thread_name client_num host_id parameters*)
+                {
+                    'timestamp': timestamp,
+                    'threadId': thread_id,
+                    'threadName': thread_name,
+                    'loggerName': "com.example.organization.product.component.ClassName",
+                    'logLevel': (quote INFO),
+                    'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
+                    'parameters': [
+                        "SUCCESS",
+                        client_num,
+                        host_id,
+                        parameters
+                    ]
+                }
+            )
+        "#;
+
+        let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
 
         #[rustfmt::skip]
         let mut binary_1_1_data_body: Vec<u8> = vec![
@@ -191,6 +187,11 @@ mod benchmark {
             0x2E, 0x37, 0x34, 0x34,
             0x30, 0x30, 0x30, 0x5A,
         ].repeat(NUM_VALUES);
+
+        let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let compiled_macro =
+            TemplateCompiler::compile_from_text(empty_context.get_ref(), template_definition_text)
+                .unwrap();
 
         // Ion v1.1 Version Marker
         let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA];

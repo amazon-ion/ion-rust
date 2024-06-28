@@ -1,6 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::convert::identity;
 use std::fmt::Debug;
 use std::ops::Range;
 
@@ -274,25 +273,21 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
         let header = &self.encoded_value.header();
         let representation = header.type_code();
-
-        let value = match (representation, header.low_nibble as usize) {
-            (OpcodeType::Integer, 0x0) => 0.into(),
+        match (representation, header.low_nibble as usize) {
+            (OpcodeType::Integer, 0x0) => Ok(Int::ZERO),
             (OpcodeType::Integer, n) => {
-                // We have n bytes following that make up our integer.
-                self.value_body_buffer().read_fixed_int(n)?.0.into()
+                // We have n bytes following that make up our integer, where 0 < n <= 8
+                Ok(*FixedInt::read(self.value_body(), n, self.input.offset())?.value())
             }
-            (OpcodeType::LargeInteger, 0x6) => {
-                let read_large_int = identity(#[inline(never)] || {
-                    // We have a FlexUInt size, then big int.
-                    let body_bytes = self.value_body();
-                    Ok(FixedInt::read(body_bytes, body_bytes.len(), 0)?.into())
-                });
-                return read_large_int();
-            }
+            (OpcodeType::LargeInteger, 0x6) => return self.read_large_int(),
             _ => unreachable!("integer encoding with illegal length_code found"),
-        };
+        }
+    }
 
-        Ok(value)
+    #[inline(never)]
+    fn read_large_int(&self) -> IonResult<Int> {
+        let body_bytes = self.value_body();
+        Ok(FixedInt::read(body_bytes, body_bytes.len(), 0)?.into())
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.

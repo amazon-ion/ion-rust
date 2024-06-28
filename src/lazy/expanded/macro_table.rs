@@ -1,6 +1,4 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-
+use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::template::{
     MacroSignature, Parameter, ParameterCardinality, ParameterEncoding, RestSyntaxPolicy,
     TemplateBody, TemplateMacro, TemplateMacroRef,
@@ -8,6 +6,9 @@ use crate::lazy::expanded::template::{
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::IonResult;
+use delegate::delegate;
+use std::borrow::Cow;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
@@ -41,6 +42,30 @@ impl Macro {
     }
     pub fn kind(&self) -> &MacroKind {
         &self.kind
+    }
+
+    pub fn expansion_analysis(&self) -> Option<ExpansionAnalysis> {
+        if let MacroKind::Template(body) = self.kind() {
+            Some(body.expansion_analysis())
+        } else {
+            None
+        }
+    }
+
+    pub fn can_be_safely_skipped_at_top_level(&self) -> bool {
+        if let Some(analysis) = self.expansion_analysis() {
+            analysis.can_be_skipped_safely_at_top_level()
+        } else {
+            false
+        }
+    }
+
+    pub fn must_produce_exactly_one_value(&self) -> bool {
+        if let Some(analysis) = self.expansion_analysis() {
+            analysis.must_produce_exactly_one_value()
+        } else {
+            false
+        }
     }
 }
 
@@ -77,25 +102,30 @@ impl<'top> MacroRef<'top> {
             self.kind()
         ))
     }
-    pub fn address(&self) -> MacroAddress {
-        self.address
-    }
-    pub fn reference(&self) -> &'top Macro {
-        self.reference
-    }
-    pub fn name(&'top self) -> Option<&'top str> {
-        self.reference.name()
-    }
+
     pub fn id_text(&'top self) -> Cow<'top, str> {
         self.name()
             .map(Cow::from)
             .unwrap_or_else(move || Cow::from(format!("<address={}>", self.address())))
     }
-    pub fn signature(self) -> &'top MacroSignature {
-        self.reference.signature()
+
+    pub fn address(&self) -> MacroAddress {
+        self.address
     }
-    pub fn kind(&self) -> &'top MacroKind {
-        self.reference.kind()
+
+    pub fn reference(&self) -> &'top Macro {
+        self.reference
+    }
+
+    delegate! {
+        to self.reference {
+            pub fn name(&'top self) -> Option<&'top str>;
+            pub fn signature(self) -> &'top MacroSignature;
+            pub fn kind(&self) -> &'top MacroKind;
+            pub fn expansion_analysis(&self) -> Option<ExpansionAnalysis>;
+            pub fn can_be_safely_skipped_at_top_level(&self) -> bool;
+            pub fn must_produce_exactly_one_value(&self) -> bool;
+        }
     }
 }
 

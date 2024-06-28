@@ -48,6 +48,7 @@ use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
+use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression};
 use crate::lazy::expanded::macro_table::{Macro, MacroTable};
@@ -381,7 +382,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         pending_changes.has_changes = false;
     }
 
-    // #[inline]
     fn interpret_value<'top>(
         &self,
         value: LazyExpandedValue<'top, Encoding>,
@@ -556,6 +556,13 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                         Ok(resolved) => resolved,
                         Err(e) => return Err(e),
                     };
+
+                    // If this e-expression invokes a template with a non-system, singleton expansion, we can use the
+                    // e-expression to back a LazyExpandedValue. It will only be evaluated if the user calls `read()`.
+                    if let Some(value) = LazyExpandedValue::from_e_expression(resolved_e_exp) {
+                        // Because the expansion is guaranteed not to be a system value, we do not need to interpret it.
+                        return Ok(SystemStreamItem::Value(LazyValue::new(value)));
+                    }
                     // Get the current evaluator or make a new one
                     let evaluator = match self.evaluator_ptr.get() {
                         // If there's already an evaluator, dereference the pointer.
@@ -574,12 +581,11 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                         Err(e) => return Err(e),
                     }
 
+                    // Try to get a value by starting to evaluate the e-expression.
                     let next_value = match evaluator.next_at_or_above_depth(0) {
                         Ok(value) => value,
                         Err(e) => return Err(e),
                     };
-
-                    // Try to get a value by starting to evaluate the e-expression.
                     if let Some(value) = next_value {
                         // If we get a value and the evaluator isn't empty yet, save its pointer
                         // so we can try to get more out of it when `next_at_or_above_depth` is called again.
@@ -608,6 +614,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
 pub enum ExpandedValueSource<'top, D: Decoder> {
     /// This value was a literal in the input stream.
     ValueLiteral(D::Value<'top>),
+    EExp(EExpression<'top, D>),
     /// This value was part of a template definition.
     Template(Environment<'top, D>, TemplateElement<'top>),
     /// This value was the computed result of a macro invocation like `(:make_string `...)`.
@@ -624,6 +631,7 @@ pub enum ExpandedValueSource<'top, D: Decoder> {
 impl<'top, Encoding: Decoder> Debug for ExpandedValueSource<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
+            ExpandedValueSource::EExp(eexp) => write!(f, "{eexp:?}"),
             ExpandedValueSource::ValueLiteral(v) => write!(f, "{v:?}"),
             ExpandedValueSource::Template(_, template_element) => {
                 write!(f, "{:?}", template_element.value())
@@ -688,6 +696,25 @@ impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
 }
 
 impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
+    // If the provided e-expression can be resolved to a template macro that is eligible to back
+    // a lazy value without first being evaluated, returns `Some(lazy_expanded_value)`.
+    // To be eligible, the body of the template macro must be an Ion value literal that is not
+    // a system value.
+    pub(crate) fn from_e_expression(eexp: EExpression<'top, Encoding>) -> Option<Self> {
+        // If resolution fails, that error will be handled by the caller when they go to evaluate
+        // the e-expression.
+        let analysis = eexp.expansion_analysis()?;
+        if !analysis.can_be_skipped_safely_at_top_level() {
+            return None;
+        }
+
+        Some(Self {
+            context: eexp.context,
+            source: ExpandedValueSource::EExp(eexp),
+            variable: None,
+        })
+    }
+
     pub(crate) fn from_literal(
         context: EncodingContextRef<'top>,
         value: Encoding::Value<'top>,
@@ -734,6 +761,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             ValueLiteral(value) => value.ion_type(),
             Template(_, element) => element.value().ion_type(),
             Constructed(_annotations, value) => value.ion_type(),
+            EExp(eexp) => eexp.require_expansion_singleton().ion_type(),
         }
     }
 
@@ -745,6 +773,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             Constructed(_, value) => {
                 matches!(value, ExpandedValueRef::Null(_))
             }
+            EExp(eexp) => eexp.require_expansion_singleton().is_null(),
         }
     }
 
@@ -754,6 +783,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             ValueLiteral(value) => value.has_annotations(),
             Template(_, element) => !element.annotations().is_empty(),
             Constructed(annotations, _) => !annotations.is_empty(),
+            EExp(eexp) => eexp.require_expansion_singleton().has_annotations(),
         }
     }
 
@@ -772,6 +802,10 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                 ExpandedAnnotationsIterator::new(ExpandedAnnotationsSource::Constructed(Box::new(
                     empty(),
                 )))
+            }
+            EExp(eexp) => {
+                // TODO: Store annotations info in the singleton
+                eexp.expand_to_single_value().unwrap().annotations()
             }
         }
     }
@@ -794,6 +828,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                     unreachable!("expected constructed string")
                 }
             }
+            EExp(eexp) => eexp.expand_to_single_value()?.read_string(),
         }
     }
 
@@ -815,6 +850,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                     unreachable!("expected constructed symbol")
                 }
             }
+            EExp(eexp) => eexp.expand_to_single_value()?.read_symbol(),
         }
     }
 
@@ -836,6 +872,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                     unreachable!("expected constructed int")
                 }
             }
+            EExp(eexp) => eexp.expand_to_single_value()?.read_int(),
         }
     }
 
@@ -850,6 +887,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                 element,
             )),
             Constructed(_annotations, value) => Ok(*(*value)),
+            EExp(eexp) => eexp.expand_to_single_value()?.read(),
         }
     }
 

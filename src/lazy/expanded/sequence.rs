@@ -49,7 +49,7 @@ impl<'top, D: Decoder> Environment<'top, D> {
 
     /// Returns an empty environment without performing any allocations. This is used for evaluating
     /// e-expressions, which never have named parameters.
-    pub fn empty() -> Environment<'top, D> {
+    pub const fn empty() -> Environment<'top, D> {
         Environment { expressions: &[] }
     }
     pub fn expressions(&self) -> &'top [ValueExpr<'top, D>] {

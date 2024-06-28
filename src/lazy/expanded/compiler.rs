@@ -19,6 +19,59 @@ use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{v1_1, IonError, IonResult, IonType, Reader, SymbolRef};
 
+/// Information inferred about a template's expansion at compile time.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ExpansionAnalysis {
+    pub(crate) could_produce_system_value: bool,
+    pub(crate) must_produce_exactly_one_value: bool,
+    // A memoized combination of the above flags.
+    pub(crate) can_be_skipped_safely_at_top_level: bool,
+    pub(crate) expansion_singleton: Option<ExpansionSingleton>,
+}
+
+impl ExpansionAnalysis {
+    pub fn could_produce_system_value(&self) -> bool {
+        self.could_produce_system_value
+    }
+
+    pub fn must_produce_exactly_one_value(&self) -> bool {
+        self.must_produce_exactly_one_value
+    }
+
+    pub fn can_be_skipped_safely_at_top_level(&self) -> bool {
+        self.can_be_skipped_safely_at_top_level
+    }
+
+    pub fn expansion_singleton(&self) -> Option<ExpansionSingleton> {
+        self.expansion_singleton
+    }
+}
+
+/// When static analysis can detect that a template body will always expand to a single value,
+/// information inferred about that value is stored in this type. When this template backs a
+/// lazy value, having these fields available allows the lazy value to answer basic queries without
+/// needing to fully evaluate the template.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ExpansionSingleton {
+    is_null: bool,
+    ion_type: IonType,
+    has_annotations: bool,
+}
+
+impl ExpansionSingleton {
+    pub fn is_null(&self) -> bool {
+        self.is_null
+    }
+
+    pub fn ion_type(&self) -> IonType {
+        self.ion_type
+    }
+
+    pub fn has_annotations(&self) -> bool {
+        self.has_annotations
+    }
+}
+
 /// Validates a given TDL expression and compiles it into a [`TemplateMacro`] that can be added
 /// to a [`MacroTable`](crate::lazy::expanded::macro_table::MacroTable).
 pub struct TemplateCompiler {}
@@ -176,7 +229,9 @@ impl TemplateCompiler {
         }
         let signature = MacroSignature::new(compiled_params)?;
         let body = values.next().expect("template body")?;
+        let expansion_analysis = Self::analyze_body_expr(body);
         let mut compiled_body = TemplateBody {
+            expansion_analysis,
             expressions: Vec::new(),
             annotations_storage: Vec::new(),
         };
@@ -193,6 +248,61 @@ impl TemplateCompiler {
             body: compiled_body,
         };
         Ok(template_macro)
+    }
+
+    fn analyze_body_expr<D: Decoder>(body_expr: LazyValue<D>) -> ExpansionAnalysis {
+        let could_produce_system_value = Self::body_expr_could_produce_system_values(body_expr);
+        let must_produce_exactly_one_value =
+            Self::body_expr_must_produce_exactly_one_value(body_expr);
+        let expansion_singleton = if must_produce_exactly_one_value {
+            Some(ExpansionSingleton {
+                ion_type: body_expr.ion_type(),
+                has_annotations: body_expr.has_annotations(),
+                is_null: body_expr.is_null(),
+            })
+        } else {
+            None
+        };
+        ExpansionAnalysis {
+            could_produce_system_value,
+            must_produce_exactly_one_value,
+            can_be_skipped_safely_at_top_level: must_produce_exactly_one_value
+                && !could_produce_system_value,
+            expansion_singleton,
+        }
+    }
+
+    /// Indicates whether the provided expression *could* produce a system value (e.g. a symbol table
+    /// or encoding directive) when expanded.
+    ///
+    /// If the expression is guaranteed to never produce a system value, returns `false`.
+    /// If the expression *could* produce one, returns `true`.
+    ///
+    /// For the time being, this is a simple, lightweight heuristic.
+    fn body_expr_could_produce_system_values<D: Decoder>(body_expr: LazyValue<D>) -> bool {
+        use IonType::*;
+        match body_expr.ion_type() {
+            // If the expression is an s-expression, it could expand to anything. If desired, we could
+            // inspect the macro it invokes to see if it's a `make_string`, `make_struct`, etc.
+            // For now, we simply say "Producing a system value is possible."
+            SExp => true,
+            // If the value is a struct, it would need to be annotated with `$ion_symbol_table`
+            // to produce a system value.
+            Struct => {
+                matches!(body_expr.annotations().next(), Some(Ok(s)) if s.text() == Some("$ion_symbol_table"))
+            }
+            _ => false,
+        }
+    }
+
+    /// Indicates whether the provided expression is guaranteed to produce exactly one Ion value
+    /// when expanded.
+    ///
+    /// If the expression will always produce a single value, returns `true`.
+    /// If the expression could potentially produce an empty stream or a stream with multiple
+    /// values, returns `false`.
+    fn body_expr_must_produce_exactly_one_value<D: Decoder>(body_expr: LazyValue<D>) -> bool {
+        body_expr.ion_type() != IonType::SExp
     }
 
     /// Recursively visits all of the expressions in `lazy_value` and adds their corresponding

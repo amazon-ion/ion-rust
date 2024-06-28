@@ -10,6 +10,7 @@ use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
+use crate::lazy::expanded::compiler::{ExpansionAnalysis};
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, ValueExpr};
 use crate::lazy::expanded::macro_table::{Macro, MacroRef};
 use crate::lazy::expanded::r#struct::UnexpandedField;
@@ -470,6 +471,18 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
 /// See [`TemplateBodyValueExpr`] for details.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TemplateBody {
+    // Compile-time heuristics that allow the reader to evaluate e-expressions lazily in many cases.
+    //
+    // For the time being, e-expressions that could produce multiple values cannot be lazy evaluated.
+    // This is because the reader hands out lazy values for each value in the stream. If it knows
+    // in advance that an expression will produce one value, it can hand out a lazy value that is
+    // backed by that e-expression.
+    //
+    // At the top level, e-expressions that cannot produce a system value can be lazily evaluated.
+    // At other levels of nesting, the single-value expansion is the only requirement for lazy
+    // evaluation.
+    pub(crate) expansion_analysis: ExpansionAnalysis,
+    // A vector of expressions that will be visited in turn during expansion.
     pub(crate) expressions: Vec<TemplateBodyValueExpr>,
     // All of the elements stored in the Vec above share the Vec below for storing their annotations.
     // This allows us to avoid allocating a `Vec<Symbol>` for every value in the template, saving
@@ -502,6 +515,10 @@ impl TemplateBody {
             .push(TemplateBodyValueExpr::MacroInvocation(
                 TemplateBodyMacroInvocation::new(invoked_macro_address, expr_range),
             ))
+    }
+
+    pub fn expansion_analysis(&self) -> ExpansionAnalysis {
+        self.expansion_analysis
     }
 }
 
@@ -906,6 +923,11 @@ impl<'top, D: Decoder> Iterator for TemplateMacroInvocationArgsIterator<'top, D>
         };
 
         Some(Ok(arg_expr))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let num_args = self.invocation.invoked_macro().signature().parameters().len();
+        (num_args, Some(num_args))
     }
 }
 
