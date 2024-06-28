@@ -483,15 +483,12 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
         use SystemStreamItem::*;
         loop {
-            let item = match self.next_item() {
-                Ok(item) => item,
+            match self.next_item() {
+                Ok(Value(value)) => return Ok(Some(value)),
+                Ok(EndOfStream(_)) => return Ok(None),
+                Ok(_) => {}
                 Err(e) => return Err(e),
             };
-            match item {
-                Value(value) => return Ok(Some(value)),
-                EndOfStream(_) => return Ok(None),
-                _ => {}
-            }
         }
     }
 
@@ -555,7 +552,10 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                 // It's another macro invocation, we'll start evaluating it.
                 EExp(e_exp) => {
                     let context = self.context();
-                    let resolved_e_exp = e_exp.resolve(context_ref)?;
+                    let resolved_e_exp = match e_exp.resolve(context_ref) {
+                        Ok(resolved) => resolved,
+                        Err(e) => return Err(e),
+                    };
                     // Get the current evaluator or make a new one
                     let evaluator = match self.evaluator_ptr.get() {
                         // If there's already an evaluator, dereference the pointer.
@@ -574,8 +574,13 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                         Err(e) => return Err(e),
                     }
 
+                    let next_value = match evaluator.next_at_or_above_depth(0) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e),
+                    };
+
                     // Try to get a value by starting to evaluate the e-expression.
-                    if let Some(value) = evaluator.next_at_or_above_depth(0)? {
+                    if let Some(value) = next_value {
                         // If we get a value and the evaluator isn't empty yet, save its pointer
                         // so we can try to get more out of it when `next_at_or_above_depth` is called again.
                         if evaluator.macro_stack_depth() > 0 {

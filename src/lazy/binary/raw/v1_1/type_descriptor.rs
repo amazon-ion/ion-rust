@@ -97,6 +97,10 @@ impl Opcode {
         }
     }
 
+    pub fn ion_type(&self) -> Option<IonType> {
+        self.ion_type
+    }
+
     pub fn is_null(&self) -> bool {
         self.opcode_type == OpcodeType::NullNull || self.opcode_type == OpcodeType::TypedNull
     }

@@ -385,11 +385,11 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         let context = self.invocation.context();
         // Delegate the call to `next()` based on the macro kind.
         match &mut self.kind {
-            MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
+            Template(template_expansion) => template_expansion.next(context, environment),
             Values(values_expansion) => values_expansion.next(context, environment),
+            MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
             // `void` is trivial and requires no delegation
             Void => Ok(MacroExpansionStep::FinalStep(None)),
-            Template(template_expansion) => template_expansion.next(context, environment),
         }
     }
 }

@@ -337,42 +337,54 @@ impl<'a> ImmutableBuffer<'a> {
     pub(crate) fn read_sequence_value_expr(
         self,
     ) -> ParseResult<'a, Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
-        let result = match self.peek_opcode() {
-            // The buffer is empty.
+        let opcode = match self.peek_opcode() {
+            Some(opcode) => opcode,
             None => return Ok((None, self)),
-            // The next expression is an e-expression.
-            Some(opcode) if opcode.is_e_expression() => {
-                let (eexp, remaining_input) = match self.read_e_expression(opcode) {
-                    Ok(e) => e,
-                    Err(e) => return Err(e),
-                };
-                let value_expr_ref = &*self.context().allocator().alloc_with(|| eexp);
-                return Ok((Some(RawValueExpr::EExp(value_expr_ref)), remaining_input));
-            }
-            // The next expression is an unannotated value literal.
-            Some(opcode) if opcode.ion_type.is_some() => {
-                self.read_value_without_annotations(opcode)
-            }
-            // The next expression is an annotated value literal.
-            Some(opcode) if opcode.is_annotations_sequence() => self.read_annotated_value(opcode),
-            // If it's neither an e-expression nor a value, it must be a NOP. This method will
-            // confirm that and then scan past the NOP pad before calling this one again. This
-            // mutual recursion can only occur once because the NOP scanner must find a value or
-            // e-expression after the NOP.
-            Some(_) => return self.read_nop_then_sequence_value(),
         };
 
-        let (value, remaining) = match result {
-            Ok((value, remaining)) => (value, remaining),
-            Err(e) => return Err(e),
+        // Like RawValueExpr, but doesn't use references.
+        enum ParseValueExprResult<'top> {
+            Value(ParseResult<'top, LazyRawBinaryValue_1_1<'top>>),
+            EExp(ParseResult<'top, RawBinaryEExpression_1_1<'top>>),
+        }
+
+        use OpcodeType::*;
+        let result = match opcode.opcode_type {
+            EExpressionWithAddress => {
+                ParseValueExprResult::EExp(self.read_eexp_with_address_in_opcode(opcode))
+            }
+            EExpressionAddressFollows => todo!("eexp address follows"),
+            EExpressionWithLengthPrefix => {
+                ParseValueExprResult::EExp(self.read_eexp_with_length_prefix(opcode))
+            }
+            AnnotationFlexSym => ParseValueExprResult::Value(self.read_annotated_value(opcode)),
+            AnnotationSymAddress => todo!("symbol address annotations"),
+            _ if opcode.ion_type().is_some() => {
+                ParseValueExprResult::Value(self.read_value_without_annotations(opcode))
+            }
+            _ => return self.read_nop_then_sequence_value(),
         };
-        let value_expr_ref = &*self.context().allocator().alloc_with(|| value);
-        Ok((
-            Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(
-                value_expr_ref,
-            )),
-            remaining,
-        ))
+        let allocator = self.context().allocator();
+        match result {
+            ParseValueExprResult::Value(Ok((value, remaining))) => {
+                let value_ref = &*allocator.alloc_with(|| value);
+                Ok((
+                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(
+                        value_ref,
+                    )),
+                    remaining,
+                ))
+            }
+            ParseValueExprResult::EExp(Ok((eexp, remaining))) => {
+                let eexp_ref = &*allocator.alloc_with(|| eexp);
+                Ok((
+                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::EExp(eexp_ref)),
+                    remaining,
+                ))
+            }
+            ParseValueExprResult::Value(Err(e)) => return Err(e),
+            ParseValueExprResult::EExp(Err(e)) => return Err(e),
+        }
     }
 
     #[inline(never)]
