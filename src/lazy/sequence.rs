@@ -88,9 +88,7 @@ impl<'top, D: Decoder> LazyList<'top, D> {
             ExpandedListSource::Template(env, template_ref, _, fields_range) => {
                 let element = TemplateElement::new(
                     template_ref,
-                    template_ref.body().expressions()[fields_range.start() - 1]
-                        .expect_element()
-                        .unwrap(),
+                    template_ref.body().expressions()[fields_range.start() - 1].require_element(),
                 );
                 LazyExpandedValue::from_template(self.expanded_list.context, env, element)
             }
@@ -248,9 +246,7 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
             ExpandedSExpSource::Template(env, template_ref, _, fields_range) => {
                 let element = TemplateElement::new(
                     template_ref,
-                    template_ref.body().expressions()[fields_range.start() - 1]
-                        .expect_element()
-                        .unwrap(),
+                    template_ref.body().expressions()[fields_range.start() - 1].require_element(),
                 );
                 LazyExpandedValue::from_template(self.expanded_sexp.context, env, element)
             }

@@ -7,8 +7,7 @@ use crate::lazy::expanded::template::{
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, LazyExpandedValue,
 };
-use crate::result::IonFailure;
-use crate::{IonError, IonResult, IonType};
+use crate::{IonResult, IonType};
 
 /// A sequence of not-yet-evaluated expressions passed as arguments to a macro invocation.
 ///
@@ -36,18 +35,16 @@ impl<'top, D: Decoder> Environment<'top, D> {
     }
 
     /// Returns the expression for the corresponding signature index -- the variable's offset within
-    /// the template's signature. If the requested index is out of bounds, returns `Err`.
-    pub fn get_expected(&self, signature_index: usize) -> IonResult<ValueExpr<'top, D>> {
-        self.expressions()
-            .get(signature_index)
-            .copied()
-            // The TemplateCompiler should detect any invalid variable references prior to evaluation
-            .ok_or_else(|| {
-                IonError::decoding_error(format!(
-                    "reference to variable with signature index {} not valid",
-                    signature_index
-                ))
-            })
+    /// the template's signature.
+    ///
+    /// Panics if the requested index is out of bounds, as the rules of the template compiler
+    /// should make that impossible.
+    #[inline]
+    pub fn require_expr(&self, signature_index: usize) -> ValueExpr<'top, D> {
+        if let Some(expr) = self.expressions().get(signature_index).copied() {
+            return expr;
+        }
+        unreachable!("found a macro signature index reference that was out of bounds")
     }
 
     /// Returns an empty environment without performing any allocations. This is used for evaluating

@@ -98,9 +98,7 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
             ExpandedStructSource::Template(env, template_ref, _, fields_range, _) => {
                 let element = TemplateElement::new(
                     template_ref,
-                    template_ref.body().expressions()[fields_range.start() - 1]
-                        .expect_element()
-                        .unwrap(),
+                    template_ref.body().expressions()[fields_range.start() - 1].require_element(),
                 );
                 LazyExpandedValue::from_template(self.expanded_struct.context, env, element)
             }

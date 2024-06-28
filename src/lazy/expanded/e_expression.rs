@@ -64,7 +64,7 @@ impl<'top, D: Decoder> ArgGroup<'top, D> {
                     ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, value))
                 }
                 RawValueExpr::EExp(eexp) => {
-                    ValueExpr::MacroInvocation(MacroExpr::EExp(eexp.resolve(self.context)?))
+                    ValueExpr::MacroInvocation(MacroExpr::from_eexp(eexp.resolve(self.context)?))
                 }
             };
             env_exprs.push(value_expr);
@@ -163,7 +163,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
 
 impl<'top, D: Decoder> From<EExpression<'top, D>> for MacroExpr<'top, D> {
     fn from(value: EExpression<'top, D>) -> Self {
-        MacroExpr::EExp(value)
+        MacroExpr::from_eexp(value)
     }
 }
 
@@ -194,7 +194,7 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
             }
             EExpArgExpr::<D>::ArgGroup(group) => {
                 let arg_group = group.resolve(self.context);
-                ValueExpr::MacroInvocation(MacroExpr::EExpArgGroup(arg_group))
+                ValueExpr::MacroInvocation(MacroExpr::from_eexp_arg_group(arg_group))
             }
         };
         Some(Ok(expr))
@@ -242,7 +242,7 @@ impl<'top, D: Decoder> Iterator for ArgGroupIterator<'top, D> {
                     Ok(eexp) => eexp,
                     Err(e) => return Some(Err(e)),
                 };
-                Some(Ok(ValueExpr::MacroInvocation(MacroExpr::EExp(
+                Some(Ok(ValueExpr::MacroInvocation(MacroExpr::from_eexp(
                     resolved_eexp,
                 ))))
             }

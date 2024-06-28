@@ -19,7 +19,10 @@ use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{v1_0, v1_1, Catalog, Int, IonResult, IonType, LazyRawWriter, RawSymbolRef};
+use crate::{
+    v1_0, v1_1, Catalog, Int, IonResult, IonType, LazyExpandedFieldName, LazyRawWriter,
+    RawSymbolRef,
+};
 
 pub trait HasSpan<'top>: HasRange {
     fn span(&self) -> Span<'top>;
@@ -59,7 +62,7 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     /// A struct whose fields may be accessed iteratively or by field name.
     type Struct<'top>: LazyRawStruct<'top, Self>;
     /// A symbol token representing the name of a field within a struct.
-    type FieldName<'top>: LazyRawFieldName<'top>;
+    type FieldName<'top>: LazyRawFieldName<'top, Self>;
     /// An iterator over the annotations on the input stream's values.
     type AnnotationsIterator<'top>: Iterator<Item = IonResult<RawSymbolRef<'top>>>;
     /// An e-expression invoking a macro. (Ion 1.1+)
@@ -345,9 +348,11 @@ impl<'top, D: Decoder> HasRange for LazyRawFieldExpr<'top, D> {
 // internal code that is defined in terms of `LazyRawField` to call the private `into_value()`
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
+    use crate::lazy::binary::raw::v1_1::e_expression::try_or_some_err;
+    use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
     use crate::lazy::expanded::r#struct::UnexpandedField;
     use crate::lazy::expanded::EncodingContextRef;
-    use crate::IonResult;
+    use crate::{IonResult, LazyExpandedValue, LazyRawFieldName};
 
     use super::{Decoder, LazyRawFieldExpr, LazyRawStruct};
 
@@ -389,9 +394,21 @@ pub(crate) mod private {
             };
             use LazyRawFieldExpr::*;
             let unexpanded_field = match field {
-                NameValue(name, value) => UnexpandedField::RawNameValue(self.context, name, value),
-                NameEExp(name, eexp) => UnexpandedField::RawNameEExp(self.context, name, eexp),
-                EExp(eexp) => UnexpandedField::RawEExp(self.context, eexp),
+                NameValue(name, value) => UnexpandedField::NameValue(
+                    name.resolve(self.context),
+                    LazyExpandedValue::from_literal(self.context, value),
+                ),
+                NameEExp(name, raw_eexp) => {
+                    let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
+                    UnexpandedField::NameMacro(
+                        name.resolve(self.context),
+                        MacroExpr::from_eexp(eexp),
+                    )
+                }
+                EExp(raw_eexp) => {
+                    let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
+                    UnexpandedField::Macro(MacroExpr::from_eexp(eexp))
+                }
             };
             Some(Ok(unexpanded_field))
         }
@@ -591,6 +608,12 @@ pub trait LazyRawStruct<'top, D: Decoder>:
     fn iter(&self) -> Self::Iterator;
 }
 
-pub trait LazyRawFieldName<'top>: HasSpan<'top> + Copy + Debug + Clone {
+pub trait LazyRawFieldName<'top, D: Decoder<FieldName<'top> = Self>>:
+    HasSpan<'top> + Copy + Debug + Clone
+{
     fn read(&self) -> IonResult<RawSymbolRef<'top>>;
+
+    fn resolve(&self, context: EncodingContextRef<'top>) -> LazyExpandedFieldName<'top, D> {
+        LazyExpandedFieldName::RawName(context, *self)
+    }
 }

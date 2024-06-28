@@ -46,7 +46,7 @@ impl<'top> HasRange for LazyRawBinaryFieldName_1_1<'top> {
     }
 }
 
-impl<'top> LazyRawFieldName<'top> for LazyRawBinaryFieldName_1_1<'top> {
+impl<'top> LazyRawFieldName<'top, BinaryEncoding_1_1> for LazyRawBinaryFieldName_1_1<'top> {
     fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         Ok(self.field_name)
     }

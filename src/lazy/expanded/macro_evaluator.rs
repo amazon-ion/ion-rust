@@ -28,7 +28,7 @@ use crate::lazy::expanded::template::{
     TemplateElement, TemplateMacroInvocation, TemplateMacroInvocationArgsIterator,
     TemplateMacroRef, TemplateValue,
 };
-use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::expanded::{EncodingContextRef, TemplateVariableReference};
 use crate::lazy::expanded::{ExpandedValueRef, LazyExpandedValue};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
@@ -98,7 +98,27 @@ pub trait RawEExpression<'top, D: Decoder<EExp<'top> = Self>>:
 /// This invocation has been resolved in the current encoding context, and holds a reference to
 /// the definition of the macro being invoked.
 #[derive(Copy, Clone, Debug)]
-pub enum MacroExpr<'top, D: Decoder> {
+pub struct MacroExpr<'top, D: Decoder> {
+    source: MacroExprSource<'top, D>,
+    variable: Option<TemplateVariableReference<'top>>,
+}
+
+impl<'top, D: Decoder> MacroExpr<'top, D> {
+    pub fn new(source: MacroExprSource<'top, D>) -> Self {
+        Self {
+            source,
+            variable: None,
+        }
+    }
+
+    pub fn via_variable(mut self, variable_ref: TemplateVariableReference<'top>) -> Self {
+        self.variable = Some(variable_ref);
+        self
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum MacroExprSource<'top, D: Decoder> {
     /// A macro invocation found in the body of a template.
     TemplateMacro(TemplateMacroInvocation<'top>),
     /// A macro invocation found in the data stream.
@@ -108,40 +128,60 @@ pub enum MacroExpr<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> MacroExpr<'top, D> {
+    pub fn from_template_macro(invocation: TemplateMacroInvocation<'top>) -> Self {
+        MacroExpr::new(MacroExprSource::TemplateMacro(invocation))
+    }
+
+    pub fn from_eexp(eexp: EExpression<'top, D>) -> Self {
+        MacroExpr::new(MacroExprSource::EExp(eexp))
+    }
+
+    pub fn from_eexp_arg_group(group: ArgGroup<'top, D>) -> Self {
+        MacroExpr::new(MacroExprSource::EExpArgGroup(group))
+    }
+
+    pub fn variable(&self) -> Option<TemplateVariableReference<'top>> {
+        self.variable
+    }
+
+    pub fn source(&self) -> MacroExprSource<'top, D> {
+        self.source
+    }
+
     fn id(&self) -> MacroIdRef {
-        match &self {
-            MacroExpr::TemplateMacro(m) => m.id(),
-            MacroExpr::EExp(e) => e.id(),
-            MacroExpr::EExpArgGroup(_) => MacroIdRef::LocalAddress(1), // `values`
+        use MacroExprSource::*;
+        match &self.source {
+            TemplateMacro(m) => m.id(),
+            EExp(e) => e.id(),
+            EExpArgGroup(_) => MacroIdRef::LocalAddress(1), // `values`
         }
     }
 
     fn arguments(&self, environment: Environment<'top, D>) -> MacroExprArgsIterator<'top, D> {
-        let args_kind = match &self {
-            MacroExpr::TemplateMacro(m) => {
-                MacroExprArgsKind::<'top, D>::Macro(m.arguments(environment))
-            }
-            MacroExpr::EExp(e) => MacroExprArgsKind::<'top, D>::EExp(e.arguments()),
-            MacroExpr::EExpArgGroup(group) => {
-                MacroExprArgsKind::<'top, D>::ArgGroup(group.expressions())
-            }
+        use MacroExprSource::*;
+        let args_kind = match &self.source {
+            TemplateMacro(m) => MacroExprArgsKind::<'top, D>::Macro(m.arguments(environment)),
+            EExp(e) => MacroExprArgsKind::<'top, D>::EExp(e.arguments()),
+            EExpArgGroup(group) => MacroExprArgsKind::<'top, D>::ArgGroup(group.expressions()),
         };
         MacroExprArgsIterator { source: args_kind }
     }
 
     fn invoked_macro(&self) -> MacroRef<'top> {
-        match &self {
-            MacroExpr::TemplateMacro(m) => m.invoked_macro(),
-            MacroExpr::EExp(e) => e.invoked_macro(),
-            MacroExpr::EExpArgGroup(g) => g.invoked_macro(),
+        use MacroExprSource::*;
+        match &self.source {
+            TemplateMacro(m) => m.invoked_macro(),
+            EExp(e) => e.invoked_macro(),
+            EExpArgGroup(g) => g.invoked_macro(),
         }
     }
 
     pub(crate) fn context(&self) -> EncodingContextRef<'top> {
-        match self {
-            MacroExpr::TemplateMacro(t) => t.context(),
-            MacroExpr::EExp(e) => e.context(),
-            MacroExpr::EExpArgGroup(g) => g.context(),
+        use MacroExprSource::*;
+        match self.source {
+            TemplateMacro(t) => t.context(),
+            EExp(e) => e.context(),
+            EExpArgGroup(g) => g.context(),
         }
     }
 
@@ -149,9 +189,9 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         &self,
         parent_environment: Environment<'top, D>,
     ) -> IonResult<Environment<'top, D>> {
-        use MacroExpr::*;
+        use MacroExprSource::*;
         let allocator = self.context().allocator();
-        let arguments = match self {
+        let arguments = match self.source {
             TemplateMacro(_) => self.arguments(parent_environment),
             EExpArgGroup(g) => return g.new_evaluation_environment(),
             EExp(e) => return e.new_evaluation_environment(),
@@ -217,16 +257,11 @@ impl<'top, D: Decoder> ArgExpr<'top, D> {
     /// environment. Returns an `ArgValueExpr` which is the value literal or macro invocation to
     /// which the variable referred.
     /// Otherwise, passes through the value literal or macro invocation.
-    pub(crate) fn resolve(
-        &self,
-        environment: Environment<'top, D>,
-    ) -> IonResult<ValueExpr<'top, D>> {
+    pub(crate) fn resolve(&self, environment: Environment<'top, D>) -> ValueExpr<'top, D> {
         match self {
-            ArgExpr::ValueLiteral(value) => Ok(ValueExpr::ValueLiteral(*value)),
-            ArgExpr::Variable(variable) => {
-                Ok(environment.get_expected(variable.signature_index())?)
-            }
-            ArgExpr::MacroInvocation(invocation) => Ok(ValueExpr::MacroInvocation(*invocation)),
+            ArgExpr::ValueLiteral(value) => ValueExpr::ValueLiteral(*value),
+            ArgExpr::Variable(variable) => environment.require_expr(variable.signature_index()),
+            ArgExpr::MacroInvocation(invocation) => ValueExpr::MacroInvocation(*invocation),
         }
     }
 }
@@ -250,16 +285,22 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
     /// If it represents a template value or a constructed value, returns `None`.
     pub fn range(&self) -> Option<Range<usize>> {
         match self {
-            ValueExpr::ValueLiteral(value) => match value.source {
-                ExpandedValueSource::ValueLiteral(literal) => Some(literal.range()),
-                ExpandedValueSource::Template(_, _) => None,
-                ExpandedValueSource::Constructed(_, _) => None,
-            },
-            ValueExpr::MacroInvocation(e) => match e {
-                MacroExpr::TemplateMacro(_) => None,
-                MacroExpr::EExp(e) => Some(e.range()),
-                MacroExpr::EExpArgGroup(g) => Some(g.range()),
-            },
+            ValueExpr::ValueLiteral(value) => {
+                use ExpandedValueSource::*;
+                match value.source {
+                    ValueLiteral(literal) => Some(literal.range()),
+                    Template(_, _) => None,
+                    Constructed(_, _) => None,
+                }
+            }
+            ValueExpr::MacroInvocation(e) => {
+                use MacroExprSource::*;
+                match e.source() {
+                    TemplateMacro(_) => None,
+                    EExp(e) => Some(e.range()),
+                    EExpArgGroup(g) => Some(g.range()),
+                }
+            }
         }
     }
 }
@@ -470,7 +511,10 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     /// current encoding context and push the resulting `MacroExpansion` onto the stack.
     pub fn push(&mut self, invocation: impl Into<MacroExpr<'top, D>>) -> IonResult<()> {
         let macro_expr = invocation.into();
-        let expansion = self.initialize_expansion(macro_expr)?;
+        let expansion = match self.initialize_expansion(macro_expr) {
+            Ok(expansion) => expansion,
+            Err(e) => return Err(e),
+        };
         self.macro_stack.push(expansion);
         Ok(())
     }
@@ -782,7 +826,7 @@ impl<'top> TemplateExpansion<'top> {
                 ))
             }
             TemplateBodyValueExpr::Variable(variable) => {
-                environment.get_expected(variable.signature_index())?
+                environment.require_expr(variable.signature_index())
             }
             TemplateBodyValueExpr::MacroInvocation(raw_invocation) => {
                 let invocation = raw_invocation.resolve(self.template, context);

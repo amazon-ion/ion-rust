@@ -1443,7 +1443,7 @@ impl<'top> HasRange for LazyRawAnyFieldName<'top> {
     }
 }
 
-impl<'top> LazyRawFieldName<'top> for LazyRawAnyFieldName<'top> {
+impl<'top> LazyRawFieldName<'top, AnyEncoding> for LazyRawAnyFieldName<'top> {
     fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         use LazyRawFieldNameKind::*;
         match self.encoding {

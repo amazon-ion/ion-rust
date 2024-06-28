@@ -37,10 +37,10 @@ impl<'top, D: Decoder> EExpArg<'top, D> {
                 ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(context, value))
             }
             EExpArgExpr::EExp(eexp) => {
-                ValueExpr::MacroInvocation(MacroExpr::EExp(eexp.resolve(context)?))
+                ValueExpr::MacroInvocation(MacroExpr::from_eexp(eexp.resolve(context)?))
             }
             EExpArgExpr::ArgGroup(group) => {
-                ValueExpr::MacroInvocation(MacroExpr::EExpArgGroup(group.resolve(context)))
+                ValueExpr::MacroInvocation(MacroExpr::from_eexp_arg_group(group.resolve(context)))
             }
         };
         Ok(value_expr)

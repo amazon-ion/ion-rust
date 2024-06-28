@@ -3,17 +3,15 @@ use std::ops::ControlFlow;
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructUnexpandedFieldsIterator};
 use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
-use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, MacroExpr, RawEExpression, ValueExpr,
-};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, ValueExpr};
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    AnnotationsRange, ExprRange, TemplateBodyValueExpr, TemplateElement, TemplateMacroInvocation,
-    TemplateMacroRef, TemplateStructIndex, TemplateStructUnexpandedFieldsIterator,
+    AnnotationsRange, ExprRange, TemplateBodyValueExpr, TemplateElement, TemplateMacroRef,
+    TemplateStructIndex, TemplateStructUnexpandedFieldsIterator,
 };
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
-    LazyExpandedValue, TemplateVariableReference,
+    LazyExpandedValue,
 };
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
@@ -27,18 +25,9 @@ use crate::{IonError, IonResult, RawSymbolRef, SymbolRef};
 // and expands the field as part of its iteration process.
 #[derive(Debug, Clone, Copy)]
 pub enum UnexpandedField<'top, D: Decoder> {
-    RawNameValue(EncodingContextRef<'top>, D::FieldName<'top>, D::Value<'top>),
-    RawNameEExp(EncodingContextRef<'top>, D::FieldName<'top>, D::EExp<'top>),
-    RawEExp(EncodingContextRef<'top>, D::EExp<'top>),
-    TemplateNameValue(SymbolRef<'top>, TemplateElement<'top>),
-    TemplateNameMacro(SymbolRef<'top>, TemplateMacroInvocation<'top>),
-    TemplateNameVariable(
-        SymbolRef<'top>,
-        // The parameter definition and the expression to which it referred.
-        // The expression may be either a raw value or a template element, so it's represented
-        // as a `ValueExpr`, which can accommodate both.
-        (TemplateVariableReference<'top>, ValueExpr<'top, D>),
-    ),
+    NameValue(LazyExpandedFieldName<'top, D>, LazyExpandedValue<'top, D>),
+    NameMacro(LazyExpandedFieldName<'top, D>, MacroExpr<'top, D>),
+    Macro(MacroExpr<'top, D>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -393,20 +382,10 @@ impl<'top, D: Decoder> Iterator for ExpandedStructIterator<'top, D> {
         } = *self;
         match source {
             ExpandedStructIteratorSource::Template(tdl_macro_evaluator, template_iterator) => {
-                Self::next_field_from(
-                    template_iterator.context(),
-                    state,
-                    tdl_macro_evaluator,
-                    template_iterator,
-                )
+                Self::next_field_from(state, tdl_macro_evaluator, template_iterator)
             }
             ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, raw_struct_iter) => {
-                Self::next_field_from(
-                    raw_struct_iter.context(),
-                    state,
-                    e_exp_evaluator,
-                    raw_struct_iter,
-                )
+                Self::next_field_from(state, e_exp_evaluator, raw_struct_iter)
             }
         }
     }
@@ -429,7 +408,6 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         // LazyRawStruct, or it could be a `TemplateStructRawFieldsIterator`.
         I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>,
     >(
-        context: EncodingContextRef<'top>,
         state: &'a mut ExpandedStructIteratorState<'top, D>,
         evaluator: &'a mut MacroEvaluator<'top, D>,
         iter: &'a mut I,
@@ -447,7 +425,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                 // iterator.
                 ReadingFieldFromSource => {
                     // We'll see what kind of expression it is.
-                    match Self::next_from_iterator(context, state, evaluator, iter) {
+                    match Self::next_from_iterator(state, evaluator, iter) {
                         // The iterator found a (name, value literal) pair.
                         Break(maybe_result) => return maybe_result,
                         // The iterator found a (name, macro) pair or a macro; further evaluation
@@ -499,7 +477,6 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
     //     iter: &mut I,
     // ) -> ControlFlow<Option<IonResult<LazyExpandedField<'top, D>>>> {
     fn next_from_iterator<I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>>(
-        context: EncodingContextRef<'top>,
         state: &mut ExpandedStructIteratorState<'top, D>,
         evaluator: &mut MacroEvaluator<'top, D>,
         iter: &mut I,
@@ -520,38 +497,17 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
 
         use UnexpandedField::*;
         match unexpanded_field {
-            RawNameValue(context, name, value) => {
-                Break(Some(Ok(LazyExpandedField::from_raw_field(
-                    context,
-                    name,
-                    LazyExpandedValue::from_literal(context, value),
-                ))))
-            }
-            TemplateNameValue(name, value) => Break(Some(Ok(LazyExpandedField::from_template(
-                value.template(),
-                name,
-                LazyExpandedValue::from_template(context, evaluator.environment(), value),
-            )))),
-            // (name, macro invocation) pair. For example: `foo: (:bar)`
-            RawNameEExp(context, raw_name, raw_eexp) => {
-                let eexp = match raw_eexp.resolve(context) {
-                    Ok(eexp) => eexp,
-                    Err(e) => return Break(Some(Err(e))),
-                };
-                if let Err(e) = evaluator.push(eexp) {
+            NameValue(name, value) => Break(Some(Ok(LazyExpandedField::new(name, value)))),
+            NameMacro(name, invocation) => {
+                if let Err(e) = evaluator.push(invocation) {
                     return Break(Some(Err(e)));
                 }
-                let name = LazyExpandedFieldName::RawName(context, raw_name);
                 *state = ExpandedStructIteratorState::ExpandingValueExpr(name);
                 // We've pushed the macro invocation onto the evaluator's stack, but further evaluation
                 // is needed to get our next field.
                 Continue(())
             }
-            RawEExp(context, eexp) => {
-                let invocation = match eexp.resolve(context) {
-                    Ok(invocation) => invocation,
-                    Err(e) => return Break(Some(Err(e))),
-                };
+            Macro(invocation) => {
                 // The next expression from the iterator was a macro. We expect it to expand to a
                 // single struct whose fields will be merged into the one we're iterating over. For example:
                 //     {a: 1, (:make_struct b 2 c 3), d: 4}
@@ -563,58 +519,6 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                     Ok(_) => Continue(()),
                     // If something went wrong, surface the error.
                     Err(e) => Break(Some(Err(e))),
-                }
-            }
-            TemplateNameMacro(name_symbol, invocation) => {
-                if let Err(e) = evaluator.push(invocation) {
-                    return Break(Some(Err(e)));
-                }
-                let name =
-                    LazyExpandedFieldName::TemplateName(invocation.host_template(), name_symbol);
-                *state = ExpandedStructIteratorState::ExpandingValueExpr(name);
-                // We've pushed the macro invocation onto the evaluator's stack, but further evaluation
-                // is needed to get our next field.
-                Continue(())
-            }
-            TemplateNameVariable(name_symbol, (variable_ref, value_expr)) => {
-                use ValueExpr::*;
-                let name = LazyExpandedFieldName::TemplateName(variable_ref.template, name_symbol);
-                match value_expr {
-                    ValueLiteral(value) => {
-                        return Break(Some(Ok(LazyExpandedField::from_template(
-                            variable_ref.template,
-                            name_symbol,
-                            value.via_variable(
-                                variable_ref
-                                    .template
-                                    .signature()
-                                    .parameters()
-                                    .get(variable_ref.signature_index as usize)
-                                    .unwrap(),
-                            ),
-                        ))))
-                    }
-                    MacroInvocation(MacroExpr::EExp(eexp)) => {
-                        if let Err(e) = evaluator.push(eexp) {
-                            return Break(Some(Err(e)));
-                        }
-                        *state = ExpandedStructIteratorState::ExpandingValueExpr(name);
-                        // We've pushed the macro invocation onto the evaluator's stack, but further evaluation
-                        // is needed to get our next field.
-                        Continue(())
-                    }
-                    MacroInvocation(MacroExpr::TemplateMacro(invocation)) => {
-                        if let Err(e) = evaluator.push(invocation) {
-                            return Break(Some(Err(e)));
-                        }
-                        *state = ExpandedStructIteratorState::ExpandingValueExpr(name);
-                        // We've pushed the macro invocation onto the evaluator's stack, but further evaluation
-                        // is needed to get our next field.
-                        Continue(())
-                    }
-                    MacroInvocation(MacroExpr::EExpArgGroup(_group)) => {
-                        unreachable!("arg group inside a struct")
-                    }
                 }
             }
         }

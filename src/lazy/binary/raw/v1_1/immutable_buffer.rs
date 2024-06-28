@@ -337,9 +337,9 @@ impl<'a> ImmutableBuffer<'a> {
     pub(crate) fn read_sequence_value_expr(
         self,
     ) -> ParseResult<'a, Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
-        match self.peek_opcode() {
+        let result = match self.peek_opcode() {
             // The buffer is empty.
-            None => Ok((None, self)),
+            None => return Ok((None, self)),
             // The next expression is an e-expression.
             Some(opcode) if opcode.is_e_expression() => {
                 let (eexp, remaining_input) = match self.read_e_expression(opcode) {
@@ -347,28 +347,32 @@ impl<'a> ImmutableBuffer<'a> {
                     Err(e) => return Err(e),
                 };
                 let value_expr_ref = &*self.context().allocator().alloc_with(|| eexp);
-                Ok((Some(RawValueExpr::EExp(value_expr_ref)), remaining_input))
+                return Ok((Some(RawValueExpr::EExp(value_expr_ref)), remaining_input));
             }
-            // The next expression is a value literal.
-            Some(opcode) if opcode.ion_type.is_some() || opcode.is_annotations_sequence() => {
-                let (value, remaining_input) = match self.read_value(opcode) {
-                    Ok(v) => v,
-                    Err(e) => return Err(e),
-                };
-                let value_expr_ref = &*self.context().allocator().alloc_with(|| value);
-                Ok((
-                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(
-                        value_expr_ref,
-                    )),
-                    remaining_input,
-                ))
+            // The next expression is an unannotated value literal.
+            Some(opcode) if opcode.ion_type.is_some() => {
+                self.read_value_without_annotations(opcode)
             }
+            // The next expression is an annotated value literal.
+            Some(opcode) if opcode.is_annotations_sequence() => self.read_annotated_value(opcode),
             // If it's neither an e-expression nor a value, it must be a NOP. This method will
             // confirm that and then scan past the NOP pad before calling this one again. This
             // mutual recursion can only occur once because the NOP scanner must find a value or
             // e-expression after the NOP.
-            Some(_) => self.read_nop_then_sequence_value(),
-        }
+            Some(_) => return self.read_nop_then_sequence_value(),
+        };
+
+        let (value, remaining) = match result {
+            Ok((value, remaining)) => (value, remaining),
+            Err(e) => return Err(e),
+        };
+        let value_expr_ref = &*self.context().allocator().alloc_with(|| value);
+        Ok((
+            Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(
+                value_expr_ref,
+            )),
+            remaining,
+        ))
     }
 
     #[inline(never)]
@@ -450,7 +454,7 @@ impl<'a> ImmutableBuffer<'a> {
         let int_bytes = self
             .peek_n_bytes(length)
             .ok_or_else(|| IonError::incomplete("a FixedInt", self.offset()))?;
-        let fixed_int = FixedInt::read(int_bytes, length, 0)?;
+        let fixed_int = FixedInt::read(int_bytes, length, self.offset())?;
         Ok((fixed_int, self.consume(length)))
     }
 
@@ -694,7 +698,8 @@ pub struct ArgGroupingBitmap {
 
 impl ArgGroupingBitmap {
     const BITS_PER_VARIADIC_PARAM: usize = 2;
-    pub(crate) const MAX_VARIADIC_PARAMS: usize = size_of::<u64>() / Self::BITS_PER_VARIADIC_PARAM;
+    pub(crate) const MAX_VARIADIC_PARAMS: usize =
+        size_of::<u64>() * 8 / Self::BITS_PER_VARIADIC_PARAM;
     pub(crate) fn new(num_args: usize, bits: u64) -> Self {
         Self { num_args, bits }
     }

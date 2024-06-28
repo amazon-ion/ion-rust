@@ -592,8 +592,8 @@ mod tests {
             .expressions()
             .get(index)
             .expect("no such expansion step")
-            .expect_element()
-            .unwrap_or_else(|_| panic!("expected value {expected:?}"));
+            .require_element();
+        // .unwrap_or_else(|_| panic!("expected value {expected:?}"));
         assert_eq!(actual.value(), &expected);
         Ok(())
     }
@@ -653,8 +653,8 @@ mod tests {
             .expressions()
             .get(index)
             .expect("requested index does not exist")
-            .expect_element()
-            .unwrap();
+            .require_element();
+        // .unwrap();
         let actual_annotations = definition
             .body
             .annotations_storage()

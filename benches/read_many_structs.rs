@@ -119,6 +119,11 @@ mod benchmark {
             )
         "#;
 
+        let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let compiled_macro =
+            TemplateCompiler::compile_from_text(empty_context.get_ref(), template_definition_text)
+                .unwrap();
+
         // let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
         let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(NUM_VALUES);
 
@@ -284,9 +289,7 @@ mod benchmark {
         binary_1_1_group.bench_function("scan all", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Binary, &binary_1_1_data).unwrap();
-                reader
-                    .register_template_src(template_definition_text)
-                    .unwrap();
+                reader.register_template(compiled_macro.clone()).unwrap();
                 while let Some(item) = reader.next().unwrap() {
                     black_box(item);
                 }
@@ -295,9 +298,7 @@ mod benchmark {
         binary_1_1_group.bench_function("read all", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
-                reader
-                    .register_template_src(template_definition_text)
-                    .unwrap();
+                reader.register_template(compiled_macro.clone()).unwrap();
                 let mut num_values = 0usize;
                 while let Some(item) = reader.next().unwrap() {
                     num_values += count_value_and_children(&item).unwrap();
@@ -306,12 +307,6 @@ mod benchmark {
             })
         });
         binary_1_1_group.bench_function("read 'format' field", |b| {
-            let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
-            let compiled_macro = TemplateCompiler::compile_from_text(
-                empty_context.get_ref(),
-                template_definition_text,
-            )
-            .unwrap();
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Binary, binary_1_1_data.as_slice()).unwrap();
                 reader.register_template(compiled_macro.clone()).unwrap();

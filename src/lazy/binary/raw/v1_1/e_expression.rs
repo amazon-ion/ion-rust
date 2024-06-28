@@ -9,9 +9,8 @@ use crate::lazy::binary::raw::v1_1::immutable_buffer::{
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::e_expression::ArgGroup;
-use crate::lazy::expanded::macro_evaluator::{
-    EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
-};
+use crate::lazy::expanded::macro_evaluator::MacroExprSource;
+use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression, ValueExpr};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::template::{MacroSignature, Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
@@ -248,14 +247,13 @@ impl<'top> Iterator for BinaryEExpArgsIterator_1_1<'top> {
                         EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_literal))
                     }
                     ValueExpr::MacroInvocation(invocation) => {
-                        let expr = match invocation {
-                            MacroExpr::TemplateMacro(_) => {
+                        use MacroExprSource::*;
+                        let expr = match invocation.source() {
+                            TemplateMacro(_) => {
                                 unreachable!("e-expression cannot be a TDL macro invocation")
                             }
-                            MacroExpr::EExp(eexp) => EExpArgExpr::EExp(eexp.raw_invocation),
-                            MacroExpr::EExpArgGroup(group) => {
-                                EExpArgExpr::ArgGroup(group.raw_arg_group())
-                            }
+                            EExp(eexp) => EExpArgExpr::EExp(eexp.raw_invocation),
+                            EExpArgGroup(group) => EExpArgExpr::ArgGroup(group.raw_arg_group()),
                         };
                         EExpArg::new(parameter, expr)
                     }

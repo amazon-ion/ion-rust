@@ -4,14 +4,14 @@ use std::ops::{Deref, Range};
 
 use rustc_hash::FxHashMap;
 
-use crate::{Bytes, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp, Value};
+use crate::{Bytes, Decimal, Int, IonResult, IonType, LazyExpandedFieldName, Str, Symbol, SymbolRef, Timestamp, Value};
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, ValueExpr};
-use crate::lazy::expanded::macro_table::MacroRef;
+use crate::lazy::expanded::macro_table::{Macro, MacroRef};
 use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
@@ -399,8 +399,7 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
         let name_element = self
             .expressions
             .get(name_expr_address)?
-            .expect_element()
-            .expect("field name must be a literal");
+            .require_element();
         let name: SymbolRef = match &name_element.value {
             TemplateValue::Symbol(s) => s.into(),
             TemplateValue::String(s) => s.text().into(),
@@ -422,9 +421,9 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
                         // accounted for the first expression, so there's nothing else to do here.
                     }
                 };
-                UnexpandedField::TemplateNameValue(
-                    name,
-                    TemplateElement::new(self.template, element),
+                UnexpandedField::NameValue(
+                    LazyExpandedFieldName::TemplateName(self.template, name),
+                    LazyExpandedValue::from_template(self.context, self.environment, TemplateElement::new(self.template, element)),
                 )
             }
             TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
@@ -444,15 +443,21 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
                         .unwrap(),
                 );
                 self.index += invocation.arg_expressions.len();
-                UnexpandedField::TemplateNameMacro(name, invocation)
+                UnexpandedField::NameMacro(
+                    LazyExpandedFieldName::TemplateName(self.template, name),
+                    MacroExpr::from_template_macro(invocation)
+                )
             }
             TemplateBodyValueExpr::Variable(variable) => {
                 let arg_expr = self
                     .environment
-                    .get_expected(variable.signature_index())
-                    .expect("reference to non-existent parameter");
-                let variable_ref = variable.resolve(self.template);
-                UnexpandedField::TemplateNameVariable(name, (variable_ref, arg_expr))
+                    .require_expr(variable.signature_index());
+                let variable_ref = variable.resolve(self.template.macro_ref.reference());
+                let field_name = LazyExpandedFieldName::TemplateName(self.template, name);
+                match arg_expr {
+                    ValueExpr::ValueLiteral(value) => UnexpandedField::NameValue(field_name, value.via_variable(variable_ref)),
+                    ValueExpr::MacroInvocation(invocation) => UnexpandedField::NameMacro(field_name, invocation)
+                }
             }
         };
         self.index += 2;
@@ -512,24 +517,16 @@ pub enum TemplateBodyValueExpr {
 }
 
 impl TemplateBodyValueExpr {
-    /// Returns `Ok(&element)` if this expression is an annotated value. Otherwise, returns
-    /// `Err(IonError)`.
-    pub fn expect_element(&self) -> IonResult<&TemplateBodyElement> {
-        match self {
-            TemplateBodyValueExpr::Element(e) => Ok(e),
-            TemplateBodyValueExpr::Variable(variable_reference) => {
-                let index = variable_reference.signature_index();
-                IonResult::decoding_error(format!(
-                    "expected an element, found reference variable with signature index '{index}'"
-                ))
-            }
-            TemplateBodyValueExpr::MacroInvocation(invocation) => {
-                let address = invocation.macro_address();
-                IonResult::decoding_error(format!(
-                    "expected an element, found macro at address {address}"
-                ))
-            }
+    /// Confirms that this value expression is a value literal and panics if it is not.
+    ///
+    /// When this method is called, it is because the rules of the template compiler have
+    /// dictated that an element in this position be a value literal.
+    #[inline]
+    pub fn require_element(&self) -> &TemplateBodyElement {
+        if let TemplateBodyValueExpr::Element(e) = self {
+            return e;
         }
+        unreachable!("The compiled template contained a non-element in element position");
     }
 
     /// This helper method is invoked by the `Debug` implementation of `TemplateMacro`, which provides
@@ -847,7 +844,7 @@ impl<'top> TemplateMacroInvocation<'top> {
 
 impl<'top, D: Decoder> From<TemplateMacroInvocation<'top>> for MacroExpr<'top, D> {
     fn from(value: TemplateMacroInvocation<'top>) -> Self {
-        MacroExpr::TemplateMacro(value)
+        MacroExpr::from_template_macro(value)
     }
 }
 
@@ -896,13 +893,9 @@ impl<'top, D: Decoder> Iterator for TemplateMacroInvocationArgsIterator<'top, D>
                     TemplateElement::new(self.invocation.host_template(), e),
                 ))
             }
-            TemplateBodyValueExpr::Variable(variable_ref) => match self
+            TemplateBodyValueExpr::Variable(variable_ref) => self
                 .environment
-                .get_expected(variable_ref.signature_index())
-            {
-                Ok(expr) => expr,
-                Err(e) => return Some(Err(e)),
-            },
+                .require_expr(variable_ref.signature_index()),
             TemplateBodyValueExpr::MacroInvocation(body_invocation) => {
                 let invocation = body_invocation
                     .resolve(self.invocation.host_template(), self.invocation.context);
@@ -940,12 +933,12 @@ impl TemplateBodyVariableReference {
     /// about the template definition to be retrieved later.
     pub(crate) fn resolve<'top>(
         &self,
-        template: TemplateMacroRef<'top>,
+        host_macro: &'top Macro,
     ) -> TemplateVariableReference<'top> {
-        TemplateVariableReference {
-            template,
-            signature_index: self.signature_index,
-        }
+        TemplateVariableReference::new(
+            host_macro,
+            self.signature_index,
+        )
     }
 }
 
