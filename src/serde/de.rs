@@ -22,7 +22,9 @@ where
     let item = reader.next_item()?;
     match item {
         SystemStreamItem::VersionMarker(marker) => {
-            // Note that this uses an older encoding here, but the format (i.e text or binary) stays the same which is why using the older encoding here works fine.
+            // Note that this uses the Ion version with which the IVM was encoded rather than
+            // the Ion version the stream is switching to. We can do this because the format
+            // (i.e text or binary) stays the same when the version changes.
             // TODO: Use new encoding, once we have APIs to get new/old encodings for the marker.
             let is_human_readable = marker.encoding().is_text();
             let value = reader.expect_next_value()?;
@@ -33,11 +35,9 @@ where
             let value_deserializer = ValueDeserializer::new(&value, true);
             T::deserialize(value_deserializer)
         }
-        _ => {
-            return IonResult::decoding_error(
-                "The first item found as symbol table or end of stream while reading",
-            );
-        }
+        _ => IonResult::decoding_error(
+            "The first item found as symbol table or end of stream while reading",
+        ),
     }
 }
 
