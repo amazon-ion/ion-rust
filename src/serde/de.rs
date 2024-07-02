@@ -3,14 +3,13 @@ use serde::de::{DeserializeOwned, DeserializeSeed, EnumAccess, MapAccess, SeqAcc
 
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::r#struct::{LazyField, StructIterator};
-use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
-use crate::{Decimal, IonError, IonResult, IonType, Timestamp};
+use crate::{Decimal, IonError, IonResult, IonType, SystemReader, SystemStreamItem, Timestamp};
 
 /// Generic method that can deserialize an object from any given type
 /// that implements `IonInput`.
@@ -19,20 +18,41 @@ where
     T: DeserializeOwned,
     I: IonInput,
 {
-    let mut reader = Reader::new(AnyEncoding, input)?;
-    let value = reader.expect_next()?;
-    let value_deserializer = ValueDeserializer::new(&value);
-    T::deserialize(value_deserializer)
+    let mut reader = SystemReader::new(AnyEncoding, input);
+    let item = reader.next_item()?;
+    match item {
+        SystemStreamItem::VersionMarker(marker) => {
+            // Note that this uses the Ion version with which the IVM was encoded rather than
+            // the Ion version the stream is switching to. We can do this because the format
+            // (i.e text or binary) stays the same when the version changes.
+            // TODO: Use new encoding, once we have APIs to get new/old encodings for the marker.
+            let is_human_readable = marker.encoding().is_text();
+            let value = reader.expect_next_value()?;
+            let value_deserializer = ValueDeserializer::new(&value, is_human_readable);
+            T::deserialize(value_deserializer)
+        }
+        SystemStreamItem::Value(value) => {
+            let value_deserializer = ValueDeserializer::new(&value, true);
+            T::deserialize(value_deserializer)
+        }
+        _ => IonResult::decoding_error(
+            "The first item found as symbol table or end of stream while reading",
+        ),
+    }
 }
 
 #[derive(Clone, Copy)]
 pub struct ValueDeserializer<'a, 'de> {
     pub(crate) value: &'a LazyValue<'de, AnyEncoding>,
+    is_human_readable: bool,
 }
 
 impl<'a, 'de> ValueDeserializer<'a, 'de> {
-    pub(crate) fn new(value: &'a LazyValue<'de, AnyEncoding>) -> Self {
-        Self { value }
+    pub(crate) fn new(value: &'a LazyValue<'de, AnyEncoding>, is_human_readable: bool) -> Self {
+        Self {
+            value,
+            is_human_readable,
+        }
     }
 
     fn deserialize_as_sequence<V: Visitor<'de>>(
@@ -41,8 +61,8 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
     ) -> Result<V::Value, <Self as de::Deserializer<'de>>::Error> {
         use ValueRef::*;
         match self.value.read()? {
-            List(l) => visitor.visit_seq(SequenceIterator(l.iter())),
-            SExp(l) => visitor.visit_seq(SequenceIterator(l.iter())),
+            List(l) => visitor.visit_seq(SequenceIterator(l.iter(), self.is_human_readable)),
+            SExp(l) => visitor.visit_seq(SequenceIterator(l.iter(), self.is_human_readable)),
             _ => IonResult::decoding_error("expected a list or sexp"),
         }
     }
@@ -51,7 +71,7 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
         visitor: V,
     ) -> Result<V::Value, <Self as de::Deserializer<'de>>::Error> {
         let strukt = self.value.read()?.expect_struct()?;
-        let struct_as_map = StructAsMap::new(strukt.iter());
+        let struct_as_map = StructAsMap::new(strukt.iter(), self.is_human_readable);
 
         visitor.visit_map(struct_as_map)
     }
@@ -59,6 +79,12 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
 
 impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     type Error = IonError;
+
+    /// Determine whether Deserialize implementations should expect to deserialize their human-readable form.
+    /// For binary Ion this will return `false` and for text Ion this will return `true`.
+    fn is_human_readable(&self) -> bool {
+        self.is_human_readable
+    }
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -426,7 +452,7 @@ impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
     }
 }
 
-pub(crate) struct SequenceIterator<S>(pub(crate) S);
+pub(crate) struct SequenceIterator<S>(pub(crate) S, bool);
 
 impl<'de, S> SeqAccess<'de> for SequenceIterator<S>
 where
@@ -441,7 +467,7 @@ where
         let Some(lazy_value) = self.0.next().transpose()? else {
             return Ok(None);
         };
-        let deserializer = ValueDeserializer::new(&lazy_value);
+        let deserializer = ValueDeserializer::new(&lazy_value, self.1);
         seed.deserialize(deserializer).map(Some)
     }
 }
@@ -449,13 +475,15 @@ where
 struct StructAsMap<'de> {
     iter: StructIterator<'de, AnyEncoding>,
     current_field: Option<LazyField<'de, AnyEncoding>>,
+    is_human_readable: bool,
 }
 
 impl<'de> StructAsMap<'de> {
-    pub fn new(iter: StructIterator<'de, AnyEncoding>) -> Self {
+    pub fn new(iter: StructIterator<'de, AnyEncoding>, is_human_readable: bool) -> Self {
         Self {
             iter,
             current_field: None,
+            is_human_readable,
         }
     }
 }
@@ -490,6 +518,7 @@ impl<'de> MapAccess<'de> for StructAsMap<'de> {
             // This method will only be called when `next_key_seed` reported another field,
             // so we can unwrap this safely.
             &self.current_field.as_ref().unwrap().value(),
+            self.is_human_readable,
         ))
     }
 }
