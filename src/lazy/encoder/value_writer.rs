@@ -1,6 +1,6 @@
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
-use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsIonFields, WriteAsIonSequence};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
@@ -32,7 +32,9 @@ pub mod internal {
 }
 
 pub trait EExpWriter: SequenceWriter {
-    // TODO: methods for writing tagless encodings
+    // TODO: methods for writing tagless encodings OR
+    //       consider whether the tagless vs non-tagless can be deduced by the writer using the
+    //       macro signature rather than having distinct tagless methods.
 }
 
 pub trait AnnotatableWriter {
@@ -325,6 +327,25 @@ pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
         Ok(self)
     }
 
+    /// TODO:
+    ///   - naming: placeholder name is `write_fields`. Is this okay?
+    ///   - can we unify this with `write_all`?
+    ///   - Can we prevent non-terminating recursive implementations of [WriteAsIonFields] (such as
+    ///     this example) somehow using types and/or ownership?
+    /// ```
+    /// struct Point { x: usize, y: usize }
+    /// impl WriteAsIonFields for Point {
+    ///         fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+    ///             writer.write_fields(self)?;
+    ///             Ok(())
+    ///         }
+    ///     }
+    /// ```
+    fn write_fields<V: WriteAsIonFields>(&mut self, fields: V) -> IonResult<&mut Self> {
+        fields.write_as_ion_fields(self)?;
+        Ok(self)
+    }
+
     fn field_writer<'a>(&'a mut self, name: impl Into<RawSymbolRef<'a>>) -> FieldWriter<'a, Self> {
         FieldWriter::new(name.into(), self)
     }
@@ -347,7 +368,7 @@ macro_rules! delegate_and_return_self {
     };
 }
 
-pub trait SequenceWriter: MakeValueWriter {
+pub trait SequenceWriter: MakeValueWriter + Sized {
     /// The type returned by the [`end`](Self::close) method.
     ///
     /// For top-level writers, this can be any resource(s) owned by the writer that need to survive
@@ -376,6 +397,14 @@ pub trait SequenceWriter: MakeValueWriter {
         for value in values {
             self.write(value)?;
         }
+        Ok(self)
+    }
+
+    /// TODO:
+    ///   - naming: currently called `write_sequence`. Would something like `write_values` be better?
+    ///   - Can we unify this with `write_all`?
+    fn write_sequence<S: WriteAsIonSequence>(&mut self, values: S) -> IonResult<&mut Self> {
+        values.write_as_ion_sequence(self)?;
         Ok(self)
     }
 
@@ -420,6 +449,7 @@ pub trait SequenceWriter: MakeValueWriter {
         self.value_writer().eexp_writer(macro_id)
     }
 
+    // TODO: Could we unify this with the WriteAsIonSequence trait somehow?
     fn write_list<V: WriteAsIon, I: IntoIterator<Item = V>>(
         &mut self,
         values: I,
@@ -428,6 +458,7 @@ pub trait SequenceWriter: MakeValueWriter {
         Ok(self)
     }
 
+    // TODO: Could we unify this with the WriteAsIonSequence trait somehow?
     fn write_sexp<V: WriteAsIon, I: IntoIterator<Item = V>>(
         &mut self,
         values: I,
@@ -436,6 +467,7 @@ pub trait SequenceWriter: MakeValueWriter {
         Ok(self)
     }
 
+    // TODO: Could we unify this with the WriteAsIonFields trait somehow?
     fn write_struct<K: AsRawSymbolRef, V: WriteAsIon, I: IntoIterator<Item = (K, V)>>(
         &mut self,
         fields: I,
