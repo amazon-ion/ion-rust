@@ -303,38 +303,14 @@ impl<'a> ImmutableBuffer<'a> {
     pub(crate) fn peek_delimited_container(
         self,
         opcode: Opcode,
-    ) -> IonResult<LazyRawBinaryValue_1_1<'a>> {
+    ) -> IonResult<(DelimitedContents<'a>, ImmutableBuffer<'a>)> {
         use crate::IonType;
 
-        let (delimited_contents, after) = if let Some(IonType::Struct) = opcode.ion_type {
-            self.peek_delimited_struct()?
+        if let Some(IonType::Struct) = opcode.ion_type {
+            self.peek_delimited_struct()
         } else {
-            self.peek_delimited_sequence()?
-        };
-
-        let header = opcode
-            .to_header()
-            .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
-        let total_length = after.offset() - self.offset();
-        let value_body_length = total_length - 1; // Total length - sizeof(opcode)
-        let encoded_value = EncodedValue {
-            header,
-            annotations_header_length: 0,
-            annotations_sequence_length: 0,
-            annotations_encoding: AnnotationsEncoding::SymbolAddress,
-            header_offset: self.offset(),
-            length_length: 0,
-            total_length,
-            value_body_length,
-        };
-
-        let lazy_value = LazyRawBinaryValue_1_1 {
-            encoded_value,
-            input: self,
-            delimited_contents,
-        };
-
-        Ok(lazy_value)
+            self.peek_delimited_sequence()
+        }
     }
 
     pub(crate) fn peek_delimited_sequence(
@@ -488,10 +464,13 @@ impl<'a> ImmutableBuffer<'a> {
             .to_header()
             .ok_or_else(|| IonError::decoding_error("found a non-value in value position .."))?;
 
-        if opcode.is_delimited() {
-            self.peek_delimited_container(opcode)
+
+        let (total_length, length_length, value_body_length, delimited_contents) = if opcode.is_delimited() {
+            let (contents, after) = input.peek_delimited_container(opcode)?;
+            let total_length = after.offset() - self.offset();
+            let value_body_length = total_length - 1; // Total length - sizeof(opcode)
+            (total_length, 0, value_body_length, contents)
         } else {
-            let header_offset = input.offset();
             let length = match input.consume(1).read_value_length(header)? {
                 (None, _) => FlexUInt::new(0, 0), // Delimited value, we do not know the size.
                 (Some(length), _) => length,
@@ -501,26 +480,28 @@ impl<'a> ImmutableBuffer<'a> {
             let total_length = 1 // Header byte
                 + length_length as usize
                 + value_length;
+            (total_length, length_length, value_length, DelimitedContents::None)
+        };
 
-            let encoded_value = EncodedValue {
-                header,
-                // If applicable, these are populated by the caller: `read_annotated_value()`
-                annotations_header_length: 0,
-                annotations_sequence_length: 0,
-                annotations_encoding: AnnotationsEncoding::SymbolAddress,
-                header_offset,
-                length_length,
-                value_body_length: value_length,
-                total_length,
-            };
-            let lazy_value = LazyRawBinaryValue_1_1 {
-                encoded_value,
-                // If this value has a field ID or annotations, this will be replaced by the caller.
-                input: self,
-                delimited_contents: DelimitedContents::None,
-            };
-            Ok(lazy_value)
-        }
+        let header_offset = input.offset();
+        let mut encoded_value = EncodedValue {
+            header,
+            annotations_header_length: 0,
+            annotations_sequence_length: 0,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
+            header_offset,
+            length_length,
+            value_body_length,
+            total_length,
+        };
+
+        let lazy_value = LazyRawBinaryValue_1_1 {
+            encoded_value,
+            // If this value has a field ID or annotations, this will be replaced by the caller.
+            input: self,
+            delimited_contents,
+        };
+        Ok(lazy_value)
     }
 
     pub fn read_fixed_int(self, length: usize) -> ParseResult<'a, FixedInt> {
