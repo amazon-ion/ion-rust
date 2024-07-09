@@ -142,8 +142,8 @@ mod tests {
     use rstest::*;
 
     use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
-    use crate::lazy::expanded::EncodingContext;
     use crate::lazy::decoder::LazyRawSequence;
+    use crate::lazy::expanded::EncodingContext;
     use crate::raw_symbol_ref::RawSymbolRef;
     use crate::{IonResult, IonType};
 

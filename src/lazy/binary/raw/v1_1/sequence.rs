@@ -2,7 +2,7 @@
 
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
-use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
+use crate::lazy::binary::raw::v1_1::value::{DelimitedContents, LazyRawBinaryValue_1_1};
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_1;
@@ -101,7 +101,7 @@ impl<'top> LazyRawBinarySequence_1_1<'top> {
         } else {
             self.value.available_body()
         };
-        RawBinarySequenceIterator_1_1::new(buffer_slice, self.value.delimited_offsets)
+        RawBinarySequenceIterator_1_1::new(buffer_slice, self.value.delimited_contents)
     }
 }
 
@@ -141,18 +141,23 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
 pub struct RawBinarySequenceIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
     bytes_to_skip: usize,
-    delimited_offsets: Option<&'top [usize]>,
+    delimited_contents: DelimitedContents<'top>,
+    delimited_iter: Option<std::slice::Iter<'top, LazyRawValueExpr<'top, BinaryEncoding_1_1>>>,
 }
 
 impl<'top> RawBinarySequenceIterator_1_1<'top> {
     pub(crate) fn new(
         input: ImmutableBuffer<'top>,
-        delimited_offsets: Option<&'top [usize]>,
+        delimited_contents: DelimitedContents<'top>,
     ) -> RawBinarySequenceIterator_1_1<'top> {
         RawBinarySequenceIterator_1_1 {
             source: input,
             bytes_to_skip: 0,
-            delimited_offsets,
+            delimited_contents,
+            delimited_iter: match &delimited_contents {
+                DelimitedContents::Values(vals) => Some(vals.iter()),
+                _ => None,
+            },
         }
     }
 }
@@ -161,31 +166,8 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_1<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use crate::lazy::binary::raw::v1_1::type_code::OpcodeType;
-        use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
-
-        if let Some(offsets) = self.delimited_offsets {
-            if offsets.len() <= 1 {
-                None
-            } else {
-                let offset = offsets.first().unwrap(); // Safety: Already tested that there's > 1 item.
-                let input = self.source.consume(*offset - self.source.offset());
-                match input.peek_opcode() {
-                    Ok(Opcode {
-                        opcode_type: OpcodeType::DelimitedContainerClose,
-                        ..
-                    }) => None,
-                    Ok(_) => match input.peek_sequence_value_expr() {
-                        Ok(Some(output)) => {
-                            self.delimited_offsets.replace(&offsets[1..]);
-                            Some(Ok(output))
-                        }
-                        Ok(None) => None,
-                        Err(e) => Some(Err(e)),
-                    },
-                    Err(e) => Some(Err(e)),
-                }
-            }
+        if let Some(ref mut inner_iter) = &mut self.delimited_iter {
+            inner_iter.next().map(|val| Ok(*val))
         } else {
             self.source = self.source.consume(self.bytes_to_skip);
             let item = match self.source.peek_sequence_value_expr() {

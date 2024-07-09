@@ -133,6 +133,10 @@ impl Opcode {
         self.opcode_type.is_delimited()
     }
 
+    pub fn is_delimited_end(&self) -> bool {
+        self.opcode_type.is_delimited_end()
+    }
+
     #[inline]
     pub fn to_header(self) -> Option<Header> {
         let ion_type = self.ion_type?;

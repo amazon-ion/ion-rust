@@ -61,6 +61,10 @@ impl OpcodeType {
             Self::ListDelimited | Self::SExpressionDelimited | Self::StructDelimited
         )
     }
+
+    pub fn is_delimited_end(self) -> bool {
+        Self::DelimitedContainerClose == self
+    }
 }
 
 impl TryFrom<OpcodeType> for IonType {

@@ -18,7 +18,7 @@ use crate::{
                 value::ValueParseResult,
             },
         },
-        decoder::{Decoder, LazyRawValue},
+        decoder::{Decoder, LazyRawFieldExpr, LazyRawValue, LazyRawValueExpr},
         encoder::binary::v1_1::fixed_int::FixedInt,
         encoding::BinaryEncoding_1_1,
         raw_value_ref::RawValueRef,
@@ -81,10 +81,23 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub enum DelimitedContents<'top> {
+    None,
+    Values(&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]),
+    Fields(&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]),
+}
+
+impl<'top> DelimitedContents<'top> {
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryValue_1_1<'top> {
     pub(crate) encoded_value: EncodedValue<Header>,
     pub(crate) input: ImmutableBuffer<'top>,
-    pub(crate) delimited_offsets: Option<&'top [usize]>,
+    pub(crate) delimited_contents: DelimitedContents<'top>,
 }
 
 impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_1<'top> {
