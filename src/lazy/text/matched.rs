@@ -1391,20 +1391,47 @@ mod tests {
                 "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
                 data, actual, expected
             );
+            assert_eq!(
+                actual.coefficient(),
+                expected.coefficient(),
+                "Actual coefficient didn't match expected coefficient for input '{}' .\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+            assert_eq!(
+                actual.exponent(),
+                expected.exponent(),
+                "Actual exponent didn't match expected exponent for input '{}' .\n{:?}\n!=\n{:?}",
+                data,
+                actual,
+                expected
+            );
         }
 
         let tests = [
             ("0.", Decimal::new(0, 0)),
             ("-0.", Decimal::negative_zero()),
+            ("0.0", Decimal::new(0, -1)),
+            ("0.00", Decimal::new(0, -2)),
+            ("0d-1", Decimal::new(0, -1)),
+            ("0d0", Decimal::new(0, 0)),
+            ("0d1", Decimal::new(0, 1)),
+            ("0d2", Decimal::new(0, 2)),
+            ("0.0d1", Decimal::new(0, 0)),
+            ("0.0d0", Decimal::new(0, -1)),
+            ("0.0d-1", Decimal::new(0, -2)),
             ("5.", Decimal::new(5, 0)),
             ("-5.", Decimal::new(-5, 0)),
             ("5.d0", Decimal::new(5, 0)),
             ("-5.d0", Decimal::new(-5, 0)),
             ("5.0", Decimal::new(50, -1)),
+            ("5.0d1", Decimal::new(50, 0)),
+            ("5.0d0", Decimal::new(50, -1)),
+            ("5.0d-1", Decimal::new(50, -2)),
             ("-5.0", Decimal::new(-50, -1)),
-            ("500d0", Decimal::new(5, 2)),
-            ("-500d0", Decimal::new(-5, 2)),
+            ("500d0", Decimal::new(500, 0)),
+            ("-500d0", Decimal::new(-500, 0)),
             ("0.005", Decimal::new(5, -3)),
+            ("0.0050", Decimal::new(50, -4)),
             ("-0.005", Decimal::new(-5, -3)),
             ("0.005D2", Decimal::new(5, -1)),
             ("-0.005D2", Decimal::new(-5, -1)),

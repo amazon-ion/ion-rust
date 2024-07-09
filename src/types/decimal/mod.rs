@@ -85,11 +85,7 @@ impl Decimal {
 
     /// Returns the number of digits in the non-scaled integer representation of the decimal.
     pub fn precision(&self) -> u64 {
-        let num_decimal_digits = self.coefficient.number_of_decimal_digits() as u64;
-        if self.exponent > 0 {
-            return num_decimal_digits + self.exponent.unsigned_abs();
-        }
-        num_decimal_digits
+        self.coefficient.number_of_decimal_digits() as u64
     }
 
     /// Constructs a Decimal with the value `-0d0`. This is provided as a convenience method
@@ -538,19 +534,45 @@ mod decimal_tests {
 
     #[rstest]
     // Each tuple is a coefficient/exponent pair that will be used to construct a Decimal
-    #[case((80, 3), Ordering::Equal, (80, 3))]
-    #[case((80, 3), Ordering::Greater, (-80, 3))]
-    #[case((80, 3), Ordering::Greater, (8, 3))]
-    #[case((80, 4), Ordering::Greater, (8, 3))]
-    #[case((-80, 4), Ordering::Equal, (-80, 4))]
-    #[case((-80, 4), Ordering::Less, (-8, 3))]
-    #[case((-80, 4), Ordering::Equal, (-8, 5))]
+    // Positive numbers
+    #[case((80, 3), Ordering::Equal,   (80, 3))]
+    #[case((80, 3), Ordering::Greater, (79, 3))]
+    #[case((80, 3), Ordering::Less,    (81, 3))]
+    #[case((80, 3), Ordering::Greater, (80, 2))]
+    #[case((80, 3), Ordering::Less,    (80, 4))]
+    #[case((80, 3), Ordering::Equal,   (8, 4))]
+    #[case((80, 3), Ordering::Equal,   (800, 2))]
+    // Negative numbers
+    #[case((-80, 3), Ordering::Equal,   (-80, 3))]
+    #[case((-80, 3), Ordering::Less,    (-79, 3))]
+    #[case((-80, 3), Ordering::Greater, (-81, 3))]
+    #[case((-80, 3), Ordering::Less,    (-80, 2))]
+    #[case((-80, 3), Ordering::Greater, (-80, 4))]
+    #[case((-80, 3), Ordering::Equal,   (-8, 4))]
+    #[case((-80, 3), Ordering::Equal,   (-800, 2))]
+    // Positive zeros
+    #[case((0, 3), Ordering::Equal,   (0, 3))]
+    #[case((0, 3), Ordering::Greater, (-1, 3))]
+    #[case((0, 3), Ordering::Less,    (1, 3))]
+    #[case((0, 3), Ordering::Equal,   (0, -2))]
+    #[case((0, 3), Ordering::Equal,   (0, -1))]
+    #[case((0, 3), Ordering::Equal,   (0, 0))]
+    #[case((0, 3), Ordering::Equal,   (0, 1))]
+    #[case((0, 3), Ordering::Equal,   (0, 2))]
+    // Negative zeros
+    #[case((0, 3), Ordering::Equal,   (Coefficient::NEGATIVE_ZERO, -1))]
+    #[case((0, 3), Ordering::Equal,   (Coefficient::NEGATIVE_ZERO, 0))]
+    #[case((0, 3), Ordering::Equal,   (Coefficient::NEGATIVE_ZERO, 1))]
+    #[case((Coefficient::NEGATIVE_ZERO, 3), Ordering::Equal,   (Coefficient::NEGATIVE_ZERO, -1))]
+    #[case((Coefficient::NEGATIVE_ZERO, 3), Ordering::Equal,   (Coefficient::NEGATIVE_ZERO, 0))]
+    #[case((Coefficient::NEGATIVE_ZERO, 3), Ordering::Equal,   (Coefficient::NEGATIVE_ZERO, 1))]
+    // Other interesting numbers
     #[case((-1000, -1), Ordering::Less, (-99_999_999_999i64, -9))]
     #[case((1000, -1), Ordering::Greater, (99_999_999_999i64, -9))]
-    fn test_decimal_ord<I: Into<Coefficient>>(
-        #[case] components1: (I, i64),
+    fn test_decimal_ord<A: Into<Coefficient>, B: Into<Coefficient>>(
+        #[case] components1: (A, i64),
         #[case] ordering: Ordering,
-        #[case] components2: (I, i64),
+        #[case] components2: (B, i64),
     ) {
         let decimal1 = Decimal::new(components1.0.into(), components1.1);
         let decimal2 = Decimal::new(components2.0.into(), components2.1);
@@ -613,22 +635,54 @@ mod decimal_tests {
     }
 
     #[rstest]
-    #[case(Decimal::new(-24601, -3), 3)]
+    #[case(Decimal::new(23, -3), 3)]
+    #[case(Decimal::new(23, -2), 2)]
+    #[case(Decimal::new(23, -1), 1)]
+    #[case(Decimal::new(23, 0), 0)]
+    #[case(Decimal::new(23, 1), -1)]
+    #[case(Decimal::new(23, 2), -2)]
+    #[case(Decimal::new(23, 3), -3)]
+    #[case(Decimal::new(4, 3), -3)]
+    #[case(Decimal::new(40, 3), -3)]
+    #[case(Decimal::new(400, 3), -3)]
+    #[case(Decimal::new(5, -4), 4)]
+    #[case(Decimal::new(50, -4), 4)]
+    #[case(Decimal::new(500, -4), 4)]
+    #[case(Decimal::new(0, 0), 0)]
+    #[case(Decimal::negative_zero(), 0)]
+    #[case(Decimal::negative_zero_with_exponent(1), -1)]
+    #[case(Decimal::negative_zero_with_exponent(2), -2)]
     #[case(Decimal::new(u64::MAX, -5), 5)]
     #[case(Decimal::new(u64::MAX, 0), 0)]
-    #[case(Decimal::new(4, 3), -3)]
     fn test_scale(#[case] value: Decimal, #[case] expected: i64) {
         assert_eq!(value.scale(), expected)
     }
 
     #[rstest]
-    #[case(Decimal::new(-24601, -3), 5)]
+    #[case(Decimal::new(-24600, -3), 5)]
+    #[case(Decimal::new(-24600, -2), 5)]
+    #[case(Decimal::new(-24600, -1), 5)]
+    #[case(Decimal::new(-24600, 0), 5)]
+    #[case(Decimal::new(-24600, 1), 5)]
+    #[case(Decimal::new(-24600, 2), 5)]
+    #[case(Decimal::new(-24600, 3), 5)]
     #[case(Decimal::new(5, -3), 1)]
-    #[case(Decimal::new(24, -5), 2)]
+    #[case(Decimal::new(50, -3), 2)]
+    #[case(Decimal::new(500, -3), 3)]
+    #[case(Decimal::new(6, 3), 1)]
+    #[case(Decimal::new(60, 3), 2)]
+    #[case(Decimal::new(600, 3), 3)]
+    #[case(Decimal::new(0, -2), 1)]
+    #[case(Decimal::new(0, -1), 1)]
     #[case(Decimal::new(0, 0), 1)]
-    #[case(Decimal::new(234, 0), 3)]
-    #[case(Decimal::new(-234, 2), 5)]
-    #[case(Decimal::new(u64::MAX, 3), 23)]
+    #[case(Decimal::new(0, 1), 1)]
+    #[case(Decimal::new(0, 2), 1)]
+    #[case(Decimal::negative_zero_with_exponent(-2), 1)]
+    #[case(Decimal::negative_zero_with_exponent(-1), 1)]
+    #[case(Decimal::negative_zero(), 1)]
+    #[case(Decimal::negative_zero_with_exponent(1), 1)]
+    #[case(Decimal::negative_zero_with_exponent(2), 1)]
+    #[case(Decimal::new(u64::MAX, 3), 20)]
     #[case(Decimal::new(i128::MAX, -2), 39)]
     fn test_precision(#[case] value: Decimal, #[case] expected: u64) {
         assert_eq!(value.precision(), expected);
