@@ -484,7 +484,7 @@ impl<'a> ImmutableBuffer<'a> {
         };
 
         let header_offset = input.offset();
-        let mut encoded_value = EncodedValue {
+        let encoded_value = EncodedValue {
             header,
             annotations_header_length: 0,
             annotations_sequence_length: 0,
