@@ -65,7 +65,7 @@ impl<'top, D: Decoder> ArgGroup<'top, D> {
     }
     pub fn new_evaluation_environment(&self) -> IonResult<Environment<'top, D>> {
         let allocator = self.context.allocator();
-        let num_args = self.invoked_macro().signature().parameters().len();
+        let num_args = self.invoked_macro().signature().len();
         let mut env_exprs = BumpVec::with_capacity_in(num_args, allocator);
         // Populate the environment by parsing the arguments from input
         for expr in self.raw_arg_group().iter() {

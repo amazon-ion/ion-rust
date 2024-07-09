@@ -884,7 +884,7 @@ mod tests {
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
-        assert_eq!(template.signature().parameters().len(), 0);
+        assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::Int(42.into()))?;
         Ok(())
     }
@@ -898,7 +898,7 @@ mod tests {
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
-        assert_eq!(template.signature().parameters().len(), 0);
+        assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::List)?;
         expect_value(&template, 1, TemplateValue::Int(1.into()))?;
         expect_value(&template, 2, TemplateValue::Int(2.into()))?;
@@ -915,7 +915,7 @@ mod tests {
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
-        assert_eq!(template.signature().parameters().len(), 0);
+        assert_eq!(template.signature().len(), 0);
         expect_macro(
             &template,
             0,
@@ -963,7 +963,7 @@ mod tests {
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "identity");
-        assert_eq!(template.signature().parameters().len(), 1);
+        assert_eq!(template.signature().len(), 1);
         expect_variable(&template, 0, 0)?;
         Ok(())
     }
@@ -986,7 +986,7 @@ mod tests {
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
-        assert_eq!(template.signature().parameters().len(), 1);
+        assert_eq!(template.signature().len(), 1);
         // Outer `values`
         expect_macro(
             &template,

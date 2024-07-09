@@ -7,7 +7,7 @@ use bumpalo::collections::Vec as BumpVec;
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::v1_1::e_expression::{
-    BinaryEExpArgsIterator_1_1, RawBinaryEExpression_1_1,
+    BinaryEExpArgsIterator_1_1, BinaryEExpression_1_1,
 };
 use crate::lazy::binary::raw::v1_1::value::{
     LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
@@ -346,7 +346,7 @@ impl<'a> ImmutableBuffer<'a> {
         // Like RawValueExpr, but doesn't use references.
         enum ParseValueExprResult<'top> {
             Value(ParseResult<'top, LazyRawBinaryValue_1_1<'top>>),
-            EExp(ParseResult<'top, RawBinaryEExpression_1_1<'top>>),
+            EExp(ParseResult<'top, BinaryEExpression_1_1<'top>>),
         }
 
         use OpcodeType::*;
@@ -576,10 +576,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     #[inline]
-    pub fn read_e_expression(
-        self,
-        opcode: Opcode,
-    ) -> ParseResult<'a, RawBinaryEExpression_1_1<'a>> {
+    pub fn read_e_expression(self, opcode: Opcode) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
         match opcode.opcode_type {
             EExpressionWithAddress => return self.read_eexp_with_address_in_opcode(opcode),
@@ -592,7 +589,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_eexp_with_address_in_opcode(
         self,
         opcode: Opcode,
-    ) -> ParseResult<'a, RawBinaryEExpression_1_1<'a>> {
+    ) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         let input_after_opcode = self.consume(1);
         let macro_address = opcode.byte as usize;
 
@@ -639,7 +636,7 @@ impl<'a> ImmutableBuffer<'a> {
         let args_offset = input_after_bitmap.offset() - self.offset();
         Ok((
             {
-                RawBinaryEExpression_1_1::new(
+                BinaryEExpression_1_1::new(
                     MacroRef::new(macro_address, macro_ref),
                     bitmap_bits,
                     matched_eexp_bytes,
@@ -655,7 +652,7 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_eexp_with_length_prefix(
         self,
         _opcode: Opcode,
-    ) -> ParseResult<'a, RawBinaryEExpression_1_1<'a>> {
+    ) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         let input_after_opcode = self.consume(1);
         let (macro_address_flex_uint, input_after_address) = input_after_opcode.read_flex_uint()?;
         let (args_length_flex_uint, input_after_length) = input_after_address.read_flex_uint()?;
@@ -682,7 +679,7 @@ impl<'a> ImmutableBuffer<'a> {
         let args_offset = bitmap_offset + macro_ref.signature().bitmap_size_in_bytes() as u8;
         let remaining_input = self.consume(total_length);
         return Ok((
-            RawBinaryEExpression_1_1::new(
+            BinaryEExpression_1_1::new(
                 MacroRef::new(macro_address, macro_ref),
                 bitmap_bits,
                 matched_bytes,

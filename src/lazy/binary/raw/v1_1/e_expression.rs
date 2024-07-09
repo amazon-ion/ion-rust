@@ -47,7 +47,7 @@ impl BinaryEExpHeader {
 }
 
 #[derive(Copy, Clone)]
-pub struct RawBinaryEExpression_1_1<'top> {
+pub struct BinaryEExpression_1_1<'top> {
     // The arguments to the e-expression are parsed either:
     //
     //   1. when the e-expression is first encountered, if it is not length-prefixed.
@@ -75,7 +75,7 @@ pub struct RawBinaryEExpression_1_1<'top> {
     pub(crate) input: ImmutableBuffer<'top>,
 }
 
-impl<'top> RawBinaryEExpression_1_1<'top> {
+impl<'top> BinaryEExpression_1_1<'top> {
     pub fn new(
         macro_ref: MacroRef<'top>,
         bitmap_bits: u64,
@@ -102,25 +102,25 @@ impl<'top> RawBinaryEExpression_1_1<'top> {
     }
 }
 
-impl<'top> HasSpan<'top> for &'top RawBinaryEExpression_1_1<'top> {
+impl<'top> HasSpan<'top> for &'top BinaryEExpression_1_1<'top> {
     fn span(&self) -> Span<'top> {
         Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 
-impl<'top> HasRange for &'top RawBinaryEExpression_1_1<'top> {
+impl<'top> HasRange for &'top BinaryEExpression_1_1<'top> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
 }
 
-impl<'top> Debug for &'top RawBinaryEExpression_1_1<'top> {
+impl<'top> Debug for &'top BinaryEExpression_1_1<'top> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "<e-expression invoking id '{}'>", self.id())
     }
 }
 
-impl<'top> RawEExpression<'top, v1_1::Binary> for &'top RawBinaryEExpression_1_1<'top> {
+impl<'top> RawEExpression<'top, v1_1::Binary> for &'top BinaryEExpression_1_1<'top> {
     type RawArgumentsIterator = BinaryEExpArgsIterator_1_1<'top>;
     type ArgGroup = BinaryEExpArgGroup<'top>;
 
@@ -134,8 +134,7 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top RawBinaryEExpression_1_1
         if let Some(cache) = self.cache {
             return BinaryEExpArgsIterator_1_1::for_cache(signature, args_input.offset(), cache);
         }
-        let bitmap_iterator =
-            ArgGroupingBitmapIterator::new(signature.parameters().len(), self.bitmap_bits);
+        let bitmap_iterator = ArgGroupingBitmapIterator::new(signature.len(), self.bitmap_bits);
         BinaryEExpArgsIterator_1_1::for_input(bitmap_iterator, args_input, signature)
     }
 
@@ -154,7 +153,7 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top RawBinaryEExpression_1_1
         // in the vast majority of use cases, e-expressions are not evaluated more than once, which
         // means that populating the cache would be of little value.
         let allocator = context.allocator();
-        let num_args = self.macro_ref.signature().parameters().len();
+        let num_args = self.macro_ref.signature().len();
         let mut env_exprs = BumpVec::with_capacity_in(num_args, allocator);
         for expr in self.raw_arguments() {
             env_exprs.push(expr?.resolve(context)?);
@@ -164,10 +163,95 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top RawBinaryEExpression_1_1
 }
 
 #[derive(Debug, Copy, Clone)]
+pub enum BinaryEExpArgsSource<'top> {
+    // If the e-expression arguments were parsed when it was first encountered, their resolved
+    // representations are stored in a bump-allocated array. This iterator kind will iterate over
+    // the array.
+    Cache(BinaryEExpArgsCacheIter<'top>),
+    // If the e-expression was length-prefixed, the cache will not be populated. This iterator kind
+    // will incrementally parse the contents of the buffer range identified by the length prefix.
+    Input(BinaryEExpArgsInputIter<'top>),
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgsIterator_1_1<'top> {
     source: BinaryEExpArgsSource<'top>,
 }
 
+impl<'top> BinaryEExpArgsIterator_1_1<'top> {
+    pub fn for_input(
+        groupings_iter: ArgGroupingBitmapIterator,
+        remaining_args_buffer: ImmutableBuffer<'top>,
+        signature: &'top MacroSignature,
+    ) -> Self {
+        Self {
+            source: BinaryEExpArgsSource::Input(BinaryEExpArgsInputIter {
+                bitmap_iter: groupings_iter,
+                remaining_args_buffer,
+                param_index: 0,
+                signature,
+            }),
+        }
+    }
+
+    pub fn for_cache(
+        signature: &'top MacroSignature,
+        initial_offset: usize,
+        cache: &'top [ValueExpr<'top, BinaryEncoding_1_1>],
+    ) -> Self {
+        Self {
+            source: BinaryEExpArgsSource::Cache(BinaryEExpArgsCacheIter {
+                cache_exprs: cache,
+                initial_offset,
+                expr_index: 0,
+                signature,
+            }),
+        }
+    }
+
+    /// Reports the position of the iterator within the overall stream. Before `next()` has been
+    /// called for the first time, the position will be the first offset after the
+    /// opcode/address/length/bitmap. When the iterator is exhausted, the position will be
+    /// the first offset beyond the end of the e-expression.
+    pub fn offset(&self) -> usize {
+        match &self.source {
+            BinaryEExpArgsSource::Input(i) => i.remaining_args_buffer.offset(),
+            // If there weren't any args, then the iterator's position is where it started.
+            BinaryEExpArgsSource::Cache(c) if c.cache_exprs.is_empty() => c.initial_offset,
+            BinaryEExpArgsSource::Cache(c) => {
+                match c.cache_exprs.get(c.expr_index) {
+                    Some(value_expr) => value_expr.range().unwrap().end,
+                    // If the iterator is exhausted, then its offset is the end of the last arg expr.
+                    None => c.cache_exprs[c.expr_index - 1].range().unwrap().end,
+                }
+            }
+        }
+    }
+}
+
+impl<'top> Iterator for BinaryEExpArgsIterator_1_1<'top> {
+    type Item = IonResult<EExpArg<'top, v1_1::Binary>>;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.source {
+            BinaryEExpArgsSource::Input(ref mut input_iter) => input_iter.next(),
+            BinaryEExpArgsSource::Cache(ref mut cache_iter) => cache_iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let signature = match self.source {
+            BinaryEExpArgsSource::Input(i) => i.signature,
+            BinaryEExpArgsSource::Cache(i) => i.signature,
+        };
+        let num_args = signature.len();
+        // Tells the macro evaluator how much space to allocate to hold these arguments
+        (num_args, Some(num_args))
+    }
+}
+
+/// An iterator that incrementally parses e-expression arguments from a provided buffer.
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgsInputIter<'top> {
     bitmap_iter: ArgGroupingBitmapIterator,
@@ -243,6 +327,7 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
     }
 }
 
+/// At iterator that visits already-resolved `ValueExpr`s stored in an array.
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgsCacheIter<'top> {
     initial_offset: usize,
@@ -276,81 +361,6 @@ impl<'top> BinaryEExpArgsCacheIter<'top> {
             }
         };
         Some(Ok(next_expr))
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum BinaryEExpArgsSource<'top> {
-    Input(BinaryEExpArgsInputIter<'top>),
-    Cache(BinaryEExpArgsCacheIter<'top>),
-}
-
-impl<'top> BinaryEExpArgsIterator_1_1<'top> {
-    pub fn for_input(
-        groupings_iter: ArgGroupingBitmapIterator,
-        remaining_args_buffer: ImmutableBuffer<'top>,
-        signature: &'top MacroSignature,
-    ) -> Self {
-        Self {
-            source: BinaryEExpArgsSource::Input(BinaryEExpArgsInputIter {
-                bitmap_iter: groupings_iter,
-                remaining_args_buffer,
-                param_index: 0,
-                signature,
-            }),
-        }
-    }
-
-    pub fn for_cache(
-        signature: &'top MacroSignature,
-        initial_offset: usize,
-        cache: &'top [ValueExpr<'top, BinaryEncoding_1_1>],
-    ) -> Self {
-        Self {
-            source: BinaryEExpArgsSource::Cache(BinaryEExpArgsCacheIter {
-                cache_exprs: cache,
-                initial_offset,
-                expr_index: 0,
-                signature,
-            }),
-        }
-    }
-
-    pub fn offset(&self) -> usize {
-        match &self.source {
-            BinaryEExpArgsSource::Input(i) => i.remaining_args_buffer.offset(),
-            // If there weren't any args, then the iterator's position is where it started.
-            BinaryEExpArgsSource::Cache(c) if c.cache_exprs.is_empty() => c.initial_offset,
-            BinaryEExpArgsSource::Cache(c) => {
-                match c.cache_exprs.get(c.expr_index) {
-                    Some(value_expr) => value_expr.range().unwrap().end,
-                    // If the iterator is exhausted, then its offset is the end of the last arg expr.
-                    None => c.cache_exprs[c.expr_index - 1].range().unwrap().end,
-                }
-            }
-        }
-    }
-}
-
-impl<'top> Iterator for BinaryEExpArgsIterator_1_1<'top> {
-    type Item = IonResult<EExpArg<'top, v1_1::Binary>>;
-
-    #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.source {
-            BinaryEExpArgsSource::Input(ref mut input_iter) => input_iter.next(),
-            BinaryEExpArgsSource::Cache(ref mut cache_iter) => cache_iter.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let signature = match self.source {
-            BinaryEExpArgsSource::Input(i) => i.signature,
-            BinaryEExpArgsSource::Cache(i) => i.signature,
-        };
-        let num_args = signature.parameters().len();
-        // Tells the macro evaluator how much space to allocate to hold these arguments
-        (num_args, Some(num_args))
     }
 }
 

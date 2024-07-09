@@ -169,7 +169,7 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
         self.annotations_header_length as usize
     }
 
-    /// Returns the number of bytes used to encode the series of encoded annotation symbols, if
+    /// Returns the number of bytes used to encode the series of annotation symbols, if
     /// any.
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#annotations>

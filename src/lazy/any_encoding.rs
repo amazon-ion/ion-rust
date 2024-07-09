@@ -12,7 +12,7 @@ use crate::lazy::binary::raw::sequence::{
     LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, RawBinarySequenceIterator_1_0,
 };
 use crate::lazy::binary::raw::v1_1::e_expression::{
-    BinaryEExpArgGroup, BinaryEExpArgGroupIterator, RawBinaryEExpression_1_1,
+    BinaryEExpArgGroup, BinaryEExpArgGroupIterator, BinaryEExpression_1_1,
 };
 use crate::lazy::binary::raw::v1_1::r#struct::{
     LazyRawBinaryFieldName_1_1, LazyRawBinaryStruct_1_1, RawBinaryStructIterator_1_1,
@@ -192,7 +192,7 @@ pub struct LazyRawAnyEExpression<'top> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawAnyEExpressionKind<'top> {
     Text_1_1(TextEExpression_1_1<'top>),
-    Binary_1_1(&'top RawBinaryEExpression_1_1<'top>),
+    Binary_1_1(&'top BinaryEExpression_1_1<'top>),
 }
 
 impl<'top> LazyRawAnyEExpression<'top> {
@@ -212,8 +212,8 @@ impl<'top> From<TextEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
         }
     }
 }
-impl<'top> From<&'top RawBinaryEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
-    fn from(binary_invocation: &'top RawBinaryEExpression_1_1<'top>) -> Self {
+impl<'top> From<&'top BinaryEExpression_1_1<'top>> for LazyRawAnyEExpression<'top> {
+    fn from(binary_invocation: &'top BinaryEExpression_1_1<'top>) -> Self {
         LazyRawAnyEExpression {
             encoding: LazyRawAnyEExpressionKind::Binary_1_1(binary_invocation),
         }
@@ -373,7 +373,7 @@ pub enum LazyRawAnyEExpArgsIteratorKind<'top> {
             >>::RawArgumentsIterator,
     ),
     Binary_1_1(
-        <&'top RawBinaryEExpression_1_1<'top> as RawEExpression<
+        <&'top BinaryEExpression_1_1<'top> as RawEExpression<
             'top,
             BinaryEncoding_1_1,
         >>::RawArgumentsIterator,
