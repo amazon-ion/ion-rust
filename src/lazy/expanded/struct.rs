@@ -457,9 +457,13 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                     match evaluator.next() {
                         Err(e) => return Some(Err(e)),
                         Ok(Some(next_value)) => {
+                            let field_name = *field_name;
+                            if evaluator.is_empty() {
+                                *state = ReadingFieldFromSource;
+                            }
                             // We got another value from the macro we're evaluating. Emit
                             // it as another field using the same field_name.
-                            return Some(Ok(LazyExpandedField::new(*field_name, next_value)));
+                            return Some(Ok(LazyExpandedField::new(field_name, next_value)));
                         }
                         Ok(None) => {
                             // The macro in the value position is no longer emitting values. Switch

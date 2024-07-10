@@ -712,7 +712,6 @@ impl<'top, D: Decoder> StackedMacroEvaluator<'top, D> {
     /// current encoding context and push the resulting `MacroExpansion` onto the stack.
     pub fn push(&mut self, invocation: impl Into<MacroExpr<'top, D>>) -> IonResult<()> {
         let macro_expr = invocation.into();
-        // let expansion = match self.initialize_expansion(macro_expr) {
         let expansion = match MacroExpansion::initialize(self.environment(), macro_expr) {
             Ok(expansion) => expansion,
             Err(e) => return Err(e),
