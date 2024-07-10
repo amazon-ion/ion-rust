@@ -336,19 +336,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn read_int(&self) -> IonResult<Int> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         debug_assert!(!self.is_null());
-        let header = &self.encoded_value.header();
-        if header.type_code() == OpcodeType::LargeInteger {
-            return self.read_large_int();
-        }
-        // Otherwise, this is an int of 0-8 bytes.
-        let num_bytes = header.low_nibble;
-        Ok(*FixedInt::read(self.value_body(), num_bytes as usize, self.input.offset())?.value())
-    }
-
-    #[inline(never)]
-    fn read_large_int(&self) -> IonResult<Int> {
         let body_bytes = self.value_body();
-        Ok(FixedInt::read(body_bytes, body_bytes.len(), 0)?.into())
+        Ok(*FixedInt::read(body_bytes, body_bytes.len(), self.input.offset())?.value())
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.

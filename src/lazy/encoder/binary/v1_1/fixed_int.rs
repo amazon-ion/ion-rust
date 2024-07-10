@@ -37,6 +37,9 @@ impl FixedInt {
         if input.len() < size_in_bytes {
             return IonResult::incomplete("reading a FixedInt", offset);
         }
+        // By branching on particular values, we make the value of `size_in_bytes` in their
+        // corresponding arm `const`. This allows us to use `read_const` to optimize for those
+        // sizes.
         let fixed_int = match size_in_bytes {
             0 => FixedInt::from_int(0, Int::ZERO),
             1 => Self::read_const::<1>(input.try_into().unwrap()),
@@ -51,6 +54,8 @@ impl FixedInt {
         Ok(fixed_int)
     }
 
+    /// When the size of the FixedInt is known, the generated assembly for parsing it is more
+    /// efficient. This `const` read method is useful for optimizing common cases.
     #[inline]
     pub(crate) fn read_const<const N: usize>(input: [u8; N]) -> FixedInt {
         let mut buffer = [0u8; MAX_INT_SIZE_IN_BYTES];

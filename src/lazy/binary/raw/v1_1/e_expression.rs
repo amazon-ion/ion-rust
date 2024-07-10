@@ -327,7 +327,7 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
     }
 }
 
-/// At iterator that visits already-resolved `ValueExpr`s stored in an array.
+/// An iterator that visits already-resolved `ValueExpr`s stored in an array.
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgsCacheIter<'top> {
     initial_offset: usize,
