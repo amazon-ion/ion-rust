@@ -14,11 +14,10 @@ use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
-use crate::lazy::str_ref::StrRef;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    v1_0, v1_1, Catalog, Encoding, Int, IonResult, IonType, LazyExpandedFieldName, LazyRawWriter,
+    v1_0, v1_1, Catalog, Encoding, IonResult, IonType, LazyExpandedFieldName, LazyRawWriter,
     RawSymbolRef, ValueRef,
 };
 
@@ -570,17 +569,6 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn read(&self) -> IonResult<RawValueRef<'top, D>>;
     fn read_resolved(&self, context: EncodingContextRef<'top>) -> IonResult<ValueRef<'top, D>> {
         self.read()?.resolve(context)
-    }
-    fn read_string(&self) -> IonResult<StrRef<'top>> {
-        self.read()?.expect_string()
-    }
-
-    fn read_symbol(&self) -> IonResult<RawSymbolRef<'top>> {
-        self.read()?.expect_symbol()
-    }
-
-    fn read_int(&self) -> IonResult<Int> {
-        self.read()?.expect_int()
     }
 
     fn annotations_span(&self) -> Span<'top>;
