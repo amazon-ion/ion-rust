@@ -256,11 +256,13 @@ impl TemplateCompiler {
         let mut compiled_params = Vec::new();
         // `param_items` is a peekable iterator over the Ion values in `params_clause`. Because it
         // is peekable, we can look ahead at each step to see if there are more values. This is
-        // important because special syntax rules apply to `*` and `+` parameters in tail position.
+        // important because:
+        //   * when adding a parameter, we need to look ahead to see if the next token is a
+        //     cardinality modifier.
+        //   * special syntax rules apply to `*` and `+` parameters in tail position.
         let mut param_items = params_clause.iter().peekable();
 
         let mut is_final_parameter = false;
-        // TODO: Reuseable function for "Expect labeled symbol with text"
         while let Some(item) = param_items.next().transpose()? {
             is_final_parameter |= param_items.peek().is_none();
             let name = Self::expect_symbol_text("a parameter name", item)?.to_owned();
@@ -316,7 +318,7 @@ impl TemplateCompiler {
         }
         let signature = MacroSignature::new(compiled_params)?;
         let body = Self::expect_next("the template body", &mut values)?;
-        let expansion_analysis = Self::analyze_body_expr(body);
+        let expansion_analysis = Self::analyze_body_expr(body)?;
         let mut compiled_body = TemplateBody {
             expressions: Vec::new(),
             annotations_storage: Vec::new(),
@@ -337,12 +339,14 @@ impl TemplateCompiler {
         Ok(template_macro)
     }
 
-    fn analyze_body_expr<D: Decoder>(body_expr: LazyValue<D>) -> ExpansionAnalysis {
+    /// The entry point for static analysis of a template body expression.
+    fn analyze_body_expr<D: Decoder>(body_expr: LazyValue<D>) -> IonResult<ExpansionAnalysis> {
         let could_produce_system_value = Self::body_expr_could_produce_system_values(body_expr);
         let must_produce_exactly_one_value =
             Self::body_expr_must_produce_exactly_one_value(body_expr);
-        let num_annotations = u8::try_from(body_expr.annotations().count())
-            .expect("template body expression can only have up to 255 annotations");
+        let num_annotations = u8::try_from(body_expr.annotations().count()).map_err(|_| {
+            IonError::decoding_error("template body expression can only have up to 255 annotations")
+        })?;
         let expansion_singleton = if must_produce_exactly_one_value {
             Some(ExpansionSingleton {
                 ion_type: body_expr.ion_type(),
@@ -352,13 +356,13 @@ impl TemplateCompiler {
         } else {
             None
         };
-        ExpansionAnalysis {
+        Ok(ExpansionAnalysis {
             could_produce_system_value,
             must_produce_exactly_one_value,
             can_be_lazily_evaluated_at_top_level: must_produce_exactly_one_value
                 && !could_produce_system_value,
             expansion_singleton,
-        }
+        })
     }
 
     /// Indicates whether the provided expression *could* produce a system value (e.g. a symbol table
@@ -372,7 +376,7 @@ impl TemplateCompiler {
         use IonType::*;
         match body_expr.ion_type() {
             // If the expression is an s-expression, it could expand to anything. If desired, we could
-            // inspect the macro it invokes to see if it's a `make_string`, `make_struct`, etc.
+            // inspect the macro it invokes to see if it's a `literal`, `make_string`, `make_struct`, etc.
             // For now, we simply say "Producing a system value is possible."
             SExp => true,
             // If the value is a struct, it would need to be annotated with `$ion_symbol_table`
@@ -405,6 +409,8 @@ impl TemplateCompiler {
         is_literal: bool,
         lazy_value: LazyValue<'top, D>,
     ) -> IonResult<()> {
+        // Add the value's annotations to the annotations storage vec and take note of the
+        // vec range that belongs to this value.
         let annotations_range_start = definition.annotations_storage.len();
         for annotation_result in lazy_value.annotations() {
             let annotation = annotation_result?;
@@ -413,6 +419,9 @@ impl TemplateCompiler {
         let annotations_range_end = definition.annotations_storage.len();
         let annotations_range = annotations_range_start..annotations_range_end;
 
+        // Make a `TemplateValue` that represent's the value's unannotated data. Scalar `TemplateValue`s
+        // are very similar to their scalar `Value` counterparts, but its container types are more
+        // barebones.
         let value = match lazy_value.read()? {
             ValueRef::Null(ion_type) => TemplateValue::Null(ion_type),
             ValueRef::Bool(b) => TemplateValue::Bool(b),
@@ -433,6 +442,8 @@ impl TemplateCompiler {
             }
             ValueRef::Blob(b) => TemplateValue::Blob(b.to_owned()),
             ValueRef::Clob(c) => TemplateValue::Clob(c.to_owned()),
+            // For the container types, compile the value's nested values/fields and take note
+            // of the total number of expressions that belong to this container.
             ValueRef::SExp(s) => {
                 return Self::compile_sexp(
                     context,
@@ -468,6 +479,7 @@ impl TemplateCompiler {
         let scalar_expr_index = definition.expressions().len();
         definition.push_element(
             TemplateBodyElement::with_value(value).with_annotations(annotations_range),
+            // Scalars are always a single expression.
             ExprRange::new(scalar_expr_index..scalar_expr_index + 1),
         );
         Ok(())
