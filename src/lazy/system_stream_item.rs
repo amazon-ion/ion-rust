@@ -37,6 +37,9 @@ impl<'top, D: Decoder> Debug for SystemStreamItem<'top, D> {
     }
 }
 
+// Clippy complains that `as_` methods should return a reference. In this case, all of the types
+// are `Copy`, so returning a copy isn't a problem.
+#[allow(clippy::wrong_self_convention)]
 impl<'top, D: Decoder> SystemStreamItem<'top, D> {
     /// If this item is an Ion version marker (IVM), returns `Some(version_marker)` indicating the
     /// version. Otherwise, returns `None`.

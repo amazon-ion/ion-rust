@@ -366,14 +366,19 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         self.context
     }
 
+    /// Expands the current macro with the expectation that it will produce exactly one value.
     #[inline(always)]
     pub(crate) fn expand_singleton(mut self) -> IonResult<LazyExpandedValue<'top, D>> {
+        // We don't need to construct an evaluator because this is guaranteed to produce exactly
+        // one value.
         match self.next_step()? {
+            // If the expansion produces anything other than a final value, there's a bug.
             MacroExpansionStep::FinalStep(Some(ValueExpr::ValueLiteral(value))) => Ok(value),
             _ => unreachable!("e-expression-backed lazy values must yield a single value literal"),
         }
     }
 
+    /// Construct a new `MacroExpansion` and populate its evaluation environment as needed.
     pub(crate) fn initialize(
         environment: Environment<'top, D>,
         invocation_to_evaluate: MacroExpr<'top, D>,
@@ -454,10 +459,16 @@ impl<'top, D: Decoder> MacroExpansionStep<'top, D> {
     }
 }
 
+/// The internal bookkeeping representation used by a [`MacroEvaluator`].
 #[derive(Debug)]
 pub enum EvaluatorState<'top, D: Decoder> {
+    /// The evaluator is empty; it does not currently have any expansions in progress.
     Empty,
+    /// The evaluator has a single expansion in progress. It does not own any bump-allocated
+    /// resources.
     Stackless(MacroExpansion<'top, D>),
+    /// The evaluator has several expansions in progress. It holds a bump-allocated `MacroStack`
+    /// that it pushes to and pops from.
     Stacked(StackedMacroEvaluator<'top, D>),
 }
 
@@ -467,6 +478,8 @@ impl<'top, D: Decoder> Default for EvaluatorState<'top, D> {
     }
 }
 
+/// A general-purpose macro evaluator that waits to allocate resources until it is clear that they
+/// are necessary.
 #[derive(Debug, Default)]
 pub struct MacroEvaluator<'top, D: Decoder> {
     root_environment: Environment<'top, D>,
@@ -487,33 +500,73 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     #[allow(clippy::should_implement_trait)]
     // ^-- Clippy complains this looks like Iterator::next().
     pub fn next(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
+        // This inlineable method checks whether the evaluator is empty to avoid a more expensive
+        // method invocation when possible.
         if self.is_empty() {
             return Ok(None);
         }
         self.next_general_case()
     }
 
+    /// The core macro evaluation logic.
     #[inline]
-    pub fn next_general_case(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
+    fn next_general_case(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
         use EvaluatorState::*;
+        // This happens in a loop in case the next item produced is another macro to evaluate.
+        // In most cases, we never return to the top of the loop.
         loop {
-            let (environment, maybe_value_expr) = match self.state {
+            let expansion = match self.state {
+                // If the evaluator is empty, there's nothing to do.
                 Empty => return Ok(None),
-                Stackless(ref mut expansion) => {
-                    let environment = expansion.environment;
-                    let step = expansion.next_step()?;
-                    if step.is_final() {
-                        self.state = Empty;
-                    }
-                    (environment, step.value_expr())
-                }
+                // If the evaluator is processing several expansions (not common), we delegate the
+                // evaluation and bookkeeping to the `StackedMacroEvaluator` type.
                 Stacked(ref mut stack_evaluator) => return stack_evaluator.next(),
+                // If the evaluator is stackless, there's only one expansion in progress.
+                Stackless(ref mut expansion) => expansion,
             };
-            match maybe_value_expr {
+
+            // At this point, we have a reference to the only expansion in progress.
+            //
+            // If the next thing it produces is another macro, we would push it onto the stack.
+            // However, this would cause the stack to grow to a depth of 2 and require us to
+            // bump-allocate a proper stack. Instead, we take note of the environment this expansion
+            // was using...
+            let environment = expansion.environment;
+            // ...get the next step in the expansion...
+            let step = expansion.next_step()?;
+            // ...and, if this was the last step in the expansion, pop it off the stack-of-one
+            // by setting the state back to `Empty`.
+            if step.is_final() {
+                self.state = Empty;
+            }
+            // Now the stack has a depth of zero or one.
+            match step.value_expr() {
+                // No more expressions means we're done. (It also means the stack is empty because
+                // it is not possible to return a non-final step that is `None`.)
                 None => return Ok(None),
+                // If it's a value, then regardless of stack depth we return that value.
                 Some(ValueExpr::ValueLiteral(value)) => return Ok(Some(value)),
+                // If it's another macro to evaluate, then we'll push it onto the stack and continue
+                // at the top of the loop looking for our next value-or-nothing.
                 Some(ValueExpr::MacroInvocation(invocation)) => {
+                    // If the evaluator state is `Empty`, this sets it back to `Stackless`, which
+                    // is an important optimization. We avoid bump-allocating in the lion's share
+                    // of evaluations.
+                    // If the state is `Stackless` (i.e. there's still an expansion in progress),
+                    // this will upgrade the state to `Stacked` and allocate the necessary
+                    // resources.
                     self.push(invocation.expand(environment)?)
+                    // This "tail eval" optimization--eagerly popping completed expansions off the
+                    // stack to keep it flat--avoids allocations in many evaluations, e.g.:
+                    // (:void)
+                    // (:values)
+                    // (:values 1 2 3)
+                    // (:values 1 2 3 /*POP*/ (:values 1 2 3))
+                    // (:values 1 2 3 /*POP*/ (:values 1 2 3 /*POP*/ (:values 1 2 3)))
+                    //
+                    // TODO: Use `invocation.invoked_macro().must_produce_exactly_one_value()`
+                    //       to see if we can avoid pushing the new invocation and instead
+                    //       eagerly evaluating it.
                 }
             }
         }
@@ -565,8 +618,11 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     #[inline]
     pub fn push(&mut self, new_expansion: MacroExpansion<'top, D>) {
         if self.is_empty() {
+            // Going from zero expansions to one expansion is cheap.
             self.state = EvaluatorState::Stackless(new_expansion);
         } else {
+            // Going from 1 to 2 or more is more expensive and less common,
+            // so we don't inline this case.
             self.push_general_case(new_expansion)
         }
     }
@@ -574,7 +630,9 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     #[inline(never)]
     pub fn push_general_case(&mut self, new_expansion: MacroExpansion<'top, D>) {
         match self.state {
+            // Going from zero expansions to one expansion
             EvaluatorState::Empty => self.state = EvaluatorState::Stackless(new_expansion),
+            // Going from one expansion to two
             EvaluatorState::Stackless(original_expansion) => {
                 let mut stacked_evaluator = StackedMacroEvaluator::new_with_environment(
                     new_expansion.context(),
@@ -585,6 +643,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
                     .extend_from_slice_copy(&[original_expansion, new_expansion]);
                 self.state = EvaluatorState::Stacked(stacked_evaluator)
             }
+            // Going from 2+ up
             EvaluatorState::Stacked(ref mut stacked_evaluator) => {
                 stacked_evaluator.macro_stack.push(new_expansion)
             }
