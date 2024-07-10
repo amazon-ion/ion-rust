@@ -100,16 +100,7 @@ where
         &self,
         context: EncodingContextRef<'top>,
     ) -> IonResult<Environment<'top, D>> {
-        let allocator = context.allocator();
-        let raw_args = self.raw_arguments();
-        let capacity_hint = raw_args.size_hint().0;
-        let mut env_exprs = BumpVec::with_capacity_in(capacity_hint, allocator);
-        // Populate the environment by parsing the arguments from input
-        for expr in self.raw_arguments() {
-            env_exprs.push(expr?.resolve(context)?);
-        }
-
-        Ok(Environment::new(env_exprs.into_bump_slice()))
+        Environment::for_eexp(context, *self)
     }
 }
 
@@ -218,27 +209,6 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
             EExp(e) => e.context(),
             EExpArgGroup(g) => g.context(),
         }
-    }
-
-    fn new_evaluation_environment(
-        &self,
-        parent_environment: Environment<'top, D>,
-    ) -> IonResult<Environment<'top, D>> {
-        use MacroExprKind::*;
-        let allocator = self.context().allocator();
-        let arguments = match self.kind {
-            TemplateMacro(_) => self.arguments(parent_environment),
-            EExpArgGroup(g) => return g.new_evaluation_environment(),
-            EExp(ref e) => return e.new_evaluation_environment(),
-        };
-        // Use the iterator's size hint to determine an initial capacity to aim for.
-        let num_args_hint = arguments.size_hint();
-        let capacity_hint = num_args_hint.1.unwrap_or(num_args_hint.0);
-        let mut env_exprs = BumpVec::with_capacity_in(capacity_hint, allocator);
-        for arg in arguments {
-            env_exprs.push(arg?);
-        }
-        Ok(Environment::new(env_exprs.into_bump_slice()))
     }
 }
 
@@ -1004,7 +974,6 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{v1_1, ElementReader, IonResult, Reader};
 
     /// Reads `input` and `expected` using an expanding reader and asserts that their output

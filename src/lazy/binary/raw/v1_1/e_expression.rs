@@ -18,8 +18,6 @@ use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::{try_or_some_err, v1_1, Environment, HasRange, HasSpan, IonResult, Span};
 
-use bumpalo::collections::Vec as BumpVec;
-
 #[derive(Copy, Clone)]
 pub struct BinaryEExpHeader {
     // The number of bytes that were used to encode the e-expression's opcode and address.
@@ -152,13 +150,7 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top BinaryEExpression_1_1<'t
         // a mutable reference to `self` and getting one would be a non-trivial change. However,
         // in the vast majority of use cases, e-expressions are not evaluated more than once, which
         // means that populating the cache would be of little value.
-        let allocator = context.allocator();
-        let num_args = self.macro_ref.signature().len();
-        let mut env_exprs = BumpVec::with_capacity_in(num_args, allocator);
-        for expr in self.raw_arguments() {
-            env_exprs.push(expr?.resolve(context)?);
-        }
-        Ok(Environment::new(env_exprs.into_bump_slice()))
+        Environment::for_eexp(context, *self)
     }
 }
 

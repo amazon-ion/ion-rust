@@ -53,6 +53,19 @@ impl<'top, D: Decoder> Environment<'top, D> {
     pub fn expressions(&self) -> &'top [ValueExpr<'top, D>] {
         self.expressions
     }
+    pub fn for_eexp(context: EncodingContextRef<'top>, eexp: D::EExp<'top>) -> IonResult<Self> {
+        use bumpalo::collections::Vec as BumpVec;
+        let allocator = context.allocator();
+        let raw_args = eexp.raw_arguments();
+        let capacity_hint = raw_args.size_hint().0;
+        let mut env_exprs = BumpVec::with_capacity_in(capacity_hint, allocator);
+        // Populate the environment by parsing the arguments from input
+        for expr in raw_args {
+            env_exprs.push(expr?.resolve(context)?);
+        }
+
+        Ok(Environment::new(env_exprs.into_bump_slice()))
+    }
 }
 
 impl<'top, D: Decoder> Default for Environment<'top, D> {

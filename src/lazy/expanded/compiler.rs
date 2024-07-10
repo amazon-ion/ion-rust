@@ -399,7 +399,7 @@ impl TemplateCompiler {
     }
 
     /// Recursively visits all of the expressions in `lazy_value` and adds their corresponding
-    /// [`TemplateBodyExprKind`](crate::TemplateBodyExprKind) sequences to the `TemplateBody`.
+    /// [`TemplateBodyExpr`] sequences to the `TemplateBody`.
     ///
     /// If `is_literal` is true, nested symbols and s-expressions will not be interpreted.
     fn compile_value<'top, D: Decoder>(

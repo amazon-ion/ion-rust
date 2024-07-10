@@ -4,8 +4,6 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
-use bumpalo::collections::Vec as BumpVec;
-
 use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
@@ -63,25 +61,6 @@ impl<'top, D: Decoder> ArgGroup<'top, D> {
     pub fn expressions(&self) -> ArgGroupIterator<'top, D> {
         ArgGroupIterator::new(self.context, self.raw_arg_group())
     }
-    pub fn new_evaluation_environment(&self) -> IonResult<Environment<'top, D>> {
-        let allocator = self.context.allocator();
-        let num_args = self.invoked_macro().signature().len();
-        let mut env_exprs = BumpVec::with_capacity_in(num_args, allocator);
-        // Populate the environment by parsing the arguments from input
-        for expr in self.raw_arg_group().iter() {
-            let value_expr = match expr? {
-                RawValueExpr::ValueLiteral(value) => {
-                    ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(self.context, value))
-                }
-                RawValueExpr::EExp(eexp) => {
-                    ValueExpr::MacroInvocation(MacroExpr::from_eexp(eexp.resolve(self.context)?))
-                }
-            };
-            env_exprs.push(value_expr);
-        }
-        Ok(Environment::new(env_exprs.into_bump_slice()))
-    }
-
     pub fn expand(&self, environment: Environment<'top, D>) -> IonResult<MacroExpansion<'top, D>> {
         let context = self.context();
         let arguments = MacroExprArgsIterator::from_arg_group(self.expressions());
