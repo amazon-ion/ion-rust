@@ -1062,7 +1062,10 @@ impl<'top> TextBufferView<'top> {
     /// Matches and returns a boolean value.
     pub fn match_bool(self) -> IonParseResult<'top, bool> {
         terminated(
-            alt((value(true, tag("true")), value(false, tag("false")))),
+            alt((
+                value(true, complete_tag("true")),
+                value(false, complete_tag("false")),
+            )),
             Self::peek_stop_character,
         )(self)
     }
@@ -2285,16 +2288,69 @@ mod tests {
             let result = self.try_match(parser);
             // We expect that only part of the input will match or that the entire
             // input will be rejected outright.
-            if let Ok((_remaining, match_length)) = result {
-                assert_ne!(
-                    match_length,
-                    self.input.len(),
-                    "parser unexpectedly matched the complete input: {:?}\nResult: {:?}",
-                    self.input,
-                    result
-                );
+
+            match result {
+                Ok((_remaining, match_length)) => {
+                    assert_ne!(
+                        match_length,
+                        self.input.len(),
+                        "parser unexpectedly matched the complete input: {:?}\nResult: {:?}",
+                        self.input,
+                        result
+                    );
+                }
+                Err(e) if e.is_incomplete() => {
+                    panic!(
+                        "parser reported an incomplete match rather than a mismatch: {}",
+                        self.input
+                    )
+                }
+                _ => {}
             }
         }
+
+        fn expect_incomplete<'data, P, O>(&'data self, parser: P)
+        where
+            P: Parser<TextBufferView<'data>, O, IonParseError<'data>>,
+        {
+            let result = self.try_match(parser);
+
+            match result {
+                Ok((_remaining, match_length)) => {
+                    assert_ne!(
+                        match_length,
+                        self.input.len(),
+                        "parser unexpectedly matched the complete input: {:?}\nResult: {:?}",
+                        self.input,
+                        result
+                    );
+                }
+                Err(e) if e.is_incomplete() => {}
+                err => {
+                    panic!(
+                        "Parser reported an unexpected error for input: {}\nResult: {:?}",
+                        self.input, err
+                    );
+                }
+            }
+        }
+    }
+
+    /// A macro to concisely define basic test cases for matchers. Suitable when there are no type
+    /// annotations needed for the match function, and the input strings can be trimmed.
+    macro_rules! matcher_tests {
+        ($parser:ident $($expect:ident: [$($input:literal),+$(,)?]),+$(,)?) => {
+            mod $parser {
+                use super::*;
+                $(
+                #[test]
+                fn $expect() {
+                    $(MatchTest::new($input.trim()).$expect(match_length(TextBufferView::$parser));)
+                    +
+                }
+                )+
+            }
+        };
     }
 
     #[test]
@@ -2326,35 +2382,27 @@ mod tests {
         mismatch_ivm("$ion_FF_FF");
     }
 
-    #[test]
-    fn test_match_bool() {
-        fn match_bool(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_bool));
-        }
-        fn mismatch_bool(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_bool));
-        }
-
-        match_bool("true");
-        match_bool("false");
-
-        mismatch_bool("True");
-        mismatch_bool("TRUE");
-        mismatch_bool("False");
-        mismatch_bool("FALSE");
-        mismatch_bool("potato");
-        mismatch_bool("42");
+    matcher_tests! {
+        match_bool
+        expect_match: [
+            "true",
+            "false"
+        ],
+        expect_mismatch: [
+            "True",
+            "tru",
+            "TRUE",
+            "False",
+            "FALSE",
+            "fals",
+            "potato",
+            "42"
+        ],
     }
 
-    #[test]
-    fn test_match_null() {
-        fn match_null(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_null));
-        }
-        fn mismatch_null(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_null));
-        }
-        let good_inputs = &[
+    matcher_tests! {
+        match_null
+        expect_match:[
             "null",
             "null.null",
             "null.bool",
@@ -2369,33 +2417,20 @@ mod tests {
             "null.list",
             "null.sexp",
             "null.struct",
-        ];
-        for input in good_inputs {
-            match_null(input);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             "-1",
             "null.hello",
             "nullnull",
             "nullify",
             "null..int",
             "string.null",
-        ];
-        for input in bad_inputs {
-            mismatch_null(input);
-        }
+        ],
     }
 
-    #[test]
-    fn test_match_int() {
-        fn match_int(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_int));
-        }
-        fn mismatch_int(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_int));
-        }
-        let good_inputs = &[
+    matcher_tests! {
+        match_int
+        expect_match: [
             // Base 2 integers
             "0b0",
             "0B0",
@@ -2421,14 +2456,8 @@ mod tests {
             "0XcaFE",
             "0xC_A_F_E",
             "0Xca_FE",
-        ];
-        for input in good_inputs {
-            match_int(input);
-            let negative = format!("-{input}");
-            match_int(&negative);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             "00",          // Zero with leading zero
             "0123",        // Non-zero with leading zero
             "--5",         // Double negative
@@ -2439,32 +2468,16 @@ mod tests {
             "0xx5",        // Multiple Xs after 0
             "0x",          // Base 16 prefix w/no number
             "0b",          // Base 2 prefix w/no number
-        ];
-        for input in bad_inputs {
-            mismatch_int(input);
-        }
+        ],
     }
 
-    #[test]
-    fn test_match_float() {
-        fn match_float(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_float));
-        }
-        fn mismatch_float(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_float));
-        }
-
-        let good_inputs = &[
+    matcher_tests! {
+        match_float
+        expect_match: [
             "0.0e0", "0E0", "0e0", "305e1", "305e+1", "305e-1", "305e100", "305e-100", "305e+100",
             "305.0e1", "0.279e3", "0.279e-3", "279e0", "279.5e0", "279.5E0",
-        ];
-        for input in good_inputs {
-            match_float(input);
-            let negative = format!("-{input}");
-            match_float(&negative);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             "305",      // Integer
             "305e",     // Has exponent delimiter but no exponent
             ".305e",    // No digits before the decimal point
@@ -2473,22 +2486,12 @@ mod tests {
             "0305e1",   // Leading zero
             "+305e1",   // Leading plus sign
             "--305e1",  // Multiple negative signs
-        ];
-        for input in bad_inputs {
-            mismatch_float(input);
-        }
+        ]
     }
 
-    #[test]
-    fn test_match_timestamp() {
-        fn match_timestamp(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_timestamp));
-        }
-        fn mismatch_timestamp(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_timestamp));
-        }
-
-        let good_inputs = &[
+    matcher_tests! {
+        match_timestamp
+        expect_match: [
             "2023T",
             "2023-08T",
             "2023-08-13", // T is optional for ymd
@@ -2498,12 +2501,8 @@ mod tests {
             "2023-08-13T14:18-05:00",
             "2023-08-13T14:18:35-05:00",
             "2023-08-13T14:18:35.994-05:00",
-        ];
-        for input in good_inputs {
-            match_timestamp(input);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             "2023",                          // No 'T'
             "2023-08",                       // No 'T'
             "20233T",                        // 5-digit year
@@ -2517,24 +2516,12 @@ mod tests {
             "2023-08-18T14:35:52.Z",         // Dot but no fractional
             "2023-08-18T14:35:52.000+24:30", // Out of bounds offset hour
             "2023-08-18T14:35:52.000+00:60", // Out of bounds offset minute
-        ];
-        for input in bad_inputs {
-            mismatch_timestamp(input);
-        }
+        ],
     }
 
-    #[test]
-    fn test_match_string() {
-        fn match_string(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_string));
-        }
-        fn mismatch_string(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_string));
-        }
-
-        // These inputs have leading/trailing whitespace to make them more readable, but the string
-        // matcher doesn't accept whitespace. We'll trim each one before testing it.
-        let good_inputs = &[
+    matcher_tests! {
+        match_string
+        expect_match: [
             r#"
             "hello"
             "#,
@@ -2548,7 +2535,7 @@ mod tests {
             r#"
             '''foo'''
             '''bar'''
-            '''baz''' 
+            '''baz'''
             "#,
             r#"
             '''hello,''' /*comment*/ ''' world!'''
@@ -2559,16 +2546,14 @@ mod tests {
             r#"
             '''''' ''''''
             "#, // concatenated empty string
-        ];
-        for input in good_inputs {
-            match_string(input.trim());
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             // Missing an opening quote
             r#"
             hello"
             "#,
+        ],
+        expect_incomplete: [
             // Missing a closing quote
             r#"
             "hello
@@ -2577,22 +2562,12 @@ mod tests {
             r#"
             "hello\"
             "#,
-        ];
-        for input in bad_inputs {
-            mismatch_string(input);
-        }
+        ],
     }
 
-    #[test]
-    fn test_match_symbol() {
-        fn match_symbol(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_symbol));
-        }
-        fn mismatch_symbol(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_symbol));
-        }
-
-        let good_inputs = &[
+    matcher_tests! {
+        match_symbol
+        expect_match: [
             "'hello'",
             "'😀😀😀'",
             "'this has an escaped quote \\' right in the middle'",
@@ -2602,32 +2577,20 @@ mod tests {
             "name",
             "$bar",
             "_baz_quux",
-        ];
-        for input in good_inputs {
-            match_symbol(input);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_incomplete: [
             "'hello",    // No closing quote
             "'hello\\'", // Closing quote is escaped
+        ],
+        expect_mismatch: [
             "$-8",       // Negative SID
             "nan",       // Identifier that is also a keyword
-        ];
-        for input in bad_inputs {
-            mismatch_symbol(input);
-        }
+        ],
     }
 
-    #[test]
-    fn test_match_annotated_value() {
-        fn match_annotated_value(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_annotated_value));
-        }
-        fn mismatch_annotated_value(input: &str) {
-            MatchTest::new(input)
-                .expect_mismatch(match_length(TextBufferView::match_annotated_value));
-        }
-        let good_inputs = &[
+    matcher_tests! {
+        match_annotated_value
+        expect_match: [
             "foo::5",
             "foo::bar::5",
             "foo :: 5",
@@ -2635,51 +2598,26 @@ mod tests {
             "foo :: /*comment*/ bar /*comment*/    :: baz :: 5",
             "foo::bar::baz::quux::quuz::5",
             "foo::'bar'::baz::$10::5",
-        ];
-        for input in good_inputs {
-            match_annotated_value(input);
-        }
-
-        let bad_inputs = &["foo::", "foo:bar", "foo:::bar"];
-        for input in bad_inputs {
-            mismatch_annotated_value(input);
-        }
+        ],
+        expect_incomplete: ["foo::"],
+        expect_mismatch: ["foo:bar", "foo:::bar"],
     }
 
-    #[test]
-    fn test_match_decimal() {
-        fn match_decimal(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_decimal));
-        }
-        fn mismatch_decimal(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_decimal));
-        }
-        let good_inputs = &[
+    matcher_tests! {
+        match_decimal
+        expect_match: [
             "5.", "-5.", "5.0", "-5.0", "5d0", "5.d0", "5.0d0", "-5.0d0", "5.0D0", "-5.0D0",
             "5.0d+1", "-5.0d-1",
-        ];
-        for input in good_inputs {
-            match_decimal(input);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             "123._456", "5", "5d", "05d", "-5d", "5.d", "-5.d", "5.D", "-5.D", "5.1d", "-5.1d",
             "5.1D", "-5.1D", "-5.0+0",
-        ];
-        for input in bad_inputs {
-            mismatch_decimal(input);
-        }
+        ]
     }
 
-    #[test]
-    fn test_match_sexp() {
-        fn match_sexp(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_sexp));
-        }
-        fn mismatch_sexp(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_sexp));
-        }
-        let good_inputs = &[
+    matcher_tests! {
+        match_sexp
+        expect_match: [
             "()",
             "(1)",
             "(1 2)",
@@ -2691,25 +2629,14 @@ mod tests {
             "(())",
             "((()))",
             "(1 (2 (3 4) 5) 6)",
-        ];
-        for input in good_inputs {
-            match_sexp(input);
-        }
-
-        let bad_inputs = &["foo", "1", "(", "(1 2 (3 4 5)"];
-        for input in bad_inputs {
-            mismatch_sexp(input);
-        }
+        ],
+        expect_mismatch: ["foo", "1"],
+        expect_incomplete: ["(", "(1 2 (3 4 5)"]
     }
-    #[test]
-    fn test_match_sexp_1_1() {
-        fn match_sexp(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_sexp_1_1));
-        }
-        fn mismatch_sexp(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_sexp_1_1));
-        }
-        let good_inputs = &[
+
+    matcher_tests! {
+        match_sexp_1_1
+        expect_match: [
             "()",
             "(1)",
             "(1 2)",
@@ -2722,64 +2649,54 @@ mod tests {
             "((()))",
             "(1 (2 (3 4) 5) 6)",
             "(1 (:foo 2 3))",
-        ];
-        for input in good_inputs {
-            match_sexp(input);
-        }
-
-        let bad_inputs = &["foo", "1", "(", "(1 2 (3 4 5)"];
-        for input in bad_inputs {
-            mismatch_sexp(input);
-        }
+        ],
+        expect_mismatch: ["foo", "1"],
+        expect_incomplete: ["(", "(1 2 (3 4 5)"]
     }
 
-    #[test]
-    fn test_match_list_1_1() {
-        fn match_list(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_list_1_1));
-        }
-        fn mismatch_list(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_list_1_1));
-        }
-        let good_inputs = &["[]", "[1]", "[1, 2]", "[[]]", "[([])]", "[1, (:foo 2 3)]"];
-        for input in good_inputs {
-            match_list(input);
-        }
-
-        let bad_inputs = &["foo", "1", "[", "[1, 2, [3, 4]"];
-        for input in bad_inputs {
-            mismatch_list(input);
-        }
+    matcher_tests! {
+        match_list
+        expect_match: [
+            "[]", "[1]", "[1, 2]", "[[]]", "[([])]",
+        ],
+        expect_mismatch: [
+            "foo", "1",
+        ],
+        expect_incomplete: [
+            "[", "[1, 2, [3, 4]",
+        ]
     }
 
-    #[test]
-    fn test_match_macro_invocation() {
-        fn match_macro_invocation(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_e_expression));
-        }
-        fn mismatch_macro_invocation(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_e_expression));
-        }
-        let good_inputs = &[
+    matcher_tests! {
+        match_list_1_1
+        expect_match: [
+            "[]", "[1]", "[1, 2]", "[[]]", "[([])]", "[1, (:foo 2 3)]"
+        ],
+        expect_mismatch: [
+            "foo", "1"
+        ],
+        expect_incomplete: [
+            "[", "[1, 2, [3, 4]"
+        ]
+    }
+
+    matcher_tests! {
+        match_e_expression
+        expect_match: [
             "(:foo)",
             "(:foo 1)",
             "(:foo 1 2 3)",
             "(:foo (1 2 3))",
             "(:foo \"foo\")",
             "(:foo foo)",
-        ];
-        for input in good_inputs {
-            println!("test: {input}");
-            match_macro_invocation(input);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             "foo",   // No parens
             "(foo)", // No `:` after opening paren
-        ];
-        for input in bad_inputs {
-            mismatch_macro_invocation(input);
-        }
+        ],
+        expect_incomplete: [
+            "(:foo"
+        ]
     }
 
     #[rstest]
@@ -2803,16 +2720,9 @@ mod tests {
         MatchTest::new(input).expect_match(match_length(TextBufferView::match_top_level_item_1_1));
     }
 
-    #[test]
-    fn test_match_blob() {
-        fn match_blob(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_blob));
-        }
-        fn mismatch_blob(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_blob));
-        }
-        // Base64 encodings of utf-8 strings
-        let good_inputs = &[
+    matcher_tests! {
+        match_blob
+        expect_match: [
             // <empty blobs>
             "{{}}",
             "{{    }}",
@@ -2824,7 +2734,7 @@ mod tests {
             "{{\taGVsbG8=\n\n}}",
             "{{aG  Vs  bG   8 =}}",
             r#"{{
-                aG Vs  
+                aG Vs
                 bG 8=
             }}"#,
             // hello!
@@ -2835,12 +2745,8 @@ mod tests {
             // razzle dazzle root beer
             "{{cmF6emxlIGRhenpsZSByb290IGJlZXI=}}",
             "{{\ncmF6emxlIGRhenpsZSByb290IGJlZXI=\r}}",
-        ];
-        for input in good_inputs {
-            match_blob(input);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             // illegal character $
             "{{$aGVsbG8=}}",
             // comment within braces
@@ -2852,22 +2758,16 @@ mod tests {
             "{{=aGVsbG8}}",
             // too much padding
             "{{aGVsbG8===}}",
-        ];
-        for input in bad_inputs {
-            mismatch_blob(input);
-        }
+        ],
+        expect_incomplete: [
+            "{{aGVsbG8h",
+            "{{aGVsbG8h}"
+        ]
     }
 
-    #[test]
-    fn test_match_clob() {
-        fn match_clob(input: &str) {
-            MatchTest::new(input).expect_match(match_length(TextBufferView::match_clob));
-        }
-        fn mismatch_blob(input: &str) {
-            MatchTest::new(input).expect_mismatch(match_length(TextBufferView::match_clob));
-        }
-        // Base64 encodings of utf-8 strings
-        let good_inputs = &[
+    matcher_tests! {
+        match_clob
+        expect_match: [
             r#"{{""}}"#,
             r#"{{''''''}}"#,
             r#"{{"foo"}}"#,
@@ -2882,23 +2782,18 @@ mod tests {
                 '''bar'''
                 '''baz'''
             }}"#,
-        ];
-        for input in good_inputs {
-            match_clob(input);
-        }
-
-        let bad_inputs = &[
+        ],
+        expect_mismatch: [
             r#"{{foo}}"#,                         // No quotes
-            r#"{{"foo}}"#,                        // Missing closing quote
-            r#"{{"foo"}"#,                        // Missing closing brace
-            r#"{{'''foo'''}"#,                    // Missing closing brace
             r#"{{'''foo''' /*hi!*/ '''bar'''}}"#, // Interleaved comments
             r#"{{'''foo''' "bar"}}"#,             // Mixed quote style
             r#"{{"😎🙂🙃"}}"#,                    // Contains unescaped non-ascii characters
-        ];
-        for input in bad_inputs {
-            mismatch_blob(input);
-        }
+        ],
+        expect_incomplete: [
+            r#"{{"foo}}"#,     // Missing closing quote
+            r#"{{"foo"}"#,     // Missing closing brace
+            r#"{{'''foo'''}"#, // Missing closing brace
+        ],
     }
 
     fn test_match_text_until_unescaped_str() {
