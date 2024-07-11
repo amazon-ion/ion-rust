@@ -255,6 +255,7 @@ pub struct BinaryEExpArgsInputIter<'top> {
 impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
     type Item = IonResult<EExpArg<'top, v1_1::Binary>>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<IonResult<EExpArg<'top, v1_1::Binary>>> {
         // We cannot read the arguments of a binary e-expression without first looking at the
         // corresponding parameter's encoding and cardinality to know what bytes to expect.

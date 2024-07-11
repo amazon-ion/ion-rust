@@ -380,18 +380,7 @@ impl<'top, D: Decoder> Iterator for ExpandedStructIterator<'top, D> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let Self {
-            ref mut source,
-            ref mut state,
-        } = *self;
-        match source {
-            ExpandedStructIteratorSource::Template(tdl_macro_evaluator, template_iterator) => {
-                Self::next_field_from(state, *tdl_macro_evaluator, template_iterator)
-            }
-            ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, raw_struct_iter) => {
-                Self::next_field_from(state, *e_exp_evaluator, raw_struct_iter)
-            }
-        }
+        self.next_field()
     }
 }
 
@@ -405,22 +394,13 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
     /// Pulls the next expanded field from the raw source struct. The field returned may correspond
     /// to a `(name, value literal)` pair in the raw struct, or it may be the product of a macro
     /// evaluation.
-    fn next_field_from<
-        // The lifetime of this method invocation.
-        'a,
-        // An iterator over the struct we're expanding. It may be the fields iterator from a
-        // LazyRawStruct, or it could be a `TemplateStructRawFieldsIterator`.
-        I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>,
-    >(
-        state: &'a mut ExpandedStructIteratorState<'top, D>,
-        evaluator: &'a mut MacroEvaluator<'top, D>,
-        iter: &'a mut I,
-    ) -> Option<IonResult<LazyExpandedField<'top, D>>> {
-        // This method begins by pulling raw field expressions from the source iterator.
-        // If the expression is a (name, value literal) pair, we can wrap it in an LazyExpandedField
-        // and return it immediately. However, if it is a (name, macro) pair or (macro) expression,
-        // then an unknown amount of evaluation will need to happen before we can return our next
-        // field.
+    fn next_field(&mut self) -> Option<IonResult<LazyExpandedField<'top, D>>> {
+        // Temporarily destructure 'Self' to get simultaneous mutable references to its fields.
+        let Self {
+            ref mut source,
+            ref mut state,
+        } = *self;
+
         loop {
             use ControlFlow::{Break, Continue};
             use ExpandedStructIteratorState::*;
@@ -429,7 +409,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                 // iterator.
                 ReadingFieldFromSource => {
                     // We'll see what kind of expression it is.
-                    match Self::next_from_iterator(state, evaluator, iter) {
+                    match Self::next_from_iterator(state, source) {
                         // The iterator found a (name, value literal) pair.
                         Break(maybe_result) => return maybe_result,
                         // The iterator found a (name, macro) pair or a macro; further evaluation
@@ -454,11 +434,22 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                 // macro in field value position, emitting (name, value) pairs for each value
                 // in the expansion, one at a time.
                 ExpandingValueExpr(field_name) => {
+                    // Get the next expression from our source's macro evaluator.
+                    let evaluator = match source {
+                        ExpandedStructIteratorSource::Template(tdl_macro_evaluator, _) => {
+                            tdl_macro_evaluator
+                        }
+                        ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, _) => {
+                            e_exp_evaluator
+                        }
+                    };
                     match evaluator.next() {
                         Err(e) => return Some(Err(e)),
                         Ok(Some(next_value)) => {
                             let field_name = *field_name;
                             if evaluator.is_empty() {
+                                // The evaluator is empty, so we should return to reading from
+                                // source.
                                 *state = ReadingFieldFromSource;
                             }
                             // We got another value from the macro we're evaluating. Emit
@@ -478,22 +469,31 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
 
     /// Pulls a single unexpanded field expression from the source iterator and sets `state` according to
     /// the expression's kind.
-    fn next_from_iterator<I: Iterator<Item = IonResult<UnexpandedField<'top, D>>>>(
+    fn next_from_iterator(
         state: &mut ExpandedStructIteratorState<'top, D>,
-        evaluator: &mut MacroEvaluator<'top, D>,
-        iter: &mut I,
+        source: &mut ExpandedStructIteratorSource<'top, D>,
     ) -> ControlFlow<Option<IonResult<LazyExpandedField<'top, D>>>> {
         // Because this helper function is always being invoked from within a loop, it uses
         // the `ControlFlow` enum to signal whether its return value should cause the loop to
         // terminate (`ControlFlow::Break`) or continue (`ControlFlow::Continue`).
         use ControlFlow::*;
 
-        // If the iterator is empty, we're done.
-        let unexpanded_field = match iter.next() {
+        // Get the next unexpanded field from our source's iterator.
+        let (evaluator, unexpanded_field_result) = match source {
+            ExpandedStructIteratorSource::Template(tdl_macro_evaluator, template_iterator) => {
+                (tdl_macro_evaluator, template_iterator.next())
+            }
+            ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, raw_struct_iter) => {
+                (e_exp_evaluator, raw_struct_iter.next())
+            }
+        };
+
+        let unexpanded_field = match unexpanded_field_result {
             Some(Ok(field_expr)) => field_expr,
             Some(Err(error)) => {
                 return Break(Some(Err::<LazyExpandedField<'top, D>, IonError>(error)))
             }
+            // If the iterator is empty, we're done.
             None => return Break(None),
         };
 
