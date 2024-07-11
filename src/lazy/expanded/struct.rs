@@ -1,5 +1,3 @@
-use std::ops::ControlFlow;
-
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructUnexpandedFieldsIterator};
 use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
@@ -17,7 +15,7 @@ use crate::lazy::expanded::{
 };
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{IonError, IonResult, RawSymbolRef, SymbolRef};
+use crate::{try_or_some_err, IonError, IonResult, RawSymbolRef, SymbolRef};
 
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
@@ -182,20 +180,19 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
     }
 
     pub fn iter(&self) -> ExpandedStructIterator<'top, D> {
+        let evaluator = self
+            .context
+            .allocator()
+            .alloc_with(|| MacroEvaluator::new());
         let source = match &self.source {
             ExpandedStructSource::ValueLiteral(raw_struct) => {
                 ExpandedStructIteratorSource::ValueLiteral(
-                    self.context
-                        .allocator()
-                        .alloc_with(|| MacroEvaluator::new()),
+                    evaluator,
                     raw_struct.unexpanded_fields(self.context),
                 )
             }
             ExpandedStructSource::Template(environment, element, _index) => {
-                let evaluator = self
-                    .context
-                    .allocator()
-                    .alloc_with(|| MacroEvaluator::new_with_environment(*environment));
+                evaluator.set_root_environment(*environment);
                 let template = element.template();
                 ExpandedStructIteratorSource::Template(
                     evaluator,
@@ -339,6 +336,27 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
     // TODO: Constructed
 }
 
+impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
+    fn next_field(&mut self) -> Option<IonResult<UnexpandedField<'top, D>>> {
+        // Get the next unexpanded field from our source's iterator.
+        match self {
+            ExpandedStructIteratorSource::Template(_, template_iterator) => {
+                template_iterator.next()
+            }
+            ExpandedStructIteratorSource::ValueLiteral(_, raw_struct_iter) => {
+                raw_struct_iter.next()
+            }
+        }
+    }
+
+    fn evaluator(&mut self) -> &mut MacroEvaluator<'top, D> {
+        match self {
+            ExpandedStructIteratorSource::Template(evaluator, _) => evaluator,
+            ExpandedStructIteratorSource::ValueLiteral(evaluator, _) => evaluator,
+        }
+    }
+}
+
 pub struct ExpandedStructIterator<'top, D: Decoder> {
     // Each variant of 'source' below holds its own encoding context reference
     source: ExpandedStructIteratorSource<'top, D>,
@@ -369,10 +387,7 @@ enum ExpandedStructIteratorState<'top, D: Decoder> {
     //     bar: 2,
     // This variant holds a pointer to that struct's iterator living in the
     // EncodingContext's bump allocator.
-    InliningAStruct(
-        &'top mut LazyExpandedStruct<'top, D>,
-        &'top mut ExpandedStructIterator<'top, D>,
-    ),
+    InliningAStruct(&'top mut ExpandedStructIterator<'top, D>),
 }
 
 impl<'top, D: Decoder> Iterator for ExpandedStructIterator<'top, D> {
@@ -402,25 +417,45 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         } = *self;
 
         loop {
-            use ControlFlow::{Break, Continue};
             use ExpandedStructIteratorState::*;
             match state {
                 // This is the initial state. We're reading a raw field expression from our source
                 // iterator.
                 ReadingFieldFromSource => {
-                    // We'll see what kind of expression it is.
-                    match Self::next_from_iterator(state, source) {
-                        // The iterator found a (name, value literal) pair.
-                        Break(maybe_result) => return maybe_result,
-                        // The iterator found a (name, macro) pair or a macro; further evaluation
-                        // is needed to yield a (name, value) pair.
-                        Continue(_) => continue,
-                    }
+                    use UnexpandedField::*;
+                    match try_or_some_err!(source.next_field()?) {
+                        NameValue(name, value) => {
+                            return Some(Ok(LazyExpandedField::new(name, value)))
+                        }
+                        NameMacro(name, invocation) => {
+                            match Self::begin_expanding_field_macro(
+                                state,
+                                source.evaluator(),
+                                name,
+                                invocation,
+                            ) {
+                                Some(field_result) => return Some(field_result),
+                                None => continue,
+                            }
+                        }
+                        Macro(invocation) => {
+                            // The next expression from the iterator was a macro. We expect it to expand to a
+                            // single struct whose fields will be merged into the one we're iterating over. For example:
+                            //     {a: 1, (:make_struct b 2 c 3), d: 4}
+                            // expands to:
+                            //     {a: 1, b: 2, c: 3, d: 4}
+                            try_or_some_err!(Self::begin_inlining_struct_from_macro(
+                                state,
+                                source.evaluator(),
+                                invocation,
+                            ))
+                        }
+                    };
                 }
                 // The iterator previously encountered a macro in field-name position. That macro
                 // yielded a struct, and now we're merging that expanded struct's fields into our
                 // own one at a time.
-                InliningAStruct(_struct, struct_iter) => {
+                InliningAStruct(struct_iter) => {
                     if let Some(inlined_field) = struct_iter.next() {
                         // We pulled another field from the struct we're inlining.
                         return Some(inlined_field);
@@ -435,17 +470,9 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                 // in the expansion, one at a time.
                 ExpandingValueExpr(field_name) => {
                     // Get the next expression from our source's macro evaluator.
-                    let evaluator = match source {
-                        ExpandedStructIteratorSource::Template(tdl_macro_evaluator, _) => {
-                            tdl_macro_evaluator
-                        }
-                        ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, _) => {
-                            e_exp_evaluator
-                        }
-                    };
-                    match evaluator.next() {
-                        Err(e) => return Some(Err(e)),
-                        Ok(Some(next_value)) => {
+                    let evaluator = source.evaluator();
+                    match try_or_some_err!(evaluator.next()) {
+                        Some(next_value) => {
                             let field_name = *field_name;
                             if evaluator.is_empty() {
                                 // The evaluator is empty, so we should return to reading from
@@ -456,7 +483,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                             // it as another field using the same field_name.
                             return Some(Ok(LazyExpandedField::new(field_name, next_value)));
                         }
-                        Ok(None) => {
+                        None => {
                             // The macro in the value position is no longer emitting values. Switch
                             // back to reading from the source.
                             *state = ReadingFieldFromSource;
@@ -469,78 +496,30 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
 
     /// Pulls a single unexpanded field expression from the source iterator and sets `state` according to
     /// the expression's kind.
-    fn next_from_iterator(
+    fn begin_expanding_field_macro(
         state: &mut ExpandedStructIteratorState<'top, D>,
-        source: &mut ExpandedStructIteratorSource<'top, D>,
-    ) -> ControlFlow<Option<IonResult<LazyExpandedField<'top, D>>>> {
-        // Because this helper function is always being invoked from within a loop, it uses
-        // the `ControlFlow` enum to signal whether its return value should cause the loop to
-        // terminate (`ControlFlow::Break`) or continue (`ControlFlow::Continue`).
-        use ControlFlow::*;
-
-        // Get the next unexpanded field from our source's iterator.
-        let (evaluator, unexpanded_field_result) = match source {
-            ExpandedStructIteratorSource::Template(tdl_macro_evaluator, template_iterator) => {
-                (tdl_macro_evaluator, template_iterator.next())
-            }
-            ExpandedStructIteratorSource::ValueLiteral(e_exp_evaluator, raw_struct_iter) => {
-                (e_exp_evaluator, raw_struct_iter.next())
-            }
-        };
-
-        let unexpanded_field = match unexpanded_field_result {
-            Some(Ok(field_expr)) => field_expr,
-            Some(Err(error)) => {
-                return Break(Some(Err::<LazyExpandedField<'top, D>, IonError>(error)))
-            }
-            // If the iterator is empty, we're done.
-            None => return Break(None),
-        };
-
-        use UnexpandedField::*;
-        match unexpanded_field {
-            NameValue(name, value) => Break(Some(Ok(LazyExpandedField::new(name, value)))),
-            NameMacro(name, invocation) => {
-                let environment = evaluator.environment();
-                let expansion = match MacroExpansion::initialize(environment, invocation) {
-                    Ok(expansion) => expansion,
-                    Err(e) => return Break(Some(Err(e))),
-                };
-                // If the macro is guaranteed to expand to exactly one value, we can evaluate it
-                // in place.
-                if invocation
-                    .invoked_macro()
-                    .expansion_analysis()
-                    .must_produce_exactly_one_value()
-                {
-                    let value = match expansion.expand_singleton() {
-                        Ok(value) => value,
-                        Err(e) => return Break(Some(Err(e))),
-                    };
-                    return Break(Some(Ok(LazyExpandedField::new(name, value))));
-                }
-                // Otherwise, we'll add it to the evaluator's stack and return to the top of the loop.
-                evaluator.push(expansion);
-                *state = ExpandedStructIteratorState::ExpandingValueExpr(name);
-                // We've pushed the macro invocation onto the evaluator's stack, but further evaluation
-                // is needed to get our next field.
-                Continue(())
-            }
-            Macro(invocation) => {
-                // The next expression from the iterator was a macro. We expect it to expand to a
-                // single struct whose fields will be merged into the one we're iterating over. For example:
-                //     {a: 1, (:make_struct b 2 c 3), d: 4}
-                // expands to:
-                //     {a: 1, b: 2, c: 3, d: 4}
-                match Self::begin_inlining_struct_from_macro(state, evaluator, invocation) {
-                    // If the macro expanded to a struct as expected, continue the evaluation
-                    // until we get a field to return.
-                    Ok(_) => Continue(()),
-                    // If something went wrong, surface the error.
-                    Err(e) => Break(Some(Err(e))),
-                }
-            }
+        evaluator: &mut MacroEvaluator<'top, D>,
+        field_name: LazyExpandedFieldName<'top, D>,
+        invocation: MacroExpr<'top, D>,
+    ) -> Option<IonResult<LazyExpandedField<'top, D>>> {
+        let environment = evaluator.environment();
+        let expansion = try_or_some_err!(MacroExpansion::initialize(environment, invocation));
+        // If the macro is guaranteed to expand to exactly one value, we can evaluate it
+        // in place.
+        if invocation
+            .invoked_macro()
+            .expansion_analysis()
+            .must_produce_exactly_one_value()
+        {
+            let value = try_or_some_err!(expansion.expand_singleton());
+            return Some(Ok(LazyExpandedField::new(field_name, value)));
         }
+        // Otherwise, we'll add it to the evaluator's stack and return to the top of the loop.
+        evaluator.push(expansion);
+        *state = ExpandedStructIteratorState::ExpandingValueExpr(field_name);
+        // We've pushed the macro invocation onto the evaluator's stack, but further evaluation
+        // is needed to get our next field.
+        None
     }
 
     /// Pulls the next value from the evaluator, confirms that it's a struct, and then switches
@@ -567,8 +546,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
             }
         };
         let iter: &'top mut ExpandedStructIterator<'top, D> = struct_.bump_iter();
-        let struct_ref = invocation.context().allocator().alloc_with(|| struct_);
-        *state = ExpandedStructIteratorState::InliningAStruct(struct_ref, iter);
+        *state = ExpandedStructIteratorState::InliningAStruct(iter);
         Ok(())
     }
 }

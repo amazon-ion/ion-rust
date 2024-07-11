@@ -649,6 +649,10 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
             }
         };
     }
+
+    pub fn set_root_environment(&mut self, environment: Environment<'top, D>) {
+        self.root_environment = environment;
+    }
 }
 
 pub type MacroStack<'top, D> = BumpVec<'top, MacroExpansion<'top, D>>;
