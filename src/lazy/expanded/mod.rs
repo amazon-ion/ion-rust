@@ -483,11 +483,13 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             unsafe { &mut *self.pending_context_changes.get() };
         if pending_lst.has_changes {
             // SAFETY: Nothing else holds a reference to the `EncodingContext`'s contents, so we can use the
-            //         `UnsafeCell` to get a mutable reference to its symbol table.
-            let symbol_table: &mut SymbolTable =
-                &mut unsafe { &mut *self.encoding_context.get() }.symbol_table;
-            let macro_table: &mut MacroTable =
-                &mut unsafe { &mut *self.encoding_context.get() }.macro_table;
+            //         `UnsafeCell` to get mutable references to its symbol and macro tables.
+            let encoding_context_ref = unsafe { &mut *self.encoding_context.get() };
+            let EncodingContext {
+                macro_table,
+                symbol_table,
+                ..
+            } = encoding_context_ref;
             Self::apply_pending_context_changes(pending_lst, symbol_table, macro_table);
         }
     }
