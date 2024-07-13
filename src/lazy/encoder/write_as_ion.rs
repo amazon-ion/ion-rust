@@ -23,9 +23,10 @@ use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWrit
 use crate::lazy::encoding::Encoding;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{
     Blob, Clob, Decimal, Element, Int, IonResult, IonType, LazyList, LazySExp, LazyStruct, Null,
-    RawSymbolRef, Symbol, SymbolRef, Timestamp, Value, WriteConfig,
+    RawSymbolRef, Struct, Symbol, SymbolRef, Timestamp, Value, WriteConfig,
 };
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
@@ -345,5 +346,220 @@ impl<T: WriteAsIon> WriteAsIon for Option<T> {
         } else {
             writer.write_null(IonType::Null)
         }
+    }
+}
+
+/// TODO:
+///   - Should this return `IonResult<()>` or `IonResult<&mut Self>`?
+///   - Implementations for e.g. IntoIter, etc.
+///   - types: should it be possible to implement for only certain types of sequences? E.g.
+pub trait WriteAsIonSequence {
+    /// Maps this value to the Ion data model using the provided [`SequenceWriter`] implementation.
+    fn write_as_ion_sequence<S: SequenceWriter>(&self, writer: &mut S) -> IonResult<()>;
+}
+
+impl<T: WriteAsIonSequence> WriteAsIonSequence for &T {
+    #[inline]
+    fn write_as_ion_sequence<S: SequenceWriter>(&self, writer: &mut S) -> IonResult<()> {
+        (*self).write_as_ion_sequence(writer)
+    }
+}
+
+// Conflicts with impl<T: WriteAsIonSequence> WriteAsIonSequence for &T
+// impl<V: WriteAsIon, I: IntoIterator<Item = V>> WriteAsIonSequence for I {
+//     fn write_as_ion_sequence<S: SequenceWriter>(&self, writer: &mut S) -> IonResult<()> {
+//         writer.write_sequence(self)?;
+//         Ok(())
+//     }
+// }
+
+macro_rules! impl_write_as_ion_sequence_for_iterable {
+    ($iterable:ty, $item:ident $(, const $n:ident: $n_type:ty)?) => {
+        impl<'a, $item $(, const $n: $n_type)?> WriteAsIonSequence for $iterable
+        where
+            $item: WriteAsIon + 'a,
+        {
+            fn write_as_ion_sequence<S: SequenceWriter>(&self, writer: &mut S) -> IonResult<()> {
+                for item in self.iter() {
+                    writer.write(item)?;
+                }
+                Ok(())
+            }
+        }
+    };
+}
+
+impl_write_as_ion_sequence_for_iterable!(Vec<T>, T);
+impl_write_as_ion_sequence_for_iterable!(Option<T>, T);
+impl_write_as_ion_sequence_for_iterable!(&[T], T);
+impl_write_as_ion_sequence_for_iterable!([T; N], T, const N: usize);
+
+pub trait WriteAsIonFields {
+    /// Maps this value to the Ion data model using the provided [`StructWriter`] implementation.
+    fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()>;
+}
+
+impl<'a, A, T> WriteAsIonFields for (A, T)
+where
+    A: AsRawSymbolRef + 'a,
+    T: WriteAsIon + 'a,
+{
+    fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+        let (name, item) = self;
+        writer.write(name, item)?;
+        Ok(())
+    }
+}
+
+impl<T: WriteAsIonFields> WriteAsIonFields for &T {
+    #[inline]
+    fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+        (*self).write_as_ion_fields(writer)
+    }
+}
+
+// Allows splicing a struct in when writing another struct
+impl WriteAsIonFields for Struct {
+    fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+        for (k, v) in self.iter() {
+            writer.write(k, v)?;
+        }
+        Ok(())
+    }
+}
+
+macro_rules! impl_write_as_ion_fields_for_iterable {
+    ($iterable:ty, $item:ident $(, const $n:ident: $n_type:ty)?) => {
+        impl<'a, $item $(, const $n: $n_type)?> WriteAsIonFields for $iterable
+            where $item: WriteAsIonFields + 'a,
+        {
+            fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+                for item in self.iter() {
+                    writer.write_fields(item)?;
+                }
+                Ok(())
+            }
+        }
+    };
+}
+
+impl_write_as_ion_fields_for_iterable!(Vec<T>, T);
+impl_write_as_ion_fields_for_iterable!(Option<T>, T);
+impl_write_as_ion_fields_for_iterable!(&[T], T);
+impl_write_as_ion_fields_for_iterable!([T; N], T, const N: usize);
+
+mod tests {
+    use super::*;
+    use crate::lazy::encoding::TextEncoding_1_0;
+    use crate::{TextFormat, Writer};
+
+    struct Color(u16, u16, u16);
+    struct Point(usize, usize);
+    struct ColoredPoint(Color, Point);
+    struct ColoredPoint2(Option<Color>, Point);
+    struct LineSegment(Point, Point);
+
+    impl WriteAsIonFields for Color {
+        fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+            writer.write("r", &self.0)?;
+            writer.write("g", &self.1)?;
+            writer.write("b", &self.2)?;
+            Ok(())
+        }
+    }
+
+    impl WriteAsIon for Point {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            let mut struct_writer = writer.struct_writer()?;
+            struct_writer.write_fields(self)?;
+            struct_writer.close()
+        }
+    }
+
+    impl WriteAsIonFields for Point {
+        fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+            writer.write("x", &self.0)?;
+            writer.write("y", &self.1)?;
+            Ok(())
+        }
+    }
+
+    impl WriteAsIonSequence for Point {
+        fn write_as_ion_sequence<S: SequenceWriter>(&self, writer: &mut S) -> IonResult<()> {
+            writer.write(self.0)?;
+            writer.write(self.1)?;
+            Ok(())
+        }
+    }
+
+    impl WriteAsIon for LineSegment {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            let mut sexp_writer = writer.sexp_writer()?;
+            sexp_writer.write_symbol("line")?;
+            sexp_writer.write_sequence(&self.0)?;
+            sexp_writer.write_sequence(&self.1)?;
+            sexp_writer.close()
+        }
+    }
+
+    impl WriteAsIon for ColoredPoint {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            let mut struct_writer = writer.struct_writer()?;
+            struct_writer.write_fields(&self.0)?;
+            struct_writer.write_fields(&self.1)?;
+            struct_writer.close()
+        }
+    }
+    impl WriteAsIonFields for ColoredPoint2 {
+        fn write_as_ion_fields<S: StructWriter>(&self, writer: &mut S) -> IonResult<()> {
+            writer.write_fields(&self.0)?;
+            writer.write_fields(&self.1)?;
+            Ok(())
+        }
+    }
+
+    impl WriteAsIon for ColoredPoint2 {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            let mut struct_writer = writer.struct_writer()?;
+            struct_writer.write_fields(&self.0)?;
+            struct_writer.write_fields(&self.1)?;
+            struct_writer.close()
+        }
+    }
+
+    #[test]
+    fn test_write_as_sequence() -> IonResult<()> {
+        let p0 = Point(1, 2);
+        let p1 = Point(4, 6);
+        let line = LineSegment(p0, p1);
+
+        let output = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact)
+            .encode_to(line, Vec::<u8>::new())?;
+
+        println!("{}", String::from_utf8(output).unwrap());
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_as_struct() -> IonResult<()> {
+        let p = Point(1, 2);
+        let c = Color(7, 8, 9);
+        let cp = ColoredPoint(c, p);
+        let output = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact)
+            .encode_to(cp, Vec::<u8>::new())?;
+        println!("{}", String::from_utf8(output).unwrap());
+        // TODO: Add an assertion
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_as_struct_2() -> IonResult<()> {
+        let p = Point(1, 2);
+        let cp = ColoredPoint2(None, p);
+        let output = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact)
+            .encode_to(cp, Vec::<u8>::new())?;
+        println!("{}", String::from_utf8(output).unwrap());
+        // TODO: Add an assertion
+        Ok(())
     }
 }
