@@ -1055,8 +1055,8 @@ mod tests {
         // the expected values.
         let ivm = reader.next_item()?.expect_ivm()?;
         assert_eq!(ivm.major_minor(), (1, 1));
-        assert_eq!(ivm.old_encoding(), IonEncoding::Text_1_0);
-        assert_eq!(ivm.new_encoding()?, IonEncoding::Text_1_1);
+        assert_eq!(ivm.stream_encoding_before_marker(), IonEncoding::Text_1_0);
+        assert_eq!(ivm.stream_encoding_after_marker()?, IonEncoding::Text_1_1);
         assert!(ivm.is_text());
         assert!(!ivm.is_binary());
 

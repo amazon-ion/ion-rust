@@ -127,7 +127,7 @@ impl<'top, E: TextEncoding<'top>> RawVersionMarker<'top> for LazyRawTextVersionM
         (self.major, self.minor)
     }
 
-    fn old_encoding(&self) -> IonEncoding {
+    fn stream_encoding_before_marker(&self) -> IonEncoding {
         IonEncoding::Text_1_0
     }
 }

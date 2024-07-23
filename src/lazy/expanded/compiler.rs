@@ -245,7 +245,7 @@ impl TemplateCompiler {
         Self::expect_keyword("macro", &mut values)?;
 
         // TODO: Enforce 'identifier' syntax subset of symbol
-        // TODO: Syntactic support for address IDs like `(:14 ...)`
+        // TODO: Syntactic support for address IDs like `(14 ...)`
         let template_name =
             Self::expect_nullable_name("a macro name", &mut values)?.map(|name| name.to_owned());
 

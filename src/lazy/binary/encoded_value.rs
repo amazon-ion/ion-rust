@@ -184,14 +184,16 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
 
     /// Returns the offset range of the bytes in the stream that encoded the value's annotations
     /// sequence.
-    pub fn annotations_sequence_range(&self) -> Option<Range<usize>> {
-        let wrapper_offset = self.annotations_offset()?;
+    pub fn annotations_sequence_range(&self) -> Range<usize> {
+        let wrapper_offset = self
+            .annotations_offset()
+            .unwrap_or_else(|| self.header_offset());
         let wrapper_exclusive_end = wrapper_offset + self.annotations_header_length as usize;
         let sequence_length = self.annotations_sequence_length as usize;
         let sequence_offset = wrapper_exclusive_end;
         let sequence_exclusive_end = sequence_offset + sequence_length;
         debug_assert!(sequence_exclusive_end == self.header_offset);
-        Some(sequence_offset..sequence_exclusive_end)
+        sequence_offset..sequence_exclusive_end
     }
 
     pub fn annotations_sequence_offset(&self) -> Option<usize> {
@@ -292,7 +294,7 @@ mod tests {
         assert_eq!(value.annotations_header_length(), 2);
         assert_eq!(value.annotations_sequence_offset(), Some(199));
         assert_eq!(value.annotations_sequence_length(), 1);
-        assert_eq!(value.annotations_sequence_range(), Some(199..200));
+        assert_eq!(value.annotations_sequence_range(), 199..200);
         assert_eq!(value.value_body_length(), 3);
         assert_eq!(value.value_body_offset(), 201);
         assert_eq!(value.value_body_range(), 201..204);

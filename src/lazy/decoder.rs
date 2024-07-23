@@ -94,7 +94,7 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
     /// that follows the IVM.
     fn is_binary(&self) -> bool {
-        self.old_encoding().is_binary()
+        self.stream_encoding_before_marker().is_binary()
     }
 
     /// If this marker is encoded in text Ion, returns `true`. Otherwise, returns `false`.
@@ -104,18 +104,18 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
     /// that follows the IVM.
     fn is_text(&self) -> bool {
-        self.old_encoding().is_text()
+        self.stream_encoding_before_marker().is_text()
     }
 
     /// The `IonVersion` that was used to encode this IVM.
-    fn old_version(&self) -> IonVersion {
-        self.old_encoding().version()
+    fn stream_version_before_marker(&self) -> IonVersion {
+        self.stream_encoding_before_marker().version()
     }
 
     /// If this marker's `(major, minor)` version pair represents a supported Ion version,
     /// returns `Ok(ion_version)`. Otherwise, returns a decoding error. To access the marker's
     /// version without confirming it is supported, see [`major_minor`](Self::major_minor).
-    fn new_version(&self) -> IonResult<IonVersion> {
+    fn stream_version_after_marker(&self) -> IonResult<IonVersion> {
         match self.major_minor() {
             (1, 0) => Ok(IonVersion::v1_0),
             (1, 1) => Ok(IonVersion::v1_1),
@@ -125,14 +125,14 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
         }
     }
 
-    fn old_encoding(&self) -> IonEncoding;
+    fn stream_encoding_before_marker(&self) -> IonEncoding;
 
     /// If this marker's `(major, minor)` version pair represents a supported Ion version,
     /// returns `Ok(ion_encoding)`. Otherwise, returns a decoding error. To access the marker's
     /// encoding information without confirming it is supported, see [`major_minor`](Self::major_minor) and
     /// [`is_binary`](Self::is_binary)/[`is_text`](Self::is_text).
-    fn new_encoding(&self) -> IonResult<IonEncoding> {
-        let encoding = match (self.is_binary(), self.new_version()?) {
+    fn stream_encoding_after_marker(&self) -> IonResult<IonEncoding> {
+        let encoding = match (self.is_binary(), self.stream_version_after_marker()?) {
             (true, IonVersion::v1_0) => IonEncoding::Binary_1_0,
             (false, IonVersion::v1_0) => IonEncoding::Text_1_0,
             (true, IonVersion::v1_1) => IonEncoding::Binary_1_1,

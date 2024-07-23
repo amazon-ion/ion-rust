@@ -44,6 +44,7 @@ impl BinaryEExpHeader {
     }
 }
 
+/// An e-expression which has been parsed from a binary Ion 1.1 stream.
 #[derive(Copy, Clone)]
 pub struct BinaryEExpression_1_1<'top> {
     // The arguments to the e-expression are parsed either:

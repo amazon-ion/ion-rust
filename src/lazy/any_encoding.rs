@@ -144,7 +144,7 @@ impl<'top> RawVersionMarker<'top> for LazyRawAnyVersionMarker<'top> {
         }
     }
 
-    fn old_encoding(&self) -> IonEncoding {
+    fn stream_encoding_before_marker(&self) -> IonEncoding {
         use LazyRawAnyVersionMarkerKind::*;
         match self.encoding {
             Text_1_0(_) => IonEncoding::Text_1_0,
@@ -579,7 +579,7 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
 
     fn resume_at_offset(data: &'data [u8], offset: usize, mut encoding_hint: IonEncoding) -> Self {
         if offset == 0 {
-            // If we're at the beginning of the stream, the provided `raw_reader_type` may be a
+            // If we're at the beginning of the stream, the provided `encoding_hint` may be a
             // default. We need to inspect the bytes to see if we should override it.
             encoding_hint = Self::detect_encoding(data);
         }
@@ -643,8 +643,8 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         //   * the encoding context will be reset, but this is handled by higher-level readers.
         //   * the encoding itself may change, and we need to handle that at this level.
         if let RawStreamItem::VersionMarker(ivm) = item {
-            let ivm_old_encoding = ivm.old_encoding();
-            let ivm_new_encoding = ivm.new_encoding()?;
+            let ivm_old_encoding = ivm.stream_encoding_before_marker();
+            let ivm_new_encoding = ivm.stream_encoding_after_marker()?;
             if ivm_new_encoding != ivm_old_encoding {
                 // Save the new encoding; when `next()` is called again, we'll make a new reader.
                 self.new_encoding = Some(ivm_new_encoding);
@@ -1794,8 +1794,8 @@ mod tests {
         // The next item is an IVM
         let ivm = reader.next(context_ref)?.expect_ivm()?;
         // The IVM correctly reports the expected before/after encodings
-        assert_eq!(ivm.old_encoding(), encoding_before);
-        assert_eq!(ivm.new_encoding()?, encoding_after);
+        assert_eq!(ivm.stream_encoding_before_marker(), encoding_before);
+        assert_eq!(ivm.stream_encoding_after_marker()?, encoding_after);
         // The reader is now using the new encoding
         assert_eq!(reader.encoding(), encoding_after);
         Ok(())

@@ -1073,7 +1073,6 @@ impl<'top> TextBufferView<'top> {
                 }
             };
         // For the matched span, we use `self` again to include the opening `(:` and whitespace.
-        // We also trim the
         let matched = self.slice(0, span.len());
         let remaining = self.slice_to_end(span.len());
         let arg_group = TextEExpArgGroup::new(parameter, matched, child_expr_cache);

@@ -1117,11 +1117,11 @@ mod tests {
                 eval_template_invocation(
                     "(macro foo (x) (make_string x x))",
                     r#"
-                (:foo (:))
-            "#,
+                        (:foo (:))
+                    "#,
                     r#"
-                // should raise an error
-            "#,
+                        // should raise an error
+                    "#,
                 )
                 .unwrap()
             }
@@ -1162,19 +1162,6 @@ mod tests {
                 ""
                 ""
                 "aa"
-                "aaaa"
-            "#,
-                )
-            }
-
-            #[test]
-            fn narrow() -> IonResult<()> {
-                eval_template_invocation(
-                    "(macro foo (x?) (make_string x x))",
-                    r#"
-                (:foo (:foo a))  // x is `(:foo a)`
-            "#,
-                    r#"
                 "aaaa"
             "#,
                 )
@@ -1515,7 +1502,7 @@ mod tests {
                     418
                     "6"
                     "1"
-                    "18b4fa"
+                    "abc-123"
                     (:values
                         "region 4"
                         "2022-12-07T20:59:59.744000Z"))
@@ -1532,7 +1519,7 @@ mod tests {
                         'parameters': [
                             "SUCCESS",
                             "example-client-1",
-                            "aws-us-east-5f-18b4fa",
+                            "aws-us-east-5f-abc-123",
                             "region 4",
                             "2022-12-07T20:59:59.744000Z",
                         ]

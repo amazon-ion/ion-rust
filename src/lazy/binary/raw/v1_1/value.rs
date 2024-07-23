@@ -85,7 +85,7 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
         (self.major, self.minor)
     }
 
-    fn old_encoding(&self) -> IonEncoding {
+    fn stream_encoding_before_marker(&self) -> IonEncoding {
         IonEncoding::Binary_1_1
     }
 }

@@ -13,7 +13,9 @@ pub(crate) enum SymbolText {
     // This Symbol refers to a string in the symbol table
     Shared(Arc<str>),
     // This Symbol owns its own text
-    // TODO: Turn this into a Box<str>
+    // TODO: Turn this into a Box<str>.
+    //       Symbols are read-only, so there's no chance we'll add data to the `String`. Using
+    //       a `Box<str>` shrinks this value from 24 bytes to 8 bytes.
     Owned(String),
     // This Symbol is equivalent to SID zero (`$0`)
     Unknown,

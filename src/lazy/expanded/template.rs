@@ -105,6 +105,7 @@ impl MacroSignature {
         Ok(self)
     }
 
+    /// Constructs a new instance of a signature with no arguments (the signature of a "constant" template).
     fn constant() -> Self {
         Self::new(Vec::new()).unwrap()
     }
@@ -164,8 +165,8 @@ mod macro_signature_tests {
 
         let signature = MacroSignature::new(Vec::new())?
             .with_parameter("foo", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
-            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?
-            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrOne)?;
+            .with_parameter("bar", ParameterEncoding::Tagged, ParameterCardinality::ZeroOrMore)?
+            .with_parameter("baz", ParameterEncoding::Tagged, ParameterCardinality::OneOrMore)?;
         assert_eq!(signature.num_variadic_params(), 3);
         assert_eq!(signature.bitmap_size_in_bytes(), 1);
 
@@ -821,7 +822,6 @@ impl<'top> Debug for TemplateMacroInvocation<'top> {
 impl<'top> TemplateMacroInvocation<'top> {
     pub fn new(
         context: EncodingContextRef<'top>,
-        // host_template_address: TemplateMacroRef<'top>,
         host_template_address: MacroAddress,
         invoked_macro: MacroRef<'top>,
         arg_expressions_range: ExprRange,

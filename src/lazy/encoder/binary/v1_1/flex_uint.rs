@@ -56,8 +56,8 @@ impl FlexUInt {
         // FlexUInt we find requires more than 8 bytes to represent, we'll fall back to the general
         // case.
         if input.len() < COMMON_CASE_INPUT_BYTES_NEEDED || input[0] == 0 {
-            // `read_flex_uint_slow` is marked #[cold] to discourage inlining it, which keeps
-            // this method small enough that the code for the common case can be inlined.
+            // Calling `read_flex_primitive_as_uint_no_inline` keeps this method small enough that
+            // the code for the common case can be inlined.
             return Self::read_flex_primitive_as_uint_no_inline(
                 input,
                 offset,

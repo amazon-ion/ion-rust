@@ -290,8 +290,7 @@ impl<'a> ImmutableBuffer<'a> {
         }
     }
 
-    /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
-    /// and at the top level.
+    /// Reads a single expression (value literal or e-expression) as an argument to an e-expression.
     #[inline]
     pub(crate) fn expect_eexp_arg_expr(
         self,

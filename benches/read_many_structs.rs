@@ -44,7 +44,7 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         )
     "#.to_owned();
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "abc-123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
 
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
@@ -60,7 +60,7 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         0x91, // 1-byte string (`client_num` param)
         0x31,
         0x96, // 6-byte string (`host_id` param)
-        0x31, 0x38, 0x62, 0x34, 0x66, 0x61,
+        0x61, 0x62, 0x63, 0x31, 0x32, 0x33,
         0x4D, // Arg group length prefix
         0x98, // 8-byte string
         0x72, 0x65, 0x67, 0x69,
@@ -107,7 +107,7 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         )
     "#;
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc-123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
     let mut binary_1_1_data_body: Vec<u8> = vec![
@@ -127,11 +127,10 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65, 0x2D, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x2D, 0x31,
         0xF9, // long-form string (`host_id` param)
         0x2B, // FlexUInt byte length 21
-        // "aws-us-east-5f-18b4fa"
+        // "aws-us-east-5f-abc-123"
         0x61, 0x77, 0x73, 0x2D, 0x75, 0x73,
         0x2D, 0x65, 0x61, 0x73, 0x74, 0x2D,
-        0x35, 0x66, 0x2D, 0x31, 0x38, 0x62,
-        0x34, 0x66, 0x61,
+        0x35, 0x66, 0x2D, 0x61, 0x62, 0x63, 0x31, 0x32, 0x33,
         0x4D, // Arg group length prefix
         0x98, // 8-byte string
         0x72, 0x65, 0x67, 0x69,
@@ -179,7 +178,7 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
         )
     "#;
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-18b4fa" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc-123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
     let mut binary_1_1_data_body: Vec<u8> = vec![
@@ -201,11 +200,10 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
         0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65, 0x2D, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x2D, 0x31,
         0xF9, // long-form string (`host_id` param)
         0x2B, // FlexUInt byte length 21
-        // "aws-us-east-5f-18b4fa"
+        // "aws-us-east-5f-abc-123"
         0x61, 0x77, 0x73, 0x2D, 0x75, 0x73,
         0x2D, 0x65, 0x61, 0x73, 0x74, 0x2D,
-        0x35, 0x66, 0x2D, 0x31, 0x38, 0x62,
-        0x34, 0x66, 0x61,
+        0x35, 0x66, 0x2D, 0x61, 0x62, 0x63, 0x31, 0x32, 0x33,
         0x4D, // Arg group length prefix
         0x98, // 8-byte string
         0x72, 0x65, 0x67, 0x69,
@@ -304,7 +302,7 @@ mod benchmark {
             'loggerName': "com.example.organization.product.component.ClassName",
             'logLevel': INFO,
             'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
-            'parameters': ["SUCCESS","example-client-1","aws-us-east-5f-18b4fa","region 4","2022-12-07T20:59:59.744000Z",],
+            'parameters': ["SUCCESS","example-client-1","aws-us-east-5f-abc-123","region 4","2022-12-07T20:59:59.744000Z",],
         }"#.repeat(num_values);
         let text_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Text).unwrap();
         let binary_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Binary).unwrap();
