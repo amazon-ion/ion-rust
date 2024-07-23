@@ -342,7 +342,6 @@ impl<R: Read> IonDataSource for IonStream<R> {
 ///
 /// In general, this trait is implemented by mapping `Self` to either:
 ///   * [`IonSlice`], if `Self` is an implementation of `AsRef<[u8]>`
-/// OR
 ///   * [`IonStream`], if `Self` is an implementation of `io::Read`
 pub trait IonInput {
     type DataSource: IonDataSource;

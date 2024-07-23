@@ -1,3 +1,9 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
+
+use delegate::delegate;
+use rustc_hash::FxHashMap;
+
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::template::{
     MacroSignature, Parameter, ParameterCardinality, ParameterEncoding, RestSyntaxPolicy,
@@ -6,9 +12,6 @@ use crate::lazy::expanded::template::{
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType};
-use delegate::delegate;
-use std::borrow::Cow;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
@@ -100,6 +103,7 @@ pub enum MacroKind {
     Void,
     Values,
     MakeString,
+    Annotate,
     Template(TemplateBody),
 }
 
@@ -156,7 +160,7 @@ impl<'top> MacroRef<'top> {
 pub struct MacroTable {
     macros_by_address: Vec<Macro>,
     // Maps names to an address that can be used to query the Vec above.
-    macros_by_name: HashMap<String, usize>,
+    macros_by_name: FxHashMap<String, usize>,
 }
 
 impl Default for MacroTable {
@@ -166,12 +170,16 @@ impl Default for MacroTable {
 }
 
 impl MacroTable {
-    pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] =
-        &[MacroKind::Void, MacroKind::Values, MacroKind::MakeString];
+    pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] = &[
+        MacroKind::Void,
+        MacroKind::Values,
+        MacroKind::MakeString,
+        MacroKind::Annotate,
+    ];
     pub const NUM_SYSTEM_MACROS: usize = Self::SYSTEM_MACRO_KINDS.len();
     // When a user defines new macros, this is the first ID that will be assigned. This value
     // is expected to change as development continues. It is currently used in several unit tests.
-    pub const FIRST_USER_MACRO_ID: usize = 3;
+    pub const FIRST_USER_MACRO_ID: usize = 4;
 
     pub fn new() -> Self {
         let macros_by_id = vec![
@@ -225,6 +233,31 @@ impl MacroTable {
                         ion_type: IonType::String,
                         num_annotations: 0,
                     }),
+                },
+            ),
+            Macro::named(
+                "annotate",
+                MacroSignature::new(vec![
+                    Parameter::new(
+                        "annotations",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrMore,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "value_to_annotate",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                ])
+                .unwrap(),
+                MacroKind::Annotate,
+                ExpansionAnalysis {
+                    could_produce_system_value: true,
+                    must_produce_exactly_one_value: true,
+                    can_be_lazily_evaluated_at_top_level: false,
+                    expansion_singleton: None,
                 },
             ),
         ];

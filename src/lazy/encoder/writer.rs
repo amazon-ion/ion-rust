@@ -20,7 +20,7 @@ use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
     Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolRef, Symbol, SymbolId,
-    SymbolTable, Timestamp, Value,
+    SymbolTable, Timestamp, UInt, Value,
 };
 
 pub(crate) struct WriteContext {
@@ -505,6 +505,9 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'value, V
 
 impl<'value, V: ValueWriter> EExpWriter for ApplicationEExpWriter<'value, V> {
     // Default methods
+    fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
+        self.raw_eexp_writer.write_flex_uint(value)
+    }
 }
 
 impl<S: SequenceWriter> ElementWriter for S {

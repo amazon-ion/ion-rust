@@ -35,7 +35,6 @@
 use std::cell::{Cell, UnsafeCell};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::iter::empty;
 use std::ops::{Deref, Range};
 
 use bumpalo::Bump as BumpAllocator;
@@ -70,7 +69,7 @@ use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
     Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
-    Span, SymbolTable, Timestamp, ValueRef,
+    Span, SymbolRef, SymbolTable, Timestamp, ValueRef,
 };
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
@@ -148,6 +147,17 @@ impl EncodingContext {
 
     pub fn allocator(&self) -> &BumpAllocator {
         &self.allocator
+    }
+
+    // TODO: These methods are temporary; they will be removed once shared modules are supported.
+    pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
+        let template_macro: TemplateMacro =
+            TemplateCompiler::compile_from_text(self.get_ref(), template_definition)?;
+        self.register_template(template_macro)
+    }
+
+    pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
+        self.macro_table.add_macro(template_macro)
     }
 }
 
@@ -634,7 +644,7 @@ pub enum ExpandedValueSource<'top, D: Decoder> {
         //       it to `Never` and the compiler can eliminate this code path where applicable.
         // Constructed data stored in the bump allocator. Holding references instead of the data
         // itself allows this type (and those that contain it) to impl `Copy`.
-        &'top [&'top str],       // Annotations (if any)
+        &'top [SymbolRef<'top>], // Annotations (if any)
         &'top ValueRef<'top, D>, // Value
     ),
 }
@@ -749,7 +759,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
 
     pub(crate) fn from_constructed(
         context: EncodingContextRef<'top>,
-        annotations: &'top [&'top str],
+        annotations: &'top [SymbolRef<'top>],
         value: &'top ValueRef<'top, Encoding>,
     ) -> Self {
         Self {
@@ -805,12 +815,11 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             Template(_, element) => ExpandedAnnotationsIterator::new(
                 ExpandedAnnotationsSource::Template(SymbolsIterator::new(element.annotations())),
             ),
-            Constructed(_annotations, _value) => {
-                // TODO: iterate over constructed annotations
+            Constructed(annotations, _value) => {
                 // For now we return an empty iterator
-                ExpandedAnnotationsIterator::new(ExpandedAnnotationsSource::Constructed(Box::new(
-                    empty(),
-                )))
+                ExpandedAnnotationsIterator::new(ExpandedAnnotationsSource::Constructed(
+                    annotations.iter(),
+                ))
             }
             EExp(eexp) => {
                 let annotations_range = 0..eexp.require_expansion_singleton().num_annotations();
@@ -928,8 +937,7 @@ impl<'top, Encoding: Decoder> From<LazyExpandedList<'top, Encoding>> for LazyLis
 pub enum ExpandedAnnotationsSource<'top, Encoding: Decoder> {
     ValueLiteral(Encoding::AnnotationsIterator<'top>),
     Template(SymbolsIterator<'top>),
-    // TODO: This is a placeholder impl and always returns an empty iterator
-    Constructed(Box<dyn Iterator<Item = IonResult<RawSymbolRef<'top>>> + 'top>),
+    Constructed(std::slice::Iter<'top, SymbolRef<'top>>),
 }
 
 pub struct ExpandedAnnotationsIterator<'top, Encoding: Decoder> {
@@ -952,7 +960,7 @@ impl<'top, Encoding: Decoder> Iterator for ExpandedAnnotationsIterator<'top, Enc
             Template(element_annotations_iter) => element_annotations_iter
                 .next()
                 .map(|symbol| Ok(symbol.as_raw_symbol_token_ref())),
-            Constructed(iter) => iter.next(),
+            Constructed(iter) => Some(Ok(iter.next()?.as_raw_symbol_token_ref())),
         }
     }
 }

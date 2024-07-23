@@ -16,6 +16,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
+use ice_code::ice;
 
 use crate::lazy::decoder::{Decoder, HasSpan, LazyRawValueExpr};
 use crate::lazy::expanded::e_expression::{
@@ -33,7 +34,7 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{ExpandedValueSource, HasRange, IonError, IonResult, ValueRef};
+use crate::{ExpandedValueSource, HasRange, IonError, IonResult, LazyValue, SymbolRef, ValueRef};
 
 pub trait EExpArgGroupIterator<'top, D: Decoder>:
     Copy + Clone + Debug + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
@@ -316,6 +317,24 @@ pub enum ValueExpr<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> ValueExpr<'top, D> {
+    pub fn expect_value_literal(&self) -> IonResult<LazyExpandedValue<'top, D>> {
+        match self {
+            ValueExpr::ValueLiteral(value) => Ok(*value),
+            _ => {
+                IonResult::decoding_error("expected a value literal, but found a macro invocation")
+            }
+        }
+    }
+
+    pub fn expect_macro_invocation(&self) -> IonResult<MacroExpr<'top, D>> {
+        match self {
+            ValueExpr::MacroInvocation(invocation) => Ok(*invocation),
+            _ => {
+                IonResult::decoding_error("expected a macro invocation, but found a value literal")
+            }
+        }
+    }
+
     /// If this `ValueExpr` represents an entity encoded in te data stream, returns `Some(range)`.
     /// If it represents a template value or a constructed value, returns `None`.
     pub fn range(&self) -> Option<Range<usize>> {
@@ -348,6 +367,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     Void,
     Values(ValuesExpansion<'top, D>),
     MakeString(MakeStringExpansion<'top, D>),
+    Annotate(AnnotateExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
 }
 
@@ -374,7 +394,9 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         match self.next_step()? {
             // If the expansion produces anything other than a final value, there's a bug.
             MacroExpansionStep::FinalStep(Some(ValueExpr::ValueLiteral(value))) => Ok(value),
-            _ => unreachable!("e-expression-backed lazy values must yield a single value literal"),
+            _ => ice!(IonResult::decoding_error(format!(
+                "expansion of {self:?} was required to produce exactly one value",
+            ))),
         }
     }
 
@@ -417,6 +439,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Template(template_expansion) => template_expansion.next(context, environment),
             Values(values_expansion) => values_expansion.next(context, environment),
             MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
+            Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             // `void` is trivial and requires no delegation
             Void => Ok(MacroExpansionStep::FinalStep(None)),
         }
@@ -429,6 +452,7 @@ impl<'top, D: Decoder> Debug for MacroExpansion<'top, D> {
             MacroExpansionKind::Void => "void",
             MacroExpansionKind::Values(_) => "values",
             MacroExpansionKind::MakeString(_) => "make_string",
+            MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Template(t) => {
                 return if let Some(name) = t.template.name() {
                     write!(f, "<expansion of template '{}'>", name)
@@ -959,10 +983,10 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
 
         // Convert our BumpString<'bump> into a &'bump str that we can wrap in an `ExpandedValueRef`
         let constructed_text = buffer.into_bump_str();
-        let value_ref: &'top ValueRef<'top, D> = context
+        let value_ref: &'top ValueRef<'top, _> = context
             .allocator()
             .alloc_with(|| ValueRef::String(StrRef::from(constructed_text)));
-        static EMPTY_ANNOTATIONS: &[&str] = &[];
+        static EMPTY_ANNOTATIONS: &[SymbolRef] = &[];
 
         Ok(MacroExpansionStep::FinalStep(Some(
             ValueExpr::ValueLiteral(LazyExpandedValue::from_constructed(
@@ -970,6 +994,93 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
                 EMPTY_ANNOTATIONS,
                 value_ref,
             )),
+        )))
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct AnnotateExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+}
+
+impl<'top, D: Decoder> AnnotateExpansion<'top, D> {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self { arguments }
+    }
+
+    pub fn next(
+        &mut self,
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        let annotations_arg = match self.arguments.next() {
+            None => {
+                return IonResult::decoding_error("`annotate` takes two parameters, received none")
+            }
+            Some(Err(e)) => return Err(e),
+            Some(Ok(expr)) => expr,
+        };
+
+        // Collect all of the annotations (Strings/Symbols) from the output of the first arg expr
+        let mut annotations = BumpVec::new_in(context.allocator());
+        match annotations_arg {
+            ValueExpr::ValueLiteral(value_literal) => {
+                annotations.push(value_literal.read_resolved()?.expect_text()?.into())
+            }
+            ValueExpr::MacroInvocation(invocation) => {
+                let mut evaluator = MacroEvaluator::new_with_environment(environment);
+                evaluator.push(invocation.expand(environment)?);
+                while !evaluator.is_empty() {
+                    match evaluator.next()? {
+                        None => {}
+                        Some(value) => {
+                            let symbol_text = value.read_resolved()?.expect_text()?.into();
+                            annotations.push(symbol_text);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Get the second argument, which represents the value to annotate
+        let value_arg = match self.arguments.next() {
+            None => {
+                return IonResult::decoding_error("`annotate` takes two parameters, received one")
+            }
+            Some(Err(e)) => return Err(e),
+            Some(Ok(expr)) => expr,
+        };
+
+        // If there are more arguments in the iterator, there's an arity mismatch.
+        if !self.arguments.is_exhausted() {
+            return IonResult::decoding_error(
+                "`annotate` takes two parameters, received three or more",
+            );
+        }
+
+        // Evaluate the value argument if needed to get the value we'll be annotating further.
+        let expanded_value_to_annotate = match value_arg {
+            ValueExpr::ValueLiteral(value_literal) => value_literal,
+            ValueExpr::MacroInvocation(invocation) => {
+                invocation.expand(environment)?.expand_singleton()?
+            }
+        };
+
+        // If the value to annotate already has annotations, append them to the end of our vec.
+        let value_to_annotate = LazyValue::new(expanded_value_to_annotate);
+        for annotation in value_to_annotate.annotations() {
+            annotations.push(annotation?);
+        }
+
+        // Read the value and store the resulting ValueRef in the bump.
+        let data = value_to_annotate.read()?;
+        let value_ref = context.allocator().alloc_with(|| data);
+
+        // Combine our annotations vec and our value_ref to make a 'Constructed' value.
+        let annotated_value =
+            LazyExpandedValue::from_constructed(context, annotations.into_bump_slice(), value_ref);
+        Ok(MacroExpansionStep::FinalStep(Some(
+            ValueExpr::ValueLiteral(annotated_value),
         )))
     }
 }
@@ -1036,7 +1147,7 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{v1_1, ElementReader, IonResult, Reader};
+    use crate::{v1_1, ElementReader, Int, IonResult, Reader};
 
     /// Reads `input` and `expected` using an expanding reader and asserts that their output
     /// is the same.
@@ -1087,6 +1198,25 @@ mod tests {
             "#,
             r#"
                 1 2 3 4 5
+            "#,
+        )
+    }
+
+    #[test]
+    fn annotate() -> IonResult<()> {
+        eval_template_invocation(
+            r#"(macro foo (x) (annotate (values "bar" "baz" "quux") x))"#,
+            r#"
+                (:foo 5)
+                (:foo quuz)
+                (:foo {a: 1, b: 2})
+                (:foo already::annotated::5)
+            "#,
+            r#"
+                bar::baz::quux::5
+                bar::baz::quux::quuz
+                bar::baz::quux::{a: 1, b: 2}
+                bar::baz::quux::already::annotated::5
             "#,
         )
     }
@@ -1305,6 +1435,35 @@ mod tests {
             "#,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn flex_uint_parameter() -> IonResult<()> {
+        let template_definition = "(macro int_pair (flex_uint::$x flex_uint::$y) (values $x $y)))";
+        let tests: &[(&[u8], (u64, u64))] = &[
+            (&[0x04, 0x09, 0x01], (4, 0)),
+            (&[0x04, 0x0B, 0x0D], (5, 6)), // TODO: More test cases
+        ];
+
+        for test in tests {
+            let mut stream = vec![0xE0, 0x01, 0x00, 0xEA];
+            stream.extend_from_slice(test.0);
+            println!(
+                "stream {:02X?} -> pair ({}, {})",
+                test.0, test.1 .0, test.1 .1
+            );
+            let mut reader = Reader::new(v1_1::Binary, stream.as_slice())?;
+            reader.register_template_src(template_definition)?;
+            assert_eq!(
+                reader.next()?.unwrap().read()?.expect_int()?,
+                Int::from(test.1 .0)
+            );
+            assert_eq!(
+                reader.next()?.unwrap().read()?.expect_int()?,
+                Int::from(test.1 .1)
+            );
+        }
+        Ok(())
     }
 
     #[test]
