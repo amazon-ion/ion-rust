@@ -183,17 +183,17 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         // an inlineable fast path for them while other types go through the general case impl.
         // NOTE: We can and should change the subset of types this optimizes for when we have data to
         //       better inform our decision.
-        match self.ion_type() {
+        return match self.ion_type() {
             IonType::String => Ok(ValueRef::String(self.read_string()?)),
             IonType::Int => Ok(ValueRef::Int(self.read_int()?)),
             _ => read_resolved_general_case(self, context),
-        }
+        };
 
         // The 'general case' function that we fall back to for nulls and less common types
-        fn read_resolved_general_case(
-            value: &'top Self,
-            context: EncodingContextRef<'top>,
-        ) -> IonResult<ValueRef<'top, BinaryEncoding_1_1>> {
+        fn read_resolved_general_case<'a>(
+            value: &'a LazyRawBinaryValue_1_1<'a>,
+            context: EncodingContextRef<'a>,
+        ) -> IonResult<ValueRef<'a, BinaryEncoding_1_1>> {
             if value.is_null() {
                 return Ok(ValueRef::Null(value.ion_type()));
             }
