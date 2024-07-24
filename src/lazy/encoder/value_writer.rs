@@ -365,7 +365,9 @@ pub trait SequenceWriter: MakeValueWriter {
     /// Writes a value in the current context (list, s-expression, or stream) and upon success
     /// returns another reference to `self` to enable method chaining.
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        value.write_as_ion(self.make_value_writer())?;
+        {
+            value.write_as_ion(self.make_value_writer())?;
+        }
         Ok(self)
     }
 

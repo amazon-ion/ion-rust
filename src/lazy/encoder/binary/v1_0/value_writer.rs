@@ -342,6 +342,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
             return Ok(());
         }
 
+        // TODO: Use stack-allocated arrays for these encodings.
         let mut encoded_annotations_sequence = BumpVec::new_in(self.allocator);
         self.encode_annotations_sequence(&mut encoded_annotations_sequence)?;
 
