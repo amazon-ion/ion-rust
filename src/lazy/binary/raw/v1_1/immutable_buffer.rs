@@ -58,8 +58,11 @@ impl<'a> Debug for ImmutableBuffer<'a> {
 
 impl<'a> PartialEq for ImmutableBuffer<'a> {
     fn eq(&self, other: &Self) -> bool {
-        // A definition of equality that ignores the `context` field
+        // A definition of equality that ignores the `context` field.
         self.offset == other.offset && self.data == other.data
+        // An argument could be made that two buffers are not equal if they're holding references to
+        // different contexts, but this is a very low-level, feature-gated construct so it's probably
+        // fine if the implementation is arguably imperfect.
     }
 }
 

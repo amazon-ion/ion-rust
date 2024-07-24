@@ -186,7 +186,45 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         match self.ion_type() {
             IonType::String => Ok(ValueRef::String(self.read_string()?)),
             IonType::Int => Ok(ValueRef::Int(self.read_int()?)),
-            _ => self.read_resolved_general_case(context),
+            _ => read_resolved_general_case(self, context),
+        }
+
+        // The 'general case' function that we fall back to for nulls and less common types
+        fn read_resolved_general_case(
+            value: &'top Self,
+            context: EncodingContextRef<'top>,
+        ) -> IonResult<ValueRef<'top, BinaryEncoding_1_1>> {
+            if value.is_null() {
+                return Ok(ValueRef::Null(value.ion_type()));
+            }
+
+            let value_ref =
+                match value.ion_type() {
+                    IonType::Bool => ValueRef::Bool(value.read_bool()?),
+                    IonType::Int => ValueRef::Int(value.read_int()?),
+                    IonType::Float => ValueRef::Float(value.read_float()?),
+                    IonType::Decimal => ValueRef::Decimal(value.read_decimal()?),
+                    IonType::Timestamp => ValueRef::Timestamp(value.read_timestamp()?),
+                    IonType::String => ValueRef::String(value.read_string()?),
+                    IonType::Symbol => {
+                        let raw_symbol: RawSymbolRef = value.read_symbol()?;
+                        let symbol: SymbolRef = raw_symbol.resolve(context)?;
+                        ValueRef::Symbol(symbol)
+                    }
+                    IonType::Blob => ValueRef::Blob(value.read_blob()?),
+                    IonType::Clob => ValueRef::Clob(value.read_clob()?),
+                    IonType::List => ValueRef::List(LazyList::from(
+                        LazyExpandedList::from_literal(context, value.read_list()?),
+                    )),
+                    IonType::SExp => ValueRef::SExp(LazySExp::from(
+                        LazyExpandedSExp::from_literal(context, value.read_sexp()?),
+                    )),
+                    IonType::Struct => ValueRef::Struct(LazyStruct::from(
+                        LazyExpandedStruct::from_literal(context, value.read_struct()?),
+                    )),
+                    IonType::Null => unreachable!("already handled"),
+                };
+            Ok(value_ref)
         }
     }
 
@@ -243,44 +281,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// or [`LazyStruct`] that can be traversed to access the container's contents.
     pub fn read(&'top self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         <&'top Self as LazyRawValue<'top, BinaryEncoding_1_1>>::read(&self)
-    }
-
-    fn read_resolved_general_case(
-        &'top self,
-        context: EncodingContextRef<'top>,
-    ) -> IonResult<ValueRef<'top, BinaryEncoding_1_1>> {
-        if self.is_null() {
-            return Ok(ValueRef::Null(self.ion_type()));
-        }
-
-        let value_ref = match self.ion_type() {
-            IonType::Bool => ValueRef::Bool(self.read_bool()?),
-            IonType::Int => ValueRef::Int(self.read_int()?),
-            IonType::Float => ValueRef::Float(self.read_float()?),
-            IonType::Decimal => ValueRef::Decimal(self.read_decimal()?),
-            IonType::Timestamp => ValueRef::Timestamp(self.read_timestamp()?),
-            IonType::String => ValueRef::String(self.read_string()?),
-            IonType::Symbol => {
-                let raw_symbol: RawSymbolRef = self.read_symbol()?;
-                let symbol: SymbolRef = raw_symbol.resolve(context)?;
-                ValueRef::Symbol(symbol)
-            }
-            IonType::Blob => ValueRef::Blob(self.read_blob()?),
-            IonType::Clob => ValueRef::Clob(self.read_clob()?),
-            IonType::List => ValueRef::List(LazyList::from(LazyExpandedList::from_literal(
-                context,
-                self.read_list()?,
-            ))),
-            IonType::SExp => ValueRef::SExp(LazySExp::from(LazyExpandedSExp::from_literal(
-                context,
-                self.read_sexp()?,
-            ))),
-            IonType::Struct => ValueRef::Struct(LazyStruct::from(
-                LazyExpandedStruct::from_literal(context, self.read_struct()?),
-            )),
-            IonType::Null => unreachable!("already handled"),
-        };
-        Ok(value_ref)
     }
 
     /// Returns the encoded byte slice representing this value's data.
