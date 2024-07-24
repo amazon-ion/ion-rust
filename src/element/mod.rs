@@ -1481,4 +1481,26 @@ mod value_tests {
         let element: Element = int.into();
         assert_eq!(element.expect_i64(), int.expect_i64())
     }
+
+    #[rstest]
+    fn read_a_symbol_terminated_by_end_of_input(
+        #[values(
+        "a","b","c","d","e","f","g","h","i","j",
+        "k","l","m","n","o","p","q","r","s","t",
+        // These are all things that look like they _could_
+        // be an incomplete value (or IVM).
+        "fa", "fal", "fals",
+        "na", "nu", "nul",
+        "tr", "tru",
+        "$ion_",
+        "$ion_1",
+        "$ion_1_",
+        )]
+        input: &str,
+    ) -> IonResult<()> {
+        let value = Element::read_one(input)?;
+        let actual_text = value.as_symbol().unwrap().text().unwrap();
+        assert_eq!(actual_text, input);
+        Ok(())
+    }
 }
