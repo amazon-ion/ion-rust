@@ -1,5 +1,9 @@
 #![allow(non_camel_case_types)]
 
+use std::fmt::{Debug, Formatter};
+use std::ops::Range;
+use std::{fmt, mem};
+
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
@@ -17,10 +21,9 @@ use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
-use crate::{Decimal, Int, IonEncoding, IonError, IonResult, IonType, RawSymbolRef, Timestamp};
-use std::fmt::{Debug, Formatter};
-use std::ops::Range;
-use std::{fmt, mem};
+use crate::{
+    Decimal, Decoder, Int, IonEncoding, IonError, IonResult, IonType, RawSymbolRef, Timestamp,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryVersionMarker_1_0<'top> {
@@ -137,6 +140,124 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
         let range = self.encoded_value.unannotated_value_range();
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
+    }
+}
+
+pub trait EncodedBinaryValue<'top, D: Decoder>: LazyRawValue<'top, D> {
+    fn opcode_length(&self) -> usize;
+    fn length_length(&self) -> usize;
+    fn body_length(&self) -> usize;
+    fn annotations_sequence_length(&self) -> usize;
+
+    /// The span containing the annotations sequence's opcode.
+    fn annotations_opcode_span(&self) -> Span<'top> {
+        let annotations_span = self.annotations_span();
+        if annotations_span.is_empty() {
+            return annotations_span;
+        }
+        Span::with_offset(
+            annotations_span.range().start,
+            &annotations_span.bytes()[0..1],
+        )
+    }
+    /// The span containing the annotations sequence's encoded length. In Ion 1.1, the sequence
+    /// length is optional; if it is not present, the returned span will be empty.
+    fn annotations_sequence_length_span(&self) -> Span<'top>;
+
+    /// The span containing the annotations sequence wrapper's length. This span will always be
+    /// empty for Ion 1.1 values.
+    fn annotations_wrapper_length_span(&self) -> Span<'top>;
+    /// The span containing both the opcode and length(s), but not the annotations sequence.
+    fn annotations_header_span(&self) -> Span<'top> {
+        let annotations_span = self.annotations_span();
+        let sequence_length = self.annotations_sequence_length();
+        let local_end = annotations_span.len() - sequence_length;
+        let bytes = &annotations_span.bytes()[..local_end];
+        Span::with_offset(annotations_span.range().start, bytes)
+    }
+    /// The span containing the annotations sequence.
+    fn annotations_sequence_span(&self) -> Span<'top> {
+        let annotations_span = self.annotations_span();
+        let sequence_length = self.annotations_sequence_length();
+        let local_sequence_offset = annotations_span.len() - sequence_length;
+        let bytes = &annotations_span.bytes()[local_sequence_offset..];
+        Span::with_offset(
+            annotations_span.range().start + local_sequence_offset,
+            bytes,
+        )
+    }
+    /// The span containing the value's opcode.
+    fn value_opcode_span(&self) -> Span<'top> {
+        let value_span = self.value_span();
+        Span::with_offset(value_span.range().start, &value_span.bytes()[0..1])
+    }
+
+    /// The span containing the value's encoded length (if it is not encoded within the opcode.)
+    fn value_length_span(&self) -> Span<'top> {
+        let value_span = self.value_span();
+        let value_range = value_span.range();
+        let opcode_length = self.opcode_length();
+        let length_length = self.length_length();
+        let length_bytes = &value_span.bytes()[opcode_length..opcode_length + length_length];
+        Span::with_offset(value_range.start + opcode_length, length_bytes)
+    }
+
+    /// The span containing the value's opcode and length.
+    fn value_header_span(&self) -> Span<'top> {
+        let value_span = self.value_span();
+        let opcode_length = self.opcode_length();
+        let length_length = self.length_length();
+        let header_bytes = &value_span.bytes()[..opcode_length + length_length];
+        Span::with_offset(value_span.range().start, header_bytes)
+    }
+
+    /// The span containing the value's body.
+    fn value_body_span(&self) -> Span<'top> {
+        let value_span = self.value_span();
+        let body_length = self.body_length();
+        let body_bytes = &value_span.bytes()[value_span.len() - body_length..];
+        Span::with_offset(value_span.range().end - body_length, body_bytes)
+    }
+}
+
+impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
+    fn opcode_length(&self) -> usize {
+        self.encoded_value.opcode_length as usize
+    }
+
+    fn length_length(&self) -> usize {
+        self.encoded_value.length_length as usize
+    }
+
+    fn body_length(&self) -> usize {
+        self.encoded_value.value_body_length
+    }
+
+    fn annotations_sequence_length(&self) -> usize {
+        self.encoded_value.annotations_sequence_length()
+    }
+
+    fn annotations_sequence_length_span(&self) -> Span<'top> {
+        let header_span = self.annotations_header_span();
+        let wrapper_length_span = self.annotations_wrapper_length_span();
+        let sequence_length_offset = wrapper_length_span.range().end;
+        let sequence_length_bytes = &header_span.bytes()[sequence_length_offset..];
+        Span::with_offset(sequence_length_offset, sequence_length_bytes)
+    }
+
+    fn annotations_wrapper_length_span(&self) -> Span<'top> {
+        let annotations_span = self.annotations_span();
+        let wrapper_length_input = &annotations_span.bytes()[1..];
+        // Don't read the VarUInt, but skim along looking for the END flag
+        let mut num_varuint_bytes = 1;
+        for &byte in wrapper_length_input {
+            if byte >= 0b1000_0000 {
+                break;
+            }
+            num_varuint_bytes += 1;
+        }
+        let sequence_length_bytes = &wrapper_length_input[..num_varuint_bytes];
+        Span::with_offset(annotations_span.range().start + 1, sequence_length_bytes)
     }
 }
 

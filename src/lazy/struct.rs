@@ -13,7 +13,10 @@ use crate::lazy::expanded::LazyExpandedValue;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
-use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef};
+use crate::{
+    Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError, IonResult,
+    LazyExpandedFieldName, Struct, SymbolRef,
+};
 
 /// An as-of-yet unread binary Ion struct. `LazyStruct` is immutable; its fields and annotations
 /// can be read any number of times.
@@ -297,6 +300,24 @@ impl<'top, D: Decoder> LazyField<'top, D> {
     pub fn value(&self) -> LazyValue<'top, D> {
         LazyValue {
             expanded_value: self.expanded_field.value(),
+        }
+    }
+
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn raw_name(&self) -> Option<D::FieldName<'top>> {
+        if let LazyExpandedFieldName::RawName(_context, raw_name) = self.expanded_field.name() {
+            Some(raw_name)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn raw_value(&self) -> Option<D::Value<'top>> {
+        if let ExpandedValueSource::ValueLiteral(literal) = self.expanded_field.value().source() {
+            Some(literal)
+        } else {
+            None
         }
     }
 }

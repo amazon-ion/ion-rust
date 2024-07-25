@@ -3,9 +3,12 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
+use num_traits::PrimInt;
+
 use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
+use crate::lazy::binary::raw::value::EncodedBinaryValue;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::expanded::template::ParameterEncoding;
@@ -36,7 +39,6 @@ use crate::{
     Decimal, Int, IonEncoding, IonError, IonResult, IonType, LazyExpandedList, LazyExpandedSExp,
     LazyExpandedStruct, LazyList, LazySExp, LazyStruct, RawSymbolRef, SymbolRef, ValueRef,
 };
-use num_traits::PrimInt;
 
 const LONG_TIMESTAMP_OFFSET_BIAS: i32 = -60 * 24;
 
@@ -837,5 +839,46 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     fn read_struct(&'top self) -> IonResult<LazyRawBinaryStruct_1_1<'top>> {
         use crate::lazy::decoder::private::LazyContainerPrivate;
         Ok(LazyRawBinaryStruct_1_1::from_value(self))
+    }
+
+    // #[cfg(feature = "experimental-tooling-apis")]
+    // pub fn encoded_annotations(&self) -> Option<EncodedBinaryAnnotations<'_, 'top>> {
+    //     if self.has_annotations() {
+    //         Some(EncodedBinaryAnnotations { value: self })
+    //     } else {
+    //         None
+    //     }
+    // }
+}
+
+impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
+    fn opcode_length(&self) -> usize {
+        self.encoded_value.opcode_length as usize
+    }
+
+    fn length_length(&self) -> usize {
+        self.encoded_value.length_length as usize
+    }
+
+    fn body_length(&self) -> usize {
+        self.encoded_value.value_body_length
+    }
+
+    fn annotations_sequence_length(&self) -> usize {
+        self.encoded_value.annotations_sequence_length()
+    }
+
+    fn annotations_sequence_length_span(&self) -> Span<'top> {
+        let header_span = self.annotations_header_span();
+        let sequence_length_offset = header_span.range().start + 1;
+        let sequence_length_bytes = &header_span.bytes()[sequence_length_offset..];
+        Span::with_offset(sequence_length_offset, sequence_length_bytes)
+    }
+
+    fn annotations_wrapper_length_span(&self) -> Span<'top> {
+        // Ion 1.1 does not include an encoded wrapper length, so we return an empty span
+        // that follows the opcode. (This parallels the location of the wrapper length
+        // subfield found in Ion 1.0.)
+        Span::with_offset(self.annotations_span().range().start + 1, &[])
     }
 }

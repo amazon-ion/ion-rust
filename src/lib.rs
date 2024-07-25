@@ -313,6 +313,7 @@ macro_rules! v1_0_tooling_apis {
             },
             lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0 as LazyRawBinaryStruct, LazyRawBinaryFieldName_1_0 as LazyRawBinaryFieldName},
             lazy::binary::raw::value::{
+                EncodedBinaryValue,
                 LazyRawBinaryValue_1_0 as LazyRawBinaryValue,
                 LazyRawBinaryVersionMarker_1_0 as LazyRawBinaryVersionMarker,
                 EncodedBinaryValueData_1_0 as EncodedBinaryValueData,
@@ -330,6 +331,17 @@ macro_rules! v1_1_tooling_apis {
             lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
             lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1 as RawBinaryWriter,
             lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1 as RawTextWriter,
+            lazy::binary::raw::v1_1::sequence::{
+                LazyRawBinaryList_1_1 as LazyRawBinaryList,
+                LazyRawBinarySExp_1_1 as LazyRawBinarySExp
+            },
+            lazy::binary::raw::v1_1::r#struct::{LazyRawBinaryStruct_1_1 as LazyRawBinaryStruct, LazyRawBinaryFieldName_1_1 as LazyRawBinaryFieldName},
+            lazy::binary::raw::v1_1::value::{
+                LazyRawBinaryValue_1_1 as LazyRawBinaryValue,
+                LazyRawBinaryVersionMarker_1_1 as LazyRawBinaryVersionMarker,
+                // EncodedBinaryValueData_1_1 as EncodedBinaryValueData,
+                // EncodedBinaryAnnotations_1_1 as EncodedBinaryAnnotations
+            },
         };
     };
 }
