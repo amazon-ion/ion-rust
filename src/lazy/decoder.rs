@@ -38,6 +38,12 @@ pub trait HasRange {
     }
 }
 
+impl HasRange for Range<usize> {
+    fn range(&self) -> Range<usize> {
+        self.start..self.end
+    }
+}
+
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
 /// using the active symbol table.
