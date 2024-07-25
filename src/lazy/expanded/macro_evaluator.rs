@@ -342,7 +342,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
             ValueExpr::ValueLiteral(value) => {
                 use ExpandedValueSource::*;
                 match value.source {
-                    EExp(_) => todo!(),
+                    SingletonEExp(_) => todo!(),
                     ValueLiteral(literal) => Some(literal.range()),
                     Template(_, _) => None,
                     Constructed(_, _) => None,

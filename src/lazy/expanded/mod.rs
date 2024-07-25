@@ -635,7 +635,7 @@ pub enum ExpandedValueSource<'top, D: Decoder> {
     /// This value was a literal in the input stream.
     ValueLiteral(D::Value<'top>),
     /// This value is backed by an e-expression invoking a macro known to produce a single value.
-    EExp(EExpression<'top, D>),
+    SingletonEExp(EExpression<'top, D>),
     /// This value was part of a template definition.
     Template(Environment<'top, D>, TemplateElement<'top>),
     /// This value was the computed result of a macro invocation like `(:make_string `...)`.
@@ -652,7 +652,7 @@ pub enum ExpandedValueSource<'top, D: Decoder> {
 impl<'top, Encoding: Decoder> Debug for ExpandedValueSource<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
-            ExpandedValueSource::EExp(eexp) => write!(f, "{eexp:?}"),
+            ExpandedValueSource::SingletonEExp(eexp) => write!(f, "{eexp:?}"),
             ExpandedValueSource::ValueLiteral(v) => write!(f, "{v:?}"),
             ExpandedValueSource::Template(_, template_element) => {
                 write!(f, "{:?}", template_element.value())
@@ -729,7 +729,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
 
         Some(Self {
             context: eexp.context,
-            source: ExpandedValueSource::EExp(eexp),
+            source: ExpandedValueSource::SingletonEExp(eexp),
             variable: None,
         })
     }
@@ -780,7 +780,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             ValueLiteral(value) => value.ion_type(),
             Template(_, element) => element.value().ion_type(),
             Constructed(_annotations, value) => value.ion_type(),
-            EExp(eexp) => eexp.require_expansion_singleton().ion_type(),
+            SingletonEExp(eexp) => eexp.require_expansion_singleton().ion_type(),
         }
     }
 
@@ -792,7 +792,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             Constructed(_, value) => {
                 matches!(value, ValueRef::Null(_))
             }
-            EExp(eexp) => eexp.require_expansion_singleton().is_null(),
+            SingletonEExp(eexp) => eexp.require_expansion_singleton().is_null(),
         }
     }
 
@@ -802,7 +802,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             ValueLiteral(value) => value.has_annotations(),
             Template(_, element) => !element.annotations().is_empty(),
             Constructed(annotations, _) => !annotations.is_empty(),
-            EExp(eexp) => eexp.require_expansion_singleton().has_annotations(),
+            SingletonEExp(eexp) => eexp.require_expansion_singleton().has_annotations(),
         }
     }
 
@@ -821,7 +821,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                     annotations.iter(),
                 ))
             }
-            EExp(eexp) => {
+            SingletonEExp(eexp) => {
                 let annotations_range = 0..eexp.require_expansion_singleton().num_annotations();
                 let annotations = &eexp
                     .invoked_macro
@@ -846,7 +846,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                 element,
             )),
             Constructed(_annotations, value) => Ok((**value).as_expanded()),
-            EExp(ref eexp) => eexp.expand_to_single_value()?.read(),
+            SingletonEExp(ref eexp) => eexp.expand_to_single_value()?.read(),
         }
     }
 
@@ -859,7 +859,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                 Ok(ValueRef::from_template(self.context, *environment, element))
             }
             Constructed(_annotations, value) => Ok(**value),
-            EExp(ref eexp) => self.read_resolved_singleton_eexp(eexp),
+            SingletonEExp(ref eexp) => self.read_resolved_singleton_eexp(eexp),
         }
     }
 
