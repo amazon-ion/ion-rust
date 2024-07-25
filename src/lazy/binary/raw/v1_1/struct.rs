@@ -117,11 +117,13 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 enum StructType {
     FlexSym,
     SymbolAddress,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawBinaryStructIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
     bytes_to_skip: usize,

@@ -444,6 +444,12 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Void => Ok(MacroExpansionStep::FinalStep(None)),
         }
     }
+
+    // Calculate the next step in this macro expansion without advancing the expansion.
+    pub fn peek_next_step(&self) -> IonResult<MacroExpansionStep<'top, D>> {
+        let mut expansion_copy = *self;
+        expansion_copy.next_step()
+    }
 }
 
 impl<'top, D: Decoder> Debug for MacroExpansion<'top, D> {

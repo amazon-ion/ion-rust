@@ -148,6 +148,7 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
 
 /// Wraps an [`ImmutableBuffer`], allowing the reader to advance each time an item is successfully
 /// parsed from it.
+#[derive(Debug, Copy, Clone)]
 pub(crate) struct DataSource<'data> {
     // The buffer we're reading from
     buffer: ImmutableBuffer<'data>,

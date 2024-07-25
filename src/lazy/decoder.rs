@@ -582,13 +582,51 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn value_span(&self) -> Span<'top>;
 }
 
+pub trait RawSequenceIterator<'top, D: Decoder>:
+    Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
+{
+    /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    fn peek_next(&self) -> Option<IonResult<LazyRawValueExpr<'top, D>>> {
+        // Because RawSequenceIterator impls are `Copy`, we can make a cheap copy of `self` and advance
+        // *it* without affecting `self`.
+        let mut iter_clone = *self;
+        iter_clone.next()
+    }
+}
+
+impl<'top, D: Decoder, T> RawSequenceIterator<'top, D> for T
+where
+    T: Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>,
+{
+    // Nothing to do
+}
+
 pub trait LazyRawSequence<'top, D: Decoder>:
     LazyRawContainer<'top, D> + private::LazyContainerPrivate<'top, D> + Debug + Copy + Clone
 {
-    type Iterator: Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>;
+    type Iterator: RawSequenceIterator<'top, D>;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn ion_type(&self) -> IonType;
     fn iter(&self) -> Self::Iterator;
+}
+
+pub trait RawStructIterator<'top, D: Decoder>:
+    Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>
+{
+    /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    fn peek_next(&self) -> Option<IonResult<LazyRawFieldExpr<'top, D>>> {
+        // Because RawStructIterator impls are `Copy`, we can make a cheap copy of `self` and advance
+        // *it* without affecting `self`.
+        let mut iter_clone = *self;
+        iter_clone.next()
+    }
+}
+
+impl<'top, D: Decoder, T> RawStructIterator<'top, D> for T
+where
+    T: Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>,
+{
+    // Nothing to do
 }
 
 pub trait LazyRawStruct<'top, D: Decoder>:
@@ -599,7 +637,7 @@ pub trait LazyRawStruct<'top, D: Decoder>:
     + Copy
     + Clone
 {
-    type Iterator: Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>;
+    type Iterator: RawStructIterator<'top, D>;
 
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
 

@@ -129,6 +129,7 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawBinarySequenceIterator_1_1<'top> {
     input: ImmutableBuffer<'top>,
 }
