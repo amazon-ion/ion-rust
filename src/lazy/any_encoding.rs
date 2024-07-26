@@ -44,6 +44,7 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
+use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::lazy::text::raw::r#struct::{
     LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0, RawTextStructIterator_1_0,
 };
@@ -599,20 +600,20 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         }
     }
 
-    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
+    fn save_state(&self) -> RawReaderState<'data> {
         use RawReaderKind::*;
-        let (remaining_data, stream_offset, mut encoding) = match &self.encoding_reader {
-            Text_1_0(r) => r.stream_data(),
-            Binary_1_0(r) => r.stream_data(),
-            Text_1_1(r) => r.stream_data(),
-            Binary_1_1(r) => r.stream_data(),
+        let reader_state = match &self.encoding_reader {
+            Text_1_0(r) => r.save_state(),
+            Binary_1_0(r) => r.save_state(),
+            Text_1_1(r) => r.save_state(),
+            Binary_1_1(r) => r.save_state(),
         };
         // If we hit an IVM that changed the encoding but we haven't changed our reader yet,
         // we still want to report the new encoding.
         if let Some(new_encoding) = self.new_encoding {
-            encoding = new_encoding;
+            return RawReaderState::new(reader_state.data(), reader_state.offset(), new_encoding);
         }
-        (remaining_data, stream_offset, encoding)
+        reader_state
     }
 
     fn next<'top>(
@@ -625,9 +626,12 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         // If we previously ran into an IVM that changed the stream encoding, replace our reader
         // with one that can read the new encoding.
         if let Some(new_encoding) = self.new_encoding.take() {
-            let (remaining_data, stream_offset, _) = self.stream_data();
-            let new_encoding_reader =
-                RawReaderKind::resume_at_offset(remaining_data, stream_offset, new_encoding);
+            let reader_state = self.save_state();
+            let new_encoding_reader = RawReaderKind::resume_at_offset(
+                reader_state.data(),
+                reader_state.offset(),
+                new_encoding,
+            );
             self.encoding_reader = new_encoding_reader;
         }
 

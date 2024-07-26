@@ -189,7 +189,10 @@ pub trait EncodedBinaryValue<'top, D: Decoder>: LazyRawValue<'top, D> {
     /// The span containing the value's opcode.
     fn value_opcode_span(&self) -> Span<'top> {
         let value_span = self.value_span();
-        Span::with_offset(value_span.range().start, &value_span.bytes()[0..1])
+        Span::with_offset(
+            value_span.range().start,
+            &value_span.bytes()[0..self.opcode_length()],
+        )
     }
 
     /// The span containing the value's encoded length (if it is not encoded within the opcode.)

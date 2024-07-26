@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use rustc_hash::FxHashMap;
 
+use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::template::{
     ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
@@ -17,7 +18,7 @@ use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{v1_1, IonError, IonResult, IonType, Reader, SymbolRef};
+use crate::{v1_1, IonError, IonResult, IonType, Reader, Symbol, SymbolRef};
 
 /// Information inferred about a template's expansion at compile time.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -73,6 +74,12 @@ impl ExpansionSingleton {
 
     pub fn num_annotations(&self) -> usize {
         self.num_annotations as usize
+    }
+
+    pub fn annotations<'a>(&self, annotations_storage: &'a [Symbol]) -> SymbolsIterator<'a> {
+        let annotations_range = 0..self.num_annotations();
+        let annotations = &annotations_storage[annotations_range];
+        SymbolsIterator::new(annotations)
     }
 }
 

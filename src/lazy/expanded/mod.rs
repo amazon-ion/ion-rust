@@ -821,17 +821,9 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                     annotations.iter(),
                 ))
             }
-            SingletonEExp(eexp) => {
-                let annotations_range = 0..eexp.require_expansion_singleton().num_annotations();
-                let annotations = &eexp
-                    .invoked_macro
-                    .require_template()
-                    .body()
-                    .annotations_storage()[annotations_range];
-                ExpandedAnnotationsIterator::new(ExpandedAnnotationsSource::Template(
-                    SymbolsIterator::new(annotations),
-                ))
-            }
+            SingletonEExp(eexp) => ExpandedAnnotationsIterator::new(
+                ExpandedAnnotationsSource::Template(eexp.require_singleton_annotations()),
+            ),
         }
     }
 

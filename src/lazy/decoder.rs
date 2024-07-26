@@ -14,6 +14,7 @@ use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
+use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
@@ -446,7 +447,7 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     fn resume_at_offset(data: &'data [u8], offset: usize, encoding_hint: IonEncoding) -> Self;
 
     /// Deconstructs this reader, returning a tuple of `(remaining_data, stream_offset, encoding)`.
-    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding);
+    fn save_state(&self) -> RawReaderState<'data>;
 
     fn next<'top>(
         &'top mut self,
