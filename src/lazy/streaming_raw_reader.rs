@@ -45,6 +45,34 @@ pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
 
 const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
+pub struct RawReaderState<'a> {
+    data: &'a [u8],
+    offset: usize,
+    encoding: IonEncoding,
+}
+
+impl<'a> RawReaderState<'a> {
+    pub fn new(data: &'a [u8], offset: usize, encoding: IonEncoding) -> Self {
+        Self {
+            data,
+            offset,
+            encoding,
+        }
+    }
+
+    pub fn data(&self) -> &'a [u8] {
+        self.data
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn encoding(&self) -> IonEncoding {
+        self.encoding
+    }
+}
+
 impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     pub fn new(_encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
@@ -75,6 +103,12 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         let input = unsafe { &*self.input.get() };
         input.buffer().is_empty()
     }
+
+    // pub fn next<'top>(
+    //     &'top mut self,
+    //     context: EncodingContextRef<'top>,
+    // ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
+    // }
 
     pub fn next<'top>(
         &'top mut self,

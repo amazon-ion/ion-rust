@@ -8,6 +8,7 @@ use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
+use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::{Encoding, IonResult};
 
 pub struct LazyRawBinaryReader_1_1<'data> {
@@ -107,8 +108,8 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
         Self::new_with_offset(data, offset)
     }
 
-    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
-        (
+    fn save_state(&self) -> RawReaderState<'data> {
+        RawReaderState::new(
             &self.input[self.local_offset..],
             self.position(),
             self.encoding(),

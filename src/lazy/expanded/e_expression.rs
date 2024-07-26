@@ -4,6 +4,7 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
+use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
@@ -157,6 +158,15 @@ impl<'top, D: Decoder> EExpression<'top, D> {
     /// has a `ExpansionSingleton`. If these prerequisites are not met, this method will panic.
     pub fn require_expansion_singleton(&self) -> ExpansionSingleton {
         self.expansion_singleton().unwrap()
+    }
+
+    pub fn require_singleton_annotations(&self) -> SymbolsIterator<'top> {
+        let storage = self
+            .invoked_macro
+            .require_template()
+            .body()
+            .annotations_storage();
+        self.expansion_singleton().unwrap().annotations(storage)
     }
 }
 

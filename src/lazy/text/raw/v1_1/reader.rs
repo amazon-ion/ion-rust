@@ -18,6 +18,7 @@ use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
+use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::lazy::text::buffer::TextBufferView;
 use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
@@ -50,8 +51,8 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
         }
     }
 
-    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
-        (
+    fn save_state(&self) -> RawReaderState<'data> {
+        RawReaderState::new(
             &self.input[self.local_offset..],
             self.position(),
             self.encoding(),

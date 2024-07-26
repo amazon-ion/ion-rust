@@ -10,6 +10,7 @@ use crate::{Encoding, IonResult};
 
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::streaming_raw_reader::RawReaderState;
 
 /// A binary Ion 1.0 reader that yields [`LazyRawBinaryValue_1_0`]s representing the top level values found
 /// in the provided input stream.
@@ -118,9 +119,9 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
         }
     }
 
-    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
+    fn save_state(&self) -> RawReaderState<'data> {
         let stream_offset = self.position();
-        (
+        RawReaderState::new(
             &self.data.buffer.bytes()[self.data.bytes_to_skip..],
             stream_offset,
             IonEncoding::Binary_1_0,

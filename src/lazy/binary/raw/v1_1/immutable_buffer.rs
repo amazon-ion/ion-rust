@@ -247,7 +247,7 @@ impl<'a> ImmutableBuffer<'a> {
         }
         // XXX: This *doesn't* slice `self` because FlexUInt::read() is faster if the input
         //      is at least the size of a u64.
-        let matched_input = self;
+        let matched_input = self.slice(0, size_in_bytes);
         let remaining_input = self.slice_to_end(size_in_bytes);
         let value = LazyRawBinaryValue_1_1::for_flex_uint(matched_input);
         Ok((value, remaining_input))
