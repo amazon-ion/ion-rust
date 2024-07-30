@@ -131,7 +131,7 @@ impl<'top> MacroRef<'top> {
     pub fn id_text(&'top self) -> Cow<'top, str> {
         self.name()
             .map(Cow::from)
-            .unwrap_or_else(move || Cow::from(format!("<address={}>", self.address())))
+            .unwrap_or_else(move || Cow::from(format!("{}", self.address())))
     }
 
     pub fn address(&self) -> MacroAddress {

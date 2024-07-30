@@ -151,6 +151,10 @@ impl<'top, D: Decoder> EExpression<'top, D> {
         self.invoked_macro.expansion_analysis()
     }
 
+    pub fn is_singleton(&self) -> bool {
+        self.expansion_singleton().is_some()
+    }
+
     pub fn expansion_singleton(&self) -> Option<ExpansionSingleton> {
         self.expansion_analysis().expansion_singleton()
     }

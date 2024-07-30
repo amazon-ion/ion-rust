@@ -34,7 +34,7 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{ExpandedValueSource, HasRange, IonError, IonResult, LazyValue, SymbolRef, ValueRef};
+use crate::{ExpandedValueSource, IonError, IonResult, LazyValue, Span, SymbolRef, ValueRef};
 
 pub trait EExpArgGroupIterator<'top, D: Decoder>:
     Copy + Clone + Debug + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
@@ -335,15 +335,35 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
         }
     }
 
-    /// If this `ValueExpr` represents an entity encoded in te data stream, returns `Some(range)`.
+    pub fn is_ephemeral(&self) -> bool {
+        match self {
+            ValueExpr::ValueLiteral(value) => value.is_ephemeral(),
+            ValueExpr::MacroInvocation(invocation) => {
+                use MacroExprKind::*;
+                match invocation.kind() {
+                    TemplateMacro(_) => true,
+                    EExp(_) => false,
+                    EExpArgGroup(_) => false,
+                }
+            }
+        }
+    }
+
+    /// If this `ValueExpr` represents an entity encoded in the data stream, returns `Some(range)`.
     /// If it represents a template value or a constructed value, returns `None`.
     pub fn range(&self) -> Option<Range<usize>> {
+        self.span().as_ref().map(Span::range)
+    }
+
+    /// If this `ValueExpr` represents an entity encoded in the data stream, returns `Some(range)`.
+    /// If it represents a template value or a constructed value, returns `None`.
+    pub fn span(&self) -> Option<Span<'top>> {
         match self {
             ValueExpr::ValueLiteral(value) => {
                 use ExpandedValueSource::*;
                 match value.source {
                     SingletonEExp(_) => todo!(),
-                    ValueLiteral(literal) => Some(literal.range()),
+                    ValueLiteral(literal) => Some(literal.span()),
                     Template(_, _) => None,
                     Constructed(_, _) => None,
                 }
@@ -352,8 +372,8 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
                 use MacroExprKind::*;
                 match e.source() {
                     TemplateMacro(_) => None,
-                    EExp(e) => Some(e.range()),
-                    EExpArgGroup(g) => Some(g.range()),
+                    EExp(e) => Some(e.span()),
+                    EExpArgGroup(g) => Some(g.span()),
                 }
             }
         }

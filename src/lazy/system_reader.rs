@@ -6,7 +6,7 @@ use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::template::TemplateMacro;
-use crate::lazy::expanded::{ExpandingReader, LazyExpandedValue};
+use crate::lazy::expanded::{ExpandedStreamItem, ExpandingReader, LazyExpandedValue};
 use crate::lazy::sequence::SExpIterator;
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
@@ -197,8 +197,14 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
     /// [`SystemStreamItem`].
-    pub fn next_item(&mut self) -> IonResult<SystemStreamItem<'_, Encoding>> {
+    pub fn next_expr(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
         self.expanding_reader.next_item()
+    }
+
+    /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
+    /// [`SystemStreamItem`].
+    pub fn next_item(&mut self) -> IonResult<SystemStreamItem<'_, Encoding>> {
+        self.expanding_reader.next_system_item()
     }
 
     /// Returns the next value that is part of the application data model, bypassing all encoding

@@ -57,6 +57,7 @@ use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
 use crate::lazy::r#struct::LazyStruct;
+use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
@@ -68,8 +69,8 @@ use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
-    Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
-    Span, SymbolRef, SymbolTable, Timestamp, ValueRef,
+    Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawStreamItem, RawSymbolRef,
+    RawVersionMarker, Span, SymbolRef, SymbolTable, Timestamp, ValueRef,
 };
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
@@ -189,32 +190,6 @@ impl<'top> Deref for EncodingContextRef<'top> {
 
     fn deref(&self) -> &Self::Target {
         self.context
-    }
-}
-
-#[derive(Debug)]
-/// Stream components emitted by a LazyExpandingReader. These items may be encoded directly in the
-/// stream, or may have been produced by the evaluation of an encoding expression (e-expression).
-pub enum ExpandedStreamItem<'top, D: Decoder> {
-    /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
-    /// encode the values that follow.
-    VersionMarker(u8, u8),
-    /// An Ion value whose data has not yet been read. For more information about how to read its
-    /// data and (in the case of containers) access any nested values, see the documentation
-    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
-    Value(LazyExpandedValue<'top, D>),
-    /// The end of the stream
-    EndOfStream,
-}
-
-impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
-    /// Returns an error if this stream item is a version marker or the end of the stream.
-    /// Otherwise, returns the lazy value it contains.
-    fn expect_value(&self) -> IonResult<&LazyExpandedValue<'top, D>> {
-        match self {
-            ExpandedStreamItem::Value(value) => Ok(value),
-            _ => IonResult::decoding_error(format!("Expected a value, but found a {:?}", self)),
-        }
     }
 }
 
@@ -509,7 +484,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
         use SystemStreamItem::*;
         loop {
-            match self.next_item() {
+            match self.next_system_item() {
                 Ok(Value(value)) => return Ok(Some(value)),
                 Ok(EndOfStream(_)) => return Ok(None),
                 Ok(_) => {}
@@ -524,9 +499,88 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         unsafe { &*self.raw_reader.get() }.encoding()
     }
 
+    /// Returns the next IVM, lazy expanded value, or resolved e-expression. This path is less
+    /// optimized than `next_system_item`, but is useful for tooling that needs more visibility
+    /// into the expansion process.
+    pub fn next_item(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
+        // If there's already an active macro evaluator, that means the reader is still in the process
+        // of expanding a macro invocation it previously encountered. See if it has a value to give us.
+        if let Some(ptr) = self.evaluator_ptr.get() {
+            // If there's already an evaluator, dereference the pointer.
+            let evaluator = Self::ptr_to_evaluator(ptr);
+            match evaluator.next() {
+                Ok(Some(value)) => {
+                    if evaluator.is_empty() {
+                        // If the evaluator is empty, unset the pointer so we know not to query it
+                        // further.
+                        self.evaluator_ptr.set(None);
+                    }
+                    return Ok(self.interpret_value(value)?.as_expanded_stream_item());
+                }
+                Ok(None) => {}
+                Err(e) => return Err(e),
+            }
+        }
+
+        // Otherwise, we're now between top level expressions. Take this opportunity to apply any
+        // pending changes to the encoding context and reset state as needed.
+        self.between_top_level_expressions();
+
+        // See if the raw reader can get another expression from the input stream. It's possible
+        // to find an expression that yields no values (for example: `(:void)`), so we perform this
+        // step in a loop until we get a value or end-of-stream.
+        let allocator: &BumpAllocator = self.context().allocator();
+        let context_ref = EncodingContextRef::new(allocator.alloc_with(|| self.context()));
+        // Pull another top-level expression from the input stream if one is available.
+        use crate::lazy::raw_stream_item::RawStreamItem::*;
+        let raw_reader = unsafe { &mut *self.raw_reader.get() };
+        match raw_reader.next(context_ref)? {
+            VersionMarker(marker) => {
+                let _system_item = self.interpret_ivm(marker)?;
+                Ok(ExpandedStreamItem::VersionMarker(marker))
+            }
+            // We got our value; return it.
+            Value(raw_value) => {
+                let value = LazyExpandedValue::from_literal(context_ref, raw_value);
+                Ok(self.interpret_value(value)?.as_expanded_stream_item())
+            }
+            // It's another macro invocation, we'll add it to the evaluator so it will be evaluated
+            // on the next call and then we'll return the e-expression.
+            EExp(e_exp) => {
+                let context = self.context();
+                let resolved_e_exp = match e_exp.resolve(context_ref) {
+                    Ok(resolved) => resolved,
+                    Err(e) => return Err(e),
+                };
+
+                // Get the current evaluator or make a new one
+                let evaluator = match self.evaluator_ptr.get() {
+                    // If there's already an evaluator in the bump, it's empty. Overwrite it with our new one.
+                    Some(ptr) => {
+                        let bump_evaluator_ref = Self::ptr_to_evaluator(ptr);
+                        bump_evaluator_ref.push(resolved_e_exp.expand()?);
+                        bump_evaluator_ref
+                    }
+                    // If there's not an evaluator in the bump, make a new one.
+                    None => {
+                        let new_evaluator = MacroEvaluator::for_eexp(resolved_e_exp)?;
+                        context.allocator.alloc_with(|| new_evaluator)
+                    }
+                };
+
+                // Save the pointer to the evaluator
+                self.evaluator_ptr
+                    .set(Some(Self::evaluator_to_ptr(evaluator)));
+
+                Ok(ExpandedStreamItem::EExp(resolved_e_exp))
+            }
+            EndOfStream(end_position) => Ok(ExpandedStreamItem::EndOfStream(end_position)),
+        }
+    }
+
     /// Returns the next [`SystemStreamItem`] either by continuing to evaluate a macro invocation
     /// in progress or by pulling another expression from the input stream.
-    pub fn next_item(&self) -> IonResult<SystemStreamItem<'_, Encoding>> {
+    pub fn next_system_item(&self) -> IonResult<SystemStreamItem<'_, Encoding>> {
         // NB: This method takes an immutable reference to `self` but uses `UnsafeCell` to modify
         //     `self` safely. This allows `next_item` to be used in a loop from next_value without
         //     encountering the borrow checker limitations this method skirts. If/when the borrow
@@ -652,13 +706,60 @@ pub enum ExpandedValueSource<'top, D: Decoder> {
 impl<'top, Encoding: Decoder> Debug for ExpandedValueSource<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
-            ExpandedValueSource::SingletonEExp(eexp) => write!(f, "{eexp:?}"),
-            ExpandedValueSource::ValueLiteral(v) => write!(f, "{v:?}"),
+            ExpandedValueSource::SingletonEExp(eexp) => write!(f, "singleton eexp {eexp:?}"),
+            ExpandedValueSource::ValueLiteral(v) => write!(f, "value literal {v:?}"),
             ExpandedValueSource::Template(_, template_element) => {
-                write!(f, "{:?}", template_element.value())
+                write!(f, "template {:?}", template_element.value())
             }
-            ExpandedValueSource::Constructed(_, value) => write!(f, "{value:?}"),
+            ExpandedValueSource::Constructed(_, value) => write!(f, "constructed {value:?}"),
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+/// Raw stream components that a RawReader may encounter.
+pub enum ExpandedStreamItem<'top, D: Decoder> {
+    /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
+    /// encode the values that follow.
+    VersionMarker(D::VersionMarker<'top>),
+    /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
+    EExp(EExpression<'top, D>),
+    /// An Ion value whose data has not yet been read. For more information about how to read its
+    /// data and (in the case of containers) access any nested values, see the documentation
+    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
+    Value(LazyValue<'top, D>),
+    SymbolTable(LazyStruct<'top, D>),
+    EncodingDirective(LazySExp<'top, D>),
+    /// The end of the stream
+    EndOfStream(EndPosition),
+}
+
+impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
+    pub fn is_ephemeral(&self) -> bool {
+        use ExpandedStreamItem::*;
+        match self {
+            VersionMarker(_) | EExp(_) | EndOfStream(_) => false,
+            Value(value) => value.expanded().is_ephemeral(),
+            SymbolTable(symtab) => symtab.as_value().expanded().is_ephemeral(),
+            EncodingDirective(directive) => directive.as_value().expanded().is_ephemeral(),
+        }
+    }
+
+    pub fn raw_item(&self) -> Option<LazyRawStreamItem<'top, D>> {
+        use ExpandedStreamItem::*;
+        let raw_item = match self {
+            VersionMarker(m) => RawStreamItem::VersionMarker(*m),
+            EExp(eexp) => RawStreamItem::EExp(eexp.raw_invocation),
+            Value(v) => return v.raw().map(RawStreamItem::Value),
+            SymbolTable(symbol_table) => {
+                return symbol_table.as_value().raw().map(RawStreamItem::Value)
+            }
+            EncodingDirective(directive) => {
+                return directive.as_value().raw().map(RawStreamItem::Value)
+            }
+            EndOfStream(position) => RawStreamItem::EndOfStream(*position),
+        };
+        Some(raw_item)
     }
 }
 
@@ -687,15 +788,15 @@ impl<'top> TemplateVariableReference<'top> {
         }
     }
 
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &'top str {
         self.macro_ref.signature().parameters()[self.signature_index()].name()
     }
 
-    fn host_macro(&self) -> &'top Macro {
+    pub fn host_macro(&self) -> &'top Macro {
         self.macro_ref
     }
 
-    fn signature_index(&self) -> usize {
+    pub fn signature_index(&self) -> usize {
         self.signature_index as usize
     }
 }
@@ -708,6 +809,12 @@ pub struct LazyExpandedValue<'top, Encoding: Decoder> {
     // If this value came from a variable reference in a template macro expansion, the
     // template and the name of the variable can be found here.
     pub(crate) variable: Option<TemplateVariableReference<'top>>,
+}
+
+impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
+    pub fn variable(&self) -> Option<TemplateVariableReference<'top>> {
+        self.variable
+    }
 }
 
 impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
@@ -881,6 +988,14 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             return Ok(literal);
         }
         IonResult::decoding_error("expected LazyExpandedValue to be a literal")
+    }
+
+    pub fn is_ephemeral(&self) -> bool {
+        !matches!(&self.source, ExpandedValueSource::ValueLiteral(_))
+    }
+
+    pub fn is_parameter(&self) -> bool {
+        self.variable.is_some()
     }
 
     pub fn range(&self) -> Option<Range<usize>> {

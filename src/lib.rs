@@ -288,7 +288,7 @@ macro_rules! v1_x_tooling_apis {
             },
             lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator},
             lazy::expanded::sequence::{Environment, ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
-            lazy::expanded::{LazyExpandedValue, ExpandingReader, ExpandedValueSource, ExpandedAnnotationsSource, ExpandedValueRef},
+            lazy::expanded::{ExpandedStreamItem, LazyExpandedValue, ExpandingReader, ExpandedValueSource, ExpandedAnnotationsSource, ExpandedValueRef},
             lazy::system_stream_item::SystemStreamItem,
             lazy::system_reader::{SystemReader},
         };
