@@ -52,7 +52,7 @@ use crate::{
 ///# #[cfg(not(feature = "experimental-reader-writer"))]
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct LazyValue<'top, D: Decoder> {
     pub(crate) expanded_value: LazyExpandedValue<'top, D>,
 }

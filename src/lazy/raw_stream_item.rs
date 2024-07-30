@@ -5,9 +5,9 @@ use crate::{AnyEncoding, IonEncoding, IonError, IonResult};
 use std::fmt::Debug;
 use std::ops::Range;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// Raw stream components that a RawReader may encounter.
-pub enum RawStreamItem<M: Debug, V: Debug, E: Debug> {
+pub enum RawStreamItem<M: Debug + Copy + Clone, V: Debug + Copy + Clone, E: Debug + Copy + Clone> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(M),
@@ -38,8 +38,11 @@ impl<'top> LazyRawStreamItem<'top, AnyEncoding> {
     }
 }
 
-impl<M: Debug + HasRange, V: Debug + HasRange, E: Debug + HasRange> HasRange
-    for RawStreamItem<M, V, E>
+impl<
+        M: Debug + Copy + Clone + HasRange,
+        V: Debug + Copy + Clone + HasRange,
+        E: Debug + Copy + Clone + HasRange,
+    > HasRange for RawStreamItem<M, V, E>
 {
     fn range(&self) -> Range<usize> {
         use RawStreamItem::*;
@@ -52,8 +55,12 @@ impl<M: Debug + HasRange, V: Debug + HasRange, E: Debug + HasRange> HasRange
     }
 }
 
-impl<'top, M: Debug + HasSpan<'top>, V: Debug + HasSpan<'top>, E: Debug + HasSpan<'top>>
-    HasSpan<'top> for RawStreamItem<M, V, E>
+impl<
+        'top,
+        M: Debug + Copy + Clone + HasSpan<'top>,
+        V: Debug + Copy + Clone + HasSpan<'top>,
+        E: Debug + Copy + Clone + HasSpan<'top>,
+    > HasSpan<'top> for RawStreamItem<M, V, E>
 {
     fn span(&self) -> Span<'top> {
         use RawStreamItem::*;

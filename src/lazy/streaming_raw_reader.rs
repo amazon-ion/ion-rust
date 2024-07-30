@@ -104,15 +104,30 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         input.buffer().is_empty()
     }
 
-    // pub fn next<'top>(
-    //     &'top mut self,
-    //     context: EncodingContextRef<'top>,
-    // ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
-    // }
-
     pub fn next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
+    ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
+        self.read_next(
+            context, // is_peek =
+            false,
+        )
+    }
+
+    pub fn peek_next<'top>(
+        &'top mut self,
+        context: EncodingContextRef<'top>,
+    ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
+        self.read_next(
+            context, // is_peek =
+            true,
+        )
+    }
+
+    fn read_next<'top>(
+        &'top mut self,
+        context: EncodingContextRef<'top>,
+        is_peek: bool,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
         let mut input_source_exhausted = false;
         loop {
@@ -208,13 +223,16 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                     }
                 }
 
-                // Mark those input bytes as having been consumed so they are not read again.
-                input.consume(bytes_read);
-                // Update the streaming reader's position to reflect the number of bytes we
-                // just read.
-                self.stream_position = end_position;
-                // If the item read was an IVM, this will be a new value.
-                self.detected_encoding = new_encoding;
+                // If this isn't just a peek, update our state to remember what we've already read.
+                if !is_peek {
+                    // Mark those input bytes as having been consumed so they are not read again.
+                    input.consume(bytes_read);
+                    // Update the streaming reader's position to reflect the number of bytes we
+                    // just read.
+                    self.stream_position = end_position;
+                    // If the item read was an IVM, this will be a new value.
+                    self.detected_encoding = new_encoding;
+                }
             }
 
             return result;
