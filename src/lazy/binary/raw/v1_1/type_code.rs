@@ -41,9 +41,10 @@ pub enum OpcodeType {
     // 0xF1 delimited list start
     // 0xF2 delimited s-expression start
     // 0xF3 delimited struct start
-    LargeInteger, // 0xF6 - Integer preceded by FlexUInt length
-    Blob,         // 0xFE -
-    Clob,         // 0xFF -
+    EExpressionWithLengthPrefix, // 0xF5
+    LargeInteger,                // 0xF6 - Integer preceded by FlexUInt length
+    Blob,                        // 0xFE -
+    Clob,                        // 0xFF -
     // 0xF8 Long decimal
     TimestampLong, // 0xF8 - Long-form Timestamp
     // 0xF9 - Long string

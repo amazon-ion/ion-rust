@@ -23,14 +23,14 @@ use crate::{
     SymbolTable, Timestamp, Value,
 };
 
-pub(crate) struct EncodingContext {
+pub(crate) struct WriteContext {
     symbol_table: SymbolTable,
     num_pending_symbols: usize,
     symbol_creation_policy: SymbolCreationPolicy,
     supports_text_tokens: bool,
 }
 
-impl EncodingContext {
+impl WriteContext {
     pub fn new(
         symbol_table: SymbolTable,
         symbol_creation_policy: SymbolCreationPolicy,
@@ -47,7 +47,7 @@ impl EncodingContext {
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
 pub struct Writer<E: Encoding, Output: Write> {
-    encoding_context: EncodingContext,
+    write_context: WriteContext,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
     output: Output,
@@ -67,14 +67,15 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         // Erase the IVM that's created by default
         data_writer.output_mut().clear();
         // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
-        let symbol_table = SymbolTable::new();
-        let encoding_context = EncodingContext::new(
+        let ion_version = E::ion_version();
+        let symbol_table = SymbolTable::new(ion_version);
+        let encoding_context = WriteContext::new(
             symbol_table,
             E::DEFAULT_SYMBOL_CREATION_POLICY,
             E::SUPPORTS_TEXT_TOKENS,
         );
         let mut writer = Writer {
-            encoding_context,
+            write_context: encoding_context,
             data_writer,
             directive_writer,
             output,
@@ -100,9 +101,9 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
     /// Writes bytes of previously encoded values to the output stream.
     pub fn flush(&mut self) -> IonResult<()> {
-        if self.encoding_context.num_pending_symbols > 0 {
+        if self.write_context.num_pending_symbols > 0 {
             self.write_lst_append()?;
-            self.encoding_context.num_pending_symbols = 0;
+            self.write_context.num_pending_symbols = 0;
         }
 
         self.directive_writer.flush()?;
@@ -125,14 +126,12 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Helper method to encode an LST append containing pending symbols.
     fn write_lst_append(&mut self) -> IonResult<()> {
         let Self {
-            encoding_context,
+            write_context: encoding_context,
             directive_writer,
             ..
         } = self;
 
-        let num_existing_symbols = encoding_context.symbol_table.len();
         let num_pending_symbols = encoding_context.num_pending_symbols;
-
         let mut lst = directive_writer
             .value_writer()
             .with_annotations(system_symbol_ids::ION_SYMBOL_TABLE)?
@@ -145,7 +144,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
         let pending_symbols = encoding_context
             .symbol_table
-            .symbols_tail(num_existing_symbols - num_pending_symbols)
+            .symbols_tail(num_pending_symbols)
             .iter()
             .map(Symbol::text);
 
@@ -166,7 +165,7 @@ impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
 
         ApplicationValueWriter {
             raw_value_writer,
-            encoding: &mut self.encoding_context,
+            encoding: &mut self.write_context,
         }
     }
 }
@@ -181,12 +180,12 @@ impl<E: Encoding, Output: Write> SequenceWriter for Writer<E, Output> {
 }
 
 pub struct ApplicationValueWriter<'a, V: ValueWriter> {
-    encoding: &'a mut EncodingContext,
+    encoding: &'a mut WriteContext,
     raw_value_writer: V,
 }
 
 impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
-    pub(crate) fn new(encoding_context: &'a mut EncodingContext, raw_value_writer: V) -> Self {
+    pub(crate) fn new(encoding_context: &'a mut WriteContext, raw_value_writer: V) -> Self {
         Self {
             encoding: encoding_context,
             raw_value_writer,
@@ -336,13 +335,13 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
 }
 
 pub struct ApplicationStructWriter<'value, V: ValueWriter> {
-    encoding: &'value mut EncodingContext,
+    encoding: &'value mut WriteContext,
     raw_struct_writer: V::StructWriter,
 }
 
 impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
     pub(crate) fn new(
-        encoding_context: &'value mut EncodingContext,
+        encoding_context: &'value mut WriteContext,
         raw_struct_writer: V::StructWriter,
     ) -> Self {
         Self {
@@ -409,13 +408,13 @@ impl<'value, V: ValueWriter> StructWriter for ApplicationStructWriter<'value, V>
 }
 
 pub struct ApplicationListWriter<'value, V: ValueWriter> {
-    encoding: &'value mut EncodingContext,
+    encoding: &'value mut WriteContext,
     raw_list_writer: V::ListWriter,
 }
 
 impl<'value, V: ValueWriter> ApplicationListWriter<'value, V> {
     pub(crate) fn new(
-        encoding_context: &'value mut EncodingContext,
+        encoding_context: &'value mut WriteContext,
         raw_list_writer: V::ListWriter,
     ) -> Self {
         Self {
@@ -444,15 +443,12 @@ impl<'value, V: ValueWriter> SequenceWriter for ApplicationListWriter<'value, V>
 }
 
 pub struct ApplicationSExpWriter<'value, V: ValueWriter> {
-    encoding: &'value mut EncodingContext,
+    encoding: &'value mut WriteContext,
     raw_sexp_writer: V::SExpWriter,
 }
 
 impl<'value, V: ValueWriter> ApplicationSExpWriter<'value, V> {
-    pub(crate) fn new(
-        encoding: &'value mut EncodingContext,
-        raw_sexp_writer: V::SExpWriter,
-    ) -> Self {
+    pub(crate) fn new(encoding: &'value mut WriteContext, raw_sexp_writer: V::SExpWriter) -> Self {
         Self {
             encoding,
             raw_sexp_writer,
@@ -478,15 +474,12 @@ impl<'value, V: ValueWriter> SequenceWriter for ApplicationSExpWriter<'value, V>
 }
 
 pub struct ApplicationEExpWriter<'value, V: ValueWriter> {
-    encoding: &'value mut EncodingContext,
+    encoding: &'value mut WriteContext,
     raw_eexp_writer: V::EExpWriter,
 }
 
 impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
-    pub(crate) fn new(
-        encoding: &'value mut EncodingContext,
-        raw_eexp_writer: V::EExpWriter,
-    ) -> Self {
+    pub(crate) fn new(encoding: &'value mut WriteContext, raw_eexp_writer: V::EExpWriter) -> Self {
         Self {
             encoding,
             raw_eexp_writer,

@@ -42,7 +42,7 @@ mod benchmark {
                 &[
                     black_box("SUCCESS"),
                     black_box("example-client-1"),
-                    black_box("aws-us-east-5f-18b4fa"),
+                    black_box("aws-us-east-5f-abc-123"),
                     black_box("region 4"),
                     black_box("2022-12-07T20:59:59.744000Z"),
                 ],
@@ -73,7 +73,7 @@ mod benchmark {
                     symbol_id(black_box(21)),
                     // $22 = example-client-1
                     symbol_id(black_box(22)),
-                    // $23 = aws-us-east-5f-18b4fa
+                    // $23 = aws-us-east-5f-abc-123
                     symbol_id(black_box(23)),
                     // $24 = region 4
                     symbol_id(black_box(24)),
@@ -92,7 +92,7 @@ mod benchmark {
             // them wouldn't be beneficial.
             .write(black_box("6"))? // thread_name
             .write(black_box("1"))? // client_num
-            .write(symbol_id(black_box(10)))?; // host_id: "18b4fa" ($10)
+            .write(symbol_id(black_box(10)))?; // host_id: "abc-123" ($10)
         let mut nested_eexp = eexp.eexp_writer(1)?;
         nested_eexp
             // $11 = region 4
@@ -109,7 +109,7 @@ mod benchmark {
             .write(black_box(418))? // thread_id
             .write(black_box("6"))? // thread_name
             .write(black_box("1"))? // client_num
-            .write(black_box("18b4fa"))?; // host_id
+            .write(black_box("abc-123"))?; // host_id
         let mut nested_eexp = eexp.eexp_writer(1)?;
         nested_eexp
             .write(black_box("region 4"))?

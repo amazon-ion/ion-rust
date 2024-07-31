@@ -192,8 +192,6 @@ mod write_config;
 pub use crate::lazy::any_encoding::AnyEncoding;
 pub use crate::lazy::decoder::{HasRange, HasSpan};
 pub use crate::lazy::span::Span;
-pub use crate::write_config::WriteConfig;
-
 macro_rules! v1_x_reader_writer {
     ($visibility:vis) => {
         #[allow(unused_imports)]
@@ -214,9 +212,28 @@ macro_rules! v1_x_reader_writer {
             lazy::sequence::{LazyList, LazySExp},
             lazy::encoder::value_writer::{ValueWriter, StructWriter, SequenceWriter, EExpWriter},
             lazy::any_encoding::IonEncoding,
+            lazy::expanded::compiler::TemplateCompiler,
+            lazy::expanded::template::TemplateMacro,
+            lazy::expanded::template::TemplateBodyExpr,
+            lazy::expanded::template::TemplateBodyExprKind,
+            lazy::expanded::macro_table::Macro,
+            lazy::expanded::macro_evaluator::MacroEvaluator,
+            lazy::expanded::macro_evaluator::MacroExpansionKind,
+            lazy::expanded::macro_table::MacroKind,
+            lazy::expanded::macro_table::MacroTable,
+            lazy::expanded::EncodingContext,
+            lazy::any_encoding::IonVersion,
+            lazy::binary::raw::reader::LazyRawBinaryReader_1_0,
+            lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1,
+            lazy::expanded::macro_evaluator::RawEExpression,
+            lazy::expanded::macro_evaluator::ValueExpr,
+            lazy::expanded::macro_evaluator::MacroExpr,
+            lazy::expanded::macro_evaluator::MacroExprKind,
         };
     };
 }
+
+pub use crate::write_config::WriteConfig;
 
 macro_rules! v1_0_reader_writer {
     ($visibility:vis) => {
@@ -376,3 +393,36 @@ pub enum Format {
     Binary,
     // TODO: Json(TextKind)
 }
+
+/// Early returns `Some(Err(_))` if the provided expression returns an `Err(_)`.
+///
+/// Acts as an ersatz `?` operator in methods that return `Option<IonResult<T>>`.
+macro_rules! try_or_some_err {
+    ($expr:expr) => {
+        match $expr {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        }
+    };
+}
+
+pub(crate) use try_or_some_err;
+
+/// Tries to get the next value from an expression of type `Option<Result<_>>`, early returning if
+/// the expression is `None` or `Some(Err(_))`. This is useful in the context of iterator
+/// implementations that produce an `Option<Result>>` and so cannot easily use the `?` operator.
+///
+/// If the expression evaluates to `None`, early returns `None`.
+/// If the expression evaluates to `Some(Err(e))`, early returns `Some(Err(e))`.
+/// If the expression evaluates to `Some(Ok(value))`, evaluates to `value`.
+macro_rules! try_next {
+    ($expr:expr) => {
+        match $expr {
+            Some(Ok(v)) => v,
+            None => return None,
+            Some(Err(e)) => return Some(Err(e)),
+        }
+    };
+}
+
+pub(crate) use try_next;

@@ -20,7 +20,7 @@ impl<'data> StrRef<'data> {
         Str::from(self)
     }
 
-    pub fn text(&self) -> &str {
+    pub fn text(&self) -> &'data str {
         self.text
     }
 }

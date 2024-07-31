@@ -5,7 +5,6 @@ use crate::element::Element;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::streaming_raw_reader::IonInput;
 use crate::lazy::system_reader::SystemReader;
-use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
@@ -126,15 +125,21 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 }
 
+use crate::lazy::{
+    expanded::template::TemplateMacro,
+    text::raw::v1_1::reader::MacroAddress,
+};
+
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
-    // Temporary method for defining/testing templates. This method does not confirm that the
-    // reader's encoding supports macros--that check will happen when encoding directives are
-    // supported.
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
-    pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
+    pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         self.system_reader
             .expanding_reader
-            .register_template(template_definition)
+            .register_template_src(template_definition)
+    }
+
+    pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
+        self.system_reader.expanding_reader.register_template(template_macro)
     }
 }
 
@@ -183,6 +188,7 @@ mod tests {
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
     use crate::{ion_list, ion_sexp, ion_struct, v1_0, AnyEncoding, Int, IonResult, IonType};
+    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 
     use super::*;
 
@@ -296,7 +302,7 @@ mod tests {
         // Construct a reader for the encoded data.
         let mut reader = Reader::new(AnyEncoding, binary_ion.as_slice())?;
         // Register the template definition, getting the same ID we used earlier.
-        let actual_address = reader.register_template(macro_source)?;
+        let actual_address = reader.register_template_src(macro_source)?;
         assert_eq!(
             macro_address, actual_address,
             "Assigned macro address did not match expected address."

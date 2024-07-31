@@ -13,7 +13,7 @@ use crate::text::whitespace_config::{
 };
 use crate::types::ParentType;
 use crate::write_config::WriteConfigKind;
-use crate::{IonResult, TextFormat, WriteConfig};
+use crate::{IonEncoding, IonResult, TextFormat, WriteConfig};
 
 /// A raw text Ion 1.0 writer.
 pub struct LazyRawTextWriter_1_0<W: Write> {
@@ -112,6 +112,16 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 
     fn output_mut(&mut self) -> &mut W {
         &mut self.output
+    }
+
+    fn write_version_marker(&mut self) -> IonResult<()> {
+        let space_between = self.whitespace_config.space_between_top_level_values;
+        write!(self.output, "$ion_1_0{space_between}")?;
+        Ok(())
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Text_1_0
     }
 }
 

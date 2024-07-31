@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::ops::Range;
 
 use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValueExpr};
@@ -8,8 +9,14 @@ use crate::lazy::encoder::value_writer::{
     delegate_value_writer_to_self, AnnotatableWriter, ValueWriter,
 };
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
-use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
+use crate::lazy::expanded::e_expression::ArgGroup;
+use crate::lazy::expanded::macro_evaluator::{
+    EExpArgGroupIterator, EExpressionArgGroup, RawEExpression,
+};
+use crate::lazy::expanded::template::ParameterEncoding;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
+use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, Timestamp};
@@ -29,27 +36,6 @@ impl<'top> HasSpan<'top> for Never {
 impl HasRange for Never {
     fn range(&self) -> Range<usize> {
         unreachable!("<Never as HasSpan>::range")
-    }
-}
-
-// Ion 1.0 uses `Never` as a placeholder type for MacroInvocation.
-// The compiler should optimize these methods away.
-impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
-    // These use Box<dyn> to avoid defining yet another placeholder type.
-    type RawArgumentsIterator<'a> = Box<dyn Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>>;
-
-    fn id(&self) -> MacroIdRef<'top> {
-        unreachable!("macro in Ion 1.0 (method: id)")
-    }
-
-    fn raw_arguments(&self) -> Self::RawArgumentsIterator<'_> {
-        unreachable!("macro in Ion 1.0 (method: arguments)")
-    }
-}
-
-impl<'top, D: Decoder> From<Never> for MacroExpr<'top, D> {
-    fn from(_value: Never) -> Self {
-        unreachable!("macro in Ion 1.0 (method: into)")
     }
 }
 
@@ -74,7 +60,8 @@ impl StructWriter for Never {
 }
 
 impl MakeValueWriter for Never {
-    type ValueWriter<'a> = Never where Self: 'a;
+    type ValueWriter<'a> = Never
+    where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         unreachable!("MakeValueWriter::value_writer in Never")
@@ -84,7 +71,8 @@ impl MakeValueWriter for Never {
 impl EExpWriter for Never {}
 
 impl AnnotatableWriter for Never {
-    type AnnotatedValueWriter<'a> = Never where Self: 'a;
+    type AnnotatedValueWriter<'a> = Never
+    where Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -104,4 +92,95 @@ impl ValueWriter for Never {
     type EExpWriter = Never;
 
     delegate_value_writer_to_self!();
+}
+
+impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
+    type RawArgumentsIterator = NeverEExpArgIterator<'top, D>; // Placeholder
+
+    type ArgGroup = NeverArgGroup<'top, D>;
+
+    fn id(self) -> MacroIdRef<'top> {
+        unreachable!("<Never as RawEExpression>::id")
+    }
+
+    fn raw_arguments(&self) -> Self::RawArgumentsIterator {
+        unreachable!("<Never as RawEExpression>::raw_arguments")
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct NeverEExpArgIterator<'top, D: Decoder> {
+    spooky: PhantomData<&'top D>,
+    never: Never,
+}
+
+impl<'top, D: Decoder> Iterator for NeverEExpArgIterator<'top, D> {
+    type Item = IonResult<EExpArg<'top, D>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unreachable!("<NeverEExpArgIterator as Iterator>::next");
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct NeverArgGroup<'top, D: Decoder> {
+    spooky: PhantomData<&'top D>,
+    never: Never,
+}
+
+impl<'top, D: Decoder> IntoIterator for NeverArgGroup<'top, D> {
+    type Item = IonResult<LazyRawValueExpr<'top, D>>;
+    type IntoIter = NeverArgGroupIterator<'top, D>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        unreachable!("<NeverArgGroup as IntoIterator>::into_iter")
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct NeverArgGroupIterator<'top, D: Decoder> {
+    spooky: PhantomData<&'top D>,
+    never: Never,
+}
+
+impl<'top, D: Decoder> Iterator for NeverArgGroupIterator<'top, D> {
+    type Item = IonResult<LazyRawValueExpr<'top, D>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unreachable!("<NeverArgGroupIterator as Iterator>::next")
+    }
+}
+
+impl<'top, D: Decoder> EExpArgGroupIterator<'top, D> for NeverArgGroupIterator<'top, D> {
+    fn is_exhausted(&self) -> bool {
+        unreachable!("<NeverArgGroupIterator as EExpArgGroupIterator>::is_exhausted")
+    }
+}
+
+impl<'top, D: Decoder> HasRange for NeverArgGroup<'top, D> {
+    fn range(&self) -> Range<usize> {
+        unreachable!("<NeverArgGroup as HasRange>::range")
+    }
+}
+
+impl<'top, D: Decoder> HasSpan<'top> for NeverArgGroup<'top, D> {
+    fn span(&self) -> Span<'top> {
+        unreachable!("<NeverArgGroup as HasSpan>::span")
+    }
+}
+
+impl<'top, D: Decoder> EExpressionArgGroup<'top, D> for NeverArgGroup<'top, D> {
+    type Iterator = NeverArgGroupIterator<'top, D>;
+
+    fn encoding(&self) -> ParameterEncoding {
+        unreachable!("<NeverArgGroup as EExpressionArgGroup>::encoding")
+    }
+
+    fn resolve(self, _context: EncodingContextRef<'top>) -> ArgGroup<'top, D> {
+        unreachable!("<NeverArgGroup as EExpressionArgGroup>::resolve")
+    }
+
+    fn iter(self) -> Self::Iterator {
+        unreachable!("<NeverArgGroup as EExpressionArgGroup>::iter")
+    }
 }

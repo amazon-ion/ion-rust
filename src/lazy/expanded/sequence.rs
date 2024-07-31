@@ -1,16 +1,11 @@
-use bumpalo::collections::Vec as BumpVec;
-
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{Decoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression, ValueExpr};
-use crate::lazy::expanded::template::{
-    AnnotationsRange, ExprRange, TemplateMacroRef, TemplateSequenceIterator,
-};
+use crate::lazy::expanded::template::{TemplateElement, TemplateSequenceIterator};
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, LazyExpandedValue,
 };
-use crate::result::IonFailure;
-use crate::{IonError, IonResult, IonType};
+use crate::{try_or_some_err, IonResult, IonType};
 
 /// A sequence of not-yet-evaluated expressions passed as arguments to a macro invocation.
 ///
@@ -25,7 +20,7 @@ use crate::{IonError, IonResult, IonType};
 /// ```ion_1_1
 ///     (:foo 1 2 (:values 3))
 /// ```
-/// The `Environment` would contain the expressions `1`, `2` and `3`, corresponding to parameters
+/// The `Environment` would contain the expressions `1`, `2` and `(:values 3)`, corresponding to parameters
 /// `x`, `y`, and `z` respectively.
 #[derive(Copy, Clone, Debug)]
 pub struct Environment<'top, D: Decoder> {
@@ -33,34 +28,49 @@ pub struct Environment<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> Environment<'top, D> {
-    pub(crate) fn new(args: BumpVec<'top, ValueExpr<'top, D>>) -> Self {
-        Environment {
-            expressions: args.into_bump_slice(),
-        }
+    pub(crate) fn new(args: &'top [ValueExpr<'top, D>]) -> Self {
+        Environment { expressions: args }
     }
 
     /// Returns the expression for the corresponding signature index -- the variable's offset within
-    /// the template's signature. If the requested index is out of bounds, returns `Err`.
-    pub fn get_expected(&self, signature_index: usize) -> IonResult<ValueExpr<'top, D>> {
-        self.expressions()
-            .get(signature_index)
-            .copied()
-            // The TemplateCompiler should detect any invalid variable references prior to evaluation
-            .ok_or_else(|| {
-                IonError::decoding_error(format!(
-                    "reference to variable with signature index {} not valid",
-                    signature_index
-                ))
-            })
+    /// the template's signature.
+    ///
+    /// Panics if the requested index is out of bounds, as the rules of the template compiler
+    /// should make that impossible.
+    #[inline]
+    pub fn require_expr(&self, signature_index: usize) -> ValueExpr<'top, D> {
+        if let Some(expr) = self.expressions().get(signature_index).copied() {
+            return expr;
+        }
+        unreachable!("found a macro signature index reference that was out of bounds")
     }
 
     /// Returns an empty environment without performing any allocations. This is used for evaluating
     /// e-expressions, which never have named parameters.
-    pub fn empty() -> Environment<'top, D> {
+    pub const fn empty() -> Environment<'top, D> {
         Environment { expressions: &[] }
     }
     pub fn expressions(&self) -> &'top [ValueExpr<'top, D>] {
         self.expressions
+    }
+    pub fn for_eexp(context: EncodingContextRef<'top>, eexp: D::EExp<'top>) -> IonResult<Self> {
+        use bumpalo::collections::Vec as BumpVec;
+        let allocator = context.allocator();
+        let raw_args = eexp.raw_arguments();
+        let capacity_hint = raw_args.size_hint().0;
+        let mut env_exprs = BumpVec::with_capacity_in(capacity_hint, allocator);
+        // Populate the environment by parsing the arguments from input
+        for expr in raw_args {
+            env_exprs.push(expr?.resolve(context)?);
+        }
+
+        Ok(Environment::new(env_exprs.into_bump_slice()))
+    }
+}
+
+impl<'top, D: Decoder> Default for Environment<'top, D> {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -70,12 +80,7 @@ pub enum ExpandedListSource<'top, D: Decoder> {
     /// The list was a value literal in the input stream.
     ValueLiteral(D::List<'top>),
     /// The list was part of a template definition.
-    Template(
-        Environment<'top, D>,
-        TemplateMacroRef<'top>,
-        AnnotationsRange,
-        ExprRange,
-    ),
+    Template(Environment<'top, D>, TemplateElement<'top>),
     // TODO: Constructed
 }
 
@@ -99,12 +104,9 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
     pub fn from_template(
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
-        template: TemplateMacroRef<'top>,
-        annotations_range: AnnotationsRange,
-        step_range: ExprRange,
+        element: TemplateElement<'top>,
     ) -> LazyExpandedList<'top, D> {
-        let source =
-            ExpandedListSource::Template(environment, template, annotations_range, step_range);
+        let source = ExpandedListSource::Template(environment, element);
         Self { source, context }
     }
 
@@ -121,12 +123,8 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
             ExpandedListSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedListSource::Template(_environment, template, annotations, _sequence) => {
-                let annotations = template
-                    .body
-                    .annotations_storage()
-                    .get(annotations.ops_range())
-                    .unwrap();
+            ExpandedListSource::Template(_environment, element) => {
+                let annotations = element.annotations();
                 ExpandedAnnotationsIterator {
                     source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
                 }
@@ -137,17 +135,16 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
     pub fn iter(&self) -> ExpandedListIterator<'top, D> {
         let source = match &self.source {
             ExpandedListSource::ValueLiteral(list) => {
-                let evaluator = MacroEvaluator::new(self.context, Environment::empty());
-                ExpandedListIteratorSource::ValueLiteral(evaluator, list.iter())
+                ExpandedListIteratorSource::ValueLiteral(MacroEvaluator::new(), list.iter())
             }
-            ExpandedListSource::Template(environment, template, _annotations, steps) => {
-                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
-                let evaluator = MacroEvaluator::new(self.context, *environment);
+            ExpandedListSource::Template(environment, element) => {
+                let nested_expressions = element.nested_expressions();
+                let evaluator = MacroEvaluator::new_with_environment(*environment);
                 ExpandedListIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
                     evaluator,
-                    *template,
-                    steps,
+                    element.template(),
+                    nested_expressions,
                 ))
             }
         };
@@ -195,12 +192,7 @@ pub enum ExpandedSExpSource<'top, D: Decoder> {
     /// The SExp was a value literal in the input stream.
     ValueLiteral(D::SExp<'top>),
     /// The SExp was part of a template definition.
-    Template(
-        Environment<'top, D>,
-        TemplateMacroRef<'top>,
-        AnnotationsRange,
-        ExprRange,
-    ),
+    Template(Environment<'top, D>, TemplateElement<'top>),
 }
 
 /// An s-expression that may have come from either a value literal in the input stream or from
@@ -225,12 +217,8 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
             ExpandedSExpSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
                 source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
             },
-            ExpandedSExpSource::Template(_environment, template, annotations, _sequence) => {
-                let annotations = template
-                    .body
-                    .annotations_storage()
-                    .get(annotations.ops_range())
-                    .unwrap();
+            ExpandedSExpSource::Template(_environment, element) => {
+                let annotations = element.annotations();
                 ExpandedAnnotationsIterator {
                     source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
                 }
@@ -241,17 +229,16 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
     pub fn iter(&self) -> ExpandedSExpIterator<'top, D> {
         let source = match &self.source {
             ExpandedSExpSource::ValueLiteral(sexp) => {
-                let evaluator = MacroEvaluator::new(self.context, Environment::empty());
-                ExpandedSExpIteratorSource::ValueLiteral(evaluator, sexp.iter())
+                ExpandedSExpIteratorSource::ValueLiteral(MacroEvaluator::new(), sexp.iter())
             }
-            ExpandedSExpSource::Template(environment, template, _annotations, steps) => {
-                let steps = template.body.expressions().get(steps.ops_range()).unwrap();
-                let evaluator = MacroEvaluator::new(self.context, *environment);
+            ExpandedSExpSource::Template(environment, element) => {
+                let nested_expressions = element.nested_expressions();
+                let evaluator = MacroEvaluator::new_with_environment(*environment);
                 ExpandedSExpIteratorSource::Template(TemplateSequenceIterator::new(
                     self.context,
                     evaluator,
-                    *template,
-                    steps,
+                    element.template(),
+                    nested_expressions,
                 ))
             }
         };
@@ -272,11 +259,9 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
     pub fn from_template(
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
-        template: TemplateMacroRef<'top>,
-        annotations: AnnotationsRange,
-        expressions: ExprRange,
+        element: TemplateElement<'top>,
     ) -> LazyExpandedSExp<'top, D> {
-        let source = ExpandedSExpSource::Template(environment, template, annotations, expressions);
+        let source = ExpandedSExpSource::Template(environment, element);
         Self { source, context }
     }
 }
@@ -321,7 +306,7 @@ fn expand_next_sequence_value<'top, D: Decoder>(
 ) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
     loop {
         // If the evaluator's stack is not empty, it's still expanding a macro.
-        if evaluator.macro_stack_depth() > 0 {
+        if !evaluator.is_empty() {
             let value = evaluator.next().transpose();
             if value.is_some() {
                 // The `Some` may contain a value or an error; either way, that's the next return value.
@@ -341,10 +326,7 @@ fn expand_next_sequence_value<'top, D: Decoder>(
                     Ok(resolved) => resolved,
                     Err(e) => return Some(Err(e)),
                 };
-                let begin_expansion_result = evaluator.push(resolved_invocation);
-                if let Err(e) = begin_expansion_result {
-                    return Some(Err(e));
-                }
+                evaluator.push(try_or_some_err!(resolved_invocation.expand()));
                 continue;
             }
             Some(Err(e)) => return Some(Err(e)),

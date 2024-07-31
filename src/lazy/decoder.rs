@@ -1,16 +1,25 @@
 use std::fmt::Debug;
+use std::io::Write;
 use std::ops::Range;
 
-use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::encoding::{BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0};
+use crate::lazy::any_encoding::{IonEncoding, IonVersion};
+use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
+use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
+use crate::lazy::encoder::write_as_ion::{WriteableEExp, WriteableRawValue};
+use crate::lazy::encoding::{
+    BinaryEncoding, BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0,
+};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{Catalog, IonResult, IonType, RawSymbolRef};
+use crate::{
+    v1_0, v1_1, Catalog, Encoding, IonResult, IonType, LazyExpandedFieldName, LazyRawWriter,
+    RawSymbolRef, ValueRef,
+};
 
 pub trait HasSpan<'top>: HasRange {
     fn span(&self) -> Span<'top>;
@@ -18,6 +27,15 @@ pub trait HasSpan<'top>: HasRange {
 
 pub trait HasRange {
     fn range(&self) -> Range<usize>;
+
+    /// Returns the number of bytes this encoded item occupies.
+    ///
+    /// This method is equivalent to calling `.range().len()`, but types have the option to
+    /// override its implementation if the length can be found more quickly without computing the
+    /// range first.
+    fn byte_length(&self) -> usize {
+        self.range().len()
+    }
 }
 
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
@@ -30,11 +48,6 @@ pub trait HasRange {
 pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
     type Reader<'data>: LazyRawReader<'data, Self>;
-    /// Additional data (beyond the offset) that the reader will need in order to resume reading
-    /// from a different point in the stream.
-    // At the moment this feature is only used by `LazyAnyRawReader`, which needs to remember what
-    // encoding the stream was using during earlier read operations.
-    type ReaderSavedState: Copy + Default;
     /// A value (at any depth) in the input. This can be further inspected to access either its
     /// scalar data or, if it is a container, to view it as [`Self::List`], [`Self::SExp`] or
     /// [`Self::Struct`].  
@@ -46,7 +59,7 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     /// A struct whose fields may be accessed iteratively or by field name.
     type Struct<'top>: LazyRawStruct<'top, Self>;
     /// A symbol token representing the name of a field within a struct.
-    type FieldName<'top>: LazyRawFieldName<'top>;
+    type FieldName<'top>: LazyRawFieldName<'top, Self>;
     /// An iterator over the annotations on the input stream's values.
     type AnnotationsIterator<'top>: Iterator<Item = IonResult<RawSymbolRef<'top>>>;
     /// An e-expression invoking a macro. (Ion 1.1+)
@@ -60,13 +73,73 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
 }
 
 pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
+    /// Returns the major version of the Ion encoding to which the stream is switching.
     fn major(&self) -> u8 {
-        self.version().0
+        self.major_minor().0
     }
+
+    /// Returns the minor version of the Ion encoding to which the stream is switching.
     fn minor(&self) -> u8 {
-        self.version().1
+        self.major_minor().1
     }
-    fn version(&self) -> (u8, u8);
+
+    /// Returns a tuple representing the `(major, minor)` version pair for the Ion encoding
+    /// to which the stream is switching.
+    fn major_minor(&self) -> (u8, u8);
+
+    /// If this marker is encoded in binary Ion, returns `true`. Otherwise, returns `false`.
+    ///
+    /// Ion streams can switch versions (for example: from v1.0 to v1.1 or vice-versa), but they
+    /// cannot change formats (for example: from binary to text or vice-versa). Therefore the value
+    /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
+    /// that follows the IVM.
+    fn is_binary(&self) -> bool {
+        self.stream_encoding_before_marker().is_binary()
+    }
+
+    /// If this marker is encoded in text Ion, returns `true`. Otherwise, returns `false`.
+    ///
+    /// Ion streams can switch versions (for example: from v1.0 to v1.1 or vice-versa), but they
+    /// cannot change formats (for example: from binary to text or vice-versa). Therefore, the value
+    /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
+    /// that follows the IVM.
+    fn is_text(&self) -> bool {
+        self.stream_encoding_before_marker().is_text()
+    }
+
+    /// The `IonVersion` that was used to encode this IVM.
+    fn stream_version_before_marker(&self) -> IonVersion {
+        self.stream_encoding_before_marker().version()
+    }
+
+    /// If this marker's `(major, minor)` version pair represents a supported Ion version,
+    /// returns `Ok(ion_version)`. Otherwise, returns a decoding error. To access the marker's
+    /// version without confirming it is supported, see [`major_minor`](Self::major_minor).
+    fn stream_version_after_marker(&self) -> IonResult<IonVersion> {
+        match self.major_minor() {
+            (1, 0) => Ok(IonVersion::v1_0),
+            (1, 1) => Ok(IonVersion::v1_1),
+            (major, minor) => {
+                IonResult::decoding_error(format!("Ion version {major}.{minor} is not supported"))
+            }
+        }
+    }
+
+    fn stream_encoding_before_marker(&self) -> IonEncoding;
+
+    /// If this marker's `(major, minor)` version pair represents a supported Ion version,
+    /// returns `Ok(ion_encoding)`. Otherwise, returns a decoding error. To access the marker's
+    /// encoding information without confirming it is supported, see [`major_minor`](Self::major_minor) and
+    /// [`is_binary`](Self::is_binary)/[`is_text`](Self::is_text).
+    fn stream_encoding_after_marker(&self) -> IonResult<IonEncoding> {
+        let encoding = match (self.is_binary(), self.stream_version_after_marker()?) {
+            (true, IonVersion::v1_0) => IonEncoding::Binary_1_0,
+            (false, IonVersion::v1_0) => IonEncoding::Text_1_0,
+            (true, IonVersion::v1_1) => IonEncoding::Binary_1_1,
+            (false, IonVersion::v1_1) => IonEncoding::Text_1_1,
+        };
+        Ok(encoding)
+    }
 }
 
 /// An expression found in value position in either serialized Ion or a template.
@@ -272,9 +345,10 @@ impl<'top, D: Decoder> HasRange for LazyRawFieldExpr<'top, D> {
 // internal code that is defined in terms of `LazyRawField` to call the private `into_value()`
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
+    use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
     use crate::lazy::expanded::r#struct::UnexpandedField;
     use crate::lazy::expanded::EncodingContextRef;
-    use crate::IonResult;
+    use crate::{try_next, try_or_some_err, IonResult, LazyExpandedValue, LazyRawFieldName};
 
     use super::{Decoder, LazyRawFieldExpr, LazyRawStruct};
 
@@ -309,16 +383,24 @@ pub(crate) mod private {
         type Item = IonResult<UnexpandedField<'top, D>>;
 
         fn next(&mut self) -> Option<Self::Item> {
-            let field: LazyRawFieldExpr<'top, D> = match self.raw_fields.next() {
-                Some(Ok(field)) => field,
-                Some(Err(e)) => return Some(Err(e)),
-                None => return None,
-            };
+            let field: LazyRawFieldExpr<'top, D> = try_next!(self.raw_fields.next());
             use LazyRawFieldExpr::*;
             let unexpanded_field = match field {
-                NameValue(name, value) => UnexpandedField::RawNameValue(self.context, name, value),
-                NameEExp(name, eexp) => UnexpandedField::RawNameEExp(self.context, name, eexp),
-                EExp(eexp) => UnexpandedField::RawEExp(self.context, eexp),
+                NameValue(name, value) => UnexpandedField::NameValue(
+                    name.resolve(self.context),
+                    LazyExpandedValue::from_literal(self.context, value),
+                ),
+                NameEExp(name, raw_eexp) => {
+                    let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
+                    UnexpandedField::NameMacro(
+                        name.resolve(self.context),
+                        MacroExpr::from_eexp(eexp),
+                    )
+                }
+                EExp(raw_eexp) => {
+                    let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
+                    UnexpandedField::Macro(MacroExpr::from_eexp(eexp))
+                }
             };
             Some(Ok(unexpanded_field))
         }
@@ -342,12 +424,23 @@ pub(crate) mod private {
 }
 
 pub trait LazyRawReader<'data, D: Decoder>: Sized {
+    /// Constructs a new raw reader using decoder `D` that will read from `data`.
+    /// `data` must be the beginning of the stream. To continue reading from the middle of a
+    /// stream, see [`resume_at_offset`](Self::resume_at_offset).
     fn new(data: &'data [u8]) -> Self {
-        Self::resume_at_offset(data, 0, D::ReaderSavedState::default())
+        Self::resume_at_offset(data, 0, IonEncoding::default())
     }
 
-    fn resume_at_offset(data: &'data [u8], offset: usize, saved_state: D::ReaderSavedState)
-        -> Self;
+    /// Constructs a new raw reader using decoder `D` that will read from `data`.
+    ///
+    /// Automatically detecting the stream's encoding is only possible when `offset` is zero.
+    /// If offset is not zero, the caller must supply an `encoding_hint` indicating the expected
+    /// encoding. Encoding-specific raw readers will ignore this hint--the stream's encoding must be
+    /// the one that they support--but the `LazyRawAnyReader` will use it.
+    fn resume_at_offset(data: &'data [u8], offset: usize, encoding_hint: IonEncoding) -> Self;
+
+    /// Deconstructs this reader, returning a tuple of `(remaining_data, stream_offset, encoding)`.
+    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding);
 
     fn next<'top>(
         &'top mut self,
@@ -356,16 +449,110 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     where
         'data: 'top;
 
-    fn save_state(&self) -> D::ReaderSavedState {
-        D::ReaderSavedState::default()
-    }
-
     /// The stream byte offset at which the reader will begin parsing the next item to return.
     /// This position is not necessarily the first byte of the next value; it may be (e.g.) a NOP,
     /// a comment, or whitespace that the reader will traverse as part of matching the next item.
     fn position(&self) -> usize;
 
+    /// The Ion encoding of the stream that the reader has been processing.
+    ///
+    /// Note that:
+    /// * Before any items have been read from the stream, the encoding defaults
+    ///   to [`IonEncoding::Text_1_0`].
+    /// * When an IVM is encountered, the Ion version reported afterward can be different but the
+    ///   format (text vs binary) will remain the same.
     fn encoding(&self) -> IonEncoding;
+}
+
+/// Allows writers to specify which Ion encodings they can losslessly transcribe from.
+///
+/// TODO: At the moment, this implementation does not process encoding directives in the
+///       input stream, which means it only works for very simple use cases. A better solution
+///       would be to take a `&mut SystemReader<_>` that can maintain the encoding context while
+///       also only paying attention to stream literals.
+pub trait TranscribeRaw<E: Encoding> {
+    fn transcribe<'a, R: LazyRawReader<'a, E>>(&mut self, reader: &mut R) -> IonResult<()>
+    where
+        Self: 'a;
+}
+
+impl<W: Write> TranscribeRaw<v1_1::Binary> for LazyRawTextWriter_1_1<W> {
+    fn transcribe<'a, R: LazyRawReader<'a, v1_1::Binary>>(
+        &mut self,
+        reader: &mut R,
+    ) -> IonResult<()>
+    where
+        Self: 'a,
+    {
+        transcribe_raw_binary_to_text(reader, self)
+    }
+}
+
+impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_1<W> {
+    fn transcribe<'a, R: LazyRawReader<'a, v1_0::Binary>>(
+        &mut self,
+        reader: &mut R,
+    ) -> IonResult<()>
+    where
+        Self: 'a,
+    {
+        transcribe_raw_binary_to_text(reader, self)
+    }
+}
+
+impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_0<W> {
+    fn transcribe<'a, R: LazyRawReader<'a, v1_0::Binary>>(
+        &mut self,
+        reader: &mut R,
+    ) -> IonResult<()>
+    where
+        Self: 'a,
+    {
+        transcribe_raw_binary_to_text(reader, self)
+    }
+}
+
+fn transcribe_raw_binary_to_text<
+    'a,
+    W: Write + 'a,
+    InputEncoding: BinaryEncoding<'a>,
+    Reader: LazyRawReader<'a, InputEncoding>,
+    Writer: LazyRawWriter<W>,
+>(
+    reader: &mut Reader,
+    writer: &mut Writer,
+) -> IonResult<()> {
+    const FLUSH_EVERY_N: usize = 100;
+    let encoding_context = EncodingContext::for_ion_version(IonVersion::v1_1);
+    let context_ref = encoding_context.get_ref();
+    let mut item_number: usize = 0;
+    loop {
+        let item = reader.next(context_ref)?;
+        use crate::RawStreamItem::*;
+        match item {
+            VersionMarker(_m) if item_number == 0 => {
+                // The writer automatically emits an IVM at the head of the output.
+            }
+            VersionMarker(_m) => {
+                // If the reader surfaces another IVM, write a matching one in the output.
+                writer.write_version_marker()?
+            }
+            Value(v) => {
+                writer.write(WriteableRawValue::new(v))?;
+            }
+            EExp(e) => {
+                writer.write(WriteableEExp::new(e))?;
+            }
+            EndOfStream(_) => {
+                writer.flush()?;
+                return Ok(());
+            }
+        }
+        item_number += 1;
+        if item_number % FLUSH_EVERY_N == 0 {
+            writer.flush()?;
+        }
+    }
 }
 
 pub trait LazyRawContainer<'top, D: Decoder> {
@@ -380,6 +567,9 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn has_annotations(&self) -> bool;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn read(&self) -> IonResult<RawValueRef<'top, D>>;
+    fn read_resolved(&self, context: EncodingContextRef<'top>) -> IonResult<ValueRef<'top, D>> {
+        self.read()?.resolve(context)
+    }
 
     fn annotations_span(&self) -> Span<'top>;
 
@@ -410,6 +600,12 @@ pub trait LazyRawStruct<'top, D: Decoder>:
     fn iter(&self) -> Self::Iterator;
 }
 
-pub trait LazyRawFieldName<'top>: HasSpan<'top> + Copy + Debug + Clone {
+pub trait LazyRawFieldName<'top, D: Decoder<FieldName<'top> = Self>>:
+    HasSpan<'top> + Copy + Debug + Clone
+{
     fn read(&self) -> IonResult<RawSymbolRef<'top>>;
+
+    fn resolve(&self, context: EncodingContextRef<'top>) -> LazyExpandedFieldName<'top, D> {
+        LazyExpandedFieldName::RawName(context, *self)
+    }
 }

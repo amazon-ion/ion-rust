@@ -16,7 +16,7 @@ pub enum RawStreamItem<M: Debug, V: Debug, E: Debug> {
     /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
     Value(V),
     /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
-    EExpression(E),
+    EExp(E),
     /// The end of the stream
     EndOfStream(EndPosition),
 }
@@ -32,7 +32,7 @@ impl<'top> LazyRawStreamItem<'top, AnyEncoding> {
         match self {
             LazyRawStreamItem::<AnyEncoding>::VersionMarker(m) => m.encoding(),
             LazyRawStreamItem::<AnyEncoding>::Value(v) => v.encoding(),
-            LazyRawStreamItem::<AnyEncoding>::EExpression(e) => e.encoding(),
+            LazyRawStreamItem::<AnyEncoding>::EExp(e) => e.encoding(),
             LazyRawStreamItem::<AnyEncoding>::EndOfStream(eos) => eos.encoding(),
         }
     }
@@ -46,7 +46,7 @@ impl<M: Debug + HasRange, V: Debug + HasRange, E: Debug + HasRange> HasRange
         match self {
             VersionMarker(marker) => marker.range(),
             Value(value) => value.range(),
-            EExpression(eexp) => eexp.range(),
+            EExp(eexp) => eexp.range(),
             EndOfStream(eos) => eos.range(),
         }
     }
@@ -60,7 +60,7 @@ impl<'top, M: Debug + HasSpan<'top>, V: Debug + HasSpan<'top>, E: Debug + HasSpa
         match self {
             VersionMarker(marker) => marker.span(),
             Value(value) => value.span(),
-            EExpression(eexp) => eexp.span(),
+            EExp(eexp) => eexp.span(),
             EndOfStream(eos) => eos.span(),
         }
     }
@@ -104,15 +104,15 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
     }
 
     pub fn as_macro_invocation(&self) -> Option<&E> {
-        if let Self::EExpression(m) = self {
+        if let Self::EExp(m) = self {
             Some(m)
         } else {
             None
         }
     }
 
-    pub fn expect_macro_invocation(self) -> IonResult<E> {
-        if let Self::EExpression(m) = self {
+    pub fn expect_eexp(self) -> IonResult<E> {
+        if let Self::EExp(m) = self {
             Ok(m)
         } else {
             IonResult::decoding_error(format!("expected a macro invocation, found {:?}", self))

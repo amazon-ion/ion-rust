@@ -33,40 +33,44 @@
 //! that are ignored by the reader do not incur the cost of symbol table resolution.
 
 use std::cell::{Cell, UnsafeCell};
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::iter::empty;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 
 use bumpalo::Bump as BumpAllocator;
 
 use sequence::{LazyExpandedList, LazyExpandedSExp};
 
 use crate::element::iterators::SymbolsIterator;
-use crate::lazy::any_encoding::IonEncoding;
+use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression};
-use crate::lazy::expanded::macro_table::MacroTable;
+use crate::lazy::expanded::e_expression::EExpression;
+use crate::lazy::expanded::encoding_module::EncodingModule;
+use crate::lazy::expanded::macro_evaluator::{
+    MacroEvaluator, MacroExpansion, MacroExpr, RawEExpression,
+};
+use crate::lazy::expanded::macro_table::{Macro, MacroTable};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
-use crate::lazy::expanded::template::{
-    TemplateElement, TemplateMacro, TemplateMacroRef, TemplateValue,
-};
+use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
-use crate::lazy::system_reader::{PendingLst, SystemReader};
+use crate::lazy::system_reader::{PendingContextChanges, SystemReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, Catalog, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolTable, Timestamp,
+    Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawSymbolRef, RawVersionMarker,
+    Span, SymbolTable, Timestamp, ValueRef,
 };
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
@@ -74,6 +78,7 @@ use crate::{
 // stabilizes.
 pub mod compiler;
 pub mod e_expression;
+pub mod encoding_module;
 pub mod macro_evaluator;
 pub mod macro_table;
 pub mod sequence;
@@ -81,9 +86,6 @@ pub mod r#struct;
 pub mod template;
 
 /// A collection of resources that can be used to encode or decode Ion values.
-/// The `'top` lifetime associated with the [`EncodingContextRef`] reflects the fact that it can only
-/// be used as long as the reader is positioned on the same top level expression (i.e. the symbol and
-/// macro tables are guaranteed not to change).
 //  It should be possible to loosen this definition of `'top` to include several top level values
 //  as long as the macro and symbol tables do not change between them, though this would require
 //  carefully designing the API to emphasize that the sequence of values is either the set that
@@ -92,6 +94,7 @@ pub mod template;
 //  would need to be proved out first.
 #[derive(Debug)]
 pub struct EncodingContext {
+    pub(crate) modules: HashMap<String, EncodingModule>,
     pub(crate) macro_table: MacroTable,
     pub(crate) symbol_table: SymbolTable,
     pub(crate) allocator: BumpAllocator,
@@ -104,18 +107,47 @@ impl EncodingContext {
         allocator: BumpAllocator,
     ) -> Self {
         Self {
+            modules: HashMap::new(),
             macro_table,
             symbol_table,
             allocator,
         }
     }
 
+    pub fn for_ion_version(version: IonVersion) -> Self {
+        Self::new(
+            MacroTable::new(),
+            SymbolTable::new(version),
+            BumpAllocator::new(),
+        )
+    }
+
     pub fn empty() -> Self {
-        Self::new(MacroTable::new(), SymbolTable::new(), BumpAllocator::new())
+        Self::new(
+            MacroTable::new(),
+            SymbolTable::new(IonVersion::default()),
+            BumpAllocator::new(),
+        )
     }
 
     pub fn get_ref(&self) -> EncodingContextRef {
         EncodingContextRef { context: self }
+    }
+
+    pub fn macro_table(&self) -> &MacroTable {
+        &self.macro_table
+    }
+
+    pub fn macro_table_mut(&mut self) -> &mut MacroTable {
+        &mut self.macro_table
+    }
+
+    pub fn symbol_table(&self) -> &SymbolTable {
+        &self.symbol_table
+    }
+
+    pub fn allocator(&self) -> &BumpAllocator {
+        &self.allocator
     }
 }
 
@@ -230,7 +262,7 @@ pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
     //
     // Holds information found in symbol tables and encoding directives (TODO) that can be applied
     // to the encoding context the next time the reader is between top-level expressions.
-    pending_lst: UnsafeCell<PendingLst>,
+    pending_context_changes: UnsafeCell<PendingContextChanges>,
     encoding_context: UnsafeCell<EncodingContext>,
     catalog: Box<dyn Catalog>,
 }
@@ -244,15 +276,19 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             raw_reader: raw_reader.into(),
             evaluator_ptr: None.into(),
             encoding_context: EncodingContext::empty().into(),
-            pending_lst: PendingLst::new().into(),
+            pending_context_changes: PendingContextChanges::new().into(),
             catalog,
         }
     }
 
     // TODO: This method is temporary. It will be removed when the ability to read 1.1 encoding
     //       directives from the input stream is available. Until then, template creation is manual.
-    pub fn register_template(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
+    pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         let template_macro: TemplateMacro = self.compile_template(template_definition)?;
+        self.register_template(template_macro)
+    }
+
+    pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
         self.add_macro(template_macro)
     }
 
@@ -288,24 +324,26 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         context.allocator.reset();
     }
 
-    pub fn pending_lst(&self) -> &PendingLst {
+    pub fn pending_context_changes(&self) -> &PendingContextChanges {
         // If the user is able to call this method, the PendingLst is not being modified and it's
         // safe to immutably reference.
-        unsafe { &*self.pending_lst.get() }
+        unsafe { &*self.pending_context_changes.get() }
     }
 
-    pub fn pending_lst_mut(&mut self) -> &mut PendingLst {
+    pub fn pending_lst_mut(&mut self) -> &mut PendingContextChanges {
         // SAFETY: If the caller has a `&mut` reference to `self`, it is the only mutable reference
         //         that can modify `self.pending_lst`.
-        unsafe { &mut *self.pending_lst.get() }
+        unsafe { &mut *self.pending_context_changes.get() }
     }
 
+    #[inline]
     fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
         let typed_ptr: *mut T = ptr.cast();
         unsafe { &mut *typed_ptr }
     }
 
     /// Dereferences a raw pointer storing the address of the active MacroEvaluator.
+    #[inline]
     fn ptr_to_evaluator<'top>(evaluator_ptr: *mut ()) -> &'top mut MacroEvaluator<'top, Encoding> {
         Self::ptr_to_mut_ref(evaluator_ptr)
     }
@@ -321,47 +359,106 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         Self::ref_as_ptr(evaluator)
     }
 
-    /// Updates the encoding context with the information stored in the `PendingLst`.
-    // TODO: This only works on Ion 1.0 symbol tables for now, hence the name `PendingLst`
-    fn apply_pending_lst(pending_lst: &mut PendingLst, symbol_table: &mut SymbolTable) {
+    /// Updates the encoding context with the information stored in the `PendingContextChanges`.
+    fn apply_pending_context_changes(
+        pending_changes: &mut PendingContextChanges,
+        symbol_table: &mut SymbolTable,
+        macro_table: &mut MacroTable,
+    ) {
+        if let Some(new_version) = pending_changes.switch_to_version.take() {
+            symbol_table.reset_to_version(new_version);
+            pending_changes.has_changes = false;
+            // If we're switching to a new version, the last stream item was a version marker
+            // and there are no other pending changes. The `take()` above clears the `switch_to_version`.
+            return;
+        }
+
+        if let Some(mut module) = pending_changes.take_new_active_module() {
+            std::mem::swap(symbol_table, module.symbol_table_mut());
+            std::mem::swap(macro_table, module.macro_table_mut());
+            return;
+        }
+
         // If the symbol table's `imports` field had a value of `$ion_symbol_table`, then we're
         // appending the symbols it defined to the end of our existing local symbol table.
         // Otherwise, we need to clear the existing table before appending the new symbols.
-        if !pending_lst.is_lst_append {
+        if !pending_changes.is_lst_append {
             // We're setting the symbols list, not appending to it.
             symbol_table.reset();
         }
         // `drain()` empties the pending `imported_symbols` and `symbols` lists
-        for symbol in pending_lst.imported_symbols.drain(..) {
+        for symbol in pending_changes.imported_symbols.drain(..) {
             symbol_table.add_symbol(symbol);
         }
-        for symbol in pending_lst.symbols.drain(..) {
+        for symbol in pending_changes.symbols.drain(..) {
             symbol_table.add_symbol(symbol);
         }
-        pending_lst.is_lst_append = false;
-        pending_lst.has_changes = false;
+        pending_changes.is_lst_append = false;
+        pending_changes.has_changes = false;
+    }
+
+    #[inline]
+    fn interpret_value<'top>(
+        &self,
+        value: LazyExpandedValue<'top, Encoding>,
+    ) -> IonResult<SystemStreamItem<'top, Encoding>> {
+        if value.has_annotations() && matches!(value.ion_type(), IonType::Struct | IonType::SExp) {
+            self.fully_interpret_value(value)
+        } else {
+            Ok(SystemStreamItem::Value(LazyValue::new(value)))
+        }
     }
 
     /// Inspects a `LazyExpandedValue` to determine whether it is a symbol table or an
     /// application-level value. Returns it as the appropriate variant of `SystemStreamItem`.
-    fn interpret_value<'top>(
+    fn fully_interpret_value<'top>(
         &self,
         value: LazyExpandedValue<'top, Encoding>,
     ) -> IonResult<SystemStreamItem<'top, Encoding>> {
         // If this value is a symbol table...
         if SystemReader::<_, Input>::is_symbol_table_struct(&value)? {
             // ...traverse it and record any new symbols in our `pending_lst`.
-            let pending_lst = unsafe { &mut *self.pending_lst.get() };
-            SystemReader::<_, Input>::process_symbol_table(pending_lst, &*self.catalog, &value)?;
-            pending_lst.has_changes = true;
+            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+            SystemReader::<_, Input>::process_symbol_table(
+                pending_changes,
+                &*self.catalog,
+                &value,
+            )?;
+            pending_changes.has_changes = true;
             let lazy_struct = LazyStruct {
                 expanded_struct: value.read()?.expect_struct().unwrap(),
             };
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
+        } else if self.detected_encoding().version() == IonVersion::v1_1
+            && SystemReader::<_, Input>::is_encoding_directive_sexp(&value)?
+        {
+            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+            SystemReader::<_, Input>::process_encoding_directive(pending_changes, value)?;
+            pending_changes.has_changes = true;
+            let lazy_sexp = LazySExp {
+                expanded_sexp: value.read()?.expect_sexp().unwrap(),
+            };
+            return Ok(SystemStreamItem::EncodingDirective(lazy_sexp));
         }
         // Otherwise, it's an application value.
         let lazy_value = LazyValue::new(value);
         return Ok(SystemStreamItem::Value(lazy_value));
+    }
+
+    fn interpret_ivm<'top>(
+        &self,
+        marker: <Encoding as Decoder>::VersionMarker<'top>,
+    ) -> IonResult<SystemStreamItem<'top, Encoding>> {
+        let new_version = marker.stream_version_after_marker()?;
+        // If this is the first item in the stream or we're changing versions, we need to ensure
+        // the encoding context is set up for this version.
+        if marker.range().start == 0 || new_version != marker.stream_version_before_marker() {
+            // SAFETY: Version markers do not hold a reference to the symbol table.
+            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+            pending_changes.switch_to_version = Some(new_version);
+            pending_changes.has_changes = true;
+        }
+        Ok(SystemStreamItem::VersionMarker(marker))
     }
 
     /// This method is invoked just before the reader begins reading the next top-level expression
@@ -382,13 +479,16 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // If the pending LST has changes to apply, do so.
         // SAFETY: Nothing else holds a reference to the `PendingLst`'s contents, so we can use the
         //         `UnsafeCell` to get a mutable reference to it.
-        let pending_lst: &mut PendingLst = unsafe { &mut *self.pending_lst.get() };
+        let pending_lst: &mut PendingContextChanges =
+            unsafe { &mut *self.pending_context_changes.get() };
         if pending_lst.has_changes {
             // SAFETY: Nothing else holds a reference to the `EncodingContext`'s contents, so we can use the
             //         `UnsafeCell` to get a mutable reference to its symbol table.
             let symbol_table: &mut SymbolTable =
                 &mut unsafe { &mut *self.encoding_context.get() }.symbol_table;
-            Self::apply_pending_lst(pending_lst, symbol_table);
+            let macro_table: &mut MacroTable =
+                &mut unsafe { &mut *self.encoding_context.get() }.macro_table;
+            Self::apply_pending_context_changes(pending_lst, symbol_table, macro_table);
         }
     }
 
@@ -397,19 +497,21 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     /// This method will consume and process as many system-level values as possible until it
     /// encounters an application-level value or the end of the stream.
     pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
+        use SystemStreamItem::*;
         loop {
-            match self.next_item()? {
-                SystemStreamItem::VersionMarker(_marker) => {
-                    // TODO: Handle version changes 1.0 <-> 1.1
-                }
-                SystemStreamItem::SymbolTable(_) => {
-                    // The symbol table is processed by `next_item` before it is returned. There's
-                    // nothing to be done here.
-                }
-                SystemStreamItem::Value(value) => return Ok(Some(value)),
-                SystemStreamItem::EndOfStream(_) => return Ok(None),
-            }
+            match self.next_item() {
+                Ok(Value(value)) => return Ok(Some(value)),
+                Ok(EndOfStream(_)) => return Ok(None),
+                Ok(_) => {}
+                Err(e) => return Err(e),
+            };
         }
+    }
+
+    pub fn detected_encoding(&self) -> IonEncoding {
+        // SAFETY: We have an immutable reference to `self`, so it's legal for us to have an immutable
+        //         reference to one of its fields.
+        unsafe { &*self.raw_reader.get() }.encoding()
     }
 
     /// Returns the next [`SystemStreamItem`] either by continuing to evaluate a macro invocation
@@ -422,8 +524,21 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
 
         // If there's already an active macro evaluator, that means the reader is still in the process
         // of expanding a macro invocation it previously encountered. See if it has a value to give us.
-        if let Some(stream_item) = self.next_from_evaluator()? {
-            return Ok(stream_item);
+        if let Some(ptr) = self.evaluator_ptr.get() {
+            // If there's already an evaluator, dereference the pointer.
+            let evaluator = Self::ptr_to_evaluator(ptr);
+            match evaluator.next() {
+                Ok(Some(value)) => {
+                    if evaluator.is_empty() {
+                        // If the evaluator is empty, unset the pointer so we know not to query it
+                        // further.
+                        self.evaluator_ptr.set(None);
+                    }
+                    return self.interpret_value(value);
+                }
+                Ok(None) => {}
+                Err(e) => return Err(e),
+            }
         }
 
         // Otherwise, we're now between top level expressions. Take this opportunity to apply any
@@ -441,37 +556,55 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             use crate::lazy::raw_stream_item::RawStreamItem::*;
             let raw_reader = unsafe { &mut *self.raw_reader.get() };
             match raw_reader.next(context_ref)? {
-                VersionMarker(marker) => return Ok(SystemStreamItem::VersionMarker(marker)),
+                VersionMarker(marker) => {
+                    return self.interpret_ivm(marker);
+                }
                 // We got our value; return it.
                 Value(raw_value) => {
                     let value = LazyExpandedValue::from_literal(context_ref, raw_value);
                     return self.interpret_value(value);
                 }
                 // It's another macro invocation, we'll start evaluating it.
-                EExpression(e_exp) => {
+                EExp(e_exp) => {
                     let context = self.context();
-                    let resolved_e_exp = e_exp.resolve(context_ref)?;
+                    let resolved_e_exp = match e_exp.resolve(context_ref) {
+                        Ok(resolved) => resolved,
+                        Err(e) => return Err(e),
+                    };
+
+                    // If this e-expression invokes a template with a non-system, singleton expansion, we can use the
+                    // e-expression to back a LazyExpandedValue. It will only be evaluated if the user calls `read()`.
+                    if let Some(value) = LazyExpandedValue::try_from_e_expression(resolved_e_exp) {
+                        // Because the expansion is guaranteed not to be a system value, we do not need to interpret it.
+                        return Ok(SystemStreamItem::Value(LazyValue::new(value)));
+                    }
+                    let new_evaluator = MacroEvaluator::for_eexp(resolved_e_exp)?;
                     // Get the current evaluator or make a new one
                     let evaluator = match self.evaluator_ptr.get() {
-                        // If there's already an evaluator, dereference the pointer.
-                        Some(ptr) => Self::ptr_to_evaluator(ptr),
-                        // If there's not, make a new one.
-                        None => context
-                            .allocator
-                            // E-expressions always have an empty environment
-                            .alloc_with(move || {
-                                MacroEvaluator::new(context_ref, Environment::empty())
-                            }),
+                        // If there's already an evaluator in the bump, it's empty. Overwrite it with our new one.
+                        Some(ptr) => {
+                            let bump_evaluator_ref = Self::ptr_to_evaluator(ptr);
+                            *bump_evaluator_ref = new_evaluator;
+                            bump_evaluator_ref
+                        }
+                        // If there's not an evaluator in the bump, make a new one.
+                        None => context.allocator.alloc_with(|| new_evaluator),
                     };
-                    // Push the invocation onto the evaluation stack.
-                    evaluator.push(resolved_e_exp)?;
-                    self.evaluator_ptr
-                        .set(Some(Self::evaluator_to_ptr(evaluator)));
 
                     // Try to get a value by starting to evaluate the e-expression.
-                    if let Some(value) = self.next_from_evaluator()? {
+                    let next_value = match evaluator.next() {
+                        Ok(value) => value,
+                        Err(e) => return Err(e),
+                    };
+                    if let Some(value) = next_value {
+                        // If we get a value and the evaluator isn't empty yet, save its pointer
+                        // so we can try to get more out of it when `next_at_or_above_depth` is called again.
+                        if !evaluator.is_empty() {
+                            self.evaluator_ptr
+                                .set(Some(Self::evaluator_to_ptr(evaluator)));
+                        }
                         // If we get a value, return it.
-                        return Ok(value);
+                        return self.interpret_value(value);
                     } else {
                         // If the expression was equivalent to `(:void)`, return to the top of
                         // the loop and get the next expression.
@@ -484,40 +617,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             };
         }
     }
-
-    /// If there is not an evaluation in process, returns `Ok(None)`.
-    /// If there is an evaluation in process but it does not yield another value, returns `Ok(None)`.
-    /// If there is an evaluation in process and it yields another value, returns `Ok(Some(value))`.
-    /// Otherwise, returns `Err`.
-    fn next_from_evaluator(&self) -> IonResult<Option<SystemStreamItem<Encoding>>> {
-        let evaluator_ptr = match self.evaluator_ptr.get() {
-            // There's not currently an evaluator.
-            None => return Ok(None),
-            // There's an evaluator in the process of expanding a macro.
-            Some(ptr) => ptr,
-        };
-        let evaluator = Self::ptr_to_evaluator(evaluator_ptr);
-
-        match evaluator.next() {
-            Ok(Some(value)) => {
-                // See if this value was a symbol table that needs interpretation.
-                self.interpret_value(value).map(Some)
-            }
-            Ok(None) => {
-                // While the evaluator had macros in its stack, they did not produce any more
-                // values. The stack is now empty.
-                Ok(None)
-            }
-            Err(e) => Err(e),
-        }
-    }
-}
-
-impl<Input: IonInput> ExpandingReader<AnyEncoding, Input> {
-    pub fn detected_encoding(&self) -> IonEncoding {
-        let raw_reader = unsafe { &*self.raw_reader.get() };
-        raw_reader.encoding()
-    }
 }
 
 /// The source of data backing a [`LazyExpandedValue`].
@@ -525,6 +624,8 @@ impl<Input: IonInput> ExpandingReader<AnyEncoding, Input> {
 pub enum ExpandedValueSource<'top, D: Decoder> {
     /// This value was a literal in the input stream.
     ValueLiteral(D::Value<'top>),
+    /// This value is backed by an e-expression invoking a macro known to produce a single value.
+    EExp(EExpression<'top, D>),
     /// This value was part of a template definition.
     Template(Environment<'top, D>, TemplateElement<'top>),
     /// This value was the computed result of a macro invocation like `(:make_string `...)`.
@@ -533,14 +634,15 @@ pub enum ExpandedValueSource<'top, D: Decoder> {
         //       it to `Never` and the compiler can eliminate this code path where applicable.
         // Constructed data stored in the bump allocator. Holding references instead of the data
         // itself allows this type (and those that contain it) to impl `Copy`.
-        &'top [&'top str],               // Annotations (if any)
-        &'top ExpandedValueRef<'top, D>, // Value
+        &'top [&'top str],       // Annotations (if any)
+        &'top ValueRef<'top, D>, // Value
     ),
 }
 
 impl<'top, Encoding: Decoder> Debug for ExpandedValueSource<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
+            ExpandedValueSource::EExp(eexp) => write!(f, "{eexp:?}"),
             ExpandedValueSource::ValueLiteral(v) => write!(f, "{v:?}"),
             ExpandedValueSource::Template(_, template_element) => {
                 write!(f, "{:?}", template_element.value())
@@ -563,24 +665,24 @@ impl<'top, V: RawValueLiteral, Encoding: Decoder<Value<'top> = V>> From<V>
 /// A variable found in the body of a template macro.
 #[derive(Debug, Copy, Clone)]
 pub struct TemplateVariableReference<'top> {
-    template: TemplateMacroRef<'top>,
+    macro_ref: &'top Macro,
     signature_index: u16,
 }
 
 impl<'top> TemplateVariableReference<'top> {
-    pub fn new(template: TemplateMacroRef<'top>, signature_index: u16) -> Self {
+    pub fn new(macro_ref: &'top Macro, signature_index: u16) -> Self {
         Self {
-            template,
+            macro_ref,
             signature_index,
         }
     }
 
-    fn name(&self) -> &'top str {
-        self.template.signature.parameters()[self.signature_index()].name()
+    fn name(&self) -> &str {
+        self.macro_ref.signature().parameters()[self.signature_index()].name()
     }
 
-    fn host_template(&self) -> TemplateMacroRef<'top> {
-        self.template
+    fn host_macro(&self) -> &'top Macro {
+        self.macro_ref
     }
 
     fn signature_index(&self) -> usize {
@@ -605,6 +707,23 @@ impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
 }
 
 impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
+    // If the provided e-expression can be resolved to a template macro that is eligible to back
+    // a lazy value without first being evaluated, returns `Some(lazy_expanded_value)`.
+    // To be eligible, the body of the template macro must be an Ion value literal that is not
+    // a system value.
+    pub(crate) fn try_from_e_expression(eexp: EExpression<'top, Encoding>) -> Option<Self> {
+        let analysis = eexp.expansion_analysis();
+        if !analysis.can_be_lazily_evaluated_at_top_level() {
+            return None;
+        }
+
+        Some(Self {
+            context: eexp.context,
+            source: ExpandedValueSource::EExp(eexp),
+            variable: None,
+        })
+    }
+
     pub(crate) fn from_literal(
         context: EncodingContextRef<'top>,
         value: Encoding::Value<'top>,
@@ -631,7 +750,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
     pub(crate) fn from_constructed(
         context: EncodingContextRef<'top>,
         annotations: &'top [&'top str],
-        value: &'top ExpandedValueRef<'top, Encoding>,
+        value: &'top ValueRef<'top, Encoding>,
     ) -> Self {
         Self {
             context,
@@ -651,6 +770,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             ValueLiteral(value) => value.ion_type(),
             Template(_, element) => element.value().ion_type(),
             Constructed(_annotations, value) => value.ion_type(),
+            EExp(eexp) => eexp.require_expansion_singleton().ion_type(),
         }
     }
 
@@ -660,8 +780,9 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             ValueLiteral(value) => value.is_null(),
             Template(_, element) => element.value().is_null(),
             Constructed(_, value) => {
-                matches!(value, ExpandedValueRef::Null(_))
+                matches!(value, ValueRef::Null(_))
             }
+            EExp(eexp) => eexp.require_expansion_singleton().is_null(),
         }
     }
 
@@ -671,6 +792,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             ValueLiteral(value) => value.has_annotations(),
             Template(_, element) => !element.annotations().is_empty(),
             Constructed(annotations, _) => !annotations.is_empty(),
+            EExp(eexp) => eexp.require_expansion_singleton().has_annotations(),
         }
     }
 
@@ -690,9 +812,21 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                     empty(),
                 )))
             }
+            EExp(eexp) => {
+                let annotations_range = 0..eexp.require_expansion_singleton().num_annotations();
+                let annotations = &eexp
+                    .invoked_macro
+                    .require_template()
+                    .body()
+                    .annotations_storage()[annotations_range];
+                ExpandedAnnotationsIterator::new(ExpandedAnnotationsSource::Template(
+                    SymbolsIterator::new(annotations),
+                ))
+            }
         }
     }
 
+    #[inline]
     pub fn read(&self) -> IonResult<ExpandedValueRef<'top, Encoding>> {
         use ExpandedValueSource::*;
         match &self.source {
@@ -702,8 +836,35 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
                 *environment,
                 element,
             )),
-            Constructed(_annotations, value) => Ok((*value).clone()),
+            Constructed(_annotations, value) => Ok((**value).as_expanded()),
+            EExp(ref eexp) => eexp.expand_to_single_value()?.read(),
         }
+    }
+
+    #[inline(always)]
+    pub fn read_resolved(&self) -> IonResult<ValueRef<'top, Encoding>> {
+        use ExpandedValueSource::*;
+        match &self.source {
+            ValueLiteral(value) => value.read_resolved(self.context),
+            Template(environment, element) => {
+                Ok(ValueRef::from_template(self.context, *environment, element))
+            }
+            Constructed(_annotations, value) => Ok(**value),
+            EExp(ref eexp) => self.read_resolved_singleton_eexp(eexp),
+        }
+    }
+
+    #[inline(never)]
+    fn read_resolved_singleton_eexp(
+        &self,
+        eexp: &EExpression<'top, Encoding>,
+    ) -> IonResult<ValueRef<'top, Encoding>> {
+        let new_expansion = MacroExpansion::initialize(
+            // The parent environment of an e-expression is always empty.
+            Environment::empty(),
+            MacroExpr::from_eexp(*eexp),
+        )?;
+        new_expansion.expand_singleton()?.read_resolved()
     }
 
     pub fn context(&self) -> EncodingContextRef<'top> {
@@ -712,6 +873,27 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
 
     pub fn source(&self) -> ExpandedValueSource<'top, Encoding> {
         self.source
+    }
+
+    pub fn expect_value_literal(&self) -> IonResult<Encoding::Value<'top>> {
+        if let ExpandedValueSource::ValueLiteral(literal) = self.source {
+            return Ok(literal);
+        }
+        IonResult::decoding_error("expected LazyExpandedValue to be a literal")
+    }
+
+    pub fn range(&self) -> Option<Range<usize>> {
+        if let ExpandedValueSource::ValueLiteral(value) = &self.source {
+            return Some(value.range());
+        }
+        None
+    }
+
+    pub fn span(&self) -> Option<Span<'top>> {
+        if let ExpandedValueSource::ValueLiteral(value) = &self.source {
+            return Some(value.span());
+        }
+        None
     }
 }
 
@@ -775,12 +957,7 @@ impl<'top, Encoding: Decoder> Iterator for ExpandedAnnotationsIterator<'top, Enc
     }
 }
 
-// TODO: This type does not implement `Copy` because some of its variants can own heap resources.
-//       (Specifically: Int, Decimal, String, Symbol, Blob, Clob.) If we plumb the bump allocator all
-//       the way down to the raw readers, then the situations that require allocation can
-//       hold a 'top reference to a bump allocation instead of a static reference to a heap allocation.
-//       This will enable us to remove several calls to `clone()`, which can be much slower than copies.
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum ExpandedValueRef<'top, Encoding: Decoder> {
     Null(IonType),
     Bool(bool),
@@ -1001,26 +1178,20 @@ impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
             Symbol(s) => ExpandedValueRef::Symbol(s.as_raw_symbol_token_ref()),
             Blob(b) => ExpandedValueRef::Blob(BytesRef::from(b.as_ref())),
             Clob(c) => ExpandedValueRef::Clob(BytesRef::from(c.as_ref())),
-            List(s) => ExpandedValueRef::List(LazyExpandedList::from_template(
+            List => ExpandedValueRef::List(LazyExpandedList::from_template(
                 context,
                 environment,
-                element.template(),
-                element.annotations_range(),
-                *s,
+                *element,
             )),
-            SExp(s) => ExpandedValueRef::SExp(LazyExpandedSExp::from_template(
+            SExp => ExpandedValueRef::SExp(LazyExpandedSExp::from_template(
                 context,
                 environment,
-                element.template(),
-                element.annotations_range(),
-                *s,
+                *element,
             )),
-            Struct(s, index) => ExpandedValueRef::Struct(LazyExpandedStruct::from_template(
+            Struct(index) => ExpandedValueRef::Struct(LazyExpandedStruct::from_template(
                 context,
                 environment,
-                element.template(),
-                element.annotations_range(),
-                *s,
+                element,
                 index,
             )),
         }

@@ -1,13 +1,14 @@
 #![allow(non_camel_case_types)]
 
+use std::fmt::{Debug, Formatter};
+
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::{HasRange, IonResult, IonType};
-use std::fmt::{Debug, Formatter};
+use crate::{try_or_some_err, IonResult, IonType};
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryList_1_1<'top> {
@@ -20,7 +21,7 @@ pub struct LazyRawBinarySExp_1_1<'top> {
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'top> {
-    fn from_value(value: LazyRawBinaryValue_1_1<'top>) -> Self {
+    fn from_value(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
         LazyRawBinaryList_1_1 {
             sequence: LazyRawBinarySequence_1_1 { value },
         }
@@ -50,7 +51,7 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'top> {
-    fn from_value(value: LazyRawBinaryValue_1_1<'top>) -> Self {
+    fn from_value(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
         LazyRawBinarySExp_1_1 {
             sequence: LazyRawBinarySequence_1_1 { value },
         }
@@ -81,7 +82,7 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinarySequence_1_1<'top> {
-    pub(crate) value: LazyRawBinaryValue_1_1<'top>,
+    pub(crate) value: &'top LazyRawBinaryValue_1_1<'top>,
 }
 
 impl<'top> LazyRawBinarySequence_1_1<'top> {
@@ -90,9 +91,7 @@ impl<'top> LazyRawBinarySequence_1_1<'top> {
     }
 
     pub fn iter(&self) -> RawBinarySequenceIterator_1_1<'top> {
-        // Get as much of the sequence's body as is available in the input buffer.
-        // Reading a child value may fail as `Incomplete`
-        let buffer_slice = self.value.available_body();
+        let buffer_slice = self.value.value_body_buffer();
         RawBinarySequenceIterator_1_1::new(buffer_slice)
     }
 }
@@ -131,16 +130,12 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
 }
 
 pub struct RawBinarySequenceIterator_1_1<'top> {
-    source: ImmutableBuffer<'top>,
-    bytes_to_skip: usize,
+    input: ImmutableBuffer<'top>,
 }
 
 impl<'top> RawBinarySequenceIterator_1_1<'top> {
     pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator_1_1<'top> {
-        RawBinarySequenceIterator_1_1 {
-            source: input,
-            bytes_to_skip: 0,
-        }
+        RawBinarySequenceIterator_1_1 { input }
     }
 }
 
@@ -148,13 +143,11 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_1<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.source = self.source.consume(self.bytes_to_skip);
-        let item = match self.source.peek_sequence_value_expr() {
-            Ok(Some(expr)) => expr,
-            Ok(None) => return None,
-            Err(e) => return Some(Err(e)),
-        };
-        self.bytes_to_skip = item.range().len();
-        Some(Ok(item))
+        let (maybe_item, remaining_input) = try_or_some_err!(self.input.read_sequence_value_expr());
+        if let Some(item) = maybe_item {
+            self.input = remaining_input;
+            return Some(Ok(item));
+        }
+        None
     }
 }
