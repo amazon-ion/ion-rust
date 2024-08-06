@@ -9,7 +9,6 @@ use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::r#struct::{
     ExpandedStructIterator, ExpandedStructSource, LazyExpandedField, LazyExpandedStruct,
 };
-use crate::lazy::expanded::template::TemplateElement;
 use crate::lazy::expanded::LazyExpandedValue;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
@@ -73,6 +72,10 @@ impl<'top, D: Decoder> Debug for LazyStruct<'top, D> {
 }
 
 impl<'top, D: Decoder> LazyStruct<'top, D> {
+    pub(crate) fn new(expanded_struct: LazyExpandedStruct<'top, D>) -> Self {
+        Self { expanded_struct }
+    }
+
     /// Returns an iterator over this struct's fields. See [`LazyField`].
     pub fn iter(&self) -> StructIterator<'top, D> {
         StructIterator {
@@ -95,13 +98,7 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
             ExpandedStructSource::ValueLiteral(v) => {
                 LazyExpandedValue::from_literal(self.expanded_struct.context, v.as_value())
             }
-            ExpandedStructSource::Template(env, template_ref, _, fields_range, _) => {
-                let element = TemplateElement::new(
-                    template_ref,
-                    template_ref.body().expressions()[fields_range.start() - 1]
-                        .expect_element()
-                        .unwrap(),
-                );
+            ExpandedStructSource::Template(env, element, _) => {
                 LazyExpandedValue::from_template(self.expanded_struct.context, env, element)
             }
         };
@@ -312,7 +309,11 @@ impl<'top, D: Decoder> Iterator for StructIterator<'top, D> {
     type Item = IonResult<LazyField<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        StructIterator::next_field(self).transpose()
+        match StructIterator::next_field(self) {
+            Ok(Some(field)) => Some(Ok(field)),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        }
     }
 }
 

@@ -2,7 +2,7 @@
 
 use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
-use crate::lazy::decoder::{Decoder, HasRange, LazyRawFieldExpr, LazyRawReader, RawVersionMarker};
+use crate::lazy::decoder::{HasRange, LazyRawFieldExpr, LazyRawReader};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::result::IonFailure;
@@ -42,12 +42,6 @@ impl<'data> LazyRawBinaryReader_1_0<'data> {
         'data: 'top,
     {
         let (marker, _buffer_after_ivm) = buffer.read_ivm()?;
-        let (major, minor) = marker.version();
-        if (major, minor) != (1, 0) {
-            return IonResult::decoding_error(format!(
-                "unsupported version of Ion: v{major}.{minor}; only 1.0 is supported"
-            ));
-        }
         self.data.buffer = buffer;
         self.data.bytes_to_skip = 4; // IVM length
         Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::VersionMarker(
@@ -113,7 +107,8 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
     fn resume_at_offset(
         data: &'data [u8],
         offset: usize,
-        _config: <BinaryEncoding_1_0 as Decoder>::ReaderSavedState,
+        // This argument is ignored by all raw readers except LazyRawAnyReader
+        _encoding_hint: IonEncoding,
     ) -> Self {
         LazyRawBinaryReader_1_0 {
             data: DataSource {
@@ -121,6 +116,15 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
                 bytes_to_skip: 0,
             },
         }
+    }
+
+    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding) {
+        let stream_offset = self.position();
+        (
+            &self.data.buffer.bytes()[self.data.bytes_to_skip..],
+            stream_offset,
+            IonEncoding::Binary_1_0,
+        )
     }
 
     fn next<'top>(
@@ -321,7 +325,7 @@ mod tests {
                 }
                 Value(value) => println!("{:?}", value.read()?),
                 EndOfStream(_) => break,
-                EExpression(_) => unreachable!("No macros in Ion 1.0"),
+                EExp(_) => unreachable!("No macros in Ion 1.0"),
             }
         }
         Ok(())

@@ -56,9 +56,14 @@ impl FlexUInt {
         // FlexUInt we find requires more than 8 bytes to represent, we'll fall back to the general
         // case.
         if input.len() < COMMON_CASE_INPUT_BYTES_NEEDED || input[0] == 0 {
-            // `read_flex_uint_slow` is marked #[cold] to discourage inlining it, which keeps
-            // this method small enough that the code for the common case can be inlined.
-            return Self::read_flex_primitive_as_uint(input, offset, "reading a FlexUInt", false);
+            // Calling `read_flex_primitive_as_uint_no_inline` keeps this method small enough that
+            // the code for the common case can be inlined.
+            return Self::read_flex_primitive_as_uint_no_inline(
+                input,
+                offset,
+                "reading a FlexUInt",
+                false,
+            );
         }
 
         let flex_uint = Self::read_small_flex_uint(input);
@@ -88,6 +93,16 @@ impl FlexUInt {
         // to discard via right shifting.
         let value = (encoded_value & mask) >> num_encoded_bytes;
         FlexUInt::new(num_encoded_bytes, value)
+    }
+
+    #[inline(never)]
+    pub(crate) fn read_flex_primitive_as_uint_no_inline(
+        input: &[u8],
+        offset: usize,
+        label: &'static str,
+        support_sign_extension: bool,
+    ) -> IonResult<FlexUInt> {
+        Self::read_flex_primitive_as_uint(input, offset, label, support_sign_extension)
     }
 
     /// Helper method that reads a flex-encoded primitive from the buffer, returning it as a `FlexUInt`.

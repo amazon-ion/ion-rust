@@ -1,19 +1,18 @@
 // Copyright Amazon.com, Inc. or its affiliates.
-#![cfg(feature = "experimental-reader")]
-#![cfg(feature = "experimental-writer")]
+#![cfg(feature = "experimental-reader-writer")]
 #![allow(dead_code)]
 
 use std::fs::read;
-use std::path::MAIN_SEPARATOR as PATH_SEPARATOR;
+use std::path::MAIN_SEPARATOR_STR as PATH_SEPARATOR;
 
-use ion_rs::lazy::encoder::value_writer::SequenceWriter;
-use ion_rs::lazy::encoder::writer::Writer;
-use ion_rs::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
-use ion_rs::WriteConfig;
+use ion_rs::v1_0;
+use ion_rs::Writer;
 use ion_rs::{
     Element, ElementReader, ElementWriter, Format, IonData, IonError, IonResult, SExp, Sequence,
     Symbol, Value,
 };
+
+pub mod lazy_element_ion_tests;
 
 /// Concatenates two slices of string slices together.
 #[inline]
@@ -28,7 +27,7 @@ pub fn contains_path(paths: &[&str], file_name: &str) -> bool {
     paths
         .iter()
         // TODO construct the paths in a not so hacky way
-        .map(|p| p.replace('/', &PATH_SEPARATOR.to_string()))
+        .map(|p| p.replace('/', PATH_SEPARATOR))
         .any(|p| p == file_name)
 }
 
@@ -51,8 +50,7 @@ pub fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
     let mut buffer = Vec::with_capacity(2048);
     match format {
         Format::Text(kind) => {
-            let write_config = WriteConfig::<TextEncoding_1_0>::new(kind);
-            let mut writer = Writer::new(write_config, buffer)?;
+            let mut writer = Writer::new(v1_0::Text, buffer)?;
             writer.write_elements(elements)?;
             buffer = writer.close()?;
             println!(
@@ -61,7 +59,7 @@ pub fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
             );
         }
         Format::Binary => {
-            let mut binary_writer = Writer::<BinaryEncoding_1_0, _>::new(buffer)?;
+            let mut binary_writer = Writer::new(v1_0::Binary, buffer)?;
             binary_writer.write_elements(elements)?;
             buffer = binary_writer.close()?;
         }
@@ -318,7 +316,7 @@ pub trait ElementApi {
 #[macro_export]
 macro_rules! good_round_trip {
     (use $ElementApiImpl:ident; $(fn $test_name:ident($format1:expr, $format2:expr);)+) => {
-        mod good_round_trip {
+        mod good_round_trip_tests {
             use super::*; $(
             #[test_resources("ion-tests/iontestdata_1_0/good/**/*.ion")]
             //#[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]

@@ -1,12 +1,11 @@
 use std::fmt::{Debug, Formatter};
 
 use crate::lazy::decoder::{Decoder, RawVersionMarker};
-use crate::lazy::expanded::ExpandedValueSource;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
+use crate::{IonError, IonResult, LazySExp};
 
 /// System stream elements that a SystemReader may encounter.
 #[non_exhaustive]
@@ -14,8 +13,10 @@ pub enum SystemStreamItem<'top, D: Decoder> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(D::VersionMarker<'top>),
-    /// An Ion symbol table encoded as a struct annotated with `$ion_symbol_table`.
+    /// An Ion 1.0-style symbol table encoded as a struct annotated with `$ion_symbol_table`.
     SymbolTable(LazyStruct<'top, D>),
+    /// An Ion 1.1 encoding directive; an s-expression annotated with `$ion_encoding`.
+    EncodingDirective(LazySExp<'top, D>),
     /// An application-level Ion value
     Value(LazyValue<'top, D>),
     /// The end of the stream
@@ -29,16 +30,20 @@ impl<'top, D: Decoder> Debug for SystemStreamItem<'top, D> {
                 write!(f, "version marker v{}.{}", marker.major(), marker.minor())
             }
             SystemStreamItem::SymbolTable(_) => write!(f, "a symbol table"),
+            SystemStreamItem::EncodingDirective(_) => write!(f, "an encoding directive"),
             SystemStreamItem::Value(value) => write!(f, "{}", value.ion_type()),
             SystemStreamItem::EndOfStream(_) => write!(f, "<nothing>"),
         }
     }
 }
 
+// Clippy complains that `as_` methods should return a reference. In this case, all of the types
+// are `Copy`, so returning a copy isn't a problem.
+#[allow(clippy::wrong_self_convention)]
 impl<'top, D: Decoder> SystemStreamItem<'top, D> {
     /// If this item is an Ion version marker (IVM), returns `Some(version_marker)` indicating the
     /// version. Otherwise, returns `None`.
-    pub fn version_marker(&self) -> Option<D::VersionMarker<'top>> {
+    pub fn as_version_marker(&self) -> Option<D::VersionMarker<'top>> {
         if let Self::VersionMarker(marker) = self {
             Some(*marker)
         } else {
@@ -46,16 +51,16 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         }
     }
 
-    /// Like [`Self::version_marker`], but returns a [`crate::IonError::Decoding`] if this item
+    /// Like [`Self::as_version_marker`], but returns a [`crate::IonError::Decoding`] if this item
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<D::VersionMarker<'top>> {
-        self.version_marker()
+        self.as_version_marker()
             .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {:?}", self)))
     }
 
     /// If this item is a application-level value, returns `Some(&LazyValue)`. Otherwise,
     /// returns `None`.
-    pub fn value(&self) -> Option<LazyValue<'top, D>> {
+    pub fn as_value(&self) -> Option<LazyValue<'top, D>> {
         if let Self::Value(value) = self {
             Some(*value)
         } else {
@@ -63,7 +68,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         }
     }
 
-    /// Like [`Self::value`], but returns a [`IonError::Decoding`] if this item is not
+    /// Like [`Self::as_value`], but returns a [`IonError::Decoding`] if this item is not
     /// an application-level value.
     pub fn expect_value(self) -> IonResult<LazyValue<'top, D>> {
         if let Self::Value(value) = self {
@@ -92,25 +97,35 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         }
     }
 
+    /// If this item is a symbol table, returns `Some(lazy_struct)`. Otherwise, returns `None`.
+    pub fn as_encoding_directive(self) -> Option<LazySExp<'top, D>> {
+        if let Self::EncodingDirective(sexp) = self {
+            Some(sexp)
+        } else {
+            None
+        }
+    }
+
+    /// Like [`Self::as_symbol_table`], but returns a [`IonError::Decoding`] if this item is not
+    /// a symbol table.
+    pub fn expect_encoding_directive(self) -> IonResult<LazySExp<'top, D>> {
+        if let Self::EncodingDirective(sexp) = self {
+            Ok(sexp)
+        } else {
+            IonResult::decoding_error(format!("expected encoding directive, found {:?}", self))
+        }
+    }
+
     pub fn raw_stream_item(&self) -> Option<LazyRawStreamItem<'top, D>> {
-        let item = match self {
-            SystemStreamItem::VersionMarker(marker) => RawStreamItem::VersionMarker(*marker),
-            SystemStreamItem::SymbolTable(symtab) => {
-                use ExpandedValueSource::*;
-                match symtab.as_value().expanded().source {
-                    ValueLiteral(literal) => RawStreamItem::Value(literal),
-                    Template(..) | Constructed(..) => return None,
-                }
+        let value = match self {
+            SystemStreamItem::VersionMarker(marker) => {
+                return Some(RawStreamItem::VersionMarker(*marker))
             }
-            SystemStreamItem::Value(value) => {
-                use ExpandedValueSource::*;
-                match value.expanded().source {
-                    ValueLiteral(literal) => RawStreamItem::Value(literal),
-                    Template(..) | Constructed(..) => return None,
-                }
-            }
-            SystemStreamItem::EndOfStream(end) => RawStreamItem::EndOfStream(*end),
+            SystemStreamItem::SymbolTable(symtab) => symtab.as_value(),
+            SystemStreamItem::EncodingDirective(directive) => directive.as_value(),
+            SystemStreamItem::Value(value) => *value,
+            SystemStreamItem::EndOfStream(end) => return Some(RawStreamItem::EndOfStream(*end)),
         };
-        Some(item)
+        value.raw().map(RawStreamItem::Value)
     }
 }

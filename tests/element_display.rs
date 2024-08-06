@@ -1,5 +1,4 @@
-#![cfg(feature = "experimental-reader")]
-#![cfg(feature = "experimental-writer")]
+#![cfg(feature = "experimental-reader-writer")]
 use crate::ion_tests::contains_path;
 use ion_rs::IonData;
 use ion_rs::{Element, IonResult, Sequence};

@@ -1,24 +1,19 @@
-#![cfg(feature = "experimental-lazy-reader")]
-#![cfg(feature = "experimental-writer")]
-mod ion_tests;
+#![cfg(feature = "experimental-reader-writer")]
 
+use crate::good_round_trip;
 use crate::ion_tests::{
     bad, equivs, non_equivs, ElementApi, SkipList, ELEMENT_EQUIVS_SKIP_LIST,
     ELEMENT_GLOBAL_SKIP_LIST, ELEMENT_ROUND_TRIP_SKIP_LIST,
 };
-use ion_rs::lazy::reader::Reader;
-use ion_rs::IonResult;
+use ion_rs::Reader;
+use ion_rs::{AnyEncoding, IonResult};
 use ion_rs::{Format, TextFormat};
 use test_generator::test_resources;
 
 struct LazyReaderElementApi;
 
 impl ElementApi for LazyReaderElementApi {
-    type ElementReader<'a> = Reader<&'a [u8]>;
-
-    fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
-        Ok(Reader::new(data))
-    }
+    type ElementReader<'a> = Reader<AnyEncoding, &'a [u8]>;
 
     fn global_skip_list() -> SkipList {
         ELEMENT_GLOBAL_SKIP_LIST
@@ -39,22 +34,26 @@ impl ElementApi for LazyReaderElementApi {
     fn non_equivs_skip_list() -> SkipList {
         &[]
     }
+
+    fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
+        Reader::new(AnyEncoding, data)
+    }
 }
 
 good_round_trip! {
     use LazyReaderElementApi;
-    fn binary_compact(Format::Binary, Format::Text(TextKind::Compact));
-    fn binary_lines(Format::Binary, Format::Text(TextKind::Lines));
-    fn binary_pretty(Format::Binary, Format::Text(TextKind::Pretty));
-    fn compact_binary(Format::Text(TextKind::Compact), Format::Binary);
-    fn compact_lines(Format::Text(TextKind::Compact), Format::Text(TextKind::Lines));
-    fn compact_pretty(Format::Text(TextKind::Compact), Format::Text(TextKind::Pretty));
-    fn lines_binary(Format::Text(TextKind::Lines), Format::Binary);
-    fn lines_compact(Format::Text(TextKind::Lines), Format::Text(TextKind::Compact));
-    fn lines_pretty(Format::Text(TextKind::Lines), Format::Text(TextKind::Pretty));
-    fn pretty_binary(Format::Text(TextKind::Pretty), Format::Binary);
-    fn pretty_compact(Format::Text(TextKind::Pretty), Format::Text(TextKind::Compact));
-    fn pretty_lines(Format::Text(TextKind::Pretty), Format::Text(TextKind::Lines));
+    fn binary_compact(Format::Binary, Format::Text(TextFormat::Compact));
+    fn binary_lines(Format::Binary, Format::Text(TextFormat::Lines));
+    fn binary_pretty(Format::Binary, Format::Text(TextFormat::Pretty));
+    fn compact_binary(Format::Text(TextFormat::Compact), Format::Binary);
+    fn compact_lines(Format::Text(TextFormat::Compact), Format::Text(TextFormat::Lines));
+    fn compact_pretty(Format::Text(TextFormat::Compact), Format::Text(TextFormat::Pretty));
+    fn lines_binary(Format::Text(TextFormat::Lines), Format::Binary);
+    fn lines_compact(Format::Text(TextFormat::Lines), Format::Text(TextFormat::Compact));
+    fn lines_pretty(Format::Text(TextFormat::Lines), Format::Text(TextFormat::Pretty));
+    fn pretty_binary(Format::Text(TextFormat::Pretty), Format::Binary);
+    fn pretty_compact(Format::Text(TextFormat::Pretty), Format::Text(TextFormat::Compact));
+    fn pretty_lines(Format::Text(TextFormat::Pretty), Format::Text(TextFormat::Lines));
 }
 
 #[test_resources("ion-tests/iontestdata_1_0/bad/**/*.ion")]

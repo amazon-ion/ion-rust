@@ -1,9 +1,14 @@
+use std::fmt::{Debug, Formatter};
+
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::Decoder;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
-use std::fmt::{Debug, Formatter};
+use crate::{
+    Decimal, Int, IonResult, IonType, LazyExpandedList, LazyExpandedSExp, LazyExpandedStruct,
+    LazyList, LazySExp, LazyStruct, RawSymbolRef, Timestamp, ValueRef,
+};
 
 /// As RawValueRef represents a reference to an unresolved value read from the data stream.
 /// If the value is a symbol, it only contains the information found in the data stream (a symbol ID
@@ -70,6 +75,31 @@ impl<'top, D: Decoder> Debug for RawValueRef<'top, D> {
 }
 
 impl<'top, D: Decoder> RawValueRef<'top, D> {
+    pub fn resolve(self, context: EncodingContextRef<'top>) -> IonResult<ValueRef<'top, D>> {
+        let value_ref = match self {
+            RawValueRef::Null(ion_type) => ValueRef::Null(ion_type),
+            RawValueRef::Bool(b) => ValueRef::Bool(b),
+            RawValueRef::Int(i) => ValueRef::Int(i),
+            RawValueRef::Float(f) => ValueRef::Float(f),
+            RawValueRef::Decimal(d) => ValueRef::Decimal(d),
+            RawValueRef::Timestamp(t) => ValueRef::Timestamp(t),
+            RawValueRef::String(s) => ValueRef::String(s),
+            RawValueRef::Symbol(s) => ValueRef::Symbol(s.resolve(context)?),
+            RawValueRef::Blob(b) => ValueRef::Blob(b),
+            RawValueRef::Clob(c) => ValueRef::Clob(c),
+            RawValueRef::SExp(s) => {
+                ValueRef::SExp(LazySExp::from(LazyExpandedSExp::from_literal(context, s)))
+            }
+            RawValueRef::List(l) => {
+                ValueRef::List(LazyList::from(LazyExpandedList::from_literal(context, l)))
+            }
+            RawValueRef::Struct(s) => ValueRef::Struct(LazyStruct::from(
+                LazyExpandedStruct::from_literal(context, s),
+            )),
+        };
+        Ok(value_ref)
+    }
+
     pub fn expect_null(self) -> IonResult<IonType> {
         if let RawValueRef::Null(ion_type) = self {
             Ok(ion_type)

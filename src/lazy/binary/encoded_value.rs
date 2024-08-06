@@ -72,11 +72,15 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     // We store the offset for the header byte because it is guaranteed to be present for all values.
     // Annotations appear earlier in the stream but are optional.
 
-    // The number of bytes used to encode the annotations wrapper (if present) preceding the Ion
-    // value. If `annotations` is empty, `annotations_header_length` will be zero. The annotations
-    // wrapper contains several fields: an opcode, a wrapper length, a sequence length, and the
-    // sequence itself.
-    pub annotations_header_length: u16,
+    // The number of bytes used to encode the header of the annotations wrapper preceding the Ion
+    // value. If the value has no annotations, `annotations_header_length` will be zero.
+    //
+    // In Ion 1.0, the annotations header contains several fields: an opcode, a wrapper length, and
+    // the length of the sequence itself. It does not include the actual sequence of annotations.
+    //
+    // In Ion 1.1, the annotations header contains an opcode and (in the case of opcode 0xE9) a
+    // FlexUInt length.
+    pub annotations_header_length: u8,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
     pub annotations_sequence_length: u16,
     // Whether the annotations sequence is encoded as `FlexSym`s or as symbol addresses.
@@ -154,37 +158,49 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
         self.annotations_header_length > 0
     }
 
-    /// Returns the number of bytes used to encode this value's annotations, if any.
-    /// While annotations envelope the value that they decorate, this function does not include
-    /// the length of the value itself.
-    pub fn annotations_header_length(&self) -> Option<usize> {
-        if self.annotations_header_length == 0 {
-            return None;
-        }
-        Some(self.annotations_header_length as usize)
+    /// Returns the number of bytes used to encode this value's annotations header, if any.
+    ///
+    /// In Ion 1.0, the annotations header contains several fields: an opcode, a wrapper length, and
+    /// the length of the sequence itself. It does not include the actual sequence of annotations.
+    ///
+    /// In Ion 1.1, the annotations header contains an opcode and (in the case of opcode 0xE9) a
+    /// FlexUInt representing the sequence length.
+    pub fn annotations_header_length(&self) -> usize {
+        self.annotations_header_length as usize
     }
 
-    /// Returns the number of bytes used to encode the series of VarUInt annotation symbol IDs, if
+    /// Returns the number of bytes used to encode the series of annotation symbols, if
     /// any.
     ///
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#annotations>
-    pub fn annotations_sequence_length(&self) -> Option<usize> {
-        if self.annotations_header_length == 0 {
-            return None;
-        }
-        Some(self.annotations_sequence_length as usize)
+    pub fn annotations_sequence_length(&self) -> usize {
+        self.annotations_sequence_length as usize
     }
 
-    pub fn annotations_sequence_range(&self) -> Option<Range<usize>> {
-        let wrapper_offset = self.annotations_offset()?;
+    /// Returns the combined length of the annotations header and sequence.
+    pub fn annotations_total_length(&self) -> usize {
+        self.annotations_header_length() + self.annotations_sequence_length()
+    }
+
+    /// Returns the offset range of the bytes in the stream that encoded the value's annotations
+    /// sequence.
+    pub fn annotations_sequence_range(&self) -> Range<usize> {
+        let wrapper_offset = self
+            .annotations_offset()
+            .unwrap_or_else(|| self.header_offset());
         let wrapper_exclusive_end = wrapper_offset + self.annotations_header_length as usize;
         let sequence_length = self.annotations_sequence_length as usize;
-        let sequence_offset = wrapper_exclusive_end - sequence_length;
-        Some(sequence_offset..wrapper_exclusive_end)
+        let sequence_offset = wrapper_exclusive_end;
+        let sequence_exclusive_end = sequence_offset + sequence_length;
+        debug_assert!(sequence_exclusive_end == self.header_offset);
+        sequence_offset..sequence_exclusive_end
     }
 
     pub fn annotations_sequence_offset(&self) -> Option<usize> {
-        Some(self.annotations_sequence_range()?.start)
+        if self.annotations_header_length() == 0 {
+            return None;
+        }
+        Some(self.header_offset - self.annotations_sequence_length())
     }
 
     /// Returns the offset of the beginning of the annotations wrapper, if present.
@@ -192,15 +208,15 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
         if self.annotations_header_length == 0 {
             return None;
         }
-        Some(self.header_offset - self.annotations_header_length as usize)
+        Some(self.header_offset - self.annotations_total_length())
     }
 
-    /// Returns an offset Range that includes the bytes used to encode this value's annotations,
-    /// if any. While annotations envelope the value that they modify, this function does not
-    /// include the bytes of the encoded value itself.
+    /// Returns an offset Range that includes the bytes used to encode this value's annotations
+    /// (including both the header and sequence), if any.
     pub fn annotations_range(&self) -> Option<Range<usize>> {
         if let Some(start) = self.annotations_offset() {
-            let end = start + self.annotations_header_length as usize;
+            // The annotations sequence always ends at the value's opcode.
+            let end = self.header_offset();
             return Some(start..end);
         }
         None
@@ -217,7 +233,7 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
     /// complete encoding, including annotations.
     pub fn annotated_value_range(&self) -> Range<usize> {
         // [ annotations? | header (type descriptor) | header_length? | value ]
-        let start = self.header_offset - self.annotations_header_length as usize;
+        let start = self.header_offset - self.annotations_total_length();
         let end = start + self.total_length;
         start..end
     }
@@ -227,7 +243,7 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
     pub fn unannotated_value_range(&self) -> Range<usize> {
         // [ annotations? | header (type descriptor) | header_length? | value ]
         let start = self.header_offset;
-        let end = start + self.total_length - self.annotations_header_length as usize;
+        let end = start + self.total_length - self.annotations_total_length();
         start..end
     }
 
@@ -253,7 +269,7 @@ mod tests {
                 ion_type_code: IonTypeCode::String,
                 length_code: 3,
             },
-            annotations_header_length: 3,
+            annotations_header_length: 2,
             annotations_sequence_length: 1,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset: 200,
@@ -275,10 +291,10 @@ mod tests {
         assert_eq!(value.header_range(), 200..201);
         assert!(value.has_annotations());
         assert_eq!(value.annotations_range(), Some(197..200));
-        assert_eq!(value.annotations_header_length(), Some(3));
+        assert_eq!(value.annotations_header_length(), 2);
         assert_eq!(value.annotations_sequence_offset(), Some(199));
-        assert_eq!(value.annotations_sequence_length(), Some(1));
-        assert_eq!(value.annotations_sequence_range(), Some(199..200));
+        assert_eq!(value.annotations_sequence_length(), 1);
+        assert_eq!(value.annotations_sequence_range(), 199..200);
         assert_eq!(value.value_body_length(), 3);
         assert_eq!(value.value_body_offset(), 201);
         assert_eq!(value.value_body_range(), 201..204);

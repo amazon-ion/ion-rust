@@ -436,14 +436,16 @@ impl<'a> ImmutableBuffer<'a> {
                 input_after_annotations_length.offset(),
             );
         }
-        let final_input = input_after_annotations_length.consume(annotations_length.value());
-
-        // Here, `self` is the (immutable) buffer we started with. Comparing it with `input`
-        // gets us the before-and-after we need to calculate the size of the header.
-        let annotations_header_length = final_input.offset() - self.offset();
+        // Here, `self` is the (immutable) buffer we started with. Comparing it with `input_after_annotations_length`
+        // gets us the before-and-after comparison we need to calculate the size of the header.
+        // "Header" here refers to the annotations opcode, wrapper length, and sequence length. It does
+        // not include the length of the sequence itself.
+        let annotations_header_length = input_after_annotations_length.offset() - self.offset();
         let annotations_header_length = u8::try_from(annotations_header_length).map_err(|_e| {
             IonError::decoding_error("found an annotations header greater than 255 bytes long")
         })?;
+
+        let final_input = input_after_annotations_length.consume(annotations_length.value());
 
         let annotations_sequence_length =
             u8::try_from(annotations_length.value()).map_err(|_e| {
@@ -746,9 +748,10 @@ impl<'a> ImmutableBuffer<'a> {
             );
         }
 
-        lazy_value.encoded_value.annotations_header_length = wrapper.header_length as u16;
+        lazy_value.encoded_value.annotations_header_length = wrapper.header_length;
         lazy_value.encoded_value.annotations_sequence_length = wrapper.sequence_length as u16;
-        lazy_value.encoded_value.total_length += wrapper.header_length as usize;
+        lazy_value.encoded_value.total_length +=
+            lazy_value.encoded_value.annotations_total_length();
         // Modify the input to include the annotations
         lazy_value.input = input;
 

@@ -36,14 +36,15 @@ pub enum OpcodeType {
     TypedNull,            // 0xEB      -
     Nop,                  // 0xEC-0xED -
     // Reserved
-    SystemMacroInvoke,       // 0xEF      -
-    DelimitedContainerClose, // 0xF0
-    ListDelimited,           // 0xF1
-    SExpressionDelimited,    // 0xF2
-    StructDelimited,         // 0xF3
-    LargeInteger,            // 0xF6 - Integer preceded by FlexUInt length
-    Blob,                    // 0xFE -
-    Clob,                    // 0xFF -
+    SystemMacroInvoke,           // 0xEF      -
+    DelimitedContainerClose,     // 0xF0
+    ListDelimited,               // 0xF1
+    SExpressionDelimited,        // 0xF2
+    StructDelimited,             // 0xF3
+    EExpressionWithLengthPrefix, // 0xF5
+    LargeInteger,                // 0xF6 - Integer preceded by FlexUInt length
+    Blob,                        // 0xFE -
+    Clob,                        // 0xFF -
     // 0xF8 Long decimal
     TimestampLong, // 0xF8 - Long-form Timestamp
     // 0xF9 - Long string

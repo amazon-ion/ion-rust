@@ -1,20 +1,20 @@
-#![cfg(feature = "experimental-lazy-reader")]
+#![cfg(feature = "experimental-reader-writer")]
 
 /// TODO: When the Ion 1.1 binary reader is complete, update this module to include binary tests
 mod ion_tests;
 
 use crate::ion_tests::{bad, equivs, non_equivs, ElementApi, SkipList};
-use ion_rs::lazy::reader::TextReader_1_1;
 use ion_rs::IonResult;
+use ion_rs::{v1_1, Reader};
 use test_generator::test_resources;
 
 struct LazyReaderElementApi;
 
 impl ElementApi for LazyReaderElementApi {
-    type ElementReader<'a> = TextReader_1_1<&'a [u8]>;
+    type ElementReader<'a> = Reader<v1_1::Text, &'a [u8]>;
 
     fn make_reader(data: &[u8]) -> IonResult<Self::ElementReader<'_>> {
-        Ok(TextReader_1_1::new(data).unwrap())
+        Ok(Reader::new(v1_1::Text, data).unwrap())
     }
 
     fn global_skip_list() -> SkipList {

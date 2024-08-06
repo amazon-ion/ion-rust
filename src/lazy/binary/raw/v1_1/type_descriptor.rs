@@ -80,6 +80,7 @@ impl Opcode {
             (0xF, 0x1) => (ListDelimited, low_nibble, Some(IonType::List)),
             (0xF, 0x2) => (SExpressionDelimited, low_nibble, Some(IonType::SExp)),
             (0xF, 0x3) => (StructDelimited, low_nibble, Some(IonType::Struct)),
+            (0xF, 0x5) => (EExpressionWithLengthPrefix, low_nibble, None),
             (0xF, 0x6) => (LargeInteger, low_nibble, Some(IonType::Int)),
             (0xF, 0x7) => (Decimal, 0xFF, Some(IonType::Decimal)),
             (0xF, 0x8) => (TimestampLong, low_nibble, Some(IonType::Timestamp)),
@@ -100,6 +101,10 @@ impl Opcode {
         }
     }
 
+    pub fn ion_type(&self) -> Option<IonType> {
+        self.ion_type
+    }
+
     pub fn is_null(&self) -> bool {
         self.opcode_type == OpcodeType::NullNull || self.opcode_type == OpcodeType::TypedNull
     }
@@ -112,7 +117,7 @@ impl Opcode {
         use OpcodeType::*;
         matches!(
             self.opcode_type,
-            EExpressionWithAddress | EExpressionAddressFollows
+            EExpressionWithAddress | EExpressionAddressFollows | EExpressionWithLengthPrefix
         )
     }
 

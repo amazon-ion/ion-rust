@@ -7,7 +7,10 @@ use crate::lazy::expanded::sequence::{
     ExpandedListIterator, ExpandedSExpIterator, LazyExpandedList, LazyExpandedSExp,
 };
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
-use crate::{Annotations, Element, IntoAnnotatedElement, Sequence, Value};
+use crate::{
+    try_next, Annotations, Element, ExpandedListSource, ExpandedSExpSource, IntoAnnotatedElement,
+    LazyExpandedValue, LazyRawContainer, Sequence, Value,
+};
 use crate::{IonError, IonResult};
 
 /// A list in a binary Ion stream whose header has been parsed but whose body
@@ -59,6 +62,10 @@ pub struct LazyList<'top, D: Decoder> {
 pub type LazyBinarySequence<'top, 'data> = LazyList<'top, BinaryEncoding_1_0>;
 
 impl<'top, D: Decoder> LazyList<'top, D> {
+    pub(crate) fn new(expanded_list: LazyExpandedList<'top, D>) -> Self {
+        Self { expanded_list }
+    }
+
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].
     pub fn iter(&self) -> ListIterator<'top, D> {
         ListIterator {
@@ -74,6 +81,18 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     #[cfg(not(feature = "experimental-tooling-apis"))]
     pub(crate) fn expanded(&self) -> LazyExpandedList<'top, D> {
         self.expanded_list
+    }
+
+    pub fn as_value(&self) -> LazyValue<'top, D> {
+        let expanded_value = match self.expanded_list.source {
+            ExpandedListSource::ValueLiteral(v) => {
+                LazyExpandedValue::from_literal(self.expanded_list.context, v.as_value())
+            }
+            ExpandedListSource::Template(env, element) => {
+                LazyExpandedValue::from_template(self.expanded_list.context, env, element)
+            }
+        };
+        LazyValue::new(expanded_value)
     }
 
     /// Returns an iterator over the annotations on this value. If this value has no annotations,
@@ -165,12 +184,7 @@ impl<'top, D: Decoder> Iterator for ListIterator<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let expanded_value = match self.expanded_list_iter.next() {
-            Some(Ok(expanded_value)) => expanded_value,
-            Some(Err(e)) => return Some(Err(e)),
-            None => return None,
-        };
-
+        let expanded_value = try_next!(self.expanded_list_iter.next());
         let lazy_value = LazyValue { expanded_value };
         Some(Ok(lazy_value))
     }
@@ -208,6 +222,10 @@ impl<'top, D: Decoder> Debug for LazySExp<'top, D> {
 }
 
 impl<'top, D: Decoder> LazySExp<'top, D> {
+    pub(crate) fn new(expanded_sexp: LazyExpandedSExp<'top, D>) -> Self {
+        Self { expanded_sexp }
+    }
+
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn expanded(&self) -> LazyExpandedSExp<'top, D> {
         self.expanded_sexp
@@ -216,6 +234,18 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
     #[cfg(not(feature = "experimental-tooling-apis"))]
     pub(crate) fn expanded(&self) -> LazyExpandedSExp<'top, D> {
         self.expanded_sexp
+    }
+
+    pub fn as_value(&self) -> LazyValue<'top, D> {
+        let expanded_value = match self.expanded_sexp.source {
+            ExpandedSExpSource::ValueLiteral(v) => {
+                LazyExpandedValue::from_literal(self.expanded_sexp.context, v.as_value())
+            }
+            ExpandedSExpSource::Template(env, element) => {
+                LazyExpandedValue::from_template(self.expanded_sexp.context, env, element)
+            }
+        };
+        LazyValue::new(expanded_value)
     }
 
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].
