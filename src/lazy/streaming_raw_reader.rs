@@ -108,20 +108,14 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         &'top mut self,
         context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
-        self.read_next(
-            context, // is_peek =
-            false,
-        )
+        self.read_next(context, /*is_peek=*/ false)
     }
 
     pub fn peek_next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
-        self.read_next(
-            context, // is_peek =
-            true,
-        )
+        self.read_next(context, /*is_peek=*/ true)
     }
 
     fn read_next<'top>(
