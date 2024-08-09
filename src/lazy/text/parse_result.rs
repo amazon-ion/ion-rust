@@ -129,10 +129,16 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
                 .unwrap_or("invalid Ion syntax encountered"),
         );
         if let Some(label) = invalid_input_error.label {
-            message.push_str(" while ");
+            message.push_str("\n    while ");
             message.push_str(label.as_ref());
         }
-        message.push_str("; buffer: ");
+        use std::fmt::Write;
+        write!(
+            message,
+            "\n        <offset={}, buffer=",
+            invalid_input_error.input.offset()
+        )
+        .unwrap();
         let input = invalid_input_error.input;
         let buffer_text = if let Ok(text) = invalid_input_error.input.as_text() {
             text.chars().take(32).collect::<String>()
@@ -143,7 +149,7 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
             )
         };
         message.push_str(buffer_text.as_str());
-        message.push_str("...");
+        message.push_str("...>");
         let position = Position::with_offset(invalid_input_error.input.offset())
             .with_length(invalid_input_error.input.len());
         let decoding_error = DecodingError::new(message).with_position(position);
