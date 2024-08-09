@@ -20,9 +20,9 @@ impl<'a> AsRef<[u8]> for Span<'a> {
     }
 }
 
-impl<'a> Into<&'a [u8]> for Span<'a> {
-    fn into(self) -> &'a [u8] {
-        self.bytes
+impl<'a> From<Span<'a>> for &'a [u8] {
+    fn from(value: Span<'a>) -> Self {
+        value.bytes
     }
 }
 
