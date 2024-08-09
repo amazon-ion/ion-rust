@@ -133,23 +133,46 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
             message.push_str(label.as_ref());
         }
         use std::fmt::Write;
+        let input = invalid_input_error.input;
+        const NUM_BYTES_TO_SHOW: usize = 32;
+        let (buffer_head, buffer_tail) = match input.as_text() {
+            // The buffer contains UTF-8 bytes, so we'll display it as text
+            Ok(text) => {
+                let head = text.chars().take(NUM_BYTES_TO_SHOW).collect::<String>();
+                let tail_backwards = text
+                    .chars()
+                    .rev()
+                    .take(NUM_BYTES_TO_SHOW)
+                    .collect::<Vec<char>>();
+                let tail = tail_backwards.iter().rev().collect::<String>();
+                (head, tail)
+            }
+            // The buffer contains non-text bytes, so we'll show its contents in hex
+            Err(_) => {
+                let head = format!(
+                    "{:X?}",
+                    &invalid_input_error.input.bytes()[..NUM_BYTES_TO_SHOW.min(input.len())]
+                );
+                let tail_bytes_to_take = input.bytes().len().min(NUM_BYTES_TO_SHOW);
+                let buffer_tail = &input.bytes()[input.len() - tail_bytes_to_take..];
+                let tail = format!("{:X?}", buffer_tail);
+                (head, tail)
+            }
+        };
         write!(
             message,
-            "\n        <offset={}, buffer=",
-            invalid_input_error.input.offset()
+            r#"
+        offset={}
+        buffer head=<{}...>
+        buffer tail=<...{}>
+        buffer len={}
+        "#,
+            invalid_input_error.input.offset(),
+            buffer_head,
+            buffer_tail,
+            input.len(),
         )
         .unwrap();
-        let input = invalid_input_error.input;
-        let buffer_text = if let Ok(text) = invalid_input_error.input.as_text() {
-            text.chars().take(32).collect::<String>()
-        } else {
-            format!(
-                "{:X?}",
-                &invalid_input_error.input.bytes()[..(32.min(input.len()))]
-            )
-        };
-        message.push_str(buffer_text.as_str());
-        message.push_str("...>");
         let position = Position::with_offset(invalid_input_error.input.offset())
             .with_length(invalid_input_error.input.len());
         let decoding_error = DecodingError::new(message).with_position(position);

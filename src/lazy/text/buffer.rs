@@ -1569,7 +1569,7 @@ impl<'top> TextBufferView<'top> {
             // Zero or more digits-followed-by-underscores
             many0_count(pair(complete_digit1, complete_char('_'))),
             // One or more digits
-            complete_digit1,
+            digit1,
         ))(self)
     }
 
