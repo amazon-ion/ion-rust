@@ -1573,10 +1573,11 @@ impl<'top> TextBufferView<'top> {
             // will be handled by this parser branch.
             pair(satisfy(|c| c.is_ascii_digit()), complete_digit0),
             // Note: ^-- We use this `pair(satisfy(...), complete_digit0)` to guarantee a subtle
-            //       behavior. At the end of a buffer, `1.` must be considered 'incomplete' instead
-            //       of 'invalid'. In contrast, `1.1` must be considered complete even though
-            //       the buffer could get more data later. If the buffer gets more data, it's
-            //       the StreamingRawReader's responsibility to discard the `1.1` and try again.
+            //       behavior. At the end of the buffer, an empty input to this parser must be
+            //       considered 'incomplete' instead of 'invalid'. In contrast, an input of a single
+            //       digit would be considered complete even though the buffer could get more data later.
+            //       (If the buffer gets more data, it's the StreamingRawReader's responsibility to
+            //       discard the `1.1` and try again.)
         ))(self)
     }
 
