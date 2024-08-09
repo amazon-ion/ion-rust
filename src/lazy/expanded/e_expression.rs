@@ -151,6 +151,9 @@ impl<'top, D: Decoder> EExpression<'top, D> {
         self.invoked_macro.expansion_analysis()
     }
 
+    /// Returns `true` if this `EExpression` was statically determined to always return exactly
+    /// one value. If this method returns `false`, no assertion about the expansion's cardinality
+    /// is made--the evaluation may still produce one value.
     pub fn is_singleton(&self) -> bool {
         self.expansion_singleton().is_some()
     }
@@ -158,12 +161,21 @@ impl<'top, D: Decoder> EExpression<'top, D> {
     pub fn expansion_singleton(&self) -> Option<ExpansionSingleton> {
         self.expansion_analysis().expansion_singleton()
     }
+
+    /// Returns the `ExpansionSingleton` describing the template expansion information that was
+    /// inferred from the macro compilation process.
+    ///
     /// Caller must guarantee that this e-expression invokes a template and that the template
     /// has a `ExpansionSingleton`. If these prerequisites are not met, this method will panic.
     pub fn require_expansion_singleton(&self) -> ExpansionSingleton {
         self.expansion_singleton().unwrap()
     }
 
+    /// Returns the annotations that this template expansion will produce, as inferred from the
+    /// macro compilation process.
+    ///
+    /// Caller must guarantee that this e-expression invokes a template and that the template
+    /// has a `ExpansionSingleton`. If these prerequisites are not met, this method will panic.
     pub fn require_singleton_annotations(&self) -> SymbolsIterator<'top> {
         let storage = self
             .invoked_macro

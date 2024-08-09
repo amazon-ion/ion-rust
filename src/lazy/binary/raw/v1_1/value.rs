@@ -824,15 +824,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         use crate::lazy::decoder::private::LazyContainerPrivate;
         Ok(LazyRawBinaryStruct_1_1::from_value(self))
     }
-
-    // #[cfg(feature = "experimental-tooling-apis")]
-    // pub fn encoded_annotations(&self) -> Option<EncodedBinaryAnnotations<'_, 'top>> {
-    //     if self.has_annotations() {
-    //         Some(EncodedBinaryAnnotations { value: self })
-    //     } else {
-    //         None
-    //     }
-    // }
 }
 
 impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {

@@ -134,31 +134,38 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
         }
         use std::fmt::Write;
         let input = invalid_input_error.input;
-        const NUM_BYTES_TO_SHOW: usize = 32;
+
+        // Make displayable strings showing the contents of the first and last 32 characters
+        // of the buffer. If the buffer is smaller than 32 bytes, fewer characters will be shown.
+        const NUM_CHARS_TO_SHOW: usize = 32;
         let (buffer_head, buffer_tail) = match input.as_text() {
             // The buffer contains UTF-8 bytes, so we'll display it as text
             Ok(text) => {
-                let head = text.chars().take(NUM_BYTES_TO_SHOW).collect::<String>();
+                let head = text.chars().take(NUM_CHARS_TO_SHOW).collect::<String>();
                 let tail_backwards = text
                     .chars()
                     .rev()
-                    .take(NUM_BYTES_TO_SHOW)
+                    .take(NUM_CHARS_TO_SHOW)
                     .collect::<Vec<char>>();
                 let tail = tail_backwards.iter().rev().collect::<String>();
                 (head, tail)
             }
-            // The buffer contains non-text bytes, so we'll show its contents in hex
+            // The buffer contains non-text bytes, so we'll show its contents as formatted hex
+            // pairs instead.
             Err(_) => {
                 let head = format!(
                     "{:X?}",
-                    &invalid_input_error.input.bytes()[..NUM_BYTES_TO_SHOW.min(input.len())]
+                    &invalid_input_error.input.bytes()[..NUM_CHARS_TO_SHOW.min(input.len())]
                 );
-                let tail_bytes_to_take = input.bytes().len().min(NUM_BYTES_TO_SHOW);
+                let tail_bytes_to_take = input.bytes().len().min(NUM_CHARS_TO_SHOW);
                 let buffer_tail = &input.bytes()[input.len() - tail_bytes_to_take..];
                 let tail = format!("{:X?}", buffer_tail);
                 (head, tail)
             }
         };
+        // The offset and buffer head will often be helpful to the programmer. The buffer tail
+        // and buffer length will be helpful to library maintainers receiving copy/pasted
+        // error messages to debug.
         write!(
             message,
             r#"

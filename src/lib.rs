@@ -339,8 +339,6 @@ macro_rules! v1_1_tooling_apis {
             lazy::binary::raw::v1_1::value::{
                 LazyRawBinaryValue_1_1 as LazyRawBinaryValue,
                 LazyRawBinaryVersionMarker_1_1 as LazyRawBinaryVersionMarker,
-                // EncodedBinaryValueData_1_1 as EncodedBinaryValueData,
-                // EncodedBinaryAnnotations_1_1 as EncodedBinaryAnnotations
             },
         };
     };
