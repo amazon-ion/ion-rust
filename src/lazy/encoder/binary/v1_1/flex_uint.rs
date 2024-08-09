@@ -65,7 +65,6 @@ impl FlexUInt {
                 false,
             );
         }
-
         let flex_uint = Self::read_small_flex_uint(input);
         Ok(flex_uint)
     }
@@ -115,7 +114,7 @@ impl FlexUInt {
     /// (`support_sign_extension=true`), then the six bits beyond the supported 64 must all be the
     /// same as the 64th (highest supported) bit. This will allow encodings of up to 70 bits
     /// to be correctly interpreted as positive, negative, or beyond the bounds of the 64 bit
-    /// limitation.  
+    /// limitation.
     pub(crate) fn read_flex_primitive_as_uint(
         input: &[u8],
         offset: usize,

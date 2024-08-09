@@ -272,7 +272,7 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
             // argument encoding bitmap.
             ArgGrouping::ValueExprLiteral
         };
-        // TODO: Tagless encodings
+        // TODO: More tagless encodings
         let (arg_expr, remaining_input) = match arg_grouping {
             // If the encoding is `empty`, there's nothing to do. Make an empty slice at the current
             // offset and build an empty BinaryEExpArgGroup with it.
@@ -282,14 +282,30 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                 (EExpArg::new(parameter, expr), self.remaining_args_buffer)
             }
             // If it's a tagged value expression, parse it as usual.
-            ArgGrouping::ValueExprLiteral => {
-                let (expr, remaining) = try_or_some_err! {
-                    self
+            ArgGrouping::ValueExprLiteral => match parameter.encoding() {
+                ParameterEncoding::Tagged => {
+                    let (expr, remaining) = try_or_some_err! {
+                        self
                         .remaining_args_buffer
                         .expect_eexp_arg_expr("reading tagged e-expr arg")
-                };
-                (EExpArg::new(parameter, expr), remaining)
-            }
+                    };
+                    (EExpArg::new(parameter, expr), remaining)
+                }
+                ParameterEncoding::FlexUInt => {
+                    let (flex_uint_lazy_value, remaining) = try_or_some_err! {
+                        self.remaining_args_buffer.read_flex_uint_as_lazy_value()
+                    };
+                    let value_ref = &*self
+                        .remaining_args_buffer
+                        .context()
+                        .allocator()
+                        .alloc_with(|| flex_uint_lazy_value);
+                    (
+                        EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
+                        remaining,
+                    )
+                }
+            },
             // If it's an argument group...
             ArgGrouping::ArgGroup => {
                 //...then it starts with a FlexUInt that indicates whether the group is length-prefixed

@@ -7,7 +7,7 @@ use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::IonResult;
+use crate::{IonResult, UInt};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
 /// [`BinarySExpWriter_1_1`], and [`BinaryStructWriter_1_1`].
@@ -393,4 +393,9 @@ impl<'value, 'top> SequenceWriter for BinaryEExpWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> EExpWriter for BinaryEExpWriter_1_1<'value, 'top> {}
+impl<'value, 'top> EExpWriter for BinaryEExpWriter_1_1<'value, 'top> {
+    fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
+        FlexUInt::write(self.buffer, value)?;
+        Ok(())
+    }
+}

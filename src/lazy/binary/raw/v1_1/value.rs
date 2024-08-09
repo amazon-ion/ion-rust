@@ -3,13 +3,16 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
+use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
+use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
+use crate::v1_1::FlexUInt;
 use crate::{
     lazy::{
         binary::{
@@ -132,6 +135,12 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
     }
 
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_1>> {
+        if self.encoded_value.encoding == ParameterEncoding::FlexUInt {
+            let flex_uint = FlexUInt::read(self.input.bytes(), self.input.offset())?;
+            let int: Int = flex_uint.value().into();
+            return Ok(RawValueRef::Int(int));
+        }
+
         if self.is_null() {
             let ion_type = if self.encoded_value.header.ion_type_code == OpcodeType::TypedNull {
                 let body = self.value_body();
@@ -176,6 +185,11 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         &self,
         context: EncodingContextRef<'top>,
     ) -> IonResult<ValueRef<'top, BinaryEncoding_1_1>> {
+        if self.encoded_value.encoding == ParameterEncoding::FlexUInt {
+            let flex_uint = FlexUInt::read(self.input.bytes(), self.input.offset())?;
+            let int: Int = flex_uint.value().into();
+            return Ok(ValueRef::Int(int));
+        }
         if self.is_null() {
             return Ok(ValueRef::Null(self.ion_type()));
         }
@@ -194,6 +208,12 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             value: &'a LazyRawBinaryValue_1_1<'a>,
             context: EncodingContextRef<'a>,
         ) -> IonResult<ValueRef<'a, BinaryEncoding_1_1>> {
+            if value.encoded_value.encoding == ParameterEncoding::FlexUInt {
+                let flex_uint = FlexUInt::read(value.input.bytes(), value.input.offset())?;
+                let int: Int = flex_uint.value().into();
+                return Ok(ValueRef::Int(int));
+            }
+
             if value.is_null() {
                 return Ok(ValueRef::Null(value.ion_type()));
             }
@@ -246,6 +266,37 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
 }
 
 impl<'top> LazyRawBinaryValue_1_1<'top> {
+    /// Constructs a lazy raw binary value from an input buffer slice that has been found to contain
+    /// a complete `FlexUInt`.
+    pub(crate) fn for_flex_uint(input: ImmutableBuffer<'top>) -> Self {
+        let encoded_value = EncodedValue {
+            encoding: ParameterEncoding::FlexUInt,
+            header: Header {
+                // It is an int, that's true.
+                ion_type: IonType::Int,
+                // Nonsense values for now
+                ion_type_code: OpcodeType::Nop,
+                low_nibble: 0,
+            },
+
+            // FlexUInts cannot have any annotations
+            annotations_header_length: 0,
+            annotations_sequence_length: 0,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
+
+            header_offset: input.offset(),
+            opcode_length: 0,
+            length_length: 0,
+            value_body_length: input.len(),
+            total_length: input.len(),
+        };
+
+        LazyRawBinaryValue_1_1 {
+            encoded_value,
+            input,
+        }
+    }
+
     /// Indicates the Ion data type of this value. Calling this method does not require additional
     /// parsing of the input stream.
     pub fn ion_type(&'top self) -> IonType {

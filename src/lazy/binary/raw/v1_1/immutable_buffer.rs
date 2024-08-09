@@ -20,6 +20,7 @@ use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSym;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::macro_table::MacroRef;
+use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
 use crate::result::IonFailure;
@@ -221,6 +222,38 @@ impl<'a> ImmutableBuffer<'a> {
         let flex_uint = FlexUInt::read(self.bytes(), self.offset())?;
         let remaining = self.consume(flex_uint.size_in_bytes());
         Ok((flex_uint, remaining))
+    }
+
+    pub fn read_flex_uint_as_lazy_value(self) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
+        let Some(first_byte) = self.peek_next_byte() else {
+            return IonResult::incomplete("a flex_uint", self.offset());
+        };
+        let size_in_bytes = match first_byte {
+            // If the first byte is zero, this flex_uint is encoded using 9+ bytes. That's pretty
+            // uncommon, so we'll just use the existing logic in the `read` method and discard the
+            // value. If this shows up in profiles, it can be optimized further.
+            0 => FlexUInt::read(self.bytes(), self.offset())?.size_in_bytes(),
+            _ => first_byte.trailing_zeros() as usize + 1,
+        };
+
+        if self.len() < size_in_bytes {
+            return IonResult::incomplete("reading a flex_uint value", self.offset());
+        }
+        // XXX: This *doesn't* slice `self` because FlexUInt::read() is faster if the input
+        //      is at least the size of a u64.
+        let matched_input = self;
+        let remaining_input = self.slice_to_end(size_in_bytes);
+        let value = LazyRawBinaryValue_1_1::for_flex_uint(matched_input);
+        Ok((value, remaining_input))
+    }
+
+    pub fn slice_to_end(&self, offset: usize) -> ImmutableBuffer<'a> {
+        ImmutableBuffer {
+            data: &self.data[offset..],
+            // stream offset + local offset
+            offset: self.offset + offset,
+            context: self.context,
+        }
     }
 
     #[inline]
@@ -448,12 +481,15 @@ impl<'a> ImmutableBuffer<'a> {
                 + value_length;
 
         let encoded_value = EncodedValue {
+            encoding: ParameterEncoding::Tagged,
             header,
             // If applicable, these are populated by the caller: `read_annotated_value()`
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset,
+            // This is a tagged value, so its opcode length is always 1
+            opcode_length: 1,
             length_length,
             value_body_length: value_length,
             total_length,

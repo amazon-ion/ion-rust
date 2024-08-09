@@ -246,6 +246,7 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
     /// * `first_name`
     /// * `name_1`
     /// * `$name`
+    ///
     /// Unlike other symbols, identifiers don't have to be wrapped in quotes.
     fn token_is_identifier(token: &str) -> bool {
         if token.is_empty() {

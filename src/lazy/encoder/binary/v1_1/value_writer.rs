@@ -627,7 +627,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             MacroIdRef::LocalAddress(_address) => {
                 todo!("macros with addresses higher than 64");
             }
-        }
+        };
         Ok(BinaryEExpWriter_1_1::new(
             self.allocator,
             self.encoding_buffer,
@@ -832,6 +832,9 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
 #[cfg(test)]
 mod tests {
+    use num_traits::FloatConst;
+    use rstest::rstest;
+
     use crate::ion_data::IonEq;
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
@@ -845,8 +848,6 @@ mod tests {
         v1_1, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
         Writer,
     };
-    use num_traits::FloatConst;
-    use rstest::rstest;
 
     fn encoding_test(
         test: impl FnOnce(&mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>) -> IonResult<()>,

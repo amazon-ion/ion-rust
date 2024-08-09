@@ -1087,11 +1087,11 @@ mod tests {
         // This directive defines two more.
         assert_eq!(new_macro_table.len(), 2 + MacroTable::NUM_SYSTEM_MACROS);
         assert_eq!(
-            new_macro_table.macro_with_id(3),
+            new_macro_table.macro_with_id(4),
             new_macro_table.macro_with_name("seventeen")
         );
         assert_eq!(
-            new_macro_table.macro_with_id(4),
+            new_macro_table.macro_with_id(5),
             new_macro_table.macro_with_name("twelve")
         );
 

@@ -182,6 +182,25 @@ impl TemplateCompiler {
         }
     }
 
+    /// Confirms that the provided `value` is a symbol with known text. If so, returns `Ok(text)`.
+    /// If not, returns a decoding error containing the specified label.
+    fn expect_symbol<'a, Encoding: Decoder>(
+        label: &str,
+        source: &mut impl Iterator<Item = IonResult<LazyValue<'a, Encoding>>>,
+    ) -> IonResult<LazyValue<'a, Encoding>> {
+        match source.next() {
+            None => IonResult::decoding_error(format!("expected {label} but found nothing")),
+            Some(Ok(value)) if value.ion_type() == IonType::Symbol => Ok(value),
+            Some(Ok(value)) => IonResult::decoding_error(format!(
+                "expected {label} but found {}",
+                value.ion_type()
+            )),
+            Some(Err(e)) => IonResult::decoding_error(format!(
+                "expected {label} but encountered an error: {e:?}"
+            )),
+        }
+    }
+
     /// Tries to pull the next `LazyValue` from the provided iterator. If the iterator is empty,
     /// returns a `IonError::Decoding` that includes the specified label.
     fn expect_next<'a, Encoding: Decoder>(
@@ -236,6 +255,21 @@ impl TemplateCompiler {
         }
     }
 
+    fn encoding_for<Encoding: Decoder>(value: LazyValue<Encoding>) -> IonResult<ParameterEncoding> {
+        match value.annotations().next() {
+            None => Ok(ParameterEncoding::Tagged),
+            Some(Ok(text)) => match text.expect_text()? {
+                "flex_uint" => Ok(ParameterEncoding::FlexUInt),
+                other => IonResult::decoding_error(format!(
+                    "unsupported encoding '{other}' specified for parameter"
+                )),
+            },
+            Some(Err(e)) => IonResult::decoding_error(format!(
+                "error occurred while parsing annotations for parameter: {e:?}"
+            )),
+        }
+    }
+
     pub fn compile_from_sexp<'a, Encoding: Decoder>(
         context: EncodingContextRef<'a>,
         macro_def_sexp: LazySExp<'a, Encoding>,
@@ -266,6 +300,7 @@ impl TemplateCompiler {
         while let Some(item) = param_items.next().transpose()? {
             is_final_parameter |= param_items.peek().is_none();
             let name = Self::expect_symbol_text("a parameter name", item)?.to_owned();
+            let parameter_encoding = Self::encoding_for(item)?;
 
             use ParameterCardinality::*;
             let mut cardinality = ExactlyOne;
@@ -288,7 +323,7 @@ impl TemplateCompiler {
                         // Therefore, rest syntax is not allowed.
                         let compiled_param = Parameter::new(
                             name,
-                            ParameterEncoding::Tagged,
+                            parameter_encoding,
                             cardinality,
                             RestSyntaxPolicy::NotAllowed,
                         );
@@ -308,12 +343,8 @@ impl TemplateCompiler {
                 RestSyntaxPolicy::NotAllowed
             };
 
-            let compiled_param = Parameter::new(
-                name,
-                ParameterEncoding::Tagged,
-                cardinality,
-                rest_syntax_policy,
-            );
+            let compiled_param =
+                Parameter::new(name, parameter_encoding, cardinality, rest_syntax_policy);
             compiled_params.push(compiled_param);
         }
         let signature = MacroSignature::new(compiled_params)?;
@@ -780,7 +811,7 @@ mod tests {
 
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::template::{
-        ExprRange, TemplateBodyExpr, TemplateMacro, TemplateValue,
+        ExprRange, ParameterEncoding, TemplateBodyExpr, TemplateMacro, TemplateValue,
     };
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
     use crate::{Int, IntoAnnotations, IonResult, Symbol};
@@ -976,6 +1007,29 @@ mod tests {
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().len(), 1);
+        expect_variable(&template, 0, 0)?;
+        Ok(())
+    }
+
+    #[test]
+    fn identity_with_flex_uint() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = "(macro identity (flex_uint::x) x)";
+
+        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        assert_eq!(template.name(), "identity");
+        assert_eq!(template.signature().len(), 1);
+        assert_eq!(
+            template
+                .signature()
+                .parameters()
+                .first()
+                .unwrap()
+                .encoding(),
+            ParameterEncoding::FlexUInt
+        );
         expect_variable(&template, 0, 0)?;
         Ok(())
     }

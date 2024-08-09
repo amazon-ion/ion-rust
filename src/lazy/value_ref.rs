@@ -135,7 +135,7 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         if let ValueRef::Int(i) = self {
             Ok(i)
         } else {
-            IonResult::decoding_error("expected an int")
+            IonResult::decoding_error(format!("expected an int but found a(n) {self:?}"))
         }
     }
 
@@ -143,7 +143,7 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         if let ValueRef::Int(i) = self {
             i.expect_i64()
         } else {
-            IonResult::decoding_error("expected an int (i64)")
+            IonResult::decoding_error(format!("expected an int (i64) but found a(n) {self:?}"))
         }
     }
 
@@ -242,7 +242,7 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         if let ValueRef::Struct(s) = self {
             Ok(s)
         } else {
-            IonResult::decoding_error("expected a struct")
+            IonResult::decoding_error(format!("expected a struct but found a(n) {self:?}"))
         }
     }
 

@@ -18,7 +18,7 @@ pub(crate) struct TypeQualifier(u8);
 /// From the spec:
 ///
 /// > TQ: is a type qualifier octet consisting of a four-bit type code T
-/// followed by a four-bit qualifier Q
+/// > followed by a four-bit qualifier Q
 ///
 /// To compute a TQ from a `T` and a `Q`, all we need to is a bitwise shift!
 const fn combine(ion_type_code: IonTypeCode, q: u8) -> TypeQualifier {
