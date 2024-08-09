@@ -11,7 +11,8 @@ use nom::bytes::complete::{
 };
 use nom::bytes::streaming::{is_a, tag, take_until, take_while_m_n};
 use nom::character::complete::{
-    char as complete_char, digit1 as complete_digit1, one_of as complete_one_of,
+    char as complete_char, digit0 as complete_digit0, digit1 as complete_digit1,
+    one_of as complete_one_of,
 };
 use nom::character::streaming::{alphanumeric1, char, digit1, one_of, satisfy};
 use nom::combinator::{consumed, eof, map, not, opt, peek, recognize, success, value};
@@ -1559,17 +1560,43 @@ impl<'top> TextBufferView<'top> {
     fn match_dot_followed_by_base_10_digits(self) -> IonMatchResult<'top> {
         recognize(preceded(
             complete_tag("."),
-            opt(Self::match_digits_after_dot),
+            opt(Self::match_zero_or_more_digits_after_dot),
         ))(self)
     }
 
     /// Like `match_digits_before_dot`, but allows leading zeros.
-    fn match_digits_after_dot(self) -> IonMatchResult<'top> {
+    fn match_one_or_more_digits_after_dot(self) -> IonMatchResult<'top> {
         recognize(terminated(
-            // Zero or more digits-followed-by-underscores
+            // Any number of digit-sequence-with-trailing-underscores...
             many0_count(pair(complete_digit1, complete_char('_'))),
-            // One or more digits
-            digit1,
+            // ...and at least one trailing digit. Inputs that don't have any underscores
+            // will be handled by this parser branch.
+            pair(satisfy(|c| c.is_ascii_digit()), complete_digit0),
+            // Note: ^-- We use this `pair(satisfy(...), complete_digit0)` to guarantee a subtle
+            //       behavior. At the end of a buffer, `1.` must be considered 'incomplete' instead
+            //       of 'invalid'. In contrast, `1.1` must be considered complete even though
+            //       the buffer could get more data later. If the buffer gets more data, it's
+            //       the StreamingRawReader's responsibility to discard the `1.1` and try again.
+        ))(self)
+    }
+
+    /// Like `match_digits_before_dot`, but allows leading zeros.
+    fn match_zero_or_more_digits_after_dot(self) -> IonMatchResult<'top> {
+        recognize(terminated(
+            // Zero or more digits-followed-by-underscores.
+            many0_count(pair(
+                complete_digit1,
+                terminated(
+                    // The digit sequence can be followed by an underscore...
+                    complete_char('_'),
+                    // ...as long as the character after the underscore is another digit.
+                    peek(satisfy(|c| c.is_ascii_digit())),
+                ),
+            )),
+            // ...and zero or more trailing digits. This parser branch handles:
+            //   * inputs that don't have any underscores
+            //   * empty inputs
+            complete_digit0,
         ))(self)
     }
 
@@ -1578,7 +1605,7 @@ impl<'top> TextBufferView<'top> {
     fn match_float_exponent_marker_and_digits(self) -> IonMatchResult<'top> {
         preceded(
             complete_one_of("eE"),
-            recognize(Self::match_exponent_sign_and_digits),
+            recognize(Self::match_exponent_sign_and_one_or_more_digits),
         )(self)
     }
 
@@ -1591,23 +1618,26 @@ impl<'top> TextBufferView<'top> {
     ///
     /// Returns a boolean indicating whether the sign was negative (vs absent or positive)
     /// and the buffer slice containing the digits.
-    fn match_exponent_sign_and_digits(self) -> IonParseResult<'top, (bool, Self)> {
+    fn match_exponent_sign_and_one_or_more_digits(self) -> IonParseResult<'top, (bool, Self)> {
         pair(
             // Optional leading sign; if there's no sign, it's not negative.
             opt(Self::match_any_sign).map(|s| s == Some('-')),
-            Self::match_digits_after_dot,
+            Self::match_one_or_more_digits_after_dot,
         )(self)
     }
 
     /// Matches `-` OR `+`.
     ///
     /// This is used for matching exponent signs; most places in Ion do not allow `+`.
-    pub fn match_any_sign(self) -> IonParseResult<'top, char> {
+    pub fn match_any_sign(self) -> IonParseResult<'top, std::primitive::char> {
         complete_one_of("-+")(self)
     }
 
     pub fn match_decimal_exponent(self) -> IonParseResult<'top, (bool, TextBufferView<'top>)> {
-        preceded(complete_one_of("dD"), Self::match_exponent_sign_and_digits)(self)
+        preceded(
+            complete_one_of("dD"),
+            Self::match_exponent_sign_and_one_or_more_digits,
+        )(self)
     }
 
     /// Match an optional sign (if present), digits before the decimal point, then digits after the
@@ -1618,10 +1648,9 @@ impl<'top> TextBufferView<'top> {
                 opt(complete_tag("-")),
                 Self::match_digits_before_dot,
                 alt((
-                    // Either a decimal point and digits and optional d/D and exponent
                     tuple((
                         complete_tag("."),
-                        opt(Self::match_digits_after_dot),
+                        opt(Self::match_zero_or_more_digits_after_dot),
                         opt(Self::match_decimal_exponent),
                     ))
                     .map(|(dot, maybe_digits_after_dot, maybe_exponent)| {
@@ -1961,7 +1990,7 @@ impl<'top> TextBufferView<'top> {
     }
 
     /// Matches a single base-10 digit, 0-9.
-    fn match_any_digit(self) -> IonParseResult<'top, char> {
+    fn match_any_digit(self) -> IonParseResult<'top, std::primitive::char> {
         satisfy(|c| c.is_ascii_digit())(self)
     }
 
@@ -2752,13 +2781,15 @@ mod tests {
         ],
         expect_mismatch: [
             "305",      // Integer
-            "305e",     // Has exponent delimiter but no exponent
             ".305e",    // No digits before the decimal point
             "305e0.5",  // Fractional exponent
             "305e-0.5", // Negative fractional exponent
             "0305e1",   // Leading zero
             "+305e1",   // Leading plus sign
             "--305e1",  // Multiple negative signs
+        ],
+        expect_incomplete: [
+            "305e",     // Has exponent delimiter but no exponent
         ]
     }
 
@@ -2883,8 +2914,17 @@ mod tests {
             "5.0d+1", "-5.0d-1",
         ],
         expect_mismatch: [
-            "123._456", "5", "5d", "05d", "-5d", "5.d", "-5.d", "5.D", "-5.D", "5.1d", "-5.1d",
-            "5.1D", "-5.1D", "-5.0+0",
+            "123._456", "5", "05d", "-5.0+0",
+        ],
+        expect_incomplete: [
+            "5d",
+            "-5d",
+            "5.d",
+            "-5.d",
+            "5.D",
+            "-5.D",
+            "5.1d", "-5.1d",
+            "5.1D", "-5.1D",
         ]
     }
 
