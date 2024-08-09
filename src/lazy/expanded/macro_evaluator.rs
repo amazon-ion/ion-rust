@@ -1438,11 +1438,13 @@ mod tests {
     }
 
     #[test]
-    fn flex_uint_parameter() -> IonResult<()> {
+    fn flex_uint_parameters() -> IonResult<()> {
         let template_definition = "(macro int_pair (flex_uint::$x flex_uint::$y) (values $x $y)))";
         let tests: &[(&[u8], (u64, u64))] = &[
-            (&[0x04, 0x09, 0x01], (4, 0)),
-            (&[0x04, 0x0B, 0x0D], (5, 6)), // TODO: More test cases
+            // invocation+args, expected arg values
+            (&[0x04, 0x01, 0x01], (0, 0)),
+            (&[0x04, 0x09, 0x03], (4, 1)),
+            (&[0x04, 0x0B, 0x0D], (5, 6)), // TODO: non-required cardinalities
         ];
 
         for test in tests {
