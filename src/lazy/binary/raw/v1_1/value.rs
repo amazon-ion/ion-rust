@@ -330,8 +330,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Reads this value's data, returning it as a [`RawValueRef`]. If this value is a container,
     /// calling this method will not read additional data; the `RawValueRef` will provide a
-    /// [`LazyRawBinarySequence_1_1`](crate::lazy::binary::raw::v1_1::sequence::LazyRawBinarySequence_1_1)
-    /// or [`LazyStruct`] that can be traversed to access the container's contents.
+    /// lazy sequence or lazy struct that can be traversed to access the container's
+    /// contents.
     pub fn read(&'top self) -> ValueParseResult<'top, BinaryEncoding_1_1> {
         <&'top Self as LazyRawValue<'top, BinaryEncoding_1_1>>::read(&self)
     }
