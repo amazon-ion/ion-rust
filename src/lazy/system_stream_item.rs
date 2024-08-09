@@ -24,6 +24,7 @@ pub enum SystemStreamItem<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> SystemStreamItem<'top, D> {
+    /// Returns an [`ExpandedStreamItem`] view of this item.
     pub fn as_expanded_stream_item(&self) -> ExpandedStreamItem<'top, D> {
         use SystemStreamItem::*;
         match self {

@@ -499,9 +499,11 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         unsafe { &*self.raw_reader.get() }.encoding()
     }
 
-    /// Returns the next IVM, lazy expanded value, or resolved e-expression. This path is less
-    /// optimized than `next_system_item`, but is useful for tooling that needs more visibility
-    /// into the expansion process.
+    /// Returns the next IVM, value, or system value as an `ExpandedStreamItem`.
+    ///
+    /// This path is less optimized than `next_system_item` because it needs to surface additional
+    /// items that do not impact the application. However, is useful for tooling that needs more
+    /// visibility into the expansion process.
     pub fn next_item(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
         // If there's already an active macro evaluator, that means the reader is still in the process
         // of expanding a macro invocation it previously encountered. See if it has a value to give us.
@@ -545,7 +547,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                 Ok(self.interpret_value(value)?.as_expanded_stream_item())
             }
             // It's another macro invocation, we'll add it to the evaluator so it will be evaluated
-            // on the next call and then we'll return the e-expression.
+            // on the next call and then we'll return the e-expression itself.
             EExp(e_exp) => {
                 let context = self.context();
                 let resolved_e_exp = match e_exp.resolve(context_ref) {
@@ -717,24 +719,30 @@ impl<'top, Encoding: Decoder> Debug for ExpandedValueSource<'top, Encoding> {
 }
 
 #[derive(Debug, Copy, Clone)]
-/// Raw stream components that a RawReader may encounter.
+/// Expanded stream components that a RawReader may encounter.
+/// Like `RawStreamItem`, `ExpandedStreamItem` includes both value literals and e-expressions
+/// found in the input.
+/// Unlike `RawStreamItem`, `ExpandedStreamItem` _also_ includes ephemeral values that were produced
+/// by evaluating the e-expressions. Additionally, system values are identified and surfaced as
+/// either `SymbolTable`s or `EncodingDirectives`s.
 pub enum ExpandedStreamItem<'top, D: Decoder> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(D::VersionMarker<'top>),
     /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
     EExp(EExpression<'top, D>),
-    /// An Ion value whose data has not yet been read. For more information about how to read its
-    /// data and (in the case of containers) access any nested values, see the documentation
-    /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
+    /// An Ion application value.
     Value(LazyValue<'top, D>),
+    /// An annotated Ion struct representing a symbol table.
     SymbolTable(LazyStruct<'top, D>),
+    /// An annotated Ion s-expression representing an encoding directive.
     EncodingDirective(LazySExp<'top, D>),
     /// The end of the stream
     EndOfStream(EndPosition),
 }
 
 impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
+    /// Returns `true` if this item was produced by evaluating a macro. Otherwise, returns `false`.
     pub fn is_ephemeral(&self) -> bool {
         use ExpandedStreamItem::*;
         match self {
@@ -745,6 +753,7 @@ impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
         }
     }
 
+    /// If this stream item is not ephemeral, returns the `LazyRawStreamItem` backing it.
     pub fn raw_item(&self) -> Option<LazyRawStreamItem<'top, D>> {
         use ExpandedStreamItem::*;
         let raw_item = match self {
@@ -809,12 +818,6 @@ pub struct LazyExpandedValue<'top, Encoding: Decoder> {
     // If this value came from a variable reference in a template macro expansion, the
     // template and the name of the variable can be found here.
     pub(crate) variable: Option<TemplateVariableReference<'top>>,
-}
-
-impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
-    pub fn variable(&self) -> Option<TemplateVariableReference<'top>> {
-        self.variable
-    }
 }
 
 impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
@@ -990,12 +993,18 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         IonResult::decoding_error("expected LazyExpandedValue to be a literal")
     }
 
+    /// Returns `true` if this value was produced by evaluating a macro. Otherwise, returns `false`.
     pub fn is_ephemeral(&self) -> bool {
         !matches!(&self.source, ExpandedValueSource::ValueLiteral(_))
     }
 
+    /// Returns `true` if this value was an argument passed into a macro.
     pub fn is_parameter(&self) -> bool {
         self.variable.is_some()
+    }
+
+    pub fn variable(&self) -> Option<TemplateVariableReference<'top>> {
+        self.variable
     }
 
     pub fn range(&self) -> Option<Range<usize>> {

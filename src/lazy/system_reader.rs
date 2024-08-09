@@ -195,14 +195,17 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         self.expanding_reader.pending_context_changes()
     }
 
-    /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
-    /// [`SystemStreamItem`].
-    pub fn next_expr(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
+    /// Returns the next top-level stream item (IVM, symbol table, encoding directive, Value, or nothing)
+    /// as an [`ExpandedStreamItem`].
+    ///
+    /// This method exists largely for tooling; most applications will want to
+    /// use [`next_item`](Self::next_item).
+    pub fn next_expanded_item(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
         self.expanding_reader.next_item()
     }
 
-    /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
-    /// [`SystemStreamItem`].
+    /// Returns the next top-level stream item (IVM, symbol table, encoding directive, Value, or nothing)
+    /// as a [`SystemStreamItem`].
     pub fn next_item(&mut self) -> IonResult<SystemStreamItem<'_, Encoding>> {
         self.expanding_reader.next_system_item()
     }

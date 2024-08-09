@@ -335,6 +335,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
         }
     }
 
+    /// Returns `true` if this expression was produced by evaluating a macro. Otherwise, returns `false`.
     pub fn is_ephemeral(&self) -> bool {
         match self {
             ValueExpr::ValueLiteral(value) => value.is_ephemeral(),
@@ -356,7 +357,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
     }
 
     /// If this `ValueExpr` represents an entity encoded in the data stream, returns `Some(range)`.
-    /// If it represents a template value or a constructed value, returns `None`.
+    /// If it represents an ephemeral value produced by a macro evaluation, returns `None`.
     pub fn span(&self) -> Option<Span<'top>> {
         match self {
             ValueExpr::ValueLiteral(value) => {
