@@ -22,6 +22,7 @@ pub(crate) struct BinaryContainerWriter_1_1<'value, 'top> {
     // An allocator reference that can be shared with nested container writers
     allocator: &'top BumpAllocator,
     encoder: ContainerEncodingKind<'value, 'top>,
+    inline_symbol_text: bool,
 }
 
 enum ContainerEncodingKind<'value, 'top> {
@@ -57,13 +58,18 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         start_opcode: u8,
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         buffer.push(start_opcode);
         let encoder = ContainerEncodingKind::Delimited(DelimitedEncoder {
             start_opcode,
             buffer,
         });
-        Self { allocator, encoder }
+        Self {
+            allocator,
+            encoder,
+            inline_symbol_text,
+        }
     }
 
     pub fn new_length_prefixed(
@@ -71,6 +77,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         flex_len_type_code: u8,
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         const DEFAULT_CAPACITY: usize = 512;
         let encoder = ContainerEncodingKind::LengthPrefixed(LengthPrefixedEncoder {
@@ -79,7 +86,11 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
             parent_buffer: buffer,
             child_values_buffer: BumpVec::with_capacity_in(DEFAULT_CAPACITY, allocator),
         });
-        Self { allocator, encoder }
+        Self {
+            allocator,
+            encoder,
+            inline_symbol_text,
+        }
     }
 
     pub fn allocator(&self) -> &'top BumpAllocator {
@@ -95,15 +106,21 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         matches!(self.encoder, ContainerEncodingKind::Delimited(_))
     }
 
+    pub fn has_inline_symbol_text(&self) -> bool {
+        self.inline_symbol_text
+    }
+
     /// Constructs a new [`BinaryValueWriter_1_1`] using this [`BinaryContainerWriter_1_1`]'s
     /// allocator and targeting its child values buffer.
     fn value_writer<'a>(&'a mut self) -> BinaryValueWriter_1_1<'a, 'top> {
         // Create a value writer that will use the same container encodings it does by default
         let delimited_containers = self.has_delimited_containers();
+        let inline_symbol_text = self.has_inline_symbol_text();
         BinaryValueWriter_1_1::new(
             self.allocator,
             self.child_values_buffer(),
             delimited_containers,
+            inline_symbol_text,
         )
     }
 
@@ -156,16 +173,22 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
     pub(crate) fn new_delimited(
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         const DELIMITED_LIST_OPCODE: u8 = 0xF1;
-        let container_writer =
-            BinaryContainerWriter_1_1::new_delimited(DELIMITED_LIST_OPCODE, allocator, buffer);
+        let container_writer = BinaryContainerWriter_1_1::new_delimited(
+            DELIMITED_LIST_OPCODE,
+            allocator,
+            buffer,
+            inline_symbol_text,
+        );
         Self::with_container_writer(container_writer)
     }
 
     pub(crate) fn new_length_prefixed(
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         const LENGTH_PREFIXED_LIST_TYPE_CODE: u8 = 0xB0;
         const LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE: u8 = 0xFB;
@@ -174,6 +197,7 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
             LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE,
             allocator,
             buffer,
+            inline_symbol_text,
         );
         Self::with_container_writer(container_writer)
     }
@@ -214,16 +238,22 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
     pub(crate) fn new_delimited(
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         const DELIMITED_SEXP_OPCODE: u8 = 0xF2;
-        let container_writer =
-            BinaryContainerWriter_1_1::new_delimited(DELIMITED_SEXP_OPCODE, allocator, buffer);
+        let container_writer = BinaryContainerWriter_1_1::new_delimited(
+            DELIMITED_SEXP_OPCODE,
+            allocator,
+            buffer,
+            inline_symbol_text,
+        );
         Self::with_container_writer(container_writer)
     }
 
     pub(crate) fn new_length_prefixed(
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         const LENGTH_PREFIXED_SEXP_TYPE_CODE: u8 = 0xC0;
         const LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE: u8 = 0xFC;
@@ -232,6 +262,7 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
             LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE,
             allocator,
             buffer,
+            inline_symbol_text,
         );
         Self::with_container_writer(container_writer)
     }
@@ -242,10 +273,12 @@ impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_1<'value, 'top> {
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         let delimited_containers = self.container_writer.has_delimited_containers();
+        let inline_symbol_text = self.container_writer.has_inline_symbol_text();
         BinaryValueWriter_1_1::new(
             self.container_writer.allocator(),
             self.container_writer.child_values_buffer(),
             delimited_containers,
+            inline_symbol_text,
         )
     }
 }
@@ -277,6 +310,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
     pub(crate) fn new_length_prefixed(
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         const LENGTH_PREFIXED_STRUCT_TYPE_CODE: u8 = 0xD0;
         const LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE: u8 = 0xFD;
@@ -285,6 +319,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
             LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE,
             allocator,
             buffer,
+            inline_symbol_text,
         );
         Self {
             flex_uint_encoding: true,
@@ -295,10 +330,15 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
     pub(crate) fn new_delimited(
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
+        inline_symbol_text: bool,
     ) -> Self {
         const DELIMITED_STRUCT_OPCODE: u8 = 0xF3;
-        let container_writer =
-            BinaryContainerWriter_1_1::new_delimited(DELIMITED_STRUCT_OPCODE, allocator, buffer);
+        let container_writer = BinaryContainerWriter_1_1::new_delimited(
+            DELIMITED_STRUCT_OPCODE,
+            allocator,
+            buffer,
+            inline_symbol_text,
+        );
         Self {
             // Delimited structs always use FlexSym encoding.
             flex_uint_encoding: false,
@@ -359,6 +399,7 @@ pub struct BinaryEExpWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     buffer: &'value mut BumpVec<'top, u8>,
     delimited_containers: bool,
+    inline_symbol_text: bool,
 }
 
 impl<'value, 'top> BinaryEExpWriter_1_1<'value, 'top> {
@@ -366,11 +407,13 @@ impl<'value, 'top> BinaryEExpWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         delimited_containers: bool,
+        inline_symbol_text: bool,
     ) -> Self {
         Self {
             allocator,
             buffer,
             delimited_containers,
+            inline_symbol_text,
         }
     }
 }
@@ -379,7 +422,12 @@ impl<'value, 'top> MakeValueWriter for BinaryEExpWriter_1_1<'value, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
-        BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.delimited_containers)
+        BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.delimited_containers,
+            self.inline_symbol_text,
+        )
     }
 }
 

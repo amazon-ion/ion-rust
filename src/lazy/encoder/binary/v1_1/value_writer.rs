@@ -30,6 +30,7 @@ pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     encoding_buffer: &'value mut BumpVec<'top, u8>,
     delimited_containers: bool,
+    inline_symbol_text: bool,
 }
 
 impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
@@ -37,11 +38,13 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         allocator: &'b BumpAllocator,
         encoding_buffer: &'a mut BumpVec<'b, u8>,
         delimited_containers: bool,
+        inline_symbol_text: bool,
     ) -> BinaryValueWriter_1_1<'a, 'b> {
         BinaryValueWriter_1_1 {
             allocator,
             encoding_buffer,
             delimited_containers,
+            inline_symbol_text,
         }
     }
 
@@ -50,9 +53,22 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         self
     }
 
+    pub fn has_delimited_containers(&self) -> bool {
+        self.delimited_containers
+    }
+
     pub fn with_length_prefixed_containers(mut self) -> Self {
         self.delimited_containers = false;
         self
+    }
+
+    pub fn with_inline_symbol_text(mut self) -> Self {
+        self.inline_symbol_text = true;
+        self
+    }
+
+    pub fn has_inline_symbol_text(&self) -> bool {
+        self.inline_symbol_text
     }
 
     #[inline]
@@ -586,27 +602,51 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 
     fn list_writer(self) -> IonResult<<Self as ValueWriter>::ListWriter> {
         let writer = if self.delimited_containers {
-            BinaryListWriter_1_1::new_delimited(self.allocator, self.encoding_buffer)
+            BinaryListWriter_1_1::new_delimited(
+                self.allocator,
+                self.encoding_buffer,
+                self.inline_symbol_text,
+            )
         } else {
-            BinaryListWriter_1_1::new_length_prefixed(self.allocator, self.encoding_buffer)
+            BinaryListWriter_1_1::new_length_prefixed(
+                self.allocator,
+                self.encoding_buffer,
+                self.inline_symbol_text,
+            )
         };
         Ok(writer)
     }
 
     fn sexp_writer(self) -> IonResult<<Self as ValueWriter>::SExpWriter> {
         let writer = if self.delimited_containers {
-            BinarySExpWriter_1_1::new_delimited(self.allocator, self.encoding_buffer)
+            BinarySExpWriter_1_1::new_delimited(
+                self.allocator,
+                self.encoding_buffer,
+                self.inline_symbol_text,
+            )
         } else {
-            BinarySExpWriter_1_1::new_length_prefixed(self.allocator, self.encoding_buffer)
+            BinarySExpWriter_1_1::new_length_prefixed(
+                self.allocator,
+                self.encoding_buffer,
+                self.inline_symbol_text,
+            )
         };
         Ok(writer)
     }
 
     fn struct_writer(self) -> IonResult<<Self as ValueWriter>::StructWriter> {
         let writer = if self.delimited_containers {
-            BinaryStructWriter_1_1::new_delimited(self.allocator, self.encoding_buffer)
+            BinaryStructWriter_1_1::new_delimited(
+                self.allocator,
+                self.encoding_buffer,
+                self.inline_symbol_text,
+            )
         } else {
-            BinaryStructWriter_1_1::new_length_prefixed(self.allocator, self.encoding_buffer)
+            BinaryStructWriter_1_1::new_length_prefixed(
+                self.allocator,
+                self.encoding_buffer,
+                self.inline_symbol_text,
+            )
         };
         Ok(writer)
     }
@@ -632,6 +672,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             self.allocator,
             self.encoding_buffer,
             self.delimited_containers,
+            self.inline_symbol_text,
         ))
     }
 }
@@ -653,6 +694,8 @@ impl<'value, 'top> AnnotatableWriter for BinaryValueWriter_1_1<'value, 'top> {
             self.allocator,
             self.encoding_buffer,
             annotations.into_annotations_vec(),
+            self.has_delimited_containers(),
+            self.has_inline_symbol_text(),
         ))
     }
 }
@@ -665,6 +708,14 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_1<'value, 'top> {
     type EExpWriter = BinaryEExpWriter_1_1<'value, 'top>;
 
     delegate_value_writer_to_self!();
+
+    fn has_inline_symbol_text(&self) -> bool {
+        self.has_inline_symbol_text()
+    }
+
+    fn has_delimited_containers(&self) -> bool {
+        self.has_delimited_containers()
+    }
 }
 
 /// Takes a series of `TYPE => METHOD` pairs, generating a function for each that encodes an
@@ -678,7 +729,12 @@ macro_rules! annotate_and_delegate_1_1 {
         fn $method(mut self, value: $value_type) -> IonResult<()> {
             self.encode_annotations();
             // We've encoded the annotations, now create a no-annotations ValueWriter to encode the value itself.
-            let value_writer = $crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.delimited_containers);
+            let value_writer = $crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1::new(
+                self.allocator,
+                self.buffer,
+                self.delimited_containers,
+                self.inline_symbol_text
+            );
             value_writer.$method(value)?;
             Ok(())
         }
@@ -691,6 +747,7 @@ pub struct BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     buffer: &'value mut BumpVec<'top, u8>,
     delimited_containers: bool,
+    inline_symbol_text: bool,
 }
 
 impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
@@ -757,6 +814,8 @@ impl<'value, 'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_1<'value, 
             self.allocator,
             self.buffer,
             annotations.into_annotations_vec(),
+            self.delimited_containers,
+            self.inline_symbol_text,
         ))
     }
 }
@@ -810,17 +869,24 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         annotations: AnnotationsVec<'value>,
+        delimited_containers: bool,
+        inline_symbol_text: bool,
     ) -> Self {
         Self {
             allocator,
             buffer,
             annotations,
-            delimited_containers: false,
+            delimited_containers,
+            inline_symbol_text,
         }
     }
     pub(crate) fn value_writer(self) -> BinaryValueWriter_1_1<'value, 'top> {
-        let mut writer =
-            BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.delimited_containers);
+        let mut writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.delimited_containers,
+            self.inline_symbol_text,
+        );
         writer.delimited_containers = self.delimited_containers;
         writer
     }

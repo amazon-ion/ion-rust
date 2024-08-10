@@ -99,6 +99,14 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
         strukt.write_all(values)?;
         strukt.close()
     }
+
+    fn has_delimited_containers(&self) -> bool {
+        false
+    }
+
+    fn has_inline_symbol_text(&self) -> bool {
+        false
+    }
 }
 
 /// There are several implementations of `ValueWriter` that simply delegate calls to an expression.

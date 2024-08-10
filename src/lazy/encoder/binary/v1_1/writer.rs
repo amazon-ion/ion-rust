@@ -111,6 +111,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             top_level,
             // By default, writers use length-prefixed encodings.
             false,
+            false,
         )
     }
 }

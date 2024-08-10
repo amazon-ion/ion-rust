@@ -462,9 +462,12 @@ impl<'a> ImmutableBuffer<'a> {
         type_descriptor: Opcode,
     ) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         let input = self;
-        let header = type_descriptor
-            .to_header()
-            .ok_or_else(|| IonError::decoding_error("found a non-value in value position"))?;
+        let header = type_descriptor.to_header().ok_or_else(|| {
+            IonError::decoding_error(format!(
+                "found a non-value in value position; buffer=<{:X?}>",
+                input.bytes_range(0, 16.min(input.bytes().len()))
+            ))
+        })?;
 
         let header_offset = input.offset();
 

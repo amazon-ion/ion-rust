@@ -5,6 +5,7 @@ use ice_code::ice as cold_path;
 
 use crate::constants::v1_0::system_symbol_ids;
 use crate::lazy::encoder::annotation_seq::AnnotationSeq;
+use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
@@ -197,6 +198,26 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
     }
 }
 
+impl<'a, 'value, 'top> ApplicationValueWriter<'a, BinaryValueWriter_1_1<'value, 'top>> {
+    pub fn with_delimited_containers(mut self) -> Self {
+        self.raw_value_writer = self.raw_value_writer.with_delimited_containers();
+        self
+    }
+
+    pub fn has_delimited_containers(&self) -> bool {
+        self.raw_value_writer.has_delimited_containers()
+    }
+
+    pub fn with_inline_symbol_text(mut self) -> Self {
+        self.raw_value_writer = self.raw_value_writer.with_inline_symbol_text();
+        self
+    }
+
+    pub fn has_inline_symbol_text(&self) -> bool {
+        self.raw_value_writer.has_inline_symbol_text()
+    }
+}
+
 impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value, V> {
     type AnnotatedValueWriter<'a> = ApplicationValueWriter<'a, V::AnnotatedValueWriter<'a>> where Self: 'a;
 
@@ -207,9 +228,10 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
     where
         Self: 'a,
     {
-        if self.encoding.symbol_creation_policy == SymbolCreationPolicy::WriteProvidedToken {
+        if self.has_inline_symbol_text() {
             // Store the tokens as they are. Text will be written as text, symbol IDs will be written
-            // as symbol IDs. TODO: Lookup SIDs to see if they have text?
+            // as symbol IDs.
+            // TODO: Replace SIDs w/text if they're defined? (Config setting?)
             return Ok(ApplicationValueWriter {
                 encoding: self.encoding,
                 raw_value_writer: self.raw_value_writer.with_annotations(annotations)?,
@@ -264,6 +286,8 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
             fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
+            fn has_inline_symbol_text(&self) -> bool;
+            fn has_delimited_containers(&self) -> bool;
         }
     }
 
@@ -283,9 +307,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         };
 
         // If the writer can write it as inline text, do so.
-        if self.encoding.supports_text_tokens
-            && self.encoding.symbol_creation_policy == SymbolCreationPolicy::WriteProvidedToken
-        {
+        if self.has_inline_symbol_text() {
             return self.raw_value_writer.write_symbol(text);
         }
 
