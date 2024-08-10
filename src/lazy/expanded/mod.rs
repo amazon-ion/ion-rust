@@ -995,7 +995,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
 
     /// Returns `true` if this value was produced by evaluating a macro. Otherwise, returns `false`.
     pub fn is_ephemeral(&self) -> bool {
-        !matches!(&self.source, ExpandedValueSource::ValueLiteral(_))
+        !matches!(&self.source, ExpandedValueSource::ValueLiteral(_)) || self.is_parameter()
     }
 
     /// Returns `true` if this value was an argument passed into a macro.

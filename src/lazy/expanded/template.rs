@@ -962,9 +962,15 @@ impl<'top, D: Decoder> Iterator for TemplateMacroInvocationArgsIterator<'top, D>
                 ))
             }
             TemplateBodyExprKind::Variable(variable_ref) => {
-                self
+                let mut expr = self
                     .environment
-                    .require_expr(variable_ref.signature_index())
+                    .require_expr(variable_ref.signature_index());
+                // If this is a value (and therefore needs no further evaluation), tag it as having
+                // come from this variable in the template body.
+                if let ValueExpr::ValueLiteral(ref mut value) = expr {
+                    *value = value.via_variable(variable_ref.resolve(self.host_template.reference()))
+                }
+                expr
             },
             TemplateBodyExprKind::MacroInvocation(body_invocation) => {
                 let invocation = body_invocation
