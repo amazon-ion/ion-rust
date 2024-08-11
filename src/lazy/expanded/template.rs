@@ -12,7 +12,7 @@ use crate::lazy::expanded::{
     EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeStringExpansion, TemplateExpansion, ValueExpr, ValuesExpansion};
+use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeStringExpansion, TemplateExpansion, ValueExpr, ValuesExpansion};
 use crate::lazy::expanded::macro_table::{Macro, MacroKind, MacroRef};
 use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
@@ -56,6 +56,7 @@ impl Parameter {
 pub enum ParameterEncoding {
     /// A 'tagged' type is one whose binary encoding begins with an opcode (sometimes called a 'tag'.)
     Tagged,
+    FlexUInt,
     // TODO: tagless types, including fixed-width types and macros
 }
 
@@ -899,6 +900,7 @@ impl<'top> TemplateMacroInvocation<'top> {
             MacroKind::MakeString => {
                 MacroExpansionKind::MakeString(MakeStringExpansion::new(arguments))
             }
+            MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
             MacroKind::Template(template_body) => {
                 let template_ref = TemplateMacroRef::new(macro_ref, template_body);
                 environment = self.new_evaluation_environment(environment)?;

@@ -3,7 +3,7 @@ use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp, UInt};
 
 pub mod internal {
     use crate::lazy::encoder::value_writer::ValueWriter;
@@ -32,7 +32,10 @@ pub mod internal {
 }
 
 pub trait EExpWriter: SequenceWriter {
-    // TODO: methods for writing tagless encodings
+    // TODO: more methods for writing tagless encodings
+    fn write_flex_uint(&mut self, _value: impl Into<UInt>) -> IonResult<()> {
+        todo!("current only implemented for binary 1.1 to enable unit testing for the reader")
+    }
 }
 
 pub trait AnnotatableWriter {

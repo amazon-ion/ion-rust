@@ -194,7 +194,7 @@ pub use crate::lazy::decoder::{HasRange, HasSpan};
 pub use crate::lazy::span::Span;
 macro_rules! v1_x_reader_writer {
     ($visibility:vis) => {
-        #[allow(unused_imports)]
+       #[allow(unused_imports)]
         $visibility use crate::{
             lazy::streaming_raw_reader::{IonInput, IonSlice, IonStream},
             lazy::decoder::Decoder,
@@ -286,6 +286,7 @@ macro_rules! v1_x_tooling_apis {
                 LazyExpandedField,
                 LazyExpandedFieldName
             },
+            lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator},
             lazy::expanded::sequence::{Environment, ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
             lazy::expanded::{LazyExpandedValue, ExpandingReader, ExpandedValueSource, ExpandedAnnotationsSource, ExpandedValueRef},
             lazy::system_stream_item::SystemStreamItem,

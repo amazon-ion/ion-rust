@@ -9,7 +9,7 @@ use std::mem;
 use std::ops::{Add, Neg};
 
 /// Represents an unsigned integer of any size.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UInt {
     pub(crate) data: u128,
 }
@@ -64,26 +64,6 @@ impl UInt {
     /// Returns the number of digits in the base-10 representation of the UInteger.
     pub(crate) fn number_of_decimal_digits(&self) -> u32 {
         self.data.count_decimal_digits()
-    }
-}
-
-impl PartialEq for UInt {
-    fn eq(&self, other: &Self) -> bool {
-        self.data == other.data
-    }
-}
-
-impl Eq for UInt {}
-
-impl PartialOrd for UInt {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for UInt {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.data.cmp(&other.data)
     }
 }
 
@@ -213,7 +193,7 @@ macro_rules! impl_small_unsigned_int_try_from_uint {
 
 impl_small_unsigned_int_try_from_uint!(u8, u16, u32, u64, u128, usize);
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// A signed integer of arbitrary size.
 /// ```
 /// # use ion_rs::IonResult;
@@ -246,7 +226,7 @@ impl Int {
     }
 
     /// Returns a [`UInt`] representing the unsigned magnitude of this `Int`.
-    pub(crate) fn unsigned_abs(&self) -> UInt {
+    pub fn unsigned_abs(&self) -> UInt {
         self.data.unsigned_abs().into()
     }
 
@@ -258,10 +238,25 @@ impl Int {
 
     /// If this value is small enough to fit in an `i64`, returns `Ok(i64)`. Otherwise,
     /// returns a [`DecodingError`](IonError::Decoding).
+    #[inline]
     pub fn expect_i64(&self) -> IonResult<i64> {
-        self.as_i64().ok_or_else(|| {
-            IonError::decoding_error(format!("Int {self} is too large to fit in an i64."))
-        })
+        self.as_i64().ok_or_else(
+            #[inline(never)]
+            || IonError::decoding_error(format!("Int {self} is too large to fit in an i64.")),
+        )
+    }
+
+    #[inline(always)]
+    pub fn as_u32(&self) -> Option<u32> {
+        u32::try_from(self.data).ok()
+    }
+
+    #[inline]
+    pub fn expect_u32(&self) -> IonResult<u32> {
+        self.as_u32().ok_or_else(
+            #[inline(never)]
+            || IonError::decoding_error(format!("Int {self} is too large to fit in a u32.")),
+        )
     }
 
     /// If this value is small enough to fit in an `i128`, returns `Ok(i128)`. Otherwise,
@@ -284,15 +279,6 @@ impl Int {
         Some(self.data)
     }
 }
-
-impl PartialEq for Int {
-    fn eq(&self, other: &Self) -> bool {
-        self.data.eq(&other.data)
-    }
-}
-
-impl Eq for Int {}
-
 impl IonEq for Int {
     fn ion_eq(&self, other: &Self) -> bool {
         self == other
@@ -310,18 +296,6 @@ impl Neg for Int {
 
     fn neg(self) -> Self::Output {
         self.data.neg().into()
-    }
-}
-
-impl PartialOrd for Int {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Int {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.data.cmp(&other.data)
     }
 }
 
