@@ -8,6 +8,7 @@ use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
+use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::Encoding;
@@ -110,8 +111,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             &self.allocator,
             top_level,
             // By default, writers use length-prefixed encodings.
-            false,
-            false,
+            ValueWriterConfig::default(),
         )
     }
 }

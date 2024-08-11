@@ -4,11 +4,15 @@ use delegate::delegate;
 use ice_code::ice as cold_path;
 
 use crate::constants::v1_0::system_symbol_ids;
-use crate::lazy::encoder::annotation_seq::AnnotationSeq;
+use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
+};
+use crate::lazy::encoder::value_writer_config::{
+    AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, SymbolValueEncoding,
+    ValueWriterConfig,
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{LazyRawWriter, SymbolCreationPolicy};
@@ -20,8 +24,8 @@ use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolRef, Symbol, SymbolId,
-    SymbolTable, Timestamp, UInt, Value,
+    Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolRef, Symbol, SymbolTable,
+    Timestamp, UInt, Value,
 };
 
 pub(crate) struct WriteContext {
@@ -199,22 +203,39 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
 }
 
 impl<'a, 'value, 'top> ApplicationValueWriter<'a, BinaryValueWriter_1_1<'value, 'top>> {
-    pub fn with_delimited_containers(mut self) -> Self {
-        self.raw_value_writer = self.raw_value_writer.with_delimited_containers();
+    pub fn config(&self) -> ValueWriterConfig {
+        self.raw_value_writer.config()
+    }
+
+    pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
+        self.raw_value_writer = self
+            .raw_value_writer
+            .with_container_encoding(container_encoding);
         self
     }
 
-    pub fn has_delimited_containers(&self) -> bool {
-        self.raw_value_writer.has_delimited_containers()
-    }
-
-    pub fn with_inline_symbol_text(mut self) -> Self {
-        self.raw_value_writer = self.raw_value_writer.with_inline_symbol_text();
+    pub fn with_annotations_encoding(mut self, annotations_encoding: AnnotationsEncoding) -> Self {
+        self.raw_value_writer = self
+            .raw_value_writer
+            .with_annotations_encoding(annotations_encoding);
         self
     }
 
-    pub fn has_inline_symbol_text(&self) -> bool {
-        self.raw_value_writer.has_inline_symbol_text()
+    pub fn with_symbol_value_encoding(
+        mut self,
+        symbol_value_encoding: SymbolValueEncoding,
+    ) -> Self {
+        self.raw_value_writer = self
+            .raw_value_writer
+            .with_symbol_value_encoding(symbol_value_encoding);
+        self
+    }
+
+    pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
+        self.raw_value_writer = self
+            .raw_value_writer
+            .with_field_name_encoding(field_name_encoding);
+        self
     }
 }
 
@@ -228,42 +249,122 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
     where
         Self: 'a,
     {
-        if self.has_inline_symbol_text() {
-            // Store the tokens as they are. Text will be written as text, symbol IDs will be written
-            // as symbol IDs.
-            // TODO: Replace SIDs w/text if they're defined? (Config setting?)
-            return Ok(ApplicationValueWriter {
-                encoding: self.encoding,
-                raw_value_writer: self.raw_value_writer.with_annotations(annotations)?,
-            });
-        }
-
-        // Otherwise, we're going to write everything as a symbol ID. Replace all text tokens in the
-        // annotations with the corresponding symbol ID, creating a new one if necessary.
         let mut annotations = annotations.into_annotations_vec();
-        for annotation in &mut annotations {
-            let sid: SymbolId = match annotation.as_raw_symbol_token_ref() {
-                // The token is already a symbol ID.
-                RawSymbolRef::SymbolId(sid) => sid,
-                // The token is text...
-                RawSymbolRef::Text(text) => {
-                    if let Some(sid) = self.symbol_table().sid_for(&text) {
-                        //...that was already in the symbol table.
-                        sid
-                    } else {
-                        // ...that we need to add to the symbol table.
-                        self.encoding.num_pending_symbols += 1;
-                        self.symbol_table().add_symbol_for_text(text)
-                    }
-                }
-            };
-            *annotation = RawSymbolRef::SymbolId(sid);
-        }
+        match self.config().annotations_encoding() {
+            AnnotationsEncoding::WriteAsSymbolIds => {
+                self.map_all_annotations_to_symbol_ids(&mut annotations)?
+            }
+            AnnotationsEncoding::WriteAsInlineText => {
+                self.validate_all_symbol_ids(&mut annotations)?
+            }
+            AnnotationsEncoding::WriteNewSymbolsAsInlineText => {
+                self.map_known_symbols_to_symbol_ids(&mut annotations)?
+            }
+        };
 
         Ok(ApplicationValueWriter {
             encoding: self.encoding,
             raw_value_writer: self.raw_value_writer.with_annotations(annotations)?,
         })
+    }
+}
+
+impl<'value, V: ValueWriter> ApplicationValueWriter<'value, V> {
+    /// Converts each annotation in `annotations` to a symbol ID, adding symbols to the symbol table
+    /// as necessary. If one of the annotations is a symbol ID that is not in the symbol table,
+    /// returns an `Err`.
+    fn map_all_annotations_to_symbol_ids<'a>(
+        &mut self,
+        annotations: &mut AnnotationsVec<'a>,
+    ) -> IonResult<()>
+    where
+        Self: 'a,
+    {
+        for annotation in annotations {
+            match annotation.as_raw_symbol_token_ref() {
+                // The token is already a symbol ID.
+                RawSymbolRef::SymbolId(sid) => {
+                    if !self.symbol_table().sid_is_valid(sid) {
+                        return IonResult::encoding_error(format!(
+                            "annotation symbol ID {sid} is out of range"
+                        ));
+                    }
+                }
+                // The token is text...
+                RawSymbolRef::Text(text) => {
+                    let sid = match self.symbol_table().sid_for(&text) {
+                        Some(sid) => {
+                            //...that was already in the symbol table.
+                            sid
+                        }
+                        None => {
+                            // ...that we need to add to the symbol table.
+                            self.encoding.num_pending_symbols += 1;
+                            self.symbol_table().add_symbol_for_text(text)
+                        }
+                    };
+                    *annotation = RawSymbolRef::SymbolId(sid);
+                }
+            };
+        }
+        Ok(())
+    }
+
+    /// Confirms all SIDs are in the symbol table while leaving text annotations as-is.
+    pub(crate) fn validate_all_symbol_ids<'a>(
+        &mut self,
+        annotations: &mut AnnotationsVec<'a>,
+    ) -> IonResult<()>
+    where
+        Self: 'a,
+    {
+        for annotation in annotations {
+            if let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_token_ref() {
+                if !self.symbol_table().sid_is_valid(sid) {
+                    return IonResult::encoding_error(format!(
+                        "annotation symbol ID {sid} is not in the symbol table"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Converts annotations with known text to their corresponding symbol ID. Annotations with
+    /// text not yet in the symbol table are left as-is. If a symbol ID is not in the symbol table,
+    /// returns an `Err`.
+    fn map_known_symbols_to_symbol_ids<'a>(
+        &mut self,
+        annotations: &mut AnnotationsVec<'a>,
+    ) -> IonResult<()>
+    where
+        Self: 'a,
+    {
+        for annotation in annotations {
+            match annotation.as_raw_symbol_token_ref() {
+                // The token is already a symbol ID.
+                RawSymbolRef::SymbolId(sid) => {
+                    if !self.symbol_table().sid_is_valid(sid) {
+                        return IonResult::encoding_error(format!(
+                            "annotation symbol ID {sid} is out of range"
+                        ));
+                    }
+                }
+                // The token is text...
+                RawSymbolRef::Text(text) => {
+                    match self.symbol_table().sid_for(&text) {
+                        Some(sid) => {
+                            //...that was already in the symbol table.
+                            *annotation = RawSymbolRef::SymbolId(sid);
+                        }
+                        None => {
+                            // ...that is not in the symbol table. Leave it as-is.
+                        }
+                    };
+                }
+            };
+        }
+        Ok(())
     }
 }
 
@@ -286,45 +387,60 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
             fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn has_inline_symbol_text(&self) -> bool;
-            fn has_delimited_containers(&self) -> bool;
+            fn config(&self) -> ValueWriterConfig;
         }
     }
 
-    fn write_symbol(mut self, value: impl AsRawSymbolRef) -> IonResult<()> {
-        // If it's a symbol ID, do a bounds check and then write it.
-        // Otherwise, get its associated text.
-        let text = match value.as_raw_symbol_token_ref() {
-            RawSymbolRef::SymbolId(symbol_id) => {
-                if !self.symbol_table().sid_is_valid(symbol_id) {
+    fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()> {
+        use RawSymbolRef::*;
+        use SymbolValueEncoding::*;
+
+        let config = self.config();
+        let Self {
+            encoding,
+            raw_value_writer,
+        } = self;
+
+        // Depending on the symbol value encoding config option, map the provided symbol reference
+        // from text to SID or vice versa, performing any validation needed.
+        let symbol_ref = match value.as_raw_symbol_token_ref() {
+            SymbolId(symbol_id) => {
+                // We can write the symbol ID as-is. Make sure it's in the symbol table.
+                if !encoding.symbol_table.sid_is_valid(symbol_id) {
                     return cold_path!(IonResult::encoding_error(format!(
-                        "symbol ID ${symbol_id} is out of bounds"
+                        "symbol value ID ${symbol_id} is not in the symbol table"
                     )));
                 }
-                return self.raw_value_writer.write_symbol(symbol_id);
+                SymbolId(symbol_id)
             }
-            RawSymbolRef::Text(text) => text,
+            Text(text) => {
+                match config.symbol_value_encoding() {
+                    WriteAsSymbolIds => {
+                        // Map the text to a symbol ID.
+                        match encoding.symbol_table.sid_for(&text) {
+                            // If it's already in the symbol table, use that SID.
+                            Some(symbol_id) => SymbolId(symbol_id),
+                            // Otherwise, add it to the symbol table.
+                            None => {
+                                encoding.num_pending_symbols += 1;
+                                SymbolId(encoding.symbol_table.add_symbol_for_text(text))
+                            }
+                        }
+                    }
+                    WriteNewSymbolsAsInlineText => {
+                        // If the text is in the symbol table, use the symbol ID. Otherwise, use the text itself.
+                        match encoding.symbol_table.sid_for(&text) {
+                            Some(symbol_id) => SymbolId(symbol_id),
+                            None => Text(text),
+                        }
+                    }
+                    // We have text and we want to write text. Nothing to do.
+                    WriteAsInlineText => Text(text),
+                }
+            }
         };
 
-        // If the writer can write it as inline text, do so.
-        if self.has_inline_symbol_text() {
-            return self.raw_value_writer.write_symbol(text);
-        }
-
-        // Otherwise, see if the symbol is already in the symbol table.
-        let symbol_id = match self.symbol_table().sid_for(&text) {
-            // If so, use the existing ID.
-            Some(sid) => sid,
-            // If not, add it to the symbol table and make a note to add it to the LST on the next
-            // call to `flush()`. Use the new ID.
-            None => {
-                self.encoding.num_pending_symbols += 1;
-                self.symbol_table().add_symbol_for_text(text)
-            }
-        };
-
-        // Finally, write out the SID.
-        self.raw_value_writer.write_symbol(symbol_id)
+        raw_value_writer.write_symbol(symbol_ref)
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
@@ -391,7 +507,7 @@ impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V>
             RawSymbolRef::SymbolId(symbol_id) => {
                 if !self.encoding.symbol_table.sid_is_valid(symbol_id) {
                     return cold_path!(IonResult::encoding_error(format!(
-                        "symbol ID ${symbol_id} is out of bounds"
+                        "symbol ID ${symbol_id} is not in the symbol table"
                     )));
                 }
                 return self.raw_struct_writer.encode_field_name(symbol_id);
@@ -541,5 +657,187 @@ impl<S: SequenceWriter> ElementWriter for S {
     fn write_element(&mut self, element: &Element) -> IonResult<()> {
         self.write(element)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lazy::encoder::value_writer::AnnotatableWriter;
+    use crate::raw_symbol_ref::AsRawSymbolRef;
+    use crate::{
+        v1_1, AnnotationsEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef, SequenceWriter,
+        SymbolValueEncoding, SystemReader, ValueWriter, Writer,
+    };
+
+    fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
+        encoding: SymbolValueEncoding,
+        symbol_and_encoding_pairs: [(A, &[u8]); N],
+    ) -> IonResult<()> {
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        for (symbol, _expected_bytes) in &symbol_and_encoding_pairs {
+            writer
+                .value_writer()
+                .with_symbol_value_encoding(encoding)
+                .write_symbol(symbol)?;
+        }
+        let bytes = writer.close()?;
+        let mut reader = SystemReader::new(v1_1::Binary, bytes.as_slice());
+        for (symbol, expected_bytes) in &symbol_and_encoding_pairs {
+            let value = reader.expect_next_value()?;
+            let raw_value = value.raw().unwrap();
+            let actual_bytes = raw_value.span().bytes();
+            assert_eq!(
+                actual_bytes, *expected_bytes,
+                "{:02X?} != {:02X?}",
+                actual_bytes, expected_bytes
+            );
+            println!(
+                "{:?} {:02X?} == {:02X?}",
+                symbol.as_raw_symbol_token_ref(),
+                actual_bytes,
+                expected_bytes
+            )
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn intern_new_symbol_values() -> IonResult<()> {
+        use RawSymbolRef::*;
+        symbol_value_encoding_test(
+            SymbolValueEncoding::WriteAsSymbolIds,
+            [
+                (Text("$ion_symbol_table"), &[0xE1, 0x03]),
+                (Text("name"), &[0xE1, 0x04]),
+                (SymbolId(6), &[0xE1, 0x06]), // SIDs are written as-is
+                (Text("foo"), &[0xE1, 0x0A]), // Text is added to the symbol table and encoded as a SID
+            ],
+        )
+    }
+
+    #[test]
+    fn do_not_intern_new_symbol_values() -> IonResult<()> {
+        use RawSymbolRef::*;
+        symbol_value_encoding_test(
+            SymbolValueEncoding::WriteNewSymbolsAsInlineText,
+            [
+                // Known text symbols are written as SIDs
+                (Text("$ion_symbol_table"), &[0xE1, 0x03]),
+                (Text("name"), &[0xE1, 0x04]),
+                // SIDs are written as-is
+                (SymbolId(6), &[0xE1, 0x06]),
+                // New text symbols are written as inline text
+                //                 f     o     o
+                (Text("foo"), &[0xA3, 0x66, 0x6F, 0x6F]),
+            ],
+        )
+    }
+
+    #[test]
+    fn encode_all_text_as_is() -> IonResult<()> {
+        use RawSymbolRef::*;
+        symbol_value_encoding_test(
+            SymbolValueEncoding::WriteAsInlineText,
+            [
+                // Known text symbols are written as inline text
+                (Text("name"), &[0xA4, 0x6E, 0x61, 0x6D, 0x65]),
+                // SIDs are written as-is
+                (SymbolId(6), &[0xE1, 0x06]),
+                // New text symbols are written as inline text
+                //                 f     o     o
+                (Text("foo"), &[0xA3, 0x66, 0x6F, 0x6F]),
+            ],
+        )
+    }
+
+    fn annotations_sequence_encoding_test(
+        encoding: AnnotationsEncoding,
+        sequence: &[RawSymbolRef],
+        expected_encoding: &[u8],
+    ) -> IonResult<()> {
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        writer
+            .value_writer()
+            .with_annotations_encoding(encoding)
+            .with_annotations(sequence)?
+            .write_string("foo")?;
+        let bytes = writer.close()?;
+        let mut reader = SystemReader::new(v1_1::Binary, bytes.as_slice());
+        let value = reader.expect_next_value()?;
+        let raw_value = value.raw().unwrap();
+        let annotations = raw_value.annotations_span();
+        assert_eq!(
+            annotations.bytes(),
+            expected_encoding,
+            "{:02X?} != {:02X?}",
+            annotations.bytes(),
+            expected_encoding
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn intern_new_annotations() -> IonResult<()> {
+        use RawSymbolRef::*;
+        annotations_sequence_encoding_test(
+            AnnotationsEncoding::WriteAsSymbolIds,
+            &[
+                Text("$ion_symbol_table"),
+                Text("name"),
+                SymbolId(6),
+                Text("foo"),
+            ],
+            &[
+                0xE9, // Opcode: FlexUInt follows with byte length of sequence
+                0x09, // FlexUInt byte length: 4
+                0x07, // FlexSym SID $3
+                0x09, // FlexSym SID $4
+                0x0D, // FlexSym SID $6
+                0x15, // FlexSym SID $10
+            ],
+        )
+    }
+
+    #[test]
+    fn write_new_annotations_as_text() -> IonResult<()> {
+        use RawSymbolRef::*;
+        annotations_sequence_encoding_test(
+            AnnotationsEncoding::WriteNewSymbolsAsInlineText,
+            &[
+                Text("$ion_symbol_table"),
+                Text("name"),
+                SymbolId(6),
+                Text("foo"),
+            ],
+            &[
+                0xE9, // Opcode: FlexUInt follows with byte length of sequence
+                0x0F, // FlexUInt byte length: 7
+                0x07, // FlexSym: SID $3
+                0x09, // FlexSym: SID $4
+                0x0D, // FlexSym: SID $6
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                // f     o     o
+                0x66, 0x6F, 0x6F,
+            ],
+        )
+    }
+
+    #[test]
+    fn write_text_annotations_as_is() -> IonResult<()> {
+        use RawSymbolRef::*;
+        annotations_sequence_encoding_test(
+            AnnotationsEncoding::WriteAsInlineText,
+            &[Text("name"), SymbolId(6), Text("foo")],
+            &[
+                0xE9, // Opcode: FlexUInt follows with byte length of sequence
+                0x15, // FlexUInt byte length: 10
+                0xF9, // FlexSym: 4 UTF-8 bytes
+                // n     a     m     e
+                0x6E, 0x61, 0x6D, 0x65, 0x0D, // FlexSym: SID $6
+                0xFB, // FlexSym: 3 UTF-8 bytes
+                // f     o     o
+                0x66, 0x6F, 0x6F,
+            ],
+        )
     }
 }

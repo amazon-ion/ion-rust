@@ -100,12 +100,8 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
         strukt.close()
     }
 
-    fn has_delimited_containers(&self) -> bool {
-        false
-    }
-
-    fn has_inline_symbol_text(&self) -> bool {
-        false
+    fn config(&self) -> ValueWriterConfig {
+        ValueWriterConfig::default()
     }
 }
 
@@ -201,6 +197,7 @@ macro_rules! delegate_value_writer_to_self {
     };
 }
 
+use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
 

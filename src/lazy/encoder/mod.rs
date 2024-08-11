@@ -14,6 +14,7 @@ pub mod annotation_seq;
 pub mod binary;
 pub mod text;
 pub mod value_writer;
+pub mod value_writer_config;
 pub mod write_as_ion;
 pub mod writer;
 

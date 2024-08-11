@@ -279,7 +279,14 @@ macro_rules! v1_x_tooling_apis {
                 LazyRawContainer,
             },
             lazy::encoder::{
-                LazyRawWriter
+                LazyRawWriter,
+            },
+            lazy::encoder::value_writer_config::{
+                ValueWriterConfig,
+                ContainerEncoding,
+                SymbolValueEncoding,
+                AnnotationsEncoding,
+                FieldNameEncoding,
             },
             lazy::expanded::r#struct::{
                 LazyExpandedStruct, ExpandedStructSource,
