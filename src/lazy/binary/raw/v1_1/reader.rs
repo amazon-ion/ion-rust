@@ -712,7 +712,15 @@ mod tests {
 
     #[test]
     fn nested_sequence() -> IonResult<()> {
-        let ion_data: &[u8] = &[0xF1, 0x61, 0x01, 0xF1, 0x61, 0x02, 0xF0, 0x61, 0x03, 0xF0];
+        let ion_data: &[u8] = &[
+            0xF1,             // [
+              0x61, 0x01,     //    1,
+              0xF1,           //    [
+                0x61, 0x02,   //      2,
+              0xF0,           //    ],
+              0x61, 0x03,     //    3
+            0xF0              // ]
+        ];
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
 

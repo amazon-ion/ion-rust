@@ -154,7 +154,6 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     ) -> RawBinaryStructIterator_1_1<'top> {
         RawBinaryStructIterator_1_1 {
             source: input,
-            // bytes_to_skip: 0,
             mode: match opcode_type {
                 OpcodeType::Struct => StructMode::SymbolAddress,
                 OpcodeType::StructDelimited => StructMode::FlexSym,
