@@ -638,10 +638,6 @@ impl<'a> ImmutableBuffer<'a> {
             };
 
 
-            // let length = match input.consume(1).read_value_length(header)? {
-            //     (None, _) => FlexUInt::new(0, 0), // Delimited value, we do not know the size.
-            //     (Some(length), _) => length,
-            // };
             let length_length = length.size_in_bytes() as u8;
             let value_length = length.value() as usize; // ha
             let total_length = 1 // Header byte
