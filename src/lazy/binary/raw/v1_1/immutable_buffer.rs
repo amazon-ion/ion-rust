@@ -590,7 +590,7 @@ impl<'a> ImmutableBuffer<'a> {
             .to_header()
             .ok_or_else(|| IonError::decoding_error("found a non-value in value position .."))?;
 
-        let (total_length, length_length, value_body_length, delimited_contents) = if opcode.is_delimited() {
+        let (total_length, length_length, value_body_length, delimited_contents) = if opcode.is_delimited_start() {
             let (contents, after) = input.peek_delimited_container(opcode)?;
             let total_length = after.offset() - self.offset();
             let value_body_length = total_length - 1; // Total length - sizeof(opcode)

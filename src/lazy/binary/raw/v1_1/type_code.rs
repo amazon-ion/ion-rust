@@ -56,7 +56,7 @@ pub enum OpcodeType {
 }
 
 impl OpcodeType {
-    pub fn is_delimited(self) -> bool {
+    pub fn is_delimited_start(self) -> bool {
         matches!(
             self,
             Self::ListDelimited | Self::SExpressionDelimited | Self::StructDelimited

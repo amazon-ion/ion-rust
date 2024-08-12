@@ -134,8 +134,8 @@ impl Opcode {
         self.low_nibble
     }
 
-    pub fn is_delimited(&self) -> bool {
-        self.opcode_type.is_delimited()
+    pub fn is_delimited_start(&self) -> bool {
+        self.opcode_type.is_delimited_start()
     }
 
     pub fn is_delimited_end(&self) -> bool {

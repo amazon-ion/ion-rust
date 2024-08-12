@@ -141,7 +141,6 @@ enum SymAddressFieldName<'top> {
 
 pub struct RawBinaryStructIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
-    // bytes_to_skip: usize,
     mode: StructMode,
     delimited_contents: DelimitedContents<'top>,
     delimited_iter: Option<std::slice::Iter<'top, LazyRawFieldExpr<'top, BinaryEncoding_1_1>>>,

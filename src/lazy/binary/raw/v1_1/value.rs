@@ -298,7 +298,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     pub fn is_delimited(&self) -> bool {
-        self.encoded_value.header.ion_type_code.is_delimited()
+        self.encoded_value.header.ion_type_code.is_delimited_start()
     }
 
     /// Returns the encoded byte slice representing this value's data.
@@ -769,7 +769,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
     fn read_sexp(&'top self) -> IonResult<LazyRawBinarySExp_1_1<'top>> {
-        use crate::lazy::binary::raw::v1_1::sequence::LazyRawBinarySExp_1_1;
         use crate::lazy::decoder::private::LazyContainerPrivate;
         debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
         Ok(LazyRawBinarySExp_1_1::from_value(self))
@@ -777,7 +776,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a list.
     fn read_list(&'top self) -> IonResult<LazyRawBinaryList_1_1<'top>> {
-        use crate::lazy::binary::raw::v1_1::sequence::LazyRawBinaryList_1_1;
         use crate::lazy::decoder::private::LazyContainerPrivate;
         debug_assert!(self.encoded_value.ion_type() == IonType::List);
         Ok(LazyRawBinaryList_1_1::from_value(self))
@@ -785,7 +783,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.
     fn read_struct(&'top self) -> IonResult<LazyRawBinaryStruct_1_1<'top>> {
-        use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
         use crate::lazy::decoder::private::LazyContainerPrivate;
         Ok(LazyRawBinaryStruct_1_1::from_value(self))
     }
