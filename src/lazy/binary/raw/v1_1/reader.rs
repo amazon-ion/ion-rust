@@ -139,6 +139,7 @@ mod tests {
     use rstest::*;
 
     use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
+    use crate::lazy::decoder::LazyRawSequence;
     use crate::lazy::expanded::EncodingContext;
     use crate::raw_symbol_ref::RawSymbolRef;
     use crate::{IonResult, IonType};
@@ -710,6 +711,65 @@ mod tests {
     }
 
     #[test]
+    fn nested_sequence() -> IonResult<()> {
+        let ion_data: &[u8] = &[
+            0xF1,             // [
+              0x61, 0x01,     //    1,
+              0xF1,           //    [
+                0x61, 0x02,   //      2,
+              0xF0,           //    ],
+              0x61, 0x03,     //    3
+            0xF0              // ]
+        ];
+        let empty_context = EncodingContext::empty();
+        let context = empty_context.get_ref();
+
+        let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
+        let container = reader
+            .next(context)?
+            .expect_value()?
+            .read()?
+            .expect_list()?;
+
+        let mut top_iter = container.iter();
+        let actual_value = top_iter
+            .next()
+            .unwrap()?
+            .expect_value()?
+            .read()?
+            .expect_int()?;
+        assert_eq!(actual_value, 1.into());
+
+        let actual_value = top_iter
+            .next()
+            .unwrap()?
+            .expect_value()?
+            .read()?
+            .expect_list()?;
+
+        let mut inner_iter = actual_value.iter();
+        let actual_value = inner_iter
+            .next()
+            .unwrap()?
+            .expect_value()?
+            .read()?
+            .expect_int()?;
+        assert_eq!(actual_value, 2.into());
+
+        let actual_value = top_iter
+            .next()
+            .unwrap()?
+            .expect_value()?
+            .read()?
+            .expect_int()?;
+        assert_eq!(actual_value, 3.into());
+
+        assert!(top_iter.next().is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn lists() -> IonResult<()> {
         use crate::lazy::decoder::LazyRawSequence;
 
@@ -758,6 +818,18 @@ mod tests {
 
             // [<nop>]
             (&[0xFB, 0x03, 0xEC], &[]),
+
+            // [] (delimited)
+            (&[0xF1, 0xF0], &[]),
+
+            // [1] (delimited)
+            (&[0xF1, 0x61, 0x01, 0xF0], &[IonType::Int]),
+
+            // [ 1 [2] 3 ] (delimited)
+            (&[0xF1, 0x61, 0x01, 0xF1, 0xEA, 0xF0, 0x61, 0x03, 0xF0], &[IonType::Int, IonType::List, IonType::Int]),
+
+            // [<nop>]
+            (&[0xF1, 0xEC, 0xF0], &[]),
         ];
 
         for (ion_data, expected_types) in tests {
@@ -815,6 +887,18 @@ mod tests {
 
             // ( $257 )
             (&[0xFC, 0x07, 0xE2, 0x01, 0x00], &[IonType::Symbol]),
+
+            // () (delimited)
+            (&[0xF2, 0xF0], &[]),
+
+            // ( 1 ) (delimited)
+            (&[0xF2, 0x61, 0x01, 0xF0], &[IonType::Int]),
+
+            // ( 1 ( 2 ) 3 ) (delimited)
+            (&[0xF2, 0x61, 0x01, 0xF2, 0x61, 0x02, 0xF0, 0x61, 0x03, 0xF0], &[IonType::Int, IonType::SExp, IonType::Int]),
+
+            // (<nop>) (delimited)
+            (&[0xF2, 0xEC, 0xF0], &[]),
         ];
 
         for (ion_data, expected_types) in tests {
@@ -870,6 +954,55 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn nested_struct() -> IonResult<()> {
+        use crate::lazy::decoder::LazyRawFieldName;
+        let ion_data: &[u8] = &[
+            0xF3, // {
+            0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, //   "foo": 1
+            0x17, 0xF3, //   11: {
+            0xFB, 0x62, 0x61, 0x72, 0x61, 0x02, //     "bar": 2
+            0x01, 0xF0, //   }
+            0xFB, 0x62, 0x61, 0x7a, 0x61, 0x03, //   "baz": 3
+            0x01, 0xF0, // }
+        ];
+
+        let encoding_context = EncodingContext::empty();
+        let context = encoding_context.get_ref();
+
+        let mut reader = LazyRawBinaryReader_1_1::new(ion_data);
+        let container = reader
+            .next(context)?
+            .expect_value()?
+            .read()?
+            .expect_struct()?;
+
+        let mut top_iter = container.iter();
+
+        let (name, value) = top_iter.next().unwrap()?.expect_name_value()?;
+        assert_eq!(name.read()?, RawSymbolRef::Text("foo"));
+        assert_eq!(value.read()?.expect_int()?, 1.into());
+
+        let (name, value) = top_iter.next().unwrap()?.expect_name_value()?;
+        assert_eq!(name.read()?, RawSymbolRef::SymbolId(11));
+        let mut inner_iter = value.read()?.expect_struct()?.iter();
+
+        let (name, value) = inner_iter.next().unwrap()?.expect_name_value()?;
+        assert_eq!(name.read()?, RawSymbolRef::Text("bar"));
+        assert_eq!(value.read()?.expect_int()?, 2.into());
+
+        assert!(inner_iter.next().is_none());
+
+        let (name, value) = top_iter.next().unwrap()?.expect_name_value()?;
+        assert_eq!(name.read()?, RawSymbolRef::Text("baz"));
+        assert_eq!(value.read()?.expect_int()?, 3.into());
+
+        assert!(top_iter.next().is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn structs() -> IonResult<()> {
         use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawFieldName};
 
@@ -914,10 +1047,18 @@ mod tests {
             ),
             (
                 // { $10: { $11: "foo" }, $11: 2 }
-                &[ 0xD6, 0x15, 0xC4, 0x93, 0x66, 0x6F, 0x6F, 0x17, 0x61, 0x02 ],
+                &[ 0xD6, 0x15, 0xD4, 0x93, 0x66, 0x6F, 0x6F, 0x17, 0x61, 0x02 ],
                 &[
                     (10usize.into(), IonType::Struct),
                     (11usize.into(), IonType::Int),
+                ],
+            ),
+            (
+                // {"foo": 1, $11: 2}  - FlexSym Mode
+                &[ 0xDA, 0x01, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, 0x17, 0x61, 0x02 ],
+                &[
+                    ("foo".into(), IonType::Int),
+                    (11.into(), IonType::Int)
                 ],
             ),
             (
@@ -937,28 +1078,28 @@ mod tests {
             // FlexSym
             (
                 // { "foo": 1, $11: 2 }
-                &[ 0xD9, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, 0x17, 0x61, 0x02],
+                &[ 0xDA, 0x01, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, 0x17, 0x61, 0x02],
                 &[ ("foo".into(), IonType::Int), (11usize.into(), IonType::Int)],
             ),
             (
                 // { "foo": 1, $11: 2 }
-                &[ 0xFD, 0x13, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, 0x17, 0x61, 0x02],
+                &[ 0xFD, 0x15, 0x01, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, 0x17, 0x61, 0x02],
                 &[ ("foo".into(), IonType::Int), (11usize.into(), IonType::Int)],
             ),
             (
                 // { "foo": <NOP>, $11: 2 }
-                &[ 0xFD, 0x11, 0xFB, 0x66, 0x6F, 0x6F, 0xEC, 0x17, 0x61, 0x02],
+                &[ 0xFD, 0x13, 0x01, 0xFB, 0x66, 0x6F, 0x6F, 0xEC, 0x17, 0x61, 0x02],
                 &[ (11usize.into(), IonType::Int) ],
             ),
             (
                 // { "foo": 2, $11: <NOP> }
-                &[ 0xFD, 0x11, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x02, 0x17, 0xEC],
+                &[ 0xFD, 0x13, 0x01, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x02, 0x17, 0xEC],
                 &[ ("foo".into(), IonType::Int) ],
             ),
             (
                 // { "foo": { $10: 2 }, "bar": 2 }
                 &[
-                    0xFD, 0x1D, 0xFB, 0x66, 0x6F, 0x6F, 0xD3, 0x15, 0x61, 0x02,
+                    0xFD, 0x1F, 0x01, 0xFB, 0x66, 0x6F, 0x6F, 0xD3, 0x15, 0x61, 0x02,
                     0xFB, 0x62, 0x61, 0x72, 0x61, 0x02,
                 ],
                 &[
@@ -967,10 +1108,15 @@ mod tests {
                 ],
             ),
             (
-                // {}
-                &[0xFD, 0x01],
+                // {} - delimited
+                &[ 0xF3, 0x01, 0xF0 ],
                 &[],
-            )
+            ),
+            (
+                // { "foo": 1, $11: 2 }  - delimited
+                &[ 0xF3, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, 0x17, 0xE1, 0x02, 0x01, 0xF0],
+                &[ ("foo".into(), IonType::Int), (11usize.into(), IonType::Symbol)],
+            ),
         ];
 
         for (ion_data, field_pairs) in tests {
