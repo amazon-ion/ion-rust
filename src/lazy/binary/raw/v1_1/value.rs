@@ -308,6 +308,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         LazyRawBinaryValue_1_1 {
             encoded_value,
             input,
+            delimited_contents: DelimitedContents::None,
         }
     }
 
