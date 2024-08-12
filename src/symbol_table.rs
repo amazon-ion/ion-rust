@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::sync::Arc;
+
+use rustc_hash::FxHashMap;
 
 use crate::constants::v1_0;
 use crate::lazy::any_encoding::IonVersion;
@@ -12,7 +13,7 @@ use crate::{Symbol, SymbolId};
 pub struct SymbolTable {
     ion_version: IonVersion,
     symbols_by_id: Vec<Symbol>,
-    ids_by_text: HashMap<Symbol, SymbolId>,
+    ids_by_text: FxHashMap<Symbol, SymbolId>,
 }
 
 impl Default for SymbolTable {
@@ -29,7 +30,7 @@ impl SymbolTable {
         let mut symbol_table = SymbolTable {
             ion_version,
             symbols_by_id: Vec::with_capacity(INITIAL_SYMBOLS_CAPACITY),
-            ids_by_text: HashMap::new(),
+            ids_by_text: FxHashMap::default(),
         };
         symbol_table.initialize();
         symbol_table

@@ -292,6 +292,7 @@ impl TryFrom<f64> for Decimal {
     ///   * Infinity
     ///   * Negative infinity
     ///   * NaN (not-a-number)
+    ///
     /// Otherwise, returns Ok.
     ///
     /// Because Decimal can represent negative zero, f64::neg_zero() IS supported.

@@ -24,7 +24,7 @@ use std::ops::Deref;
 /// * Decimal `0.0` and `-0.0` are mathematically equivalent but not Ion equivalent.
 /// * Decimal `0.0` and `0.00` are mathematically equivalent but not Ion equivalent.
 /// * Timestamps representing the same point in time at different precisions or at different
-/// timezone offsets are not Ion equivalent.
+///   timezone offsets are not Ion equivalent.
 pub trait IonEq {
     fn ion_eq(&self, other: &Self) -> bool;
 }

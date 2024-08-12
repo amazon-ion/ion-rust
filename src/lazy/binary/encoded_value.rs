@@ -1,5 +1,6 @@
 use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::expanded::template::ParameterEncoding;
 use crate::IonType;
 use std::ops::Range;
 
@@ -40,6 +41,7 @@ impl EncodedHeader for Header {
 /// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
+    pub(crate) encoding: ParameterEncoding,
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
     //
@@ -88,6 +90,8 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     pub annotations_encoding: AnnotationsEncoding,
     // The offset of the type descriptor byte within the overall input stream.
     pub header_offset: usize,
+    // If this value was written with a tagless encoding, this will be 0. Otherwise, it's 1.
+    pub opcode_length: u8,
     // The number of bytes used to encode the optional length VarUInt following the header byte.
     pub length_length: u8,
     // The number of bytes used to encode the value itself, not including the header byte
@@ -258,12 +262,14 @@ mod tests {
     use crate::lazy::binary::encoded_value::EncodedValue;
     use crate::lazy::binary::raw::type_descriptor::Header;
     use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+    use crate::lazy::expanded::template::ParameterEncoding;
     use crate::{IonResult, IonType};
 
     #[test]
     fn accessors() -> IonResult<()> {
         // 3-byte String with 1-byte annotation
         let value = EncodedValue {
+            encoding: ParameterEncoding::Tagged,
             header: Header {
                 ion_type: IonType::String,
                 ion_type_code: IonTypeCode::String,
@@ -273,6 +279,7 @@ mod tests {
             annotations_sequence_length: 1,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset: 200,
+            opcode_length: 1,
             length_length: 0,
             value_body_length: 3,
             total_length: 7,
