@@ -1088,6 +1088,11 @@ impl<'top> TextBufferView<'top> {
         // TODO: Support macro ID kinds besides unqualified names
         let (exp_body_after_id, (macro_id_bytes, matched_symbol)) =
             consumed(Self::match_identifier)(eexp_body)?;
+        if exp_body_after_id.is_empty() {
+            // Unlike a symbol value with identifier syntax, an e-expression identifier cannot be
+            // the last thing in the stream.
+            return Err(nom::Err::Incomplete(Needed::Unknown));
+        }
 
         let id = match matched_symbol
             .read(self.context.allocator(), macro_id_bytes)
