@@ -290,7 +290,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             header: Header {
                 // It is an int, that's true.
                 ion_type: IonType::Int,
-                // Nonsense values for now
+                // Eventually we'll refactor `EncodedValue` to accommodate values that don't have
+                // a header (i.e., parameters with tagless encodings). See:
+                // https://github.com/amazon-ion/ion-rust/issues/805
+                // For now, we'll populate these fields with nonsense values and ignore them.
                 ion_type_code: OpcodeType::Nop,
                 low_nibble: 0,
             },
