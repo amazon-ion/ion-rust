@@ -281,8 +281,9 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                 let expr = EExpArgExpr::ArgGroup(BinaryEExpArgGroup::new(parameter, input, 0));
                 (EExpArg::new(parameter, expr), self.remaining_args_buffer)
             }
-            // If it's a tagged value expression, parse it as usual.
+            // It's a single expression; we'll need to look at the parameter's declared encoding.
             ArgGrouping::ValueExprLiteral => match parameter.encoding() {
+                // The encoding starts with an opcode.
                 ParameterEncoding::Tagged => {
                     let (expr, remaining) = try_or_some_err! {
                         self
@@ -291,6 +292,7 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                     };
                     (EExpArg::new(parameter, expr), remaining)
                 }
+                // It's a FlexUInt.
                 ParameterEncoding::FlexUInt => {
                     let (flex_uint_lazy_value, remaining) = try_or_some_err! {
                         self.remaining_args_buffer.read_flex_uint_as_lazy_value()
@@ -304,7 +306,7 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                         EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
                         remaining,
                     )
-                }
+                } // TODO: The other tagless encodings
             },
             // If it's an argument group...
             ArgGrouping::ArgGroup => {

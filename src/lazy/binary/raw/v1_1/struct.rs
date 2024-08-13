@@ -57,6 +57,8 @@ impl<'top> LazyRawFieldName<'top, BinaryEncoding_1_1> for LazyRawBinaryFieldName
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryStruct_1_1<'top> {
     pub(crate) value: &'top LazyRawBinaryValue_1_1<'top>,
+    pub(crate) delimited_field_expr_cache:
+        Option<&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]>,
 }
 
 impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_1<'top> {
@@ -91,14 +93,14 @@ impl<'top> LazyRawBinaryStruct_1_1<'top> {
             RawBinaryStructIterator_1_1::new(
                 self.value.encoded_value.header.ion_type_code,
                 self.value.input.consume(1),
-                self.value.delimited_contents,
+                self.delimited_field_expr_cache,
             )
         } else {
             let buffer_slice = self.value.value_body_buffer();
             RawBinaryStructIterator_1_1::new(
                 self.value.encoded_value.header.ion_type_code,
                 buffer_slice,
-                self.value.delimited_contents,
+                None,
             )
         }
     }
@@ -106,7 +108,15 @@ impl<'top> LazyRawBinaryStruct_1_1<'top> {
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'top> {
     fn from_value(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
-        LazyRawBinaryStruct_1_1 { value }
+        let delimited_field_expr_cache = match value.delimited_contents {
+            DelimitedContents::None => None,
+            DelimitedContents::Fields(fields) => Some(fields),
+            DelimitedContents::Values(_) => unreachable!("struct contained sequence values"),
+        };
+        LazyRawBinaryStruct_1_1 {
+            value,
+            delimited_field_expr_cache,
+        }
     }
 }
 
@@ -128,7 +138,7 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_1> for LazyRawBinaryStruct_1_1<'
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Copy, Clone)]
 enum StructMode {
     FlexSym,
     SymbolAddress,
@@ -139,18 +149,19 @@ enum SymAddressFieldName<'top> {
     FieldName(LazyRawBinaryFieldName_1_1<'top>),
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawBinaryStructIterator_1_1<'top> {
     source: ImmutableBuffer<'top>,
     mode: StructMode,
-    delimited_contents: DelimitedContents<'top>,
-    delimited_iter: Option<std::slice::Iter<'top, LazyRawFieldExpr<'top, BinaryEncoding_1_1>>>,
+    field_expr_index: usize,
+    field_expr_cache: Option<&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]>,
 }
 
 impl<'top> RawBinaryStructIterator_1_1<'top> {
     pub(crate) fn new(
         opcode_type: OpcodeType,
         input: ImmutableBuffer<'top>,
-        delimited_contents: DelimitedContents<'top>,
+        field_expr_cache: Option<&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]>,
     ) -> RawBinaryStructIterator_1_1<'top> {
         RawBinaryStructIterator_1_1 {
             source: input,
@@ -159,11 +170,8 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
                 OpcodeType::StructDelimited => StructMode::FlexSym,
                 _ => unreachable!("Unexpected opcode for structure"),
             },
-            delimited_contents,
-            delimited_iter: match &delimited_contents {
-                DelimitedContents::Fields(fields) => Some(fields.iter()),
-                _ => None,
-            },
+            field_expr_cache,
+            field_expr_index: 0,
         }
     }
 
@@ -188,7 +196,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             _ => unreachable!(),
         };
 
-        let matched_field_id = buffer.slice(0, after.offset() - buffer.offset());
+        let matched_field_id = buffer.slice(0, flex_sym.size_in_bytes());
         let field_name = LazyRawBinaryFieldName_1_1::new(sym, matched_field_id);
         Ok(Some((field_name, after)))
     }
@@ -297,8 +305,10 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(ref mut inner_iter) = &mut self.delimited_iter {
-            inner_iter.next().map(|val| Ok(*val))
+        if let Some(field_cache) = self.field_expr_cache {
+            let field = field_cache.get(self.field_expr_index)?;
+            self.field_expr_index += 1;
+            Some(Ok(*field))
         } else {
             let (field_expr, after, mode) = match Self::peek_field(self.source, self.mode) {
                 Ok((Some((value, mode)), after)) => (Some(Ok(value)), after, mode),

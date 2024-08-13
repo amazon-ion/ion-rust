@@ -247,7 +247,7 @@ impl<'a> ImmutableBuffer<'a> {
         }
         // XXX: This *doesn't* slice `self` because FlexUInt::read() is faster if the input
         //      is at least the size of a u64.
-        let matched_input = self;
+        let matched_input = self.slice(0, size_in_bytes);
         let remaining_input = self.slice_to_end(size_in_bytes);
         let value = LazyRawBinaryValue_1_1::for_flex_uint(matched_input);
         Ok((value, remaining_input))
@@ -622,7 +622,7 @@ impl<'a> ImmutableBuffer<'a> {
         let header = opcode
             .to_header()
             .ok_or_else(|| IonError::decoding_error("found a non-value in value position .."))?;
-
+        let header_offset = input.offset();
         let (total_length, length_length, value_body_length, delimited_contents) = if opcode.is_delimited_start() {
             let (contents, after) = input.peek_delimited_container(opcode)?;
             let total_length = after.offset() - self.offset();
@@ -646,10 +646,17 @@ impl<'a> ImmutableBuffer<'a> {
             (total_length, length_length, value_length, DelimitedContents::None)
         };
 
-        let header_offset = input.offset();
+        if total_length > input.len() {
+            return IonResult::incomplete(
+                "the stream ended unexpectedly in the middle of a value",
+                header_offset,
+            );
+        }
+
         let encoded_value = EncodedValue {
             encoding: ParameterEncoding::Tagged,
             header,
+            // If applicable, these are populated by the caller: `read_annotated_value()`
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,

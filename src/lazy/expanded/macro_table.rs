@@ -131,7 +131,7 @@ impl<'top> MacroRef<'top> {
     pub fn id_text(&'top self) -> Cow<'top, str> {
         self.name()
             .map(Cow::from)
-            .unwrap_or_else(move || Cow::from(format!("<address={}>", self.address())))
+            .unwrap_or_else(move || Cow::from(format!("{}", self.address())))
     }
 
     pub fn address(&self) -> MacroAddress {
@@ -179,7 +179,7 @@ impl MacroTable {
     pub const NUM_SYSTEM_MACROS: usize = Self::SYSTEM_MACRO_KINDS.len();
     // When a user defines new macros, this is the first ID that will be assigned. This value
     // is expected to change as development continues. It is currently used in several unit tests.
-    pub const FIRST_USER_MACRO_ID: usize = 4;
+    pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
     pub fn new() -> Self {
         let macros_by_id = vec![

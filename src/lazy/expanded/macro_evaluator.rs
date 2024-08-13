@@ -16,7 +16,6 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
-use ice_code::ice;
 
 use crate::lazy::decoder::{Decoder, HasSpan, LazyRawValueExpr};
 use crate::lazy::expanded::e_expression::{
@@ -34,7 +33,7 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{ExpandedValueSource, HasRange, IonError, IonResult, LazyValue, SymbolRef, ValueRef};
+use crate::{ExpandedValueSource, IonError, IonResult, LazyValue, Span, SymbolRef, ValueRef};
 
 pub trait EExpArgGroupIterator<'top, D: Decoder>:
     Copy + Clone + Debug + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
@@ -335,15 +334,36 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
         }
     }
 
-    /// If this `ValueExpr` represents an entity encoded in te data stream, returns `Some(range)`.
+    /// Returns `true` if this expression was produced by evaluating a macro. Otherwise, returns `false`.
+    pub fn is_ephemeral(&self) -> bool {
+        match self {
+            ValueExpr::ValueLiteral(value) => value.is_ephemeral(),
+            ValueExpr::MacroInvocation(invocation) => {
+                use MacroExprKind::*;
+                match invocation.kind() {
+                    TemplateMacro(_) => true,
+                    EExp(_) => false,
+                    EExpArgGroup(_) => false,
+                }
+            }
+        }
+    }
+
+    /// If this `ValueExpr` represents an entity encoded in the data stream, returns `Some(range)`.
     /// If it represents a template value or a constructed value, returns `None`.
     pub fn range(&self) -> Option<Range<usize>> {
+        self.span().as_ref().map(Span::range)
+    }
+
+    /// If this `ValueExpr` represents an entity encoded in the data stream, returns `Some(range)`.
+    /// If it represents an ephemeral value produced by a macro evaluation, returns `None`.
+    pub fn span(&self) -> Option<Span<'top>> {
         match self {
             ValueExpr::ValueLiteral(value) => {
                 use ExpandedValueSource::*;
                 match value.source {
-                    EExp(_) => todo!(),
-                    ValueLiteral(literal) => Some(literal.range()),
+                    SingletonEExp(_) => todo!(),
+                    ValueLiteral(literal) => Some(literal.span()),
                     Template(_, _) => None,
                     Constructed(_, _) => None,
                 }
@@ -352,8 +372,8 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
                 use MacroExprKind::*;
                 match e.source() {
                     TemplateMacro(_) => None,
-                    EExp(e) => Some(e.range()),
-                    EExpArgGroup(g) => Some(g.range()),
+                    EExp(e) => Some(e.span()),
+                    EExpArgGroup(g) => Some(g.span()),
                 }
             }
         }
@@ -387,16 +407,16 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
     }
 
     /// Expands the current macro with the expectation that it will produce exactly one value.
+    /// For more information about singleton macros, see
+    /// [`ExpansionSingleton`](crate::lazy::expanded::compiler::ExpansionSingleton).
     #[inline(always)]
     pub(crate) fn expand_singleton(mut self) -> IonResult<LazyExpandedValue<'top, D>> {
         // We don't need to construct an evaluator because this is guaranteed to produce exactly
         // one value.
         match self.next_step()? {
-            // If the expansion produces anything other than a final value, there's a bug.
             MacroExpansionStep::FinalStep(Some(ValueExpr::ValueLiteral(value))) => Ok(value),
-            _ => ice!(IonResult::decoding_error(format!(
-                "expansion of {self:?} was required to produce exactly one value",
-            ))),
+            // If the expansion produces anything other than a final value, there's a bug.
+            _ => unreachable!("expansion of {self:?} was required to produce exactly one value"),
         }
     }
 
@@ -443,6 +463,12 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             // `void` is trivial and requires no delegation
             Void => Ok(MacroExpansionStep::FinalStep(None)),
         }
+    }
+
+    // Calculate the next step in this macro expansion without advancing the expansion.
+    pub fn peek_next_step(&self) -> IonResult<MacroExpansionStep<'top, D>> {
+        let mut expansion_copy = *self;
+        expansion_copy.next_step()
     }
 }
 

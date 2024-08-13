@@ -5,7 +5,7 @@ use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, LazySExp};
+use crate::{ExpandedStreamItem, IonError, IonResult, LazySExp};
 
 /// System stream elements that a SystemReader may encounter.
 #[non_exhaustive]
@@ -21,6 +21,20 @@ pub enum SystemStreamItem<'top, D: Decoder> {
     Value(LazyValue<'top, D>),
     /// The end of the stream
     EndOfStream(EndPosition),
+}
+
+impl<'top, D: Decoder> SystemStreamItem<'top, D> {
+    /// Returns an [`ExpandedStreamItem`] view of this item.
+    pub fn as_expanded_stream_item(&self) -> ExpandedStreamItem<'top, D> {
+        use SystemStreamItem::*;
+        match self {
+            VersionMarker(m) => ExpandedStreamItem::VersionMarker(*m),
+            SymbolTable(s) => ExpandedStreamItem::SymbolTable(*s),
+            EncodingDirective(d) => ExpandedStreamItem::EncodingDirective(*d),
+            Value(v) => ExpandedStreamItem::Value(*v),
+            EndOfStream(e) => ExpandedStreamItem::EndOfStream(*e),
+        }
+    }
 }
 
 impl<'top, D: Decoder> Debug for SystemStreamItem<'top, D> {

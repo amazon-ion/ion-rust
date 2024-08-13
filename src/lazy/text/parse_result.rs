@@ -129,21 +129,57 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
                 .unwrap_or("invalid Ion syntax encountered"),
         );
         if let Some(label) = invalid_input_error.label {
-            message.push_str(" while ");
+            message.push_str("\n    while ");
             message.push_str(label.as_ref());
         }
-        message.push_str("; buffer: ");
+        use std::fmt::Write;
         let input = invalid_input_error.input;
-        let buffer_text = if let Ok(text) = invalid_input_error.input.as_text() {
-            text.chars().take(32).collect::<String>()
-        } else {
-            format!(
-                "{:X?}",
-                &invalid_input_error.input.bytes()[..(32.min(input.len()))]
-            )
+
+        // Make displayable strings showing the contents of the first and last 32 characters
+        // of the buffer. If the buffer is smaller than 32 bytes, fewer characters will be shown.
+        const NUM_CHARS_TO_SHOW: usize = 32;
+        let (buffer_head, buffer_tail) = match input.as_text() {
+            // The buffer contains UTF-8 bytes, so we'll display it as text
+            Ok(text) => {
+                let head = text.chars().take(NUM_CHARS_TO_SHOW).collect::<String>();
+                let tail_backwards = text
+                    .chars()
+                    .rev()
+                    .take(NUM_CHARS_TO_SHOW)
+                    .collect::<Vec<char>>();
+                let tail = tail_backwards.iter().rev().collect::<String>();
+                (head, tail)
+            }
+            // The buffer contains non-text bytes, so we'll show its contents as formatted hex
+            // pairs instead.
+            Err(_) => {
+                let head = format!(
+                    "{:X?}",
+                    &invalid_input_error.input.bytes()[..NUM_CHARS_TO_SHOW.min(input.len())]
+                );
+                let tail_bytes_to_take = input.bytes().len().min(NUM_CHARS_TO_SHOW);
+                let buffer_tail = &input.bytes()[input.len() - tail_bytes_to_take..];
+                let tail = format!("{:X?}", buffer_tail);
+                (head, tail)
+            }
         };
-        message.push_str(buffer_text.as_str());
-        message.push_str("...");
+        // The offset and buffer head will often be helpful to the programmer. The buffer tail
+        // and buffer length will be helpful to library maintainers receiving copy/pasted
+        // error messages to debug.
+        write!(
+            message,
+            r#"
+        offset={}
+        buffer head=<{}...>
+        buffer tail=<...{}>
+        buffer len={}
+        "#,
+            invalid_input_error.input.offset(),
+            buffer_head,
+            buffer_tail,
+            input.len(),
+        )
+        .unwrap();
         let position = Position::with_offset(invalid_input_error.input.offset())
             .with_length(invalid_input_error.input.len());
         let decoding_error = DecodingError::new(message).with_position(position);

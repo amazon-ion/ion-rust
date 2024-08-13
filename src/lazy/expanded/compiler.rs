@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use rustc_hash::FxHashMap;
 
+use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::template::{
     ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
@@ -17,7 +18,7 @@ use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{v1_1, IonError, IonResult, IonType, Reader, SymbolRef};
+use crate::{v1_1, IonError, IonResult, IonType, Reader, Symbol, SymbolRef};
 
 /// Information inferred about a template's expansion at compile time.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -47,10 +48,20 @@ impl ExpansionAnalysis {
     }
 }
 
-/// When static analysis can detect that a template body will always expand to a single value,
-/// information inferred about that value is stored in this type. When this template backs a
-/// lazy value, having these fields available allows the lazy value to answer basic queries without
-/// needing to fully evaluate the template.
+/// When the [`TemplateCompiler`] is able to determine that a macro's template will always produce
+/// exactly one value, that macro is considered a "singleton macro." Singleton macros offer
+/// a few benefits:
+///
+/// * Because evaluation will produce be exactly one value, the reader can hand out a LazyValue
+///   holding the e-expression as its backing data. Other macros cannot do this because if you're
+///   holding a LazyValue and the macro later evaluates to 0 values or 100 values, there's not a way
+///   for the application to handle those outcomes.
+/// * Expanding a singleton macro doesn't require an evaluator with a stack because as soon as
+///   you've gotten a value, you're done--no need to `pop()` and preserve state.
+///
+/// Information inferred about a singleton macro's output value is stored in an `ExpansionSingleton`.
+/// When a singleton macro backs a lazy value, having these fields available allows the lazy value to
+/// answer basic queries without needing to fully evaluate the template.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ExpansionSingleton {
     pub(crate) is_null: bool,
@@ -73,6 +84,12 @@ impl ExpansionSingleton {
 
     pub fn num_annotations(&self) -> usize {
         self.num_annotations as usize
+    }
+
+    pub fn annotations<'a>(&self, annotations_storage: &'a [Symbol]) -> SymbolsIterator<'a> {
+        let annotations_range = 0..self.num_annotations();
+        let annotations = &annotations_storage[annotations_range];
+        SymbolsIterator::new(annotations)
     }
 }
 

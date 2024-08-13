@@ -14,6 +14,7 @@ use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
+use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
@@ -35,6 +36,12 @@ pub trait HasRange {
     /// range first.
     fn byte_length(&self) -> usize {
         self.range().len()
+    }
+}
+
+impl HasRange for Range<usize> {
+    fn range(&self) -> Range<usize> {
+        self.start..self.end
     }
 }
 
@@ -440,7 +447,7 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     fn resume_at_offset(data: &'data [u8], offset: usize, encoding_hint: IonEncoding) -> Self;
 
     /// Deconstructs this reader, returning a tuple of `(remaining_data, stream_offset, encoding)`.
-    fn stream_data(&self) -> (&'data [u8], usize, IonEncoding);
+    fn save_state(&self) -> RawReaderState<'data>;
 
     fn next<'top>(
         &'top mut self,
@@ -576,13 +583,51 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn value_span(&self) -> Span<'top>;
 }
 
+pub trait RawSequenceIterator<'top, D: Decoder>:
+    Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
+{
+    /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    fn peek_next(&self) -> Option<IonResult<LazyRawValueExpr<'top, D>>> {
+        // Because RawSequenceIterator impls are `Copy`, we can make a cheap copy of `self` and advance
+        // *it* without affecting `self`.
+        let mut iter_clone = *self;
+        iter_clone.next()
+    }
+}
+
+impl<'top, D: Decoder, T> RawSequenceIterator<'top, D> for T
+where
+    T: Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>,
+{
+    // Nothing to do
+}
+
 pub trait LazyRawSequence<'top, D: Decoder>:
     LazyRawContainer<'top, D> + private::LazyContainerPrivate<'top, D> + Debug + Copy + Clone
 {
-    type Iterator: Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>;
+    type Iterator: RawSequenceIterator<'top, D>;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn ion_type(&self) -> IonType;
     fn iter(&self) -> Self::Iterator;
+}
+
+pub trait RawStructIterator<'top, D: Decoder>:
+    Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>
+{
+    /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    fn peek_next(&self) -> Option<IonResult<LazyRawFieldExpr<'top, D>>> {
+        // Because RawStructIterator impls are `Copy`, we can make a cheap copy of `self` and advance
+        // *it* without affecting `self`.
+        let mut iter_clone = *self;
+        iter_clone.next()
+    }
+}
+
+impl<'top, D: Decoder, T> RawStructIterator<'top, D> for T
+where
+    T: Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>,
+{
+    // Nothing to do
 }
 
 pub trait LazyRawStruct<'top, D: Decoder>:
@@ -593,7 +638,7 @@ pub trait LazyRawStruct<'top, D: Decoder>:
     + Copy
     + Clone
 {
-    type Iterator: Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>;
+    type Iterator: RawStructIterator<'top, D>;
 
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
 

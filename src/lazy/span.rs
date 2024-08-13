@@ -14,6 +14,18 @@ pub struct Span<'a> {
     offset: usize,
 }
 
+impl<'a> AsRef<[u8]> for Span<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes()
+    }
+}
+
+impl<'a> From<Span<'a>> for &'a [u8] {
+    fn from(value: Span<'a>) -> Self {
+        value.bytes
+    }
+}
+
 impl<'a, A: AsRef<[u8]>> PartialEq<A> for Span<'a> {
     fn eq(&self, other: &A) -> bool {
         self.bytes() == other.as_ref()
@@ -40,5 +52,13 @@ impl<'a> Span<'a> {
     pub fn expect_text(&self) -> IonResult<&'a str> {
         std::str::from_utf8(self.bytes)
             .map_err(|_| IonError::decoding_error("span text was not valid UTF-8"))
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
     }
 }

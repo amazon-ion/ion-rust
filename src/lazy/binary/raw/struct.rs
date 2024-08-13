@@ -86,6 +86,7 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawBinaryStructIterator_1_0<'top> {
     source: DataSource<'top>,
 }

@@ -45,6 +45,34 @@ pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
 
 const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 
+pub struct RawReaderState<'a> {
+    data: &'a [u8],
+    offset: usize,
+    encoding: IonEncoding,
+}
+
+impl<'a> RawReaderState<'a> {
+    pub fn new(data: &'a [u8], offset: usize, encoding: IonEncoding) -> Self {
+        Self {
+            data,
+            offset,
+            encoding,
+        }
+    }
+
+    pub fn data(&self) -> &'a [u8] {
+        self.data
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn encoding(&self) -> IonEncoding {
+        self.encoding
+    }
+}
+
 impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     pub fn new(_encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
@@ -79,6 +107,21 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     pub fn next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
+    ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
+        self.read_next(context, /*is_peek=*/ false)
+    }
+
+    pub fn peek_next<'top>(
+        &'top mut self,
+        context: EncodingContextRef<'top>,
+    ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
+        self.read_next(context, /*is_peek=*/ true)
+    }
+
+    fn read_next<'top>(
+        &'top mut self,
+        context: EncodingContextRef<'top>,
+        is_peek: bool,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
         let mut input_source_exhausted = false;
         loop {
@@ -174,13 +217,16 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                     }
                 }
 
-                // Mark those input bytes as having been consumed so they are not read again.
-                input.consume(bytes_read);
-                // Update the streaming reader's position to reflect the number of bytes we
-                // just read.
-                self.stream_position = end_position;
-                // If the item read was an IVM, this will be a new value.
-                self.detected_encoding = new_encoding;
+                // If this isn't just a peek, update our state to remember what we've already read.
+                if !is_peek {
+                    // Mark those input bytes as having been consumed so they are not read again.
+                    input.consume(bytes_read);
+                    // Update the streaming reader's position to reflect the number of bytes we
+                    // just read.
+                    self.stream_position = end_position;
+                    // If the item read was an IVM, this will be a new value.
+                    self.detected_encoding = new_encoding;
+                }
             }
 
             return result;

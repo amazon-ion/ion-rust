@@ -1,8 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::{Decoder, LazyRawContainer};
 use crate::lazy::encoding::BinaryEncoding_1_0;
@@ -14,6 +11,8 @@ use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef};
+use std::fmt;
+use std::fmt::{Debug, Formatter};
 
 /// An as-of-yet unread binary Ion struct. `LazyStruct` is immutable; its fields and annotations
 /// can be read any number of times.
@@ -297,6 +296,39 @@ impl<'top, D: Decoder> LazyField<'top, D> {
     pub fn value(&self) -> LazyValue<'top, D> {
         LazyValue {
             expanded_value: self.expanded_field.value(),
+        }
+    }
+
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn raw_name(&self) -> Option<D::FieldName<'top>> {
+        if let crate::LazyExpandedFieldName::RawName(_context, raw_name) =
+            self.expanded_field.name()
+        {
+            Some(raw_name)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn raw_value(&self) -> Option<D::Value<'top>> {
+        if let crate::ExpandedValueSource::ValueLiteral(literal) =
+            self.expanded_field.value().source()
+        {
+            Some(literal)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn range(&self) -> Option<std::ops::Range<usize>> {
+        use crate::HasRange;
+        match (self.raw_name(), self.raw_value()) {
+            (Some(raw_name), Some(raw_value)) => {
+                Some(raw_name.range().start..raw_value.range().end)
+            }
+            _ => None,
         }
     }
 }

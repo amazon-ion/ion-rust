@@ -6,7 +6,7 @@ use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_table::MacroTable;
 use crate::lazy::expanded::template::TemplateMacro;
-use crate::lazy::expanded::{ExpandingReader, LazyExpandedValue};
+use crate::lazy::expanded::{ExpandedStreamItem, ExpandingReader, LazyExpandedValue};
 use crate::lazy::sequence::SExpIterator;
 use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
@@ -195,10 +195,19 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         self.expanding_reader.pending_context_changes()
     }
 
-    /// Returns the next top-level stream item (IVM, Symbol Table, Value, or Nothing) as a
-    /// [`SystemStreamItem`].
-    pub fn next_item(&mut self) -> IonResult<SystemStreamItem<'_, Encoding>> {
+    /// Returns the next top-level stream item (IVM, symbol table, encoding directive, Value, or nothing)
+    /// as an [`ExpandedStreamItem`].
+    ///
+    /// This method exists largely for tooling; most applications will want to
+    /// use [`next_item`](Self::next_item).
+    pub fn next_expanded_item(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
         self.expanding_reader.next_item()
+    }
+
+    /// Returns the next top-level stream item (IVM, symbol table, encoding directive, Value, or nothing)
+    /// as a [`SystemStreamItem`].
+    pub fn next_item(&mut self) -> IonResult<SystemStreamItem<'_, Encoding>> {
+        self.expanding_reader.next_system_item()
     }
 
     /// Returns the next value that is part of the application data model, bypassing all encoding
@@ -1077,7 +1086,7 @@ mod tests {
             &[
                 Symbol::from("foo"),
                 Symbol::from("bar"),
-                Symbol::from("baz")
+                Symbol::from("baz"),
             ]
         );
 
@@ -1087,11 +1096,11 @@ mod tests {
         // This directive defines two more.
         assert_eq!(new_macro_table.len(), 2 + MacroTable::NUM_SYSTEM_MACROS);
         assert_eq!(
-            new_macro_table.macro_with_id(4),
+            new_macro_table.macro_with_id(MacroTable::FIRST_USER_MACRO_ID),
             new_macro_table.macro_with_name("seventeen")
         );
         assert_eq!(
-            new_macro_table.macro_with_id(5),
+            new_macro_table.macro_with_id(MacroTable::FIRST_USER_MACRO_ID + 1),
             new_macro_table.macro_with_name("twelve")
         );
 
