@@ -76,6 +76,10 @@ impl Opcode {
             (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
             (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
+            (0xF, 0x0) => (DelimitedContainerClose, low_nibble, None),
+            (0xF, 0x1) => (ListDelimited, low_nibble, Some(IonType::List)),
+            (0xF, 0x2) => (SExpressionDelimited, low_nibble, Some(IonType::SExp)),
+            (0xF, 0x3) => (StructDelimited, low_nibble, Some(IonType::Struct)),
             (0xF, 0x5) => (EExpressionWithLengthPrefix, low_nibble, None),
             (0xF, 0x6) => (LargeInteger, low_nibble, Some(IonType::Int)),
             (0xF, 0x7) => (Decimal, 0xFF, Some(IonType::Decimal)),
@@ -130,6 +134,14 @@ impl Opcode {
         self.low_nibble
     }
 
+    pub fn is_delimited_start(&self) -> bool {
+        self.opcode_type.is_delimited_start()
+    }
+
+    pub fn is_delimited_end(&self) -> bool {
+        self.opcode_type.is_delimited_end()
+    }
+
     #[inline]
     pub fn to_header(self) -> Option<Header> {
         let ion_type = self.ion_type?;
@@ -145,6 +157,7 @@ impl Opcode {
 pub enum LengthType {
     InOpcode(u8),
     FlexUIntFollows,
+    Unknown,
 }
 
 /// Represents a `TypeDescriptor` that appears before an Ion value (and not a NOP, IVM,
@@ -182,6 +195,13 @@ impl Header {
             }
             (OpcodeType::TypedNull, _) => InOpcode(1),
             (OpcodeType::Struct, n) if n < 16 => InOpcode(n),
+            (OpcodeType::DelimitedContainerClose, 0) => InOpcode(0),
+            (
+                OpcodeType::ListDelimited
+                | OpcodeType::SExpressionDelimited
+                | OpcodeType::StructDelimited,
+                _,
+            ) => Unknown,
             _ => FlexUIntFollows,
         }
     }

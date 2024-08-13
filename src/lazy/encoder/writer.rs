@@ -252,12 +252,15 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
         let mut annotations = annotations.into_annotations_vec();
         match self.config().annotations_encoding() {
             AnnotationsEncoding::WriteAsSymbolIds => {
+                // Intern all text so everything we write is a symbol ID
                 self.map_all_annotations_to_symbol_ids(&mut annotations)?
             }
             AnnotationsEncoding::WriteAsInlineText => {
+                // Validate the symbol IDs, write the text as-is
                 self.validate_all_symbol_ids(&mut annotations)?
             }
             AnnotationsEncoding::WriteNewSymbolsAsInlineText => {
+                // Map all known strings to symbol IDs, leave new text as is.
                 self.map_known_symbols_to_symbol_ids(&mut annotations)?
             }
         };
@@ -663,10 +666,11 @@ impl<S: SequenceWriter> ElementWriter for S {
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::value_writer::AnnotatableWriter;
+    use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_1, AnnotationsEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef, SequenceWriter,
-        SymbolValueEncoding, SystemReader, ValueWriter, Writer,
+        v1_1, HasSpan, IonResult, LazyRawValue, RawSymbolRef, SequenceWriter, SystemReader,
+        ValueWriter, Writer,
     };
 
     fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
@@ -823,6 +827,7 @@ mod tests {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn write_text_annotations_as_is() -> IonResult<()> {
         use RawSymbolRef::*;
         annotations_sequence_encoding_test(
@@ -833,7 +838,8 @@ mod tests {
                 0x15, // FlexUInt byte length: 10
                 0xF9, // FlexSym: 4 UTF-8 bytes
                 // n     a     m     e
-                0x6E, 0x61, 0x6D, 0x65, 0x0D, // FlexSym: SID $6
+                0x6E, 0x61, 0x6D, 0x65,
+                0x0D, // FlexSym: SID $6
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 // f     o     o
                 0x66, 0x6F, 0x6F,

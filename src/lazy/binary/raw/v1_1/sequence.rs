@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
-use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryValue_1_1;
+use crate::lazy::binary::raw::v1_1::value::{DelimitedContents, LazyRawBinaryValue_1_1};
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::encoding::BinaryEncoding_1_1;
@@ -22,8 +22,16 @@ pub struct LazyRawBinarySExp_1_1<'top> {
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'top> {
     fn from_value(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
+        let delimited_expr_cache = match value.delimited_contents {
+            DelimitedContents::None => None,
+            DelimitedContents::Values(values) => Some(values),
+            DelimitedContents::Fields(_) => unreachable!("sequence contained fields"),
+        };
         LazyRawBinaryList_1_1 {
-            sequence: LazyRawBinarySequence_1_1 { value },
+            sequence: LazyRawBinarySequence_1_1 {
+                value,
+                delimited_expr_cache,
+            },
         }
     }
 }
@@ -52,8 +60,16 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinaryList_1_1<'
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'top> {
     fn from_value(value: &'top LazyRawBinaryValue_1_1<'top>) -> Self {
+        let delimited_expr_cache = match value.delimited_contents {
+            DelimitedContents::None => None,
+            DelimitedContents::Values(values) => Some(values),
+            DelimitedContents::Fields(_) => unreachable!("sequence contained fields"),
+        };
         LazyRawBinarySExp_1_1 {
-            sequence: LazyRawBinarySequence_1_1 { value },
+            sequence: LazyRawBinarySequence_1_1 {
+                value,
+                delimited_expr_cache,
+            },
         }
     }
 }
@@ -83,16 +99,33 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_1> for LazyRawBinarySExp_1_1<'
 #[derive(Copy, Clone)]
 pub struct LazyRawBinarySequence_1_1<'top> {
     pub(crate) value: &'top LazyRawBinaryValue_1_1<'top>,
+    pub(crate) delimited_expr_cache: Option<&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]>,
 }
 
 impl<'top> LazyRawBinarySequence_1_1<'top> {
+    pub fn new(
+        value: &'top LazyRawBinaryValue_1_1<'top>,
+        delimited_expr_cache: Option<&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]>,
+    ) -> Self {
+        Self {
+            value,
+            delimited_expr_cache,
+        }
+    }
+
     pub fn ion_type(&self) -> IonType {
         self.value.ion_type()
     }
 
     pub fn iter(&self) -> RawBinarySequenceIterator_1_1<'top> {
-        let buffer_slice = self.value.value_body_buffer();
-        RawBinarySequenceIterator_1_1::new(buffer_slice)
+        // Get as much of the sequence's body as is available in the input buffer.
+        // Reading a child value may fail as `Incomplete`
+        let buffer_slice = if self.value.is_delimited() {
+            self.value.input
+        } else {
+            self.value.value_body_buffer()
+        };
+        RawBinarySequenceIterator_1_1::new(buffer_slice, self.delimited_expr_cache)
     }
 }
 
@@ -131,12 +164,23 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RawBinarySequenceIterator_1_1<'top> {
-    input: ImmutableBuffer<'top>,
+    source: ImmutableBuffer<'top>,
+    bytes_to_skip: usize,
+    delimited_expr_cache: Option<&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]>,
+    expr_cache_index: usize,
 }
 
 impl<'top> RawBinarySequenceIterator_1_1<'top> {
-    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator_1_1<'top> {
-        RawBinarySequenceIterator_1_1 { input }
+    pub(crate) fn new(
+        input: ImmutableBuffer<'top>,
+        delimited_expr_cache: Option<&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]>,
+    ) -> RawBinarySequenceIterator_1_1<'top> {
+        RawBinarySequenceIterator_1_1 {
+            source: input,
+            bytes_to_skip: 0,
+            delimited_expr_cache,
+            expr_cache_index: 0,
+        }
     }
 }
 
@@ -144,11 +188,19 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_1<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (maybe_item, remaining_input) = try_or_some_err!(self.input.read_sequence_value_expr());
-        if let Some(item) = maybe_item {
-            self.input = remaining_input;
-            return Some(Ok(item));
+        if let Some(expr_cache) = self.delimited_expr_cache {
+            let expr = expr_cache.get(self.expr_cache_index)?;
+            self.expr_cache_index += 1;
+            Some(Ok(*expr))
+        } else {
+            self.source = self.source.consume(self.bytes_to_skip);
+            let (maybe_item, remaining_input) =
+                try_or_some_err!(self.source.read_sequence_value_expr());
+            if let Some(item) = maybe_item {
+                self.source = remaining_input;
+                return Some(Ok(item));
+            }
+            None
         }
-        None
     }
 }

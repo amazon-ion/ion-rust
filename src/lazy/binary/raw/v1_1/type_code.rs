@@ -36,11 +36,11 @@ pub enum OpcodeType {
     TypedNull,            // 0xEB      -
     Nop,                  // 0xEC-0xED -
     // Reserved
-    SystemMacroInvoke, // 0xEF      -
-    // 0xF0 delimited container end
-    // 0xF1 delimited list start
-    // 0xF2 delimited s-expression start
-    // 0xF3 delimited struct start
+    SystemMacroInvoke,           // 0xEF      -
+    DelimitedContainerClose,     // 0xF0
+    ListDelimited,               // 0xF1
+    SExpressionDelimited,        // 0xF2
+    StructDelimited,             // 0xF3
     EExpressionWithLengthPrefix, // 0xF5
     LargeInteger,                // 0xF6 - Integer preceded by FlexUInt length
     Blob,                        // 0xFE -
@@ -53,6 +53,19 @@ pub enum OpcodeType {
     // 0xFC - Long sexp
     // 0xFD - Long struct
     Invalid, // Represents an encoded value that does not match a defined opcode.
+}
+
+impl OpcodeType {
+    pub fn is_delimited_start(self) -> bool {
+        matches!(
+            self,
+            Self::ListDelimited | Self::SExpressionDelimited | Self::StructDelimited
+        )
+    }
+
+    pub fn is_delimited_end(self) -> bool {
+        Self::DelimitedContainerClose == self
+    }
 }
 
 impl TryFrom<OpcodeType> for IonType {

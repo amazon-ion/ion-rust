@@ -16,7 +16,6 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
-use ice_code::ice;
 
 use crate::lazy::decoder::{Decoder, HasSpan, LazyRawValueExpr};
 use crate::lazy::expanded::e_expression::{
@@ -408,16 +407,16 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
     }
 
     /// Expands the current macro with the expectation that it will produce exactly one value.
+    /// For more information about singleton macros, see
+    /// [`ExpansionSingleton`](crate::lazy::expanded::compiler::ExpansionSingleton).
     #[inline(always)]
     pub(crate) fn expand_singleton(mut self) -> IonResult<LazyExpandedValue<'top, D>> {
         // We don't need to construct an evaluator because this is guaranteed to produce exactly
         // one value.
         match self.next_step()? {
-            // If the expansion produces anything other than a final value, there's a bug.
             MacroExpansionStep::FinalStep(Some(ValueExpr::ValueLiteral(value))) => Ok(value),
-            _ => ice!(IonResult::decoding_error(format!(
-                "expansion of {self:?} was required to produce exactly one value",
-            ))),
+            // If the expansion produces anything other than a final value, there's a bug.
+            _ => unreachable!("expansion of {self:?} was required to produce exactly one value"),
         }
     }
 
