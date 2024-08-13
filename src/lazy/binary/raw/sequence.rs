@@ -139,6 +139,7 @@ impl<'a> Debug for LazyRawBinarySequence_1_0<'a> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawBinarySequenceIterator_1_0<'top> {
     source: DataSource<'top>,
 }

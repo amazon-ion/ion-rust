@@ -96,19 +96,6 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum DelimitedContents<'top> {
-    None,
-    Values(&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]),
-    Fields(&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]),
-}
-
-impl<'top> DelimitedContents<'top> {
-    pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryValue_1_1<'top> {
     pub(crate) encoded_value: EncodedValue<Header>,
     pub(crate) input: ImmutableBuffer<'top>,
@@ -278,6 +265,19 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         let range = self.encoded_value.unannotated_value_range();
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum DelimitedContents<'top> {
+    None,
+    Values(&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]),
+    Fields(&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]),
+}
+
+impl<'top> DelimitedContents<'top> {
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
     }
 }
 

@@ -1149,10 +1149,12 @@ impl<'top> LazyContainerPrivate<'top, AnyEncoding> for LazyRawAnyList<'top> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawAnyListIterator<'data> {
     encoding: RawAnyListIteratorKind<'data>,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum RawAnyListIteratorKind<'data> {
     Text_1_0(RawTextListIterator_1_0<'data>),
     Binary_1_0(RawBinarySequenceIterator_1_0<'data>),
@@ -1310,10 +1312,12 @@ impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnySExp<'data> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawAnySExpIterator<'data> {
     encoding: RawAnySExpIteratorKind<'data>,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum RawAnySExpIteratorKind<'data> {
     Text_1_0(RawTextSExpIterator_1_0<'data>),
     Binary_1_0(RawBinarySequenceIterator_1_0<'data>),
@@ -1513,10 +1517,12 @@ impl<'top> From<LazyRawBinaryFieldName_1_1<'top>> for LazyRawAnyFieldName<'top> 
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct RawAnyStructIterator<'data> {
     encoding: RawAnyStructIteratorKind<'data>,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum RawAnyStructIteratorKind<'data> {
     Text_1_0(RawTextStructIterator_1_0<'data>),
     Binary_1_0(RawBinaryStructIterator_1_0<'data>),
