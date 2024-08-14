@@ -1081,20 +1081,9 @@ impl<'top> TextBufferView<'top> {
         Ok((remaining, arg_group))
     }
 
-    /// Matches an e-expression invoking a macro.
-    ///
-    /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
-    pub fn match_e_expression(self) -> IonParseResult<'top, TextEExpression_1_1<'top>> {
-        let (eexp_body, _opening_tag) = tag("(:")(self)?;
-        // TODO: Support macro ID kinds besides unqualified names
+    pub fn match_e_expression_name(self) -> IonParseResult<'top, MacroIdRef<'top>> {
         let (exp_body_after_id, (macro_id_bytes, matched_symbol)) =
-            consumed(Self::match_identifier)(eexp_body)?;
-        if exp_body_after_id.is_empty() {
-            // Unlike a symbol value with identifier syntax, an e-expression identifier cannot be
-            // the last thing in the stream.
-            return Err(nom::Err::Incomplete(Needed::Unknown));
-        }
-
+            consumed(Self::match_identifier)(self)?;
         let id = match matched_symbol
             .read(self.context.allocator(), macro_id_bytes)
             .expect("matched identifier but failed to read its bytes")
@@ -1102,8 +1091,41 @@ impl<'top> TextBufferView<'top> {
             RawSymbolRef::SymbolId(_) => unreachable!("matched a text identifier, returned a SID"),
             RawSymbolRef::Text(text) => MacroIdRef::LocalName(text),
         };
+        Ok((exp_body_after_id, id))
+    }
 
-        let mut remaining = exp_body_after_id;
+    pub fn match_e_expression_address(self) -> IonParseResult<'top, MacroIdRef<'top>> {
+        let (exp_body_after_id, (matched_bytes, matched_int)) = consumed(Self::match_int)(self)?;
+        let matched_address = matched_int
+            .read(matched_bytes)
+            .expect("matched integer but failed to read it");
+        let Some(address) = matched_address.as_usize() else {
+            return fatal_parse_error(self, "found a macro address outside the supported range");
+        };
+        let id = MacroIdRef::LocalAddress(address);
+        Ok((exp_body_after_id, id))
+    }
+
+    pub fn match_e_expression_id(self) -> IonParseResult<'top, MacroIdRef<'top>> {
+        let (input_after_id, id) = alt((
+            Self::match_e_expression_name,
+            Self::match_e_expression_address,
+        ))(self)?;
+
+        if input_after_id.is_empty() {
+            // Unlike a symbol value with identifier syntax, an e-expression identifier cannot be
+            // the last thing in the stream.
+            return Err(nom::Err::Incomplete(Needed::Unknown));
+        };
+        Ok((input_after_id, id))
+    }
+
+    /// Matches an e-expression invoking a macro.
+    ///
+    /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
+    pub fn match_e_expression(self) -> IonParseResult<'top, TextEExpression_1_1<'top>> {
+        let (eexp_body, _opening_tag) = tag("(:")(self)?;
+        let (mut remaining, id) = Self::match_e_expression_id(eexp_body)?;
         let mut arg_expr_cache = BumpVec::new_in(self.context.allocator());
 
         let macro_ref: &'top Macro = self
@@ -3006,13 +3028,22 @@ mod tests {
             "(:foo (1 2 3))",
             "(:foo \"foo\")",
             "(:foo foo)",
+            "(:4)",
+            "(:4 1)",
+            "(:4 1 2 3)",
+            "(:4 (1 2 3))",
+            "(:4 \"foo\")",
+            "(:4 foo)",
         ],
         expect_mismatch: [
             "foo",   // No parens
             "(foo)", // No `:` after opening paren
+            "(4",    // No parens
+            "(4)",   // No `:` after opening paren
         ],
         expect_incomplete: [
-            "(:foo"
+            "(:foo",
+            "(:4"
         ]
     }
 
