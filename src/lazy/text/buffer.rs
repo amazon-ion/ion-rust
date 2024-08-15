@@ -1142,7 +1142,7 @@ impl<'top> TextBufferView<'top> {
                 Some(arg) => arg_expr_cache.push(arg),
                 None => {
                     for param in &signature_params[index..] {
-                        if param.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
+                        if !param.can_be_omitted() {
                             return fatal_parse_error(
                                 self,
                                 format!(
@@ -1242,8 +1242,16 @@ impl<'top> TextBufferView<'top> {
         }
     }
 
-    pub fn match_empty_arg_group(self) -> IonMatchResult<'top> {
-        recognize(pair(tag("(:"), whitespace_and_then(tag(")"))))(self)
+    pub fn match_empty_arg_group(
+        self,
+        parameter: &'top Parameter,
+    ) -> IonParseResult<'top, EExpArg<'top, TextEncoding_1_1>> {
+        recognize(pair(tag("(:"), whitespace_and_then(tag(")"))))
+            .map(|matched_expr| {
+                let arg_group = TextEExpArgGroup::new(parameter, matched_expr, &[]);
+                EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group))
+            })
+            .parse(self)
     }
 
     pub fn match_zero_or_one(
@@ -1251,7 +1259,7 @@ impl<'top> TextBufferView<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
         whitespace_and_then(alt((
-            Self::match_empty_arg_group.map(|_| None),
+            Self::parser_with_arg(Self::match_empty_arg_group, parameter).map(Some),
             // TODO: Match a non-empty arg group and turn it into a failure with a helpful error message
             Self::match_sexp_value_1_1.map(|maybe_expr| {
                 maybe_expr.map(|expr| {
@@ -1285,7 +1293,7 @@ impl<'top> TextBufferView<'top> {
         self,
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
-        if self.match_empty_arg_group().is_ok() {
+        if self.match_empty_arg_group(parameter).is_ok() {
             return Err(nom::Err::Failure(IonParseError::Invalid(
                 InvalidInputError::new(self).with_description(format!(
                     "parameter '{}' is one-or-more (`+`) and cannot accept an empty stream",
@@ -2660,8 +2668,8 @@ mod tests {
     }
 
     macro_rules! matcher_tests_with_macro {
-        ($parser:ident $macro_src:literal $($expect:ident: [$($input:literal),+$(,)?]),+$(,)?) => {
-            mod $parser {
+        ($mod_name:ident $parser:ident $macro_src:literal $($expect:ident: [$($input:literal),+$(,)?]),+$(,)?) => {
+            mod $mod_name {
                 use super::*;
                 $(
                 #[test]
@@ -2967,6 +2975,7 @@ mod tests {
     }
 
     matcher_tests_with_macro! {
+        parsing_sexps
         match_sexp_1_1
         "(macro foo (x*) null)"
         expect_match: [
@@ -3001,6 +3010,7 @@ mod tests {
     }
 
     matcher_tests_with_macro! {
+        parsing_lists
         match_list_1_1
         "(macro foo (x*) null)"
         expect_match: [
@@ -3015,6 +3025,7 @@ mod tests {
     }
 
     matcher_tests_with_macro! {
+        parsing_eexps
         match_e_expression
         "(macro foo (x*) null)"
         expect_match: [
@@ -3043,6 +3054,22 @@ mod tests {
         expect_incomplete: [
             "(:foo",
             "(:4"
+        ]
+    }
+
+    matcher_tests_with_macro! {
+        allow_omitting_trailing_optionals
+        match_e_expression
+        "(macro foo (a b+ c? d*) null)"
+        expect_match: [
+            "(:foo 1 2)",
+            "(:foo 1 2 3)",
+            "(:foo 1 2 3 4)",
+            "(:foo 1 2 3 4 5 6)", // implicit rest
+        ],
+        expect_mismatch: [
+            "(:foo 1)",
+            "(:foo)",
         ]
     }
 

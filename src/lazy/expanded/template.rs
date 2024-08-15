@@ -49,6 +49,13 @@ impl Parameter {
     pub fn is_variadic(&self) -> bool {
         !matches!(self.cardinality, ParameterCardinality::ExactlyOne)
     }
+    /// Returns true if a text e-expression can omit this argument.
+    ///
+    /// Arguments for parameters with a cardinality of zero-or-one (`?`) or zero-or-more (`*`) can
+    /// be omitted if there are no other arguments being passed.
+    pub fn can_be_omitted(&self) -> bool {
+        matches!(self.cardinality, ParameterCardinality::ZeroOrOne | ParameterCardinality::ZeroOrMore)
+    }
 }
 
 /// The encoding used to serialize and deserialize the associated parameter.
