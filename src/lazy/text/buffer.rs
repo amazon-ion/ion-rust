@@ -3037,7 +3037,7 @@ mod tests {
             "(foo)", // No `:` after opening paren
             "(4",    // No parens
             "(4)",   // No `:` after opening paren
-            "(:0x4)",     // Hexadecimal not allowed
+            "(:0x4)",   // Hexadecimal not allowed
             "(:4_000)", // Underscores not allowed
         ],
         expect_incomplete: [
