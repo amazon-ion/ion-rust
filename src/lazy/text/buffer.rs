@@ -3030,13 +3030,15 @@ mod tests {
             "(:4 (1 2 3))",
             "(:4 \"foo\")",
             "(:4 foo)",
+            "(:004 foo)", // Leading zeros are ok/ignored
         ],
         expect_mismatch: [
             "foo",   // No parens
             "(foo)", // No `:` after opening paren
             "(4",    // No parens
             "(4)",   // No `:` after opening paren
-            "(:0x4)",   // Hexadecimal not allowed
+            "(:0x4)",     // Hexadecimal not allowed
+            "(:4_000)", // Underscores not allowed
         ],
         expect_incomplete: [
             "(:foo",
