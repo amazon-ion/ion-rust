@@ -1833,7 +1833,7 @@ impl<'top> TextBufferView<'top> {
         terminated(complete_digit1, peek(not(complete_tag("_"))))
             .map(|buffer: TextBufferView| {
                 // The matched buffer is ascii base 10 digits, parsing must succeed
-                usize::from_str(dbg!(buffer.as_utf8(self.offset()).unwrap())).unwrap()
+                usize::from_str(buffer.as_utf8(self.offset()).unwrap()).unwrap()
             })
             .parse(self)
     }
