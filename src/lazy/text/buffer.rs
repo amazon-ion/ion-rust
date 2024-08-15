@@ -3066,6 +3066,9 @@ mod tests {
             "(:foo 1 2 3)",
             "(:foo 1 2 3 4)",
             "(:foo 1 2 3 4 5 6)", // implicit rest
+            "(:foo 1 2 3 (:))",   // explicit empty stream
+            "(:foo 1 2 (:) 4)",
+            "(:foo 1 2 (:) (:))",
         ],
         expect_mismatch: [
             "(:foo 1)",
