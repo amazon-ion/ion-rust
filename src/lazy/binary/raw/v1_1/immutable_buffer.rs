@@ -505,8 +505,7 @@ impl<'a> ImmutableBuffer<'a> {
             }
             Ok((None, after_nops))
         } else {
-            self.read_value(opcode)
-                .map(|(v, after)| (Some(v), after))
+            self.read_value(opcode).map(|(v, after)| (Some(v), after))
         }
     }
 
@@ -627,28 +626,33 @@ impl<'a> ImmutableBuffer<'a> {
         })?;
 
         let header_offset = input.offset();
-        let (total_length, length_length, value_body_length, delimited_contents) = if opcode.is_delimited_start() {
-            let (contents, after) = input.peek_delimited_container(opcode)?;
-            let total_length = after.offset() - self.offset();
-            let value_body_length = total_length - 1; // Total length - sizeof(opcode)
-            (total_length, 0, value_body_length, contents)
-        } else {
-            let length = match header.length_type() {
-                LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),
-                LengthType::Unknown => FlexUInt::new(0, 0), // Delimited value, we do not know the size.
-                // This call to `read_value_length` is not always inlined, so we avoid the method call
-                // if possible.
-                LengthType::FlexUIntFollows => input.consume(1).read_flex_uint()?.0,
-            };
+        let (total_length, length_length, value_body_length, delimited_contents) =
+            if opcode.is_delimited_start() {
+                let (contents, after) = input.peek_delimited_container(opcode)?;
+                let total_length = after.offset() - self.offset();
+                let value_body_length = total_length - 1; // Total length - sizeof(opcode)
+                (total_length, 0, value_body_length, contents)
+            } else {
+                let length = match header.length_type() {
+                    LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),
+                    LengthType::Unknown => FlexUInt::new(0, 0), // Delimited value, we do not know the size.
+                    // This call to `read_value_length` is not always inlined, so we avoid the method call
+                    // if possible.
+                    LengthType::FlexUIntFollows => input.consume(1).read_flex_uint()?.0,
+                };
 
-
-            let length_length = length.size_in_bytes() as u8;
-            let value_length = length.value() as usize; // ha
-            let total_length = 1 // Header byte
+                let length_length = length.size_in_bytes() as u8;
+                let value_length = length.value() as usize; // ha
+                let total_length = 1 // Header byte
                 + length_length as usize
                 + value_length;
-            (total_length, length_length, value_length, DelimitedContents::None)
-        };
+                (
+                    total_length,
+                    length_length,
+                    value_length,
+                    DelimitedContents::None,
+                )
+            };
 
         if total_length > input.len() {
             return IonResult::incomplete(
@@ -718,8 +722,12 @@ impl<'a> ImmutableBuffer<'a> {
     fn read_annotations_sequence(self, opcode: Opcode) -> ParseResult<'a, EncodedAnnotations> {
         match opcode.opcode_type {
             OpcodeType::AnnotationFlexSym => self.read_flex_sym_annotations_sequence(opcode),
-            OpcodeType::SymbolAddress => self.read_symbol_address_annotations_sequence(opcode),
-            _ => unreachable!("read_annotations_sequence called for non-annotations opcode"),
+            OpcodeType::AnnotationSymAddress => {
+                self.read_symbol_address_annotations_sequence(opcode)
+            }
+            opcode => unreachable!(
+                "read_annotations_sequence called for non-annotations opcode {opcode:?}"
+            ),
         }
     }
 
@@ -728,68 +736,137 @@ impl<'a> ImmutableBuffer<'a> {
         opcode: Opcode,
     ) -> ParseResult<'a, EncodedAnnotations> {
         let input_after_opcode = self.consume(1);
-        // TODO: This implementation actively reads the annotations, which isn't necessary.
-        //       At this phase of parsing we can just identify the buffer slice that contains
-        //       the annotations and remember their encoding; later on, the annotations iterator
-        //       can actually do the reading. That optimization would be impactful for FlexSyms
-        //       that represent inline text.
-        let (sequence, remaining_input) = match opcode.low_nibble() {
+        let (header_length, remaining_input) = match opcode.low_nibble() {
             7 => {
-                let (flex_sym, remaining_input) = input_after_opcode.read_flex_sym()?;
-                let sequence = EncodedAnnotations {
-                    encoding: AnnotationsEncoding::FlexSym,
-                    header_length: 1, // 0xE7
-                    sequence_length: u16::try_from(flex_sym.size_in_bytes()).map_err(|_| {
-                        IonError::decoding_error(
-                            "the maximum supported annotations sequence length is 65KB.",
-                        )
-                    })?,
-                };
-                (sequence, remaining_input)
+                let header_length = 1;
+                let remaining_input = input_after_opcode.consume_flex_sym()?;
+                (header_length, remaining_input)
             }
             8 => {
-                let (flex_sym1, input_after_sym1) = input_after_opcode.read_flex_sym()?;
-                let (flex_sym2, input_after_sym2) = input_after_sym1.read_flex_sym()?;
-                let combined_length = flex_sym1.size_in_bytes() + flex_sym2.size_in_bytes();
-                let sequence = EncodedAnnotations {
-                    encoding: AnnotationsEncoding::FlexSym,
-                    header_length: 1, // 0xE8
-                    sequence_length: u16::try_from(combined_length).map_err(|_| {
-                        IonError::decoding_error(
-                            "the maximum supported annotations sequence length is 65KB.",
-                        )
-                    })?,
-                };
-                (sequence, input_after_sym2)
+                let header_length = 1;
+                let remaining_input = input_after_opcode.consume_flex_sym()?.consume_flex_sym()?;
+                (header_length, remaining_input)
             }
             9 => {
-                let (flex_uint, remaining_input) = input_after_opcode.read_flex_uint()?;
-                let sequence = EncodedAnnotations {
-                    encoding: AnnotationsEncoding::FlexSym,
-                    header_length: u8::try_from(1 + flex_uint.size_in_bytes()).map_err(|_| {
-                        IonError::decoding_error("found a 256+ byte annotations header")
-                    })?,
-                    sequence_length: u16::try_from(flex_uint.value()).map_err(|_| {
-                        IonError::decoding_error(
-                            "the maximum supported annotations sequence length is 65KB.",
-                        )
-                    })?,
-                };
-                (
-                    sequence,
-                    remaining_input.consume(sequence.sequence_length as usize),
-                )
+                let (flex_uint, input_after_header) = input_after_opcode.read_flex_uint()?;
+                let sequence_length = flex_uint.value() as usize;
+                if input_after_header.len() < sequence_length {
+                    return IonResult::incomplete(
+                        "reading an annotations sequence",
+                        input_after_header.offset(),
+                    );
+                }
+                // Header = 0xE6, followed by FlexUInt size in bytes
+                let header_length = u8::try_from(1 + flex_uint.size_in_bytes()).map_err(|_| {
+                    IonError::decoding_error("found a 256+ byte annotations header")
+                })?;
+                let remaining = input_after_header.consume(sequence_length);
+                (header_length, remaining)
             }
             _ => unreachable!("reading flexsym annotations sequence with invalid length code"),
         };
+
+        let sequence_length =
+            u16::try_from(remaining_input.offset() - (self.offset() + header_length as usize))
+                .map_err(|_| {
+                    IonError::decoding_error(
+                        "the maximum supported annotations sequence length is 65KB",
+                    )
+                })?;
+
+        let sequence = EncodedAnnotations {
+            encoding: AnnotationsEncoding::FlexSym,
+            header_length,
+            sequence_length,
+        };
+
         Ok((sequence, remaining_input))
+    }
+
+    /// Skips beyond a `FlexSym` at the head of the buffer, returning the remaining slice.
+    fn consume_flex_sym(self) -> IonResult<Self> {
+        // TODO: As an optimization, see if we can avoid actually reading the flex_sym.
+        let (flex_sym, remaining) = self.read_flex_sym()?;
+        if let FlexSymValue::Opcode(opcode) = flex_sym.value() {
+            todo!("FlexSym escapes in annotation sequences; opcode: {opcode:?}");
+        }
+
+        Ok(remaining)
+    }
+
+    /// Skips beyond a `FlexUInt` at the head of the buffer, returning the remaining slice.
+    fn consume_flex_uint(self) -> IonResult<Self> {
+        match self.peek_next_byte() {
+            Some(0) => {
+                // This is a big FlexUInt; for now, fall back to the read impl.
+                let (_flex_uint, remaining) = self.read_flex_uint()?;
+                return Ok(remaining);
+            }
+            Some(byte) => {
+                let num_bytes = (byte.trailing_zeros() + 1) as usize;
+                // If we have enough data in the buffer, skip over the FlexUInt and return the tail.
+                if self.len() >= num_bytes {
+                    return Ok(self.consume(num_bytes));
+                }
+                // Otherwise, it's incomplete.
+            }
+            None => {
+                // If there's no data in the buffer, it's incomplete.
+            }
+        }
+
+        IonResult::incomplete("skipping a FlexUInt", self.offset())
     }
 
     fn read_symbol_address_annotations_sequence(
         self,
-        _opcode: Opcode,
+        opcode: Opcode,
     ) -> ParseResult<'a, EncodedAnnotations> {
-        todo!()
+        let input_after_opcode = self.consume(1);
+        let (header_length, remaining_input) = match opcode.low_nibble() {
+            4 => {
+                let remaining = input_after_opcode.consume_flex_uint()?;
+                (/* Header=0xE4, Length=*/ 1, remaining)
+            }
+            5 => {
+                let remaining = input_after_opcode
+                    .consume_flex_uint()?
+                    .consume_flex_uint()?;
+                (/* Header=0xE5, Length=*/ 1, remaining)
+            }
+            6 => {
+                let (flex_uint, input_after_header) = input_after_opcode.read_flex_uint()?;
+                let sequence_length = flex_uint.value() as usize;
+                if input_after_header.len() < sequence_length {
+                    return IonResult::incomplete(
+                        "reading an annotations sequence",
+                        input_after_header.offset(),
+                    );
+                }
+                // Header = 0xE6, followed by FlexUInt size in bytes
+                let header_length = u8::try_from(1 + flex_uint.size_in_bytes()).map_err(|_| {
+                    IonError::decoding_error("found a 256+ byte annotations header")
+                })?;
+                let remaining = input_after_header.consume(sequence_length);
+                (header_length, remaining)
+            }
+            _ => unreachable!("reading flexsym annotations sequence with invalid length code"),
+        };
+
+        let sequence_length =
+            u16::try_from(remaining_input.offset() - (self.offset() + header_length as usize))
+                .map_err(|_| {
+                    IonError::decoding_error(
+                        "the maximum supported annotations sequence length is 65KB",
+                    )
+                })?;
+
+        let sequence = EncodedAnnotations {
+            encoding: AnnotationsEncoding::SymbolAddress,
+            header_length,
+            sequence_length,
+        };
+        Ok((sequence, remaining_input))
     }
 
     #[inline]
@@ -1102,6 +1179,36 @@ mod tests {
         let buffer = ImmutableBuffer::new(context, &[0xEDu8, 0x05, 0x00, 0x00]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 4);
+    }
+
+    #[rstest]
+    #[case::single_address(&[0xE4, 0x07], 1, 1)]
+    #[case::two_addresses(&[0xE5, 0x07, 0x09], 1, 2)]
+    #[case::three_addresses(&[0xE6, 0x07, 0x07, 0x09, 0x0B], 2, 3)]
+    #[case::single_flex_sym(&[0xE7, 0x07], 1, 1)]
+    #[case::two_flex_syms(&[0xE8, 0x07, 0x09], 1, 2)]
+    #[case::three_flex_syms(&[0xE9, 0x07, 0x07, 0x09, 0x0B], 2, 3)]
+    fn read_annotations_sequence(
+        #[case] input: &[u8],
+        #[case] expected_header_length: usize,
+        #[case] expected_sequence_length: usize,
+    ) -> IonResult<()> {
+        let context = EncodingContext::empty();
+        let buffer = ImmutableBuffer::new(context.get_ref(), input);
+        let (sequence, remaining) =
+            buffer.read_annotations_sequence(Opcode::from_byte(buffer.data[0]))?;
+        assert_eq!(
+            sequence.header_length as usize, expected_header_length,
+            "header length actual {} != expected {}",
+            sequence.header_length as usize, expected_header_length
+        );
+        assert_eq!(
+            sequence.sequence_length as usize, expected_sequence_length,
+            "sequence length actual {} != expected {}",
+            sequence.sequence_length as usize, expected_sequence_length
+        );
+        assert!(remaining.is_empty(), "remaining input was not empty");
+        Ok(())
     }
 
     fn eexp_test(
