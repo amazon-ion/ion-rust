@@ -99,6 +99,10 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
         strukt.write_all(values)?;
         strukt.close()
     }
+
+    fn config(&self) -> ValueWriterConfig {
+        ValueWriterConfig::default()
+    }
 }
 
 /// There are several implementations of `ValueWriter` that simply delegate calls to an expression.
@@ -193,6 +197,7 @@ macro_rules! delegate_value_writer_to_self {
     };
 }
 
+use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
 

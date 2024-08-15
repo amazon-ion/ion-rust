@@ -9,7 +9,10 @@ use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
-use crate::{Decimal, IonError, IonResult, IonType, SystemReader, SystemStreamItem, Timestamp};
+use crate::{
+    Decimal, IonEncoding, IonError, IonResult, IonType, RawVersionMarker, SystemReader,
+    SystemStreamItem, Timestamp,
+};
 
 /// Generic method that can deserialize an object from any given type
 /// that implements `IonInput`.
@@ -18,26 +21,28 @@ where
     T: DeserializeOwned,
     I: IonInput,
 {
+    let mut ion_encoding = IonEncoding::default();
     let mut reader = SystemReader::new(AnyEncoding, input);
-    let item = reader.next_item()?;
-    match item {
-        SystemStreamItem::VersionMarker(marker) => {
-            // Note that this uses the Ion version with which the IVM was encoded rather than
-            // the Ion version the stream is switching to. We can do this because the format
-            // (i.e text or binary) stays the same when the version changes.
-            // TODO: Use new encoding, once we have APIs to get new/old encodings for the marker.
-            let is_human_readable = marker.encoding().is_text();
-            let value = reader.expect_next_value()?;
-            let value_deserializer = ValueDeserializer::new(&value, is_human_readable);
-            T::deserialize(value_deserializer)
+    loop {
+        match reader.next_item()? {
+            SystemStreamItem::VersionMarker(marker) => {
+                // It's a version marker; update the detected Ion encoding
+                ion_encoding = marker.stream_encoding_after_marker()?;
+            }
+            SystemStreamItem::Value(value) => {
+                let value_deserializer = ValueDeserializer::new(
+                    &value,
+                    /*is_human_readable=*/ ion_encoding.is_text(),
+                );
+                return T::deserialize(value_deserializer);
+            }
+            SystemStreamItem::EndOfStream(_end) => {
+                return IonResult::decoding_error("stream did not contain any values")
+            }
+            _system_value => {
+                // Ignore system values
+            }
         }
-        SystemStreamItem::Value(value) => {
-            let value_deserializer = ValueDeserializer::new(&value, true);
-            T::deserialize(value_deserializer)
-        }
-        _ => IonResult::decoding_error(
-            "The first item found as symbol table or end of stream while reading",
-        ),
     }
 }
 

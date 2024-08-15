@@ -14,6 +14,10 @@ use crate::lazy::encoder::binary::v1_1::{flex_int::FlexInt, flex_uint::FlexUInt}
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
+use crate::lazy::encoder::value_writer_config::{
+    AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, SymbolValueEncoding,
+    ValueWriterConfig,
+};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
@@ -29,29 +33,64 @@ const DEFAULT_CONTAINER_BUFFER_SIZE: usize = 512;
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     encoding_buffer: &'value mut BumpVec<'top, u8>,
-    delimited_containers: bool,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     pub fn new<'a, 'b: 'a>(
         allocator: &'b BumpAllocator,
         encoding_buffer: &'a mut BumpVec<'b, u8>,
-        delimited_containers: bool,
+        value_writer_config: ValueWriterConfig,
     ) -> BinaryValueWriter_1_1<'a, 'b> {
         BinaryValueWriter_1_1 {
             allocator,
             encoding_buffer,
-            delimited_containers,
+            value_writer_config,
         }
     }
 
+    pub fn config(&self) -> ValueWriterConfig {
+        self.value_writer_config
+    }
+
     pub fn with_delimited_containers(mut self) -> Self {
-        self.delimited_containers = true;
+        self.value_writer_config = self.value_writer_config.with_delimited_containers();
         self
     }
 
-    pub fn with_length_prefixed_containers(mut self) -> Self {
-        self.delimited_containers = false;
+    pub fn with_inline_symbol_text(mut self) -> Self {
+        self.value_writer_config = self.value_writer_config.with_delimited_containers();
+        self
+    }
+
+    pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
+        self.value_writer_config = self
+            .value_writer_config
+            .with_container_encoding(container_encoding);
+        self
+    }
+
+    pub fn with_symbol_value_encoding(
+        mut self,
+        symbol_value_encoding: SymbolValueEncoding,
+    ) -> Self {
+        self.value_writer_config = self
+            .value_writer_config
+            .with_symbol_value_encoding(symbol_value_encoding);
+        self
+    }
+
+    pub fn with_annotations_encoding(mut self, annotations_encoding: AnnotationsEncoding) -> Self {
+        self.value_writer_config = self
+            .value_writer_config
+            .with_annotations_encoding(annotations_encoding);
+        self
+    }
+
+    pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
+        self.value_writer_config = self
+            .value_writer_config
+            .with_field_name_encoding(field_name_encoding);
         self
     }
 
@@ -585,28 +624,44 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     }
 
     fn list_writer(self) -> IonResult<<Self as ValueWriter>::ListWriter> {
-        let writer = if self.delimited_containers {
-            BinaryListWriter_1_1::new_delimited(self.allocator, self.encoding_buffer)
+        let writer = if self.config().has_delimited_containers() {
+            BinaryListWriter_1_1::new_delimited(self.allocator, self.encoding_buffer, self.config())
         } else {
-            BinaryListWriter_1_1::new_length_prefixed(self.allocator, self.encoding_buffer)
+            BinaryListWriter_1_1::new_length_prefixed(
+                self.allocator,
+                self.encoding_buffer,
+                self.config(),
+            )
         };
         Ok(writer)
     }
 
     fn sexp_writer(self) -> IonResult<<Self as ValueWriter>::SExpWriter> {
-        let writer = if self.delimited_containers {
-            BinarySExpWriter_1_1::new_delimited(self.allocator, self.encoding_buffer)
+        let writer = if self.config().has_delimited_containers() {
+            BinarySExpWriter_1_1::new_delimited(self.allocator, self.encoding_buffer, self.config())
         } else {
-            BinarySExpWriter_1_1::new_length_prefixed(self.allocator, self.encoding_buffer)
+            BinarySExpWriter_1_1::new_length_prefixed(
+                self.allocator,
+                self.encoding_buffer,
+                self.config(),
+            )
         };
         Ok(writer)
     }
 
     fn struct_writer(self) -> IonResult<<Self as ValueWriter>::StructWriter> {
-        let writer = if self.delimited_containers {
-            BinaryStructWriter_1_1::new_delimited(self.allocator, self.encoding_buffer)
+        let writer = if self.config().has_delimited_containers() {
+            BinaryStructWriter_1_1::new_delimited(
+                self.allocator,
+                self.encoding_buffer,
+                self.config(),
+            )
         } else {
-            BinaryStructWriter_1_1::new_length_prefixed(self.allocator, self.encoding_buffer)
+            BinaryStructWriter_1_1::new_length_prefixed(
+                self.allocator,
+                self.encoding_buffer,
+                self.config(),
+            )
         };
         Ok(writer)
     }
@@ -631,7 +686,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(BinaryEExpWriter_1_1::new(
             self.allocator,
             self.encoding_buffer,
-            self.delimited_containers,
+            self.config(),
         ))
     }
 }
@@ -653,6 +708,7 @@ impl<'value, 'top> AnnotatableWriter for BinaryValueWriter_1_1<'value, 'top> {
             self.allocator,
             self.encoding_buffer,
             annotations.into_annotations_vec(),
+            self.config(),
         ))
     }
 }
@@ -665,6 +721,10 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_1<'value, 'top> {
     type EExpWriter = BinaryEExpWriter_1_1<'value, 'top>;
 
     delegate_value_writer_to_self!();
+
+    fn config(&self) -> ValueWriterConfig {
+        self.config()
+    }
 }
 
 /// Takes a series of `TYPE => METHOD` pairs, generating a function for each that encodes an
@@ -678,7 +738,11 @@ macro_rules! annotate_and_delegate_1_1 {
         fn $method(mut self, value: $value_type) -> IonResult<()> {
             self.encode_annotations();
             // We've encoded the annotations, now create a no-annotations ValueWriter to encode the value itself.
-            let value_writer = $crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.delimited_containers);
+            let value_writer = $crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1::new(
+                self.allocator,
+                self.buffer,
+                self.config(),
+            );
             value_writer.$method(value)?;
             Ok(())
         }
@@ -690,7 +754,7 @@ pub struct BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     annotations: AnnotationsVec<'value>,
     allocator: &'top BumpAllocator,
     buffer: &'value mut BumpVec<'top, u8>,
-    delimited_containers: bool,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
@@ -757,6 +821,7 @@ impl<'value, 'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_1<'value, 
             self.allocator,
             self.buffer,
             annotations.into_annotations_vec(),
+            self.config(),
         ))
     }
 }
@@ -803,6 +868,10 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> 
         }
         self.value_writer().eexp_writer(macro_id)
     }
+
+    fn config(&self) -> ValueWriterConfig {
+        self.value_writer_config
+    }
 }
 
 impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
@@ -810,18 +879,17 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         annotations: AnnotationsVec<'value>,
+        value_writer_config: ValueWriterConfig,
     ) -> Self {
         Self {
             allocator,
             buffer,
             annotations,
-            delimited_containers: false,
+            value_writer_config,
         }
     }
     pub(crate) fn value_writer(self) -> BinaryValueWriter_1_1<'value, 'top> {
-        let mut writer =
-            BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.delimited_containers);
-        writer.delimited_containers = self.delimited_containers;
+        let writer = BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.config());
         writer
     }
 

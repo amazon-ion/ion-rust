@@ -73,9 +73,14 @@ impl<'top> FlexSym<'top> {
             Ordering::Less => {
                 let flex_int_len = value.size_in_bytes();
                 let len = sym_value.unsigned_abs() as usize;
-                let text = std::str::from_utf8(&input[flex_int_len..flex_int_len + len]).map_err(
-                    |_| IonError::decoding_error("found FlexSym with invalid UTF-8 data"),
-                )?;
+                let flex_sym_end = flex_int_len + len;
+                if input.len() < flex_sym_end {
+                    return IonResult::incomplete("reading a FlexSym", offset);
+                }
+                let text =
+                    std::str::from_utf8(&input[flex_int_len..flex_sym_end]).map_err(|_| {
+                        IonError::decoding_error("found FlexSym with invalid UTF-8 data")
+                    })?;
                 let symbol_ref = Text(text);
                 (FlexSymValue::SymbolRef(symbol_ref), flex_int_len + len)
             }
