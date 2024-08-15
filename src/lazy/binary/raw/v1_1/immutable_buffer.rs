@@ -403,8 +403,9 @@ impl<'a> ImmutableBuffer<'a> {
             EExpressionWithLengthPrefix => {
                 ParseValueExprResult::EExp(self.read_eexp_with_length_prefix(opcode))
             }
-            AnnotationFlexSym => ParseValueExprResult::Value(self.read_annotated_value(opcode)),
-            AnnotationSymAddress => todo!("symbol address annotations"),
+            AnnotationFlexSym | AnnotationSymAddress => {
+                ParseValueExprResult::Value(self.read_annotated_value(opcode))
+            }
             _ if opcode.ion_type().is_some() => {
                 ParseValueExprResult::Value(self.read_value_without_annotations(opcode))
             }
