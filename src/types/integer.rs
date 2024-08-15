@@ -242,7 +242,7 @@ impl Int {
     pub fn expect_i64(&self) -> IonResult<i64> {
         self.as_i64().ok_or_else(
             #[inline(never)]
-            || IonError::decoding_error(format!("Int {self} is too large to fit in an i64.")),
+            || IonError::decoding_error(format!("Int {self} was not in the range of an i64.")),
         )
     }
 
@@ -255,7 +255,20 @@ impl Int {
     pub fn expect_u32(&self) -> IonResult<u32> {
         self.as_u32().ok_or_else(
             #[inline(never)]
-            || IonError::decoding_error(format!("Int {self} is too large to fit in a u32.")),
+            || IonError::decoding_error(format!("Int {self} was not in the range of a u32.")),
+        )
+    }
+
+    #[inline(always)]
+    pub fn as_usize(&self) -> Option<usize> {
+        usize::try_from(self.data).ok()
+    }
+
+    #[inline]
+    pub fn expect_usize(&self) -> IonResult<usize> {
+        self.as_usize().ok_or_else(
+            #[inline(never)]
+            || IonError::decoding_error(format!("Int {self} was not in the range of a usize.")),
         )
     }
 
@@ -263,7 +276,7 @@ impl Int {
     /// returns a [`DecodingError`](IonError::Decoding).
     pub fn expect_i128(&self) -> IonResult<i128> {
         self.as_i128().ok_or_else(|| {
-            IonError::decoding_error(format!("Int {self} is too large to fit in an i128."))
+            IonError::decoding_error(format!("Int {self} was not in the range of an i128."))
         })
     }
 

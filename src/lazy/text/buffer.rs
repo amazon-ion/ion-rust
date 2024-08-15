@@ -49,6 +49,7 @@ use crate::{Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, Time
 
 use crate::lazy::expanded::macro_table::Macro;
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
+use crate::lazy::text::as_utf8::AsUtf8;
 use bumpalo::collections::Vec as BumpVec;
 
 impl<'a> Debug for TextBufferView<'a> {
@@ -1081,20 +1082,9 @@ impl<'top> TextBufferView<'top> {
         Ok((remaining, arg_group))
     }
 
-    /// Matches an e-expression invoking a macro.
-    ///
-    /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
-    pub fn match_e_expression(self) -> IonParseResult<'top, TextEExpression_1_1<'top>> {
-        let (eexp_body, _opening_tag) = tag("(:")(self)?;
-        // TODO: Support macro ID kinds besides unqualified names
+    pub fn match_e_expression_name(self) -> IonParseResult<'top, MacroIdRef<'top>> {
         let (exp_body_after_id, (macro_id_bytes, matched_symbol)) =
-            consumed(Self::match_identifier)(eexp_body)?;
-        if exp_body_after_id.is_empty() {
-            // Unlike a symbol value with identifier syntax, an e-expression identifier cannot be
-            // the last thing in the stream.
-            return Err(nom::Err::Incomplete(Needed::Unknown));
-        }
-
+            consumed(Self::match_identifier)(self)?;
         let id = match matched_symbol
             .read(self.context.allocator(), macro_id_bytes)
             .expect("matched identifier but failed to read its bytes")
@@ -1102,8 +1092,35 @@ impl<'top> TextBufferView<'top> {
             RawSymbolRef::SymbolId(_) => unreachable!("matched a text identifier, returned a SID"),
             RawSymbolRef::Text(text) => MacroIdRef::LocalName(text),
         };
+        Ok((exp_body_after_id, id))
+    }
 
-        let mut remaining = exp_body_after_id;
+    pub fn match_e_expression_address(self) -> IonParseResult<'top, MacroIdRef<'top>> {
+        let (exp_body_after_id, address) = Self::match_address(self)?;
+        let id = MacroIdRef::LocalAddress(address);
+        Ok((exp_body_after_id, id))
+    }
+
+    pub fn match_e_expression_id(self) -> IonParseResult<'top, MacroIdRef<'top>> {
+        let (input_after_id, id) = alt((
+            Self::match_e_expression_name,
+            Self::match_e_expression_address,
+        ))(self)?;
+
+        if input_after_id.is_empty() {
+            // Unlike a symbol value with identifier syntax, an e-expression identifier cannot be
+            // the last thing in the stream.
+            return Err(nom::Err::Incomplete(Needed::Unknown));
+        };
+        Ok((input_after_id, id))
+    }
+
+    /// Matches an e-expression invoking a macro.
+    ///
+    /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
+    pub fn match_e_expression(self) -> IonParseResult<'top, TextEExpression_1_1<'top>> {
+        let (eexp_body, _opening_tag) = tag("(:")(self)?;
+        let (mut remaining, id) = Self::match_e_expression_id(eexp_body)?;
         let mut arg_expr_cache = BumpVec::new_in(self.context.allocator());
 
         let macro_ref: &'top Macro = self
@@ -1797,26 +1814,28 @@ impl<'top> TextBufferView<'top> {
 
     /// Matches a symbol ID (`$28`).
     fn match_symbol_id(self) -> IonParseResult<'top, MatchedSymbol> {
-        recognize(terminated(
-            // Discard a `$` and parse an integer representing the symbol ID.
-            // Note that symbol ID integers:
-            //   * CANNOT have underscores in them. For example: `$1_0` is considered an identifier.
-            //   * CAN have leading zeros. There's precedent for this in ion-java.
-            preceded(tag("$"), complete_digit1),
-            // Peek at the next character to make sure it's unrelated to the symbol ID.
-            // The spec does not offer a formal definition of what ends a symbol ID.
-            // This checks for either a stop_character (which performs its own `peek()`)
-            // or a colon (":"), which could be a field delimiter (":") or the beginning of
-            // an annotation delimiter ('::').
-            alt((
-                // Each of the parsers passed to `alt` must have the same return type. `stop_character`
-                // returns a char instead of a &str, so we use `recognize()` to get a &str instead.
-                recognize(Self::peek_stop_character),
-                peek(tag(":")), // Field delimiter (":") or annotation delimiter ("::")
-            )),
-        ))
-        .map(|_matched| MatchedSymbol::SymbolId)
-        .parse(self)
+        recognize(preceded(tag("$"), Self::match_address))
+            .map(|_matched| MatchedSymbol::SymbolId)
+            .parse(self)
+    }
+
+    /// Matches the integer portion of a symbol ID or a macro address.
+    /// Addresses
+    ///   * CANNOT have underscores in them. For example: `$1_0` and `$100_200_300` are considered
+    ///     identifiers, not symbol IDs.
+    ///   * CAN have leading zeros. For example, `$0003` is the same as `$3`.
+    // There's precedent for allowing leading zeros in ion-java, so we support it here for consistency.
+    fn match_address(self) -> IonParseResult<'top, usize> {
+        // Any number of base-10 digits followed by something that is NOT an underscore.
+        // We do this to make sure that input like `$1_02` gets parsed like an identifier;
+        // If we didn't check for a trailing underscore, it would be a SID (`$1`) and an
+        // identifier (`_02`).
+        terminated(complete_digit1, peek(not(complete_tag("_"))))
+            .map(|buffer: TextBufferView| {
+                // The matched buffer is ascii base 10 digits, parsing must succeed
+                usize::from_str(buffer.as_utf8(self.offset()).unwrap()).unwrap()
+            })
+            .parse(self)
     }
 
     /// Matches an identifier (`foo`).
@@ -2512,13 +2531,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::template::{ParameterCardinality, ParameterEncoding};
     use crate::lazy::expanded::EncodingContext;
     use rstest::rstest;
-
-    use super::*;
 
     /// Stores an input string that can be tested against a given parser.
     struct MatchTest {
@@ -2593,7 +2611,7 @@ mod tests {
                         self.input
                     )
                 }
-                _ => {}
+                Err(_) => {}
             }
         }
 
@@ -3006,13 +3024,25 @@ mod tests {
             "(:foo (1 2 3))",
             "(:foo \"foo\")",
             "(:foo foo)",
+            "(:4)",
+            "(:4 1)",
+            "(:4 1 2 3)",
+            "(:4 (1 2 3))",
+            "(:4 \"foo\")",
+            "(:4 foo)",
+            "(:004 foo)", // Leading zeros are ok/ignored
         ],
         expect_mismatch: [
             "foo",   // No parens
             "(foo)", // No `:` after opening paren
+            "(4",    // No parens
+            "(4)",   // No `:` after opening paren
+            "(:0x4)",   // Hexadecimal not allowed
+            "(:4_000)", // Underscores not allowed
         ],
         expect_incomplete: [
-            "(:foo"
+            "(:foo",
+            "(:4"
         ]
     }
 
