@@ -428,6 +428,7 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
         impl AsRef<[u8]> => write_clob,
         impl AsRef<[u8]> => write_blob,
     );
+
     fn list_writer(self) -> IonResult<Self::ListWriter> {
         BinaryListWriter_1_0::new(self.allocator, self.output_buffer)
             .with_annotations(self.annotations)

@@ -33,7 +33,6 @@
 //! that are ignored by the reader do not incur the cost of symbol table resolution.
 
 use std::cell::{Cell, UnsafeCell};
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 
@@ -48,7 +47,6 @@ use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
-use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpansion, MacroExpr, RawEExpression,
 };
@@ -94,7 +92,6 @@ pub mod template;
 //  would need to be proved out first.
 #[derive(Debug)]
 pub struct EncodingContext {
-    pub(crate) modules: HashMap<String, EncodingModule>,
     pub(crate) macro_table: MacroTable,
     pub(crate) symbol_table: SymbolTable,
     pub(crate) allocator: BumpAllocator,
@@ -107,7 +104,6 @@ impl EncodingContext {
         allocator: BumpAllocator,
     ) -> Self {
         Self {
-            modules: HashMap::new(),
             macro_table,
             symbol_table,
             allocator,

@@ -8,7 +8,7 @@ use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWrite
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::{IonResult, UInt};
+use crate::{v1_1, Encoding, IonResult, UInt};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
 /// [`BinarySExpWriter_1_1`], and [`BinaryStructWriter_1_1`].
@@ -23,7 +23,7 @@ pub(crate) struct BinaryContainerWriter_1_1<'value, 'top> {
     // An allocator reference that can be shared with nested container writers
     allocator: &'top BumpAllocator,
     encoder: ContainerEncodingKind<'value, 'top>,
-    write_options: ValueWriterConfig,
+    value_writer_config: ValueWriterConfig,
 }
 
 enum ContainerEncodingKind<'value, 'top> {
@@ -69,7 +69,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         Self {
             allocator,
             encoder,
-            write_options,
+            value_writer_config: write_options,
         }
     }
 
@@ -90,7 +90,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         Self {
             allocator,
             encoder,
-            write_options,
+            value_writer_config: write_options,
         }
     }
 
@@ -108,7 +108,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
     }
 
     pub fn config(&self) -> ValueWriterConfig {
-        self.write_options
+        self.value_writer_config
     }
 
     /// Constructs a new [`BinaryValueWriter_1_1`] using this [`BinaryContainerWriter_1_1`]'s
@@ -389,6 +389,10 @@ impl<'value, 'top> StructWriter for BinaryStructWriter_1_1<'value, 'top> {
             self.fields_buffer().push(0x01);
         }
         self.container_writer.end()
+    }
+
+    fn config(&self) -> ValueWriterConfig {
+        v1_1::Binary::default_value_writer_config()
     }
 }
 

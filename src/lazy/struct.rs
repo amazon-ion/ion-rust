@@ -299,8 +299,15 @@ impl<'top, D: Decoder> LazyField<'top, D> {
         }
     }
 
+    // This is a `pub` version of `get_raw_name` that requires explicit opt-in.
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn raw_name(&self) -> Option<D::FieldName<'top>> {
+        self.get_raw_name()
+    }
+
+    /// Like `raw_name`, but always accessible internally.
+    #[inline]
+    pub(crate) fn get_raw_name(&self) -> Option<D::FieldName<'top>> {
         if let crate::LazyExpandedFieldName::RawName(_context, raw_name) =
             self.expanded_field.name()
         {

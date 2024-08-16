@@ -35,7 +35,10 @@ use crate::lazy::text::value::{
 };
 
 use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpression_1_1;
-use crate::{IonResult, TextFormat, WriteConfig};
+use crate::{
+    AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, IonResult, SymbolValueEncoding,
+    TextFormat, ValueWriterConfig, WriteConfig,
+};
 
 /// Marker trait for types that represent an Ion encoding.
 pub trait Encoding: Encoder + Decoder {
@@ -79,6 +82,7 @@ pub trait Encoding: Encoder + Decoder {
     }
 
     fn default_write_config() -> WriteConfig<Self>;
+    fn default_value_writer_config() -> ValueWriterConfig;
 }
 
 // Similar to a simple `From` implementation, but can be defined for both String and Vec<u8> because
@@ -150,6 +154,14 @@ impl Encoding for BinaryEncoding_1_0 {
     fn default_write_config() -> WriteConfig<Self> {
         WriteConfig::<Self>::new()
     }
+
+    fn default_value_writer_config() -> ValueWriterConfig {
+        ValueWriterConfig::binary()
+            .with_field_name_encoding(FieldNameEncoding::WriteAsSymbolIds)
+            .with_annotations_encoding(AnnotationsEncoding::WriteAsSymbolIds)
+            .with_container_encoding(ContainerEncoding::LengthPrefixed)
+            .with_symbol_value_encoding(SymbolValueEncoding::WriteAsSymbolIds)
+    }
 }
 impl Encoding for BinaryEncoding_1_1 {
     type Output = Vec<u8>;
@@ -165,8 +177,14 @@ impl Encoding for BinaryEncoding_1_1 {
     fn name() -> &'static str {
         "binary Ion v1.1"
     }
+
     fn default_write_config() -> WriteConfig<Self> {
         WriteConfig::<Self>::new()
+    }
+
+    fn default_value_writer_config() -> ValueWriterConfig {
+        // By default, use the same settings as binary 1.0
+        BinaryEncoding_1_0::default_value_writer_config()
     }
 }
 impl Encoding for TextEncoding_1_0 {
@@ -186,6 +204,13 @@ impl Encoding for TextEncoding_1_0 {
     fn default_write_config() -> WriteConfig<Self> {
         WriteConfig::<Self>::new(<TextFormat as Default>::default())
     }
+    fn default_value_writer_config() -> ValueWriterConfig {
+        ValueWriterConfig::text()
+            .with_field_name_encoding(FieldNameEncoding::WriteAsInlineText)
+            .with_annotations_encoding(AnnotationsEncoding::WriteAsInlineText)
+            .with_container_encoding(ContainerEncoding::Delimited)
+            .with_symbol_value_encoding(SymbolValueEncoding::WriteAsInlineText)
+    }
 }
 impl Encoding for TextEncoding_1_1 {
     type Output = String;
@@ -203,6 +228,11 @@ impl Encoding for TextEncoding_1_1 {
     }
     fn default_write_config() -> WriteConfig<Self> {
         WriteConfig::<Self>::new(<TextFormat as Default>::default())
+    }
+
+    fn default_value_writer_config() -> ValueWriterConfig {
+        // By default, use the same settings as text 1.0
+        TextEncoding_1_0::default_value_writer_config()
     }
 }
 

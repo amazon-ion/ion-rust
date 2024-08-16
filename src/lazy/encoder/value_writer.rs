@@ -99,10 +99,6 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
         strukt.write_all(values)?;
         strukt.close()
     }
-
-    fn config(&self) -> ValueWriterConfig {
-        ValueWriterConfig::default()
-    }
 }
 
 /// There are several implementations of `ValueWriter` that simply delegate calls to an expression.
@@ -183,6 +179,7 @@ macro_rules! delegate_value_writer_to {
                     self,
                     macro_id: impl Into<MacroIdRef<'a>>,
                  ) -> IonResult<Self::EExpWriter>;
+
             }
         }
     };
@@ -204,13 +201,19 @@ pub(crate) use delegate_value_writer_to_self;
 pub struct FieldWriter<'field, StructWriterType> {
     name: RawSymbolRef<'field>,
     struct_writer: &'field mut StructWriterType,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'field, StructWriterType> FieldWriter<'field, StructWriterType> {
-    pub fn new(name: RawSymbolRef<'field>, struct_writer: &'field mut StructWriterType) -> Self {
+    pub(crate) fn new(
+        name: RawSymbolRef<'field>,
+        value_writer_config: ValueWriterConfig,
+        struct_writer: &'field mut StructWriterType,
+    ) -> Self {
         Self {
             name,
             struct_writer,
+            value_writer_config,
         }
     }
 }
@@ -334,10 +337,11 @@ pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
     }
 
     fn field_writer<'a>(&'a mut self, name: impl Into<RawSymbolRef<'a>>) -> FieldWriter<'a, Self> {
-        FieldWriter::new(name.into(), self)
+        FieldWriter::new(name.into(), self.config(), self)
     }
-
     fn close(self) -> IonResult<()>;
+
+    fn config(&self) -> ValueWriterConfig;
 }
 
 /// Takes a series of `TYPE => METHOD` pairs, generating a function for each that calls the

@@ -18,7 +18,9 @@ use crate::result::IonFailure;
 use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::{ContainerType, ParentType};
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
+use crate::{
+    v1_0, Decimal, Encoding, Int, IonResult, IonType, RawSymbolRef, Timestamp, ValueWriterConfig,
+};
 
 pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
     pub(crate) writer: &'value mut LazyRawTextWriter_1_0<W>,
@@ -447,6 +449,10 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
 impl<'value, W: Write> StructWriter for TextStructWriter_1_0<'value, W> {
     fn close(self) -> IonResult<()> {
         self.end()
+    }
+
+    fn config(&self) -> ValueWriterConfig {
+        v1_0::Text::default_value_writer_config()
     }
 }
 
