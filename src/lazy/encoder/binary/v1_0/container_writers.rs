@@ -9,7 +9,7 @@ use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
-use crate::{IonError, IonResult, RawSymbolRef, SymbolId};
+use crate::{v1_0, Encoding, IonError, IonResult, RawSymbolRef, SymbolId, ValueWriterConfig};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_0`],
 /// [`BinarySExpWriter_1_0`], and [`BinaryStructWriter_1_0`].
@@ -337,5 +337,9 @@ impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_0<'value, 'top> {
 impl<'value, 'top> StructWriter for BinaryStructWriter_1_0<'value, 'top> {
     fn close(self) -> IonResult<()> {
         self.container_writer.end()
+    }
+
+    fn config(&self) -> ValueWriterConfig {
+        v1_0::Binary::default_value_writer_config()
     }
 }

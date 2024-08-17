@@ -59,7 +59,9 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     }
 
     pub fn with_inline_symbol_text(mut self) -> Self {
-        self.value_writer_config = self.value_writer_config.with_delimited_containers();
+        self.value_writer_config = self
+            .value_writer_config
+            .with_symbol_value_encoding(SymbolValueEncoding::WriteAsInlineText);
         self
     }
 
@@ -721,10 +723,6 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_1<'value, 'top> {
     type EExpWriter = BinaryEExpWriter_1_1<'value, 'top>;
 
     delegate_value_writer_to_self!();
-
-    fn config(&self) -> ValueWriterConfig {
-        self.config()
-    }
 }
 
 /// Takes a series of `TYPE => METHOD` pairs, generating a function for each that encodes an
@@ -741,7 +739,7 @@ macro_rules! annotate_and_delegate_1_1 {
             let value_writer = $crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1::new(
                 self.allocator,
                 self.buffer,
-                self.config(),
+                self.value_writer_config,
             );
             value_writer.$method(value)?;
             Ok(())
@@ -821,7 +819,7 @@ impl<'value, 'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_1<'value, 
             self.allocator,
             self.buffer,
             annotations.into_annotations_vec(),
-            self.config(),
+            self.value_writer_config,
         ))
     }
 }
@@ -868,10 +866,6 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> 
         }
         self.value_writer().eexp_writer(macro_id)
     }
-
-    fn config(&self) -> ValueWriterConfig {
-        self.value_writer_config
-    }
 }
 
 impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
@@ -889,7 +883,8 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
         }
     }
     pub(crate) fn value_writer(self) -> BinaryValueWriter_1_1<'value, 'top> {
-        let writer = BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.config());
+        let writer =
+            BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.value_writer_config);
         writer
     }
 

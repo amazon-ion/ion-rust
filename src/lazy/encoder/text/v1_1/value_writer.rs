@@ -12,7 +12,7 @@ use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::{ContainerType, ParentType};
-use crate::{Decimal, Int, IonResult, IonType, Timestamp};
+use crate::{v1_1, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
 use delegate::delegate;
 use std::io::Write;
 
@@ -229,6 +229,10 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_1<'value, W> {
 impl<'value, W: Write> StructWriter for TextStructWriter_1_1<'value, W> {
     fn close(self) -> IonResult<()> {
         self.writer_1_0.close()
+    }
+
+    fn config(&self) -> ValueWriterConfig {
+        v1_1::Text::default_value_writer_config()
     }
 }
 

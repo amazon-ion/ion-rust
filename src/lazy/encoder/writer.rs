@@ -8,14 +8,14 @@ use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
-    AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
+    AnnotatableWriter, EExpWriter, FieldWriter, SequenceWriter, StructWriter, ValueWriter,
 };
 use crate::lazy::encoder::value_writer_config::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, SymbolValueEncoding,
     ValueWriterConfig,
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::{LazyRawWriter, SymbolCreationPolicy};
+use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
@@ -24,38 +24,33 @@ use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    Decimal, Element, ElementWriter, Int, IonResult, IonType, RawSymbolRef, Symbol, SymbolTable,
-    Timestamp, UInt, Value,
+    Decimal, Element, ElementWriter, Int, IonResult, IonType, MacroTable, RawSymbolRef, Symbol,
+    SymbolTable, Timestamp, UInt, Value,
 };
 
-pub(crate) struct WriteContext {
+pub(crate) struct WriterContext {
     symbol_table: SymbolTable,
+    macro_table: MacroTable,
     num_pending_symbols: usize,
-    symbol_creation_policy: SymbolCreationPolicy,
-    supports_text_tokens: bool,
 }
 
-impl WriteContext {
-    pub fn new(
-        symbol_table: SymbolTable,
-        symbol_creation_policy: SymbolCreationPolicy,
-        supports_text_tokens: bool,
-    ) -> Self {
+impl WriterContext {
+    pub fn new(symbol_table: SymbolTable, macro_table: MacroTable) -> Self {
         Self {
             symbol_table,
+            macro_table,
             num_pending_symbols: 0,
-            symbol_creation_policy,
-            supports_text_tokens,
         }
     }
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
 pub struct Writer<E: Encoding, Output: Write> {
-    write_context: WriteContext,
+    context: WriterContext,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
     output: Output,
+    value_writer_config: ValueWriterConfig,
 }
 
 pub type TextWriter_1_0<Output> = Writer<TextEncoding_1_0, Output>;
@@ -74,16 +69,14 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
         let ion_version = E::ion_version();
         let symbol_table = SymbolTable::new(ion_version);
-        let encoding_context = WriteContext::new(
-            symbol_table,
-            E::DEFAULT_SYMBOL_CREATION_POLICY,
-            E::SUPPORTS_TEXT_TOKENS,
-        );
+        let macro_table = MacroTable::new();
+        let context = WriterContext::new(symbol_table, macro_table);
         let mut writer = Writer {
-            write_context: encoding_context,
+            context,
             data_writer,
             directive_writer,
             output,
+            value_writer_config: E::default_value_writer_config(),
         };
         writer.flush()?;
         Ok(writer)
@@ -106,9 +99,9 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
     /// Writes bytes of previously encoded values to the output stream.
     pub fn flush(&mut self) -> IonResult<()> {
-        if self.write_context.num_pending_symbols > 0 {
+        if self.context.num_pending_symbols > 0 {
             self.write_lst_append()?;
-            self.write_context.num_pending_symbols = 0;
+            self.context.num_pending_symbols = 0;
         }
 
         self.directive_writer.flush()?;
@@ -131,12 +124,11 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Helper method to encode an LST append containing pending symbols.
     fn write_lst_append(&mut self) -> IonResult<()> {
         let Self {
-            write_context: encoding_context,
+            context,
             directive_writer,
             ..
         } = self;
 
-        let num_pending_symbols = encoding_context.num_pending_symbols;
         let mut lst = directive_writer
             .value_writer()
             .with_annotations(system_symbol_ids::ION_SYMBOL_TABLE)?
@@ -147,9 +139,9 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
         let mut new_symbol_list = lst.field_writer(system_symbol_ids::SYMBOLS).list_writer()?;
 
-        let pending_symbols = encoding_context
+        let pending_symbols = context
             .symbol_table
-            .symbols_tail(num_pending_symbols)
+            .symbols_tail(context.num_pending_symbols)
             .iter()
             .map(Symbol::text);
 
@@ -170,7 +162,8 @@ impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
 
         ApplicationValueWriter {
             raw_value_writer,
-            encoding: &mut self.write_context,
+            encoding: &mut self.context,
+            value_writer_config: self.value_writer_config,
         }
     }
 }
@@ -185,14 +178,20 @@ impl<E: Encoding, Output: Write> SequenceWriter for Writer<E, Output> {
 }
 
 pub struct ApplicationValueWriter<'a, V: ValueWriter> {
-    encoding: &'a mut WriteContext,
+    encoding: &'a mut WriterContext,
     raw_value_writer: V,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
-    pub(crate) fn new(encoding_context: &'a mut WriteContext, raw_value_writer: V) -> Self {
+    pub(crate) fn new(
+        encoding_context: &'a mut WriterContext,
+        value_writer_config: ValueWriterConfig,
+        raw_value_writer: V,
+    ) -> Self {
         Self {
             encoding: encoding_context,
+            value_writer_config,
             raw_value_writer,
         }
     }
@@ -203,20 +202,16 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
 }
 
 impl<'a, 'value, 'top> ApplicationValueWriter<'a, BinaryValueWriter_1_1<'value, 'top>> {
-    pub fn config(&self) -> ValueWriterConfig {
-        self.raw_value_writer.config()
-    }
-
     pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
-        self.raw_value_writer = self
-            .raw_value_writer
+        self.value_writer_config = self
+            .value_writer_config
             .with_container_encoding(container_encoding);
         self
     }
 
     pub fn with_annotations_encoding(mut self, annotations_encoding: AnnotationsEncoding) -> Self {
-        self.raw_value_writer = self
-            .raw_value_writer
+        self.value_writer_config = self
+            .value_writer_config
             .with_annotations_encoding(annotations_encoding);
         self
     }
@@ -225,16 +220,9 @@ impl<'a, 'value, 'top> ApplicationValueWriter<'a, BinaryValueWriter_1_1<'value, 
         mut self,
         symbol_value_encoding: SymbolValueEncoding,
     ) -> Self {
-        self.raw_value_writer = self
-            .raw_value_writer
+        self.value_writer_config = self
+            .value_writer_config
             .with_symbol_value_encoding(symbol_value_encoding);
-        self
-    }
-
-    pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
-        self.raw_value_writer = self
-            .raw_value_writer
-            .with_field_name_encoding(field_name_encoding);
         self
     }
 }
@@ -250,7 +238,7 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
         Self: 'a,
     {
         let mut annotations = annotations.into_annotations_vec();
-        match self.config().annotations_encoding() {
+        match self.value_writer_config.annotations_encoding() {
             AnnotationsEncoding::WriteAsSymbolIds => {
                 // Intern all text so everything we write is a symbol ID
                 self.map_all_annotations_to_symbol_ids(&mut annotations)?
@@ -268,6 +256,7 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
         Ok(ApplicationValueWriter {
             encoding: self.encoding,
             raw_value_writer: self.raw_value_writer.with_annotations(annotations)?,
+            value_writer_config: self.value_writer_config,
         })
     }
 }
@@ -390,7 +379,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             fn write_string(self, value: impl AsRef<str>) -> IonResult<()>;
             fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
             fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()>;
-            fn config(&self) -> ValueWriterConfig;
         }
     }
 
@@ -398,10 +386,10 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         use RawSymbolRef::*;
         use SymbolValueEncoding::*;
 
-        let config = self.config();
         let Self {
             encoding,
             raw_value_writer,
+            value_writer_config,
         } = self;
 
         // Depending on the symbol value encoding config option, map the provided symbol reference
@@ -417,7 +405,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                 SymbolId(symbol_id)
             }
             Text(text) => {
-                match config.symbol_value_encoding() {
+                match value_writer_config.symbol_value_encoding() {
                     WriteAsSymbolIds => {
                         // Map the text to a symbol ID.
                         match encoding.symbol_table.sid_for(&text) {
@@ -449,6 +437,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     fn list_writer(self) -> IonResult<Self::ListWriter> {
         Ok(ApplicationListWriter::new(
             self.encoding,
+            self.value_writer_config,
             self.raw_value_writer.list_writer()?,
         ))
     }
@@ -456,13 +445,16 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
         Ok(ApplicationSExpWriter::new(
             self.encoding,
+            self.value_writer_config,
             self.raw_value_writer.sexp_writer()?,
         ))
     }
 
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
+        let config = self.value_writer_config;
         Ok(ApplicationStructWriter::new(
             self.encoding,
+            config,
             self.raw_value_writer.struct_writer()?,
         ))
     }
@@ -470,25 +462,36 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
         Ok(ApplicationEExpWriter::new(
             self.encoding,
+            self.value_writer_config,
             self.raw_value_writer.eexp_writer(macro_id)?,
         ))
     }
 }
 
 pub struct ApplicationStructWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriteContext,
+    encoding: &'value mut WriterContext,
     raw_struct_writer: V::StructWriter,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
     pub(crate) fn new(
-        encoding_context: &'value mut WriteContext,
+        encoding_context: &'value mut WriterContext,
+        config: ValueWriterConfig,
         raw_struct_writer: V::StructWriter,
     ) -> Self {
         Self {
             encoding: encoding_context,
             raw_struct_writer,
+            value_writer_config: config,
         }
+    }
+
+    pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
+        self.value_writer_config = self
+            .value_writer_config
+            .with_field_name_encoding(field_name_encoding);
+        self
     }
 }
 
@@ -498,68 +501,89 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'value,
         Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
-        ApplicationValueWriter::new(self.encoding, self.raw_struct_writer.make_value_writer())
+        ApplicationValueWriter::new(
+            self.encoding,
+            self.value_writer_config,
+            self.raw_struct_writer.make_value_writer(),
+        )
     }
 }
 
 impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
-        // If it's a symbol ID, do a bounds check and then write it.
-        // Otherwise, get its associated text.
         let text = match name.as_raw_symbol_token_ref() {
+            // If the user passes in a symbol ID, we range check it and write it as-is no matter what.
+            // In the unusual circumstance that the user has a SID and wants to write text, they can
+            // resolve the SID in the symbol table before calling this method.
             RawSymbolRef::SymbolId(symbol_id) => {
                 if !self.encoding.symbol_table.sid_is_valid(symbol_id) {
                     return cold_path!(IonResult::encoding_error(format!(
                         "symbol ID ${symbol_id} is not in the symbol table"
                     )));
                 }
+                // Otherwise, get its associated text.
                 return self.raw_struct_writer.encode_field_name(symbol_id);
             }
             RawSymbolRef::Text(text) => text,
         };
 
-        // If the writer can write it as inline text, do so.
-        if self.encoding.supports_text_tokens
-            && self.encoding.symbol_creation_policy == SymbolCreationPolicy::WriteProvidedToken
-        {
+        // From here on, we're dealing with text.
+
+        // If the struct writer is configured to write field names as text, do that.
+        if self.value_writer_config.field_name_encoding() == FieldNameEncoding::WriteAsInlineText {
             return self.raw_struct_writer.encode_field_name(text);
         }
 
         // Otherwise, see if the symbol is already in the symbol table.
-        let symbol_id = match self.encoding.symbol_table.sid_for(&text) {
+        let token: RawSymbolRef = match self.encoding.symbol_table.sid_for(&text) {
             // If so, use the existing ID.
-            Some(sid) => sid,
-            // If not, add it to the symbol table and make a note to add it to the LST on the next
-            // call to `flush()`. Use the new ID.
-            None => {
+            Some(sid) => sid.into(),
+            // If it's not but the struct writer is configured to intern new text, add it to the
+            // symbol table.
+            None if self.value_writer_config.field_name_encoding()
+                == FieldNameEncoding::WriteAsSymbolIds =>
+            {
                 self.encoding.num_pending_symbols += 1;
-                self.encoding.symbol_table.add_symbol_for_text(text)
+                self.encoding.symbol_table.add_symbol_for_text(text).into()
             }
+            // Otherwise, we'll write the text as-is.
+            None => text.into(),
         };
 
-        // Finally, write out the SID.
-        self.raw_struct_writer.encode_field_name(symbol_id)
+        // Finally, encode the field name using the selected token representation
+        self.raw_struct_writer.encode_field_name(token)
     }
 }
 
 impl<'value, V: ValueWriter> StructWriter for ApplicationStructWriter<'value, V> {
+    fn field_writer<'a>(&'a mut self, name: impl Into<RawSymbolRef<'a>>) -> FieldWriter<'a, Self> {
+        FieldWriter::new(name.into(), self.value_writer_config, self)
+    }
+
     fn close(self) -> IonResult<()> {
         self.raw_struct_writer.close()
+    }
+
+    fn config(&self) -> ValueWriterConfig {
+        self.value_writer_config
     }
 }
 
 pub struct ApplicationListWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriteContext,
+    encoding: &'value mut WriterContext,
     raw_list_writer: V::ListWriter,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, V: ValueWriter> ApplicationListWriter<'value, V> {
     pub(crate) fn new(
-        encoding_context: &'value mut WriteContext,
+        encoding_context: &'value mut WriterContext,
+        value_writer_config: ValueWriterConfig,
         raw_list_writer: V::ListWriter,
     ) -> Self {
         Self {
             encoding: encoding_context,
+            value_writer_config,
             raw_list_writer,
         }
     }
@@ -571,7 +595,11 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationListWriter<'value, V
         Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
-        ApplicationValueWriter::new(self.encoding, self.raw_list_writer.make_value_writer())
+        ApplicationValueWriter::new(
+            self.encoding,
+            self.value_writer_config,
+            self.raw_list_writer.make_value_writer(),
+        )
     }
 }
 
@@ -584,14 +612,20 @@ impl<'value, V: ValueWriter> SequenceWriter for ApplicationListWriter<'value, V>
 }
 
 pub struct ApplicationSExpWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriteContext,
+    encoding: &'value mut WriterContext,
     raw_sexp_writer: V::SExpWriter,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, V: ValueWriter> ApplicationSExpWriter<'value, V> {
-    pub(crate) fn new(encoding: &'value mut WriteContext, raw_sexp_writer: V::SExpWriter) -> Self {
+    pub(crate) fn new(
+        encoding: &'value mut WriterContext,
+        value_writer_config: ValueWriterConfig,
+        raw_sexp_writer: V::SExpWriter,
+    ) -> Self {
         Self {
             encoding,
+            value_writer_config,
             raw_sexp_writer,
         }
     }
@@ -602,7 +636,11 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'value, V
         ApplicationValueWriter<'a, <V::SExpWriter as MakeValueWriter>::ValueWriter<'a>> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
-        ApplicationValueWriter::new(self.encoding, self.raw_sexp_writer.make_value_writer())
+        ApplicationValueWriter::new(
+            self.encoding,
+            self.value_writer_config,
+            self.raw_sexp_writer.make_value_writer(),
+        )
     }
 }
 
@@ -615,14 +653,20 @@ impl<'value, V: ValueWriter> SequenceWriter for ApplicationSExpWriter<'value, V>
 }
 
 pub struct ApplicationEExpWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriteContext,
+    encoding: &'value mut WriterContext,
     raw_eexp_writer: V::EExpWriter,
+    value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
-    pub(crate) fn new(encoding: &'value mut WriteContext, raw_eexp_writer: V::EExpWriter) -> Self {
+    pub(crate) fn new(
+        encoding: &'value mut WriterContext,
+        value_writer_config: ValueWriterConfig,
+        raw_eexp_writer: V::EExpWriter,
+    ) -> Self {
         Self {
             encoding,
+            value_writer_config,
             raw_eexp_writer,
         }
     }
@@ -640,7 +684,11 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'value, V
     type ValueWriter<'a> = ApplicationValueWriter<'a, <<V as ValueWriter>::EExpWriter as MakeValueWriter>::ValueWriter<'a>> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
-        ApplicationValueWriter::new(self.encoding, self.raw_eexp_writer.make_value_writer())
+        ApplicationValueWriter::new(
+            self.encoding,
+            self.value_writer_config,
+            self.raw_eexp_writer.make_value_writer(),
+        )
     }
 }
 
@@ -669,8 +717,8 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_1, HasSpan, IonResult, LazyRawValue, RawSymbolRef, SequenceWriter, SystemReader,
-        ValueWriter, Writer,
+        v1_1, FieldNameEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef, SequenceWriter,
+        StructWriter, SystemReader, ValueWriter, Writer,
     };
 
     fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
@@ -692,7 +740,7 @@ mod tests {
             let actual_bytes = raw_value.span().bytes();
             assert_eq!(
                 actual_bytes, *expected_bytes,
-                "{:02X?} != {:02X?}",
+                "actual {:02X?} != expected {:02X?}",
                 actual_bytes, expected_bytes
             );
             println!(
@@ -843,6 +891,88 @@ mod tests {
                 0xFB, // FlexSym: 3 UTF-8 bytes
                 // f     o     o
                 0x66, 0x6F, 0x6F,
+            ],
+        )
+    }
+
+    /// Writes a struct with all of the provided field names using the requested field name encoding.
+    /// For simplicity, the value for each field is the integer 0.
+    fn struct_field_encoding_test(
+        encoding: FieldNameEncoding,
+        field_names_and_encodings: &[(RawSymbolRef, &[u8])],
+    ) -> IonResult<()> {
+        // Configure a struct writer that uses the requested field name encoding
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        let mut struct_writer = writer
+            .value_writer()
+            .struct_writer()?
+            .with_field_name_encoding(encoding);
+
+        for (name, _) in field_names_and_encodings {
+            struct_writer.write(name, /* same value for every field*/ 0)?;
+        }
+        struct_writer.close()?;
+        let bytes = writer.close()?;
+
+        let mut reader = SystemReader::new(v1_1::Binary, bytes.as_slice());
+        let struct_ = reader.expect_next_value()?.read()?.expect_struct()?;
+        for (field, (_name, expected_encoding)) in
+            struct_.iter().zip(field_names_and_encodings.iter())
+        {
+            let raw_name = field?.get_raw_name().unwrap();
+            let raw_name_encoding = raw_name.span().bytes();
+            assert_eq!(
+                raw_name_encoding, *expected_encoding,
+                "actual {:02X?}\n!=\nexpected {:02X?}",
+                raw_name_encoding, *expected_encoding
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn intern_all_field_names() -> IonResult<()> {
+        struct_field_encoding_test(
+            FieldNameEncoding::WriteAsSymbolIds,
+            &[
+                // New symbols
+                (RawSymbolRef::Text("foo"), &[0x15]), // FlexUInt SID $10,
+                (RawSymbolRef::Text("bar"), &[0x17]), // FlexUInt SID $11,
+                (RawSymbolRef::Text("baz"), &[0x19]), // FlexUInt SID $12,
+                // Symbols that are already in the symbol table
+                (RawSymbolRef::Text("name"), &[0x09]), // FlexUInt SID $4,
+                (RawSymbolRef::Text("foo"), &[0x15]),  // FlexUInt SID $10,
+            ],
+        )
+    }
+
+    #[test]
+    fn write_all_field_names_as_text() -> IonResult<()> {
+        struct_field_encoding_test(
+            FieldNameEncoding::WriteAsInlineText,
+            &[
+                // New symbols
+                (RawSymbolRef::Text("foo"), &[0xFB, 0x66, 0x6F, 0x6F]), // FlexSym -3, "foo"
+                (RawSymbolRef::Text("bar"), &[0xFB, 0x62, 0x61, 0x72]), // FlexSym -3, "bar"
+                (RawSymbolRef::Text("baz"), &[0xFB, 0x62, 0x61, 0x7A]), // FlexSym -3, "baz"
+                // Symbols that are already in the symbol table are still written as text
+                (RawSymbolRef::Text("name"), &[0xF9, 0x6E, 0x61, 0x6D, 0x65]), // FlexSym -4, "name"
+            ],
+        )
+    }
+
+    #[test]
+    fn write_new_field_names_as_text() -> IonResult<()> {
+        struct_field_encoding_test(
+            FieldNameEncoding::WriteNewSymbolsAsInlineText,
+            &[
+                // New symbols
+                (RawSymbolRef::Text("foo"), &[0xFB, 0x66, 0x6F, 0x6F]), // FlexSym -3, "foo"
+                (RawSymbolRef::Text("bar"), &[0xFB, 0x62, 0x61, 0x72]), // FlexSym -3, "bar"
+                (RawSymbolRef::Text("baz"), &[0xFB, 0x62, 0x61, 0x7A]), // FlexSym -3, "baz"
+                // Symbols that are already in the symbol table are written as SIDs
+                (RawSymbolRef::Text("name"), &[0x09]), // FlexSym 4, SID $4,
             ],
         )
     }

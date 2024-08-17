@@ -78,49 +78,64 @@ pub enum FieldNameEncoding {
 }
 
 impl ValueWriterConfig {
-    /// Constructs a default `ValueWriterConfig`.
-    pub fn new() -> Self {
-        ValueWriterConfig::default()
+    /// Constructs a `ValueWriterConfig` that writes all symbol tokens as inline text.
+    pub const fn text() -> Self {
+        ValueWriterConfig {
+            container_encoding: ContainerEncoding::Delimited,
+            symbol_value_encoding: SymbolValueEncoding::WriteAsInlineText,
+            annotations_encoding: AnnotationsEncoding::WriteAsInlineText,
+            field_name_encoding: FieldNameEncoding::WriteAsInlineText,
+        }
     }
 
-    pub fn container_encoding(&self) -> ContainerEncoding {
+    /// Constructs a `ValueWriterConfig` that writes all symbol tokens as symbol IDs.
+    pub const fn binary() -> Self {
+        ValueWriterConfig {
+            container_encoding: ContainerEncoding::LengthPrefixed,
+            symbol_value_encoding: SymbolValueEncoding::WriteAsSymbolIds,
+            annotations_encoding: AnnotationsEncoding::WriteAsSymbolIds,
+            field_name_encoding: FieldNameEncoding::WriteAsSymbolIds,
+        }
+    }
+
+    pub const fn container_encoding(&self) -> ContainerEncoding {
         self.container_encoding
     }
 
-    pub fn symbol_value_encoding(&self) -> SymbolValueEncoding {
+    pub const fn symbol_value_encoding(&self) -> SymbolValueEncoding {
         self.symbol_value_encoding
     }
 
-    pub fn field_name_encoding(&self) -> FieldNameEncoding {
+    pub const fn field_name_encoding(&self) -> FieldNameEncoding {
         self.field_name_encoding
     }
 
-    pub fn annotations_encoding(&self) -> AnnotationsEncoding {
+    pub const fn annotations_encoding(&self) -> AnnotationsEncoding {
         self.annotations_encoding
     }
 
     /// Returns `true` if this value writer will write nested containers with a delimited encoding.
-    pub fn has_delimited_containers(&self) -> bool {
-        self.container_encoding == ContainerEncoding::Delimited
+    pub const fn has_delimited_containers(&self) -> bool {
+        matches!(self.container_encoding, ContainerEncoding::Delimited)
     }
 
     /// Configures this value writer will write nested containers using a delimited encoding. If it
     /// is `false`, nested containers will be length-prefixed.
-    pub fn with_delimited_containers(mut self) -> Self {
+    pub const fn with_delimited_containers(mut self) -> Self {
         self.container_encoding = ContainerEncoding::Delimited;
         self
     }
 
     /// If `delimited_containers` is `true`, this value writer will write nested containers using
     /// a delimited encoding. If it is `false`, nested containers will be length-prefixed.
-    pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
+    pub const fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
         self.container_encoding = container_encoding;
         self
     }
 
     /// Configures this value writer to write symbol values and annotations with their UTF-8 text
     /// inline.
-    pub fn with_symbol_value_encoding(
+    pub const fn with_symbol_value_encoding(
         mut self,
         symbol_value_encoding: SymbolValueEncoding,
     ) -> Self {
@@ -129,14 +144,20 @@ impl ValueWriterConfig {
     }
 
     /// Configures how this value writer will encode its annotations (if any).
-    pub fn with_annotations_encoding(mut self, annotations_encoding: AnnotationsEncoding) -> Self {
+    pub const fn with_annotations_encoding(
+        mut self,
+        annotations_encoding: AnnotationsEncoding,
+    ) -> Self {
         self.annotations_encoding = annotations_encoding;
         self
     }
 
     /// If this value writer is used to write a struct, the struct be configured to encode its
     /// field names according to the specified t`field_name_encoding`.
-    pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
+    pub const fn with_field_name_encoding(
+        mut self,
+        field_name_encoding: FieldNameEncoding,
+    ) -> Self {
         self.field_name_encoding = field_name_encoding;
         self
     }

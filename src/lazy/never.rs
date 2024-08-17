@@ -19,7 +19,7 @@ use crate::lazy::span::Span;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::{Decimal, Int, IonResult, IonType, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
 
 /// An uninhabited type that signals to the compiler that related code paths are not reachable.
 #[derive(Debug, Copy, Clone)]
@@ -56,6 +56,10 @@ impl FieldEncoder for Never {
 impl StructWriter for Never {
     fn close(self) -> IonResult<()> {
         unreachable!("StructWriter::end in Never")
+    }
+
+    fn config(&self) -> ValueWriterConfig {
+        unreachable!("<Never as StructWriter>::config")
     }
 }
 
