@@ -364,14 +364,13 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         let mut macro_table = MacroTable::new();
         for arg in args {
             let arg = arg?;
-            let context = operation.expanded_sexp.context;
             let macro_def_sexp = arg.read()?.expect_sexp().map_err(|_| {
                 IonError::decoding_error(format!(
                     "macro_table had a non-sexp parameter: {}",
                     arg.ion_type()
                 ))
             })?;
-            let new_macro = TemplateCompiler::compile_from_sexp(context, macro_def_sexp)?;
+            let new_macro = TemplateCompiler::compile_from_sexp(&macro_table, macro_def_sexp)?;
             macro_table.add_macro(new_macro)?;
         }
         Ok(macro_table)
@@ -1107,6 +1106,64 @@ mod tests {
         // Expand the e-expressions to make sure the macro definitions work as expected.
         assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 17);
         assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 12);
+        Ok(())
+    }
+
+    #[test]
+    fn newly_compiled_macros_available_in_context_in_use() -> IonResult<()> {
+        let ion = r#"
+            $ion_1_1
+            $ion_encoding::(
+              (macro_table
+                (macro hello ($name) (make_string "hello " $name))
+                (macro hello_world () (hello "world"))
+              )
+            )
+
+            (:hello_world)
+        "#;
+        let mut reader = SystemReader::new(AnyEncoding, ion);
+        // Before reading any data, the reader defaults to expecting the Text v1.0 encoding,
+        // the only encoding that doesn't have to start with an IVM.
+        assert_eq!(reader.detected_encoding(), IonEncoding::Text_1_0);
+
+        // The first thing the reader encounters is an IVM. Verify that all of its accessors report
+        // the expected values.
+        let ivm = reader.next_item()?.expect_ivm()?;
+        assert_eq!(ivm.major_minor(), (1, 1));
+        assert_eq!(ivm.stream_encoding_before_marker(), IonEncoding::Text_1_0);
+        assert_eq!(ivm.stream_encoding_after_marker()?, IonEncoding::Text_1_1);
+        assert!(ivm.is_text());
+        assert!(!ivm.is_binary());
+
+        // After encountering the IVM, the reader will have changed its detected encoding to Text v1.1.
+        assert_eq!(reader.detected_encoding(), IonEncoding::Text_1_1);
+
+        // The next stream item is an encoding directive that defines some symbols and some macros.
+        let _directive = reader.next_item()?.expect_encoding_directive()?;
+
+        // === Make sure it has the expected symbol definitions ===
+        let pending_changes = reader
+            .pending_context_changes()
+            .new_active_module()
+            .expect("this directive defines a new active module");
+
+        // === Make sure it has the expected macro definitions ====
+        let new_macro_table = pending_changes.macro_table();
+        // There are currently 3 supported system macros: void, values, and make_string.
+        // This directive defines two more.
+        assert_eq!(new_macro_table.len(), 2 + MacroTable::NUM_SYSTEM_MACROS);
+        assert_eq!(
+            new_macro_table.macro_with_id(MacroTable::FIRST_USER_MACRO_ID),
+            new_macro_table.macro_with_name("hello")
+        );
+        assert_eq!(
+            new_macro_table.macro_with_id(MacroTable::FIRST_USER_MACRO_ID + 1),
+            new_macro_table.macro_with_name("hello_world")
+        );
+
+        // Expand the e-expressions to make sure the macro definitions work as expected.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_string()?.text(), "hello world");
         Ok(())
     }
 }

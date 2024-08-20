@@ -1106,7 +1106,7 @@ mod tests {
         test_fn: impl FnOnce(BinaryEExpArgsIterator_1_1) -> IonResult<()>,
     ) -> IonResult<()> {
         let mut context = EncodingContext::empty();
-        let template_macro = TemplateCompiler::compile_from_text(context.get_ref(), macro_source)?;
+        let template_macro = TemplateCompiler::compile_from_text(macro_source)?;
         let macro_address = context.macro_table.add_macro(template_macro)?;
         let opcode_byte = u8::try_from(macro_address).unwrap();
         let binary_ion = encode_macro_fn(opcode_byte as usize);

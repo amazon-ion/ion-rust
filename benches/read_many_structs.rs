@@ -400,9 +400,7 @@ mod benchmark {
         let binary_1_1_data = test_data_1_1.binary_data.as_slice();
         let name = test_data_1_1.name.as_str();
 
-        let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let compiled_macro = TemplateCompiler::compile_from_text(
-            empty_context.get_ref(),
             &test_data_1_1.template_definition_text,
         )
         .unwrap();

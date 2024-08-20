@@ -2538,7 +2538,7 @@ mod tests {
 
         fn register_macro(&mut self, text: &str) -> &mut Self {
             let new_macro =
-                TemplateCompiler::compile_from_text(self.context.get_ref(), text).unwrap();
+                TemplateCompiler::compile_from_text(text).unwrap();
             self.context.macro_table.add_macro(new_macro).unwrap();
             self
         }

@@ -11,14 +11,13 @@ use crate::lazy::expanded::template::{
     RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateBodyExpr, TemplateMacro,
     TemplateStructIndex, TemplateValue,
 };
-use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{v1_1, IonError, IonResult, IonType, Reader, Symbol, SymbolRef};
+use crate::{v1_1, IonError, IonResult, IonType, Reader, Symbol, SymbolRef, MacroTable};
 
 /// Information inferred about a template's expansion at compile time.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -139,15 +138,15 @@ impl TemplateCompiler {
     /// to the template without interpretation. `(literal ...)` does not appear in the compiled
     /// template as there is nothing more for it to do at expansion time.
     pub fn compile_from_text(
-        context: EncodingContextRef,
         expression: &str,
     ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that panics instead of performing thorough
         //       validation. Where it does surface errors, the messages are too terse.
         let mut reader = Reader::new(v1_1::Text, expression.as_bytes())?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
+        let macros = MacroTable::default();
 
-        Self::compile_from_sexp(context, macro_def_sexp)
+        Self::compile_from_sexp(&macros, macro_def_sexp)
     }
 
     /// Pulls the next value from the provided source and confirms that it is a symbol whose
@@ -288,7 +287,7 @@ impl TemplateCompiler {
     }
 
     pub fn compile_from_sexp<'a, Encoding: Decoder>(
-        context: EncodingContextRef<'a>,
+        macros: &MacroTable,
         macro_def_sexp: LazySExp<'a, Encoding>,
     ) -> Result<TemplateMacro, IonError> {
         let mut values = macro_def_sexp.iter();
@@ -365,6 +364,7 @@ impl TemplateCompiler {
             compiled_params.push(compiled_param);
         }
         let signature = MacroSignature::new(compiled_params)?;
+
         let body = Self::expect_next("the template body", &mut values)?;
         let expansion_analysis = Self::analyze_body_expr(body)?;
         let mut compiled_body = TemplateBody {
@@ -372,7 +372,7 @@ impl TemplateCompiler {
             annotations_storage: Vec::new(),
         };
         Self::compile_value(
-            context,
+            macros,
             &signature,
             &mut compiled_body,
             /*is_literal=*/ false,
@@ -451,7 +451,7 @@ impl TemplateCompiler {
     ///
     /// If `is_literal` is true, nested symbols and s-expressions will not be interpreted.
     fn compile_value<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
+        macros: &MacroTable,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_literal: bool,
@@ -481,7 +481,6 @@ impl TemplateCompiler {
             ValueRef::Symbol(s) if is_literal => TemplateValue::Symbol(s.to_owned()),
             ValueRef::Symbol(s) => {
                 return Self::compile_variable_reference(
-                    context,
                     signature,
                     definition,
                     annotations_range,
@@ -494,7 +493,7 @@ impl TemplateCompiler {
             // of the total number of expressions that belong to this container.
             ValueRef::SExp(s) => {
                 return Self::compile_sexp(
-                    context,
+                    macros,
                     signature,
                     definition,
                     is_literal,
@@ -504,7 +503,7 @@ impl TemplateCompiler {
             }
             ValueRef::List(l) => {
                 return Self::compile_list(
-                    context,
+                    macros,
                     signature,
                     definition,
                     is_literal,
@@ -514,7 +513,7 @@ impl TemplateCompiler {
             }
             ValueRef::Struct(s) => {
                 return Self::compile_struct(
-                    context,
+                    macros,
                     signature,
                     definition,
                     is_literal,
@@ -535,7 +534,7 @@ impl TemplateCompiler {
 
     /// Helper method for visiting all of the child expressions in a list.
     fn compile_list<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
+        macros: &MacroTable,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_literal: bool,
@@ -549,7 +548,13 @@ impl TemplateCompiler {
         definition.push_element(list_element, ExprRange::empty());
         for value_result in &lazy_list {
             let value = value_result?;
-            Self::compile_value(context, signature, definition, is_literal, value)?;
+            Self::compile_value(
+                macros,
+                signature,
+                definition,
+                is_literal,
+                value
+            )?;
         }
         let list_children_end = definition.expressions.len();
         // Update the list entry to reflect the number of child expressions it contains
@@ -563,7 +568,7 @@ impl TemplateCompiler {
 
     /// Helper method for visiting all of the child expressions in a sexp.
     fn compile_sexp<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
+        macros: &MacroTable,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_literal: bool,
@@ -574,7 +579,7 @@ impl TemplateCompiler {
             // If `is_literal` is true, this s-expression is nested somewhere inside a `(literal ...)`
             // macro invocation. The sexp and its child expressions can be added to the TemplateBody
             // without interpretation.
-            Self::compile_quoted_sexp(context, signature, definition, annotations_range, lazy_sexp)
+            Self::compile_quoted_sexp(macros, signature, definition, annotations_range, lazy_sexp)
         } else {
             // If `is_quoted` is false, the sexp is a macro invocation.
             // First, verify that it doesn't have annotations.
@@ -584,10 +589,10 @@ impl TemplateCompiler {
             // Peek at the first expression in the sexp. If it's the symbol `literal`...
             if Self::sexp_is_literal_macro(&lazy_sexp)? {
                 // ...then we set `is_quoted` to true and compile all of its child expressions.
-                Self::compile_quoted_elements(context, signature, definition, lazy_sexp)
+                Self::compile_quoted_elements(macros, signature, definition, lazy_sexp)
             } else {
                 // Otherwise, add the macro invocation to the template body.
-                Self::compile_macro(context, signature, definition, lazy_sexp)
+                Self::compile_macro(macros, signature, definition, lazy_sexp)
             }
         }?;
 
@@ -597,7 +602,7 @@ impl TemplateCompiler {
     /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
     /// TemplateBody.
     fn compile_macro<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
+        macros: &MacroTable,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         lazy_sexp: LazySExp<'top, D>,
@@ -609,7 +614,7 @@ impl TemplateCompiler {
         //       as debug information. The name cannot be stored directly on the
         //       TemplateBodyMacroInvocation as that would prevent the type from being `Copy`.
         let (_maybe_name, macro_address) =
-            Self::name_and_address_from_id_expr(context, expressions.next())?;
+            Self::name_and_address_from_id_expr(macros, expressions.next())?;
         let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
         // this at the end of the function.
@@ -617,7 +622,7 @@ impl TemplateCompiler {
         for argument_result in expressions {
             let argument = argument_result?;
             Self::compile_value(
-                context, signature, definition, /*is_quoted=*/ false, argument,
+                macros, signature, definition, /*is_quoted=*/ false, argument,
             )?;
         }
         let arguments_end = definition.expressions.len();
@@ -631,9 +636,9 @@ impl TemplateCompiler {
 
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro address.
-    fn name_and_address_from_id_expr<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
-        id_expr: Option<IonResult<LazyValue<'top, D>>>,
+    fn name_and_address_from_id_expr<D: Decoder>(
+        macros: &MacroTable,
+        id_expr: Option<IonResult<LazyValue<D>>>,
     ) -> IonResult<(Option<String>, usize)> {
         match id_expr {
             None => IonResult::decoding_error("found an empty s-expression in an unquoted context"),
@@ -642,7 +647,7 @@ impl TemplateCompiler {
                 ValueRef::Symbol(s) => {
                     if let Some(name) = s.text() {
                         let address =
-                            context.macro_table.address_for_name(name).ok_or_else(|| {
+                            macros.address_for_name(name).ok_or_else(|| {
                                 IonError::decoding_error(format!("unrecognized macro name: {name}"))
                             })?;
                         Ok((Some(name.to_string()), address))
@@ -654,7 +659,7 @@ impl TemplateCompiler {
                     let address = usize::try_from(int.expect_i64()?).map_err(|_| {
                         IonError::decoding_error(format!("found an invalid macro address: {int}"))
                     })?;
-                    if context.macro_table.macro_at_address(address).is_none() {
+                    if macros.macro_at_address(address).is_none() {
                         IonResult::decoding_error(format!(
                             "invocation of invalid macro address {address}"
                         ))
@@ -673,7 +678,7 @@ impl TemplateCompiler {
     /// without interpretation. `lazy_sexp` itself is the `quote` macro, and does not get added
     /// to the template body as there is nothing more for it to do at evaluation time.
     fn compile_quoted_elements<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
+        macros: &MacroTable,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         lazy_sexp: LazySExp<'top, D>,
@@ -683,20 +688,14 @@ impl TemplateCompiler {
         // it's the symbol `quote`. We can discard it.
         let _ = elements.next().unwrap()?;
         for element_result in elements {
-            Self::compile_value(
-                context,
-                signature,
-                definition,
-                /*is_quoted=*/ true,
-                element_result?,
-            )?;
+            Self::compile_value(macros, signature, definition, /*is_quoted=*/ true, element_result?,)?;
         }
         Ok(())
     }
 
     /// Adds `lazy_sexp` to the template body without interpretation.
     fn compile_quoted_sexp<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
+        macros: &MacroTable,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
@@ -709,7 +708,7 @@ impl TemplateCompiler {
         for value_result in &lazy_sexp {
             let value = value_result?;
             Self::compile_value(
-                context, signature, definition, /*is_quoted=*/ true, value,
+                macros, signature, definition, /*is_quoted=*/ true, value,
             )?;
         }
         let sexp_children_end = definition.expressions.len();
@@ -741,7 +740,7 @@ impl TemplateCompiler {
 
     /// Recursively adds all of the expressions in `lazy_struct` to the `TemplateBody`.
     fn compile_struct<'top, D: Decoder>(
-        context: EncodingContextRef<'top>,
+        macros: &MacroTable,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         is_literal: bool,
@@ -778,7 +777,7 @@ impl TemplateCompiler {
                 }
             }
 
-            Self::compile_value(context, signature, definition, is_literal, field.value())?;
+            Self::compile_value(macros, signature, definition, is_literal, field.value())?;
         }
         let struct_end = definition.expressions.len();
         // Update the struct entry to reflect the range of expansion steps it contains.
@@ -793,7 +792,6 @@ impl TemplateCompiler {
     /// Resolves `variable` to a parameter in the macro signature and adds a corresponding
     /// `TemplateExpansionStep` to the `TemplateBody`.
     fn compile_variable_reference(
-        _context: EncodingContextRef,
         signature: &MacroSignature,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
@@ -830,8 +828,7 @@ mod tests {
     use crate::lazy::expanded::template::{
         ExprRange, ParameterEncoding, TemplateBodyExpr, TemplateMacro, TemplateValue,
     };
-    use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
-    use crate::{Int, IntoAnnotations, IonResult, Symbol};
+    use crate::{Int, IntoAnnotations, IonResult, MacroTable, Symbol};
 
     // This function only looks at the value portion of the TemplateElement. To compare annotations,
     // see the `expect_annotations` method.
@@ -920,29 +917,26 @@ mod tests {
     }
 
     struct TestResources {
-        context: EncodingContext,
+        macros: MacroTable,
     }
 
     impl TestResources {
         fn new() -> Self {
             Self {
-                context: EncodingContext::empty(),
+                macros: MacroTable::default(),
             }
         }
 
-        fn context(&self) -> EncodingContextRef {
-            self.context.get_ref()
+        fn macros(&self) -> &MacroTable {
+            &self.macros
         }
     }
 
     #[test]
     fn single_scalar() -> IonResult<()> {
-        let resources = TestResources::new();
-        let context = resources.context();
-
         let expression = "(macro foo () 42)";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_text(expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::Int(42.into()))?;
@@ -951,12 +945,9 @@ mod tests {
 
     #[test]
     fn single_list() -> IonResult<()> {
-        let resources = TestResources::new();
-        let context = resources.context();
-
         let expression = "(macro foo () [1, 2, 3])";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_text(expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::List)?;
@@ -969,17 +960,17 @@ mod tests {
     #[test]
     fn multiple_scalar() -> IonResult<()> {
         let resources = TestResources::new();
-        let context = resources.context();
+        let macros = resources.macros();
 
         let expression = r#"(macro foo () (values 42 "hello" false))"#;
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_text(expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_macro(
             &template,
             0,
-            context.macro_table.address_for_name("values").unwrap(),
+            macros.address_for_name("values").unwrap(),
             3,
         )?;
         expect_value(&template, 1, TemplateValue::Int(42.into()))?;
@@ -990,12 +981,9 @@ mod tests {
 
     #[test]
     fn try_it() -> IonResult<()> {
-        let resources = TestResources::new();
-        let context = resources.context();
-
         let expression = "(macro foo (x y z) [100, [200, a::b::300], x, {y: [true, false, z]}])";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_text(expression)?;
         expect_value(&template, 0, TemplateValue::List)?;
         expect_value(&template, 1, TemplateValue::Int(Int::from(100)))?;
         expect_value(&template, 2, TemplateValue::List)?;
@@ -1016,12 +1004,9 @@ mod tests {
 
     #[test]
     fn identity_macro() -> IonResult<()> {
-        let resources = TestResources::new();
-        let context = resources.context();
-
         let expression = "(macro identity (x) x)";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_text(expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().len(), 1);
         expect_variable(&template, 0, 0)?;
@@ -1030,12 +1015,9 @@ mod tests {
 
     #[test]
     fn identity_with_flex_uint() -> IonResult<()> {
-        let resources = TestResources::new();
-        let context = resources.context();
-
         let expression = "(macro identity (flex_uint::x) x)";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_text(expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().len(), 1);
         assert_eq!(
@@ -1054,7 +1036,7 @@ mod tests {
     #[test]
     fn literal() -> IonResult<()> {
         let resources = TestResources::new();
-        let context = resources.context();
+        let macros = resources.macros();
 
         let expression = r#"
             (macro foo (x)
@@ -1067,21 +1049,21 @@ mod tests {
                         (values x))))
         "#;
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_text(expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 1);
         // Outer `values`
         expect_macro(
             &template,
             0,
-            context.macro_table.address_for_name("values").unwrap(),
+            macros.address_for_name("values").unwrap(),
             5,
         )?;
         // First argument: `(values x)`
         expect_macro(
             &template,
             1,
-            context.macro_table.address_for_name("values").unwrap(),
+            macros.address_for_name("values").unwrap(),
             1,
         )?;
         expect_variable(&template, 2, 0)?;

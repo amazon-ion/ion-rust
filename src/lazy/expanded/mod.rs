@@ -153,7 +153,7 @@ impl EncodingContext {
     // TODO: These methods are temporary; they will be removed once shared modules are supported.
     pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         let template_macro: TemplateMacro =
-            TemplateCompiler::compile_from_text(self.get_ref(), template_definition)?;
+            TemplateCompiler::compile_from_text(template_definition)?;
         self.register_template(template_macro)
     }
 
@@ -278,7 +278,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 
     fn compile_template(&self, template_definition: &str) -> IonResult<TemplateMacro> {
-        TemplateCompiler::compile_from_text(self.context(), template_definition)
+        TemplateCompiler::compile_from_text(template_definition)
     }
 
     fn add_macro(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
