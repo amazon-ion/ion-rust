@@ -7,7 +7,7 @@ use std::str::FromStr;
 use nom::branch::alt;
 use nom::bytes::complete::{
     is_a as complete_is_a, is_not as complete_is_not, tag as complete_tag,
-    take_while as complete_take_while, take_while1 as complete_take_while1,
+    take_while as complete_take_while,
 };
 use nom::bytes::streaming::{is_a, tag, take_until, take_while_m_n};
 use nom::character::complete::{
@@ -19,7 +19,7 @@ use nom::combinator::{consumed, eof, map, not, opt, peek, recognize, success, va
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::{fold_many1, fold_many_m_n, many0_count, many1_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
-use nom::{AsBytes, CompareResult, IResult, InputLength, InputTake, Needed, Parser};
+use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
 
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
@@ -45,7 +45,9 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
 use crate::result::DecodingError;
-use crate::{Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, TimestampPrecision};
+use crate::{
+    v1_1, Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, TimestampPrecision,
+};
 
 use crate::lazy::expanded::macro_table::Macro;
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
@@ -263,10 +265,15 @@ impl<'top> TextBufferView<'top> {
     /// Matches a single rest-of-the-line comment.
     fn match_rest_of_line_comment(self) -> IonMatchResult<'top> {
         preceded(
-            // Matches a leading "//"...
-            complete_tag("//"),
+            // Matches a leading "//".
+            // If there isn't a first '/', the input will be rejected.
+            // If the buffer is empty after the first '/', the input will be considered incomplete.
+            // If the next character in input isn't a second '/', the input will be rejected.
+            recognize(pair(complete_tag("/"), tag("/"))),
             // ...followed by either...
             alt((
+                // '//' can appear at the end of the stream
+                peek(recognize(eof)),
                 // ...one or more non-EOL characters...
                 complete_is_not("\r\n"),
                 // ...or any EOL character.
@@ -299,7 +306,7 @@ impl<'top> TextBufferView<'top> {
             ),
             // Look ahead to make sure the IVM isn't followed by a '::'. If it is, then it's not
             // an IVM, it's an annotation.
-            peek(whitespace_and_then(not(complete_tag("::")))),
+            peek(whitespace_and_then(not(complete_tag(":")))),
         ))(self)?;
         // `major` and `minor` are base 10 digits. Turning them into `&str`s is guaranteed to succeed.
         let major_version = u8::from_str(matched_major.as_text().unwrap()).map_err(|_| {
@@ -338,7 +345,7 @@ impl<'top> TextBufferView<'top> {
         terminated(
             whitespace_and_then(match_and_span(Self::match_symbol)),
             whitespace_and_then(terminated(
-                // The complete_tag/tag pair allows the parser to recognize that:
+                // The `complete_tag`/`tag` pair below allows the parser to recognize that:
                 //
                 //     foo::bar::baz:
                 //
@@ -520,7 +527,10 @@ impl<'top> TextBufferView<'top> {
             separated_pair(
                 whitespace_and_then(Self::match_struct_field_name),
                 whitespace_and_then(tag(":")),
-                whitespace_and_then(Self::match_annotated_value_1_1),
+                whitespace_and_then(alt((
+                    Self::match_annotated_long_string_in_struct,
+                    Self::match_annotated_value_1_1,
+                ))),
             ),
             whitespace_and_then(alt((tag(","), peek(tag("}"))))),
         )(self)
@@ -546,17 +556,77 @@ impl<'top> TextBufferView<'top> {
         .parse(self)
     }
 
+    /// Constructs a parser that reads an optional annotations sequence and a value read using the provided
+    /// `value_parser`. The constructed parser returns a `LazyRawTextValue_1_1`.
+    fn match_annotated_value_parser(
+        value_parser: impl Parser<Self, EncodedTextValue<'top, v1_1::Text>, IonParseError<'top>>,
+    ) -> impl Parser<Self, LazyRawTextValue_1_1<'top>, IonParseError<'top>> {
+        consumed(pair(
+            opt(Self::match_annotations),
+            whitespace_and_then(value_parser),
+        ))
+        .map(|(matched_input, (maybe_annotations, encoded_value))| {
+            let value = LazyRawTextValue_1_1 {
+                encoded_value,
+                input: matched_input,
+            };
+            matched_input.apply_annotations(maybe_annotations, value)
+        })
+    }
+
+    /// In the context of a list, long-form strings need to be parsed differently to properly detect incomplete
+    /// input. For example, at the top level...
+    /// ```ion
+    ///        // string  empty symbol
+    ///         '''foo'''      ''
+    /// ```
+    ///
+    /// But in the context of a list...
+    ///
+    /// ```ion
+    ///     [           // v--- Incomplete
+    ///         '''foo''' ''
+    /// ```
+    ///
+    /// the same partial value is an `Incomplete` because it must be followed by a `,` or `]` to be
+    /// complete.
+    pub fn match_annotated_long_string_in_list(
+        self,
+    ) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
+        Self::match_annotated_value_parser(
+            Self::match_long_string_in_list.map(|s| EncodedTextValue::new(MatchedValue::String(s))),
+        )
+        .parse(self)
+    }
+
+    /// Like `match_annotated_long_string_in_list` above, but for structs.
+    pub fn match_annotated_long_string_in_struct(
+        self,
+    ) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
+        Self::match_annotated_value_parser(
+            Self::match_long_string_in_struct
+                .map(|s| EncodedTextValue::new(MatchedValue::String(s))),
+        )
+        .parse(self)
+    }
+
     /// Matches a struct field name. That is:
     /// * A quoted symbol
     /// * An identifier
     /// * A symbol ID
     /// * A short-form string
     pub fn match_struct_field_name(self) -> IonParseResult<'top, MatchedFieldName<'top>> {
+        // When truncated, field names can end up looking like keywords. If the buffer contains
+        // a keyword and then ends, that's incomplete input. We do this check ahead of regular
+        // parsing because `match_symbol` will reject keywords as invalid (not incomplete).
+        if terminated(Self::match_keyword, eof)(self).is_ok() {
+            return Err(nom::Err::Incomplete(Needed::Unknown));
+        }
         consumed(alt((
             Self::match_string.map(MatchedFieldNameSyntax::String),
             Self::match_symbol.map(MatchedFieldNameSyntax::Symbol),
         )))
-        .map(|(matched_inpet, syntax)| MatchedFieldName::new(matched_inpet, syntax))
+        .map(|(matched_input, syntax)| MatchedFieldName::new(matched_input, syntax))
         .parse(self)
     }
 
@@ -802,7 +872,7 @@ impl<'top> TextBufferView<'top> {
                 return {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a v1.1 list")
-                        .with_description(format!("{}", e));
+                        .with_description(format!("couldn't match span: {}", e));
                     Err(nom::Err::Failure(IonParseError::Invalid(error)))
                 }
             }
@@ -888,6 +958,11 @@ impl<'top> TextBufferView<'top> {
             )
             .map(|matched| Some(RawValueExpr::EExp(matched))),
             value(None, tag("]")),
+            terminated(
+                Self::match_annotated_long_string_in_list.map(Some),
+                Self::match_delimiter_after_list_value,
+            )
+            .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
             terminated(
                 Self::match_annotated_value_1_1.map(Some),
                 // ...followed by a comma or end-of-list
@@ -1158,14 +1233,15 @@ impl<'top> TextBufferView<'top> {
         }
         let (remaining, _end_of_eexp) = match whitespace_and_then(tag(")")).parse(remaining) {
             Ok(result) => result,
+            Err(nom::Err::Incomplete(needed)) => return Err(nom::Err::Incomplete(needed)),
             Err(_e) => {
                 return fatal_parse_error(
                     remaining,
                     format!(
-                        "signature has {} parameter(s), e-expression had an extra argument",
-                        signature_params.len()
-                    ),
-                )
+                    "macro {id} signature has {} parameter(s), e-expression had an extra argument",
+                    signature_params.len()
+                ),
+                );
             }
         };
 
@@ -1348,31 +1424,32 @@ impl<'top> TextBufferView<'top> {
 
     /// Matches and returns any type of null. (`null`, `null.null`, `null.int`, etc)
     pub fn match_null(self) -> IonParseResult<'top, IonType> {
-        delimited(
-            complete_tag("null"),
-            opt(preceded(complete_char('.'), Self::match_ion_type)),
+        terminated(
+            alt((
+                pair(complete_tag("null."), Self::match_ion_type).map(|(_, ion_type)| ion_type),
+                complete_tag("null").map(|_| IonType::Null),
+            )),
             Self::peek_stop_character,
         )
-        .map(|explicit_ion_type| explicit_ion_type.unwrap_or(IonType::Null))
         .parse(self)
     }
 
     /// Matches and returns an Ion type.
     fn match_ion_type(self) -> IonParseResult<'top, IonType> {
         alt((
-            value(IonType::Null, complete_tag("null")),
-            value(IonType::Bool, complete_tag("bool")),
-            value(IonType::Int, complete_tag("int")),
-            value(IonType::Float, complete_tag("float")),
-            value(IonType::Decimal, complete_tag("decimal")),
-            value(IonType::Timestamp, complete_tag("timestamp")),
-            value(IonType::Symbol, complete_tag("symbol")),
-            value(IonType::String, complete_tag("string")),
-            value(IonType::Clob, complete_tag("clob")),
-            value(IonType::Blob, complete_tag("blob")),
-            value(IonType::List, complete_tag("list")),
-            value(IonType::SExp, complete_tag("sexp")),
-            value(IonType::Struct, complete_tag("struct")),
+            value(IonType::Null, tag("null")),
+            value(IonType::Bool, tag("bool")),
+            value(IonType::Int, tag("int")),
+            value(IonType::Float, tag("float")),
+            value(IonType::Decimal, tag("decimal")),
+            value(IonType::Timestamp, tag("timestamp")),
+            value(IonType::Symbol, tag("symbol")),
+            value(IonType::String, tag("string")),
+            value(IonType::Clob, tag("clob")),
+            value(IonType::Blob, tag("blob")),
+            value(IonType::List, tag("list")),
+            value(IonType::SExp, tag("sexp")),
+            value(IonType::Struct, tag("struct")),
         ))(self)
     }
 
@@ -1421,7 +1498,10 @@ impl<'top> TextBufferView<'top> {
             // Zero or more digits-followed-by-underscores
             many0_count(pair(complete_is_a("01"), complete_tag("_"))),
             // One or more digits
-            complete_is_a("01"),
+            pair(
+                one_of("01"),
+                many0_count(nom::character::complete::one_of("01")),
+            ),
         ))(self)
     }
 
@@ -1464,7 +1544,13 @@ impl<'top> TextBufferView<'top> {
     /// This parser accepts leading zeros, which is why it cannot be used for the beginning
     /// of a number.
     fn match_base_10_trailing_digits(self) -> IonMatchResult<'top> {
-        recognize(many0_count(pair(opt(complete_char('_')), complete_digit1)))(self)
+        // A sequence of zero or more...
+        recognize(many0_count(alt((
+            //...underscore-followed-by-a-digit...
+            recognize(preceded(complete_tag("_"), satisfy(|c| c.is_ascii_digit()))),
+            //...or a digit.
+            complete_digit1,
+        ))))(self)
     }
 
     /// Matches a base-10 notation integer (e.g. `0x0`, `0X20`, or `-0xCAFE`) and returns the
@@ -1494,7 +1580,12 @@ impl<'top> TextBufferView<'top> {
     /// Recognizes 1 or more consecutive base-16 digits.
     // This function's "1" suffix is a style borrowed from `nom`.
     fn take_base_16_digits1(self) -> IonMatchResult<'top> {
-        complete_take_while1(|b: u8| b.is_ascii_hexdigit())(self)
+        recognize(pair(
+            // We need at least one digit; if input's empty, this is Incomplete.
+            satisfy(|c: char| c.is_ascii_hexdigit()),
+            // After we have our digit, take digits until we find a non-digit (including EOF).
+            complete_take_while(|b: u8| b.is_ascii_hexdigit()),
+        ))(self)
     }
 
     /// Matches `n` consecutive hex digits.
@@ -1530,8 +1621,8 @@ impl<'top> TextBufferView<'top> {
     fn match_float_special_value(self) -> IonParseResult<'top, MatchedFloat> {
         alt((
             value(MatchedFloat::NotANumber, complete_tag("nan")),
-            value(MatchedFloat::PositiveInfinity, complete_tag("+inf")),
-            value(MatchedFloat::NegativeInfinity, complete_tag("-inf")),
+            value(MatchedFloat::PositiveInfinity, tag("+inf")),
+            value(MatchedFloat::NegativeInfinity, tag("-inf")),
         ))(self)
     }
 
@@ -1758,9 +1849,84 @@ impl<'top> TextBufferView<'top> {
         Self::match_text_until_unescaped(self, b'\"', false)
     }
 
+    pub fn match_long_string(self) -> IonParseResult<'top, MatchedString> {
+        // This method is used at the top level and inside s-expressions.
+        // Specific contexts that need to specify a delimiter will call
+        // `match_long_string_with_terminating_delimiter` themselves.
+        // This includes lists, structs, and clobs.
+        Self::match_only_complete_if_terminated(
+            "reading a long-form string",
+            Self::match_long_string_segments,
+            // Don't specify a terminating delimiter -- always succeed.
+            Self::match_nothing,
+            Self::match_partial_long_string_delimiter,
+        )(self)
+    }
+
+    pub fn match_long_string_in_struct(self) -> IonParseResult<'top, MatchedString> {
+        Self::match_only_complete_if_terminated(
+            "reading a long-form string in a struct",
+            Self::match_long_string_segments,
+            alt((tag(","), tag("}"))),
+            Self::match_partial_long_string_delimiter,
+        )(self)
+    }
+
+    pub fn match_long_string_in_list(self) -> IonParseResult<'top, MatchedString> {
+        Self::match_only_complete_if_terminated(
+            "reading a long-form string in a list",
+            Self::match_long_string_segments,
+            alt((tag(","), tag("]"))),
+            Self::match_partial_long_string_delimiter,
+        )(self)
+    }
+
+    /// Matches a parser that must be followed by input that matches `terminator`.
+    ///
+    /// This is used in contexts where the expression being parsed must be followed by one of a
+    /// set of known delimiters (ignoring whitespace and comments). For example:
+    ///   * in a list, a long string must be followed by `,` or `]`
+    ///   * in a struct, a long string must be followed by `,` or `}`
+    ///   * in a clob, a long string must be followed by `}}`.
+    ///
+    /// Without this, it would be impossible to determine whether `''' ''` is legal or incomplete
+    /// in a given context.
+    ///
+    /// If the input is NOT terminated properly, the parser will check to see if `partial` matches.
+    /// If so, it will return an `Incomplete`.
+    /// If not, it will return an `Err` that includes the provided `label`.
+    pub fn match_only_complete_if_terminated<Output, Output2, Output3: Debug>(
+        label: &'static str,
+        mut parser: impl FnMut(Self) -> IonParseResult<'top, Output> + 'top,
+        mut terminator: impl FnMut(Self) -> IonParseResult<'top, Output3>,
+        mut partial: impl FnMut(Self) -> IonParseResult<'top, Output2>,
+    ) -> impl FnMut(Self) -> IonParseResult<'top, Output> {
+        move |input: Self| {
+            // If the parser raises an error, bubble it up.
+            let (remaining, matched) = parser(input)?;
+            // If the next thing in input is the terminator, report success.
+            match peek(&mut terminator)(remaining) {
+                Ok(_) => return Ok((remaining, matched)),
+                Err(nom::Err::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+                _ => {
+                    // no match
+                }
+            };
+            // Otherwise, see if the next thing in input is an indication that the input was
+            // incomplete.
+            if peek(&mut partial)(remaining).is_ok() {
+                return incomplete();
+            }
+
+            Err(nom::Err::Error(IonParseError::Invalid(
+                InvalidInputError::new(remaining).with_label(label),
+            )))
+        }
+    }
+
     /// Matches a long string comprised of any number of `'''`-enclosed segments interleaved
     /// with optional comments and whitespace.
-    pub(crate) fn match_long_string(self) -> IonParseResult<'top, MatchedString> {
+    pub(crate) fn match_long_string_segments(self) -> IonParseResult<'top, MatchedString> {
         fold_many1(
             // Parser to keep applying repeatedly
             whitespace_and_then(Self::match_long_string_segment),
@@ -1785,16 +1951,42 @@ impl<'top> TextBufferView<'top> {
         .parse(self)
     }
 
+    /// In the context of a list or s-expression, a truncated long-form string makes it impossible
+    /// to tell whether the input is malformed or just incomplete. For example, at the top level,
+    /// this is incomplete:
+    ///     '''foo''' '
+    /// while this:
+    ///     '''foo''' ''
+    /// is valid--it's a string followed by an empty symbol. Inside a list, however, the same partial
+    /// long string has to be read differently. If the reader sees this:
+    ///    ['''foo''' ''
+    /// It needs to consider it incomplete, not valid; for the last token to be an empty symbol,
+    /// there would need to be a delimiting comma (`,`) between the two values. Structs also require
+    /// a delimiting comma between a value and the next field.
+    ///
+    /// If an error is encountered while traversing a list or struct, this method can be used to
+    /// see if the problematic data was the beginning of another string segment.
+    pub fn match_partial_long_string_delimiter(self) -> IonMatchResult<'top> {
+        whitespace_and_then(terminated(tag("''"), eof)).parse(self)
+    }
+
     /// Matches a single long string segment enclosed by `'''` delimiters.
+    /// Returns the match and a boolean indicating whether the body contained escape sequences.
     pub fn match_long_string_segment(self) -> IonParseResult<'top, (Self, bool)> {
+        // If the buffer is a single quote and then EOF, it's not known whether this was a
+        // partial long string segment or a partial quoted symbol.
+        if self.bytes() == b"'" {
+            return Err(nom::Err::Incomplete(Needed::Unknown));
+        }
         delimited(
             complete_tag("'''"),
             Self::match_long_string_segment_body,
-            complete_tag("'''"),
+            tag("'''"),
         )(self)
     }
 
     /// Matches all input up to (but not including) the first unescaped instance of `'''`.
+    /// Returns the match and a boolean indicating whether the body contained escape sequences.
     fn match_long_string_segment_body(self) -> IonParseResult<'top, (Self, bool)> {
         Self::match_text_until_unescaped_str(self, "'''")
     }
@@ -1846,6 +2038,20 @@ impl<'top> TextBufferView<'top> {
             .parse(self)
     }
 
+    /// Matches items that match the syntactic definition of an identifier but which have special
+    /// meaning. (`true`, `false`, `nan`, `null`)
+    pub(crate) fn match_keyword(self) -> IonMatchResult<'top> {
+        terminated(
+            alt((
+                complete_tag("true"),
+                complete_tag("false"),
+                complete_tag("null"),
+                complete_tag("nan"),
+            )),
+            Self::identifier_terminator,
+        )(self)
+    }
+
     /// Matches an identifier (`foo`).
     pub(crate) fn match_identifier(self) -> IonParseResult<'top, MatchedSymbol> {
         let (remaining, identifier_text) = recognize(terminated(
@@ -1855,19 +2061,7 @@ impl<'top> TextBufferView<'top> {
             ),
             Self::identifier_terminator,
         ))(self)?;
-        // Ion defines a number of keywords that are syntactically indistinguishable from
-        // identifiers. Keywords take precedence; we must ensure that any identifier we find
-        // is not actually a keyword.
-        const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
-        // In many situations, this check will not be necessary. Another type's parser will
-        // recognize the keyword as its own. (For example, `parse_boolean` would match the input
-        // text `false`.) However, because symbols can appear in annotations and the check for
-        // annotations precedes the parsing for all other types, we need this extra verification.
-        if KEYWORDS
-            .iter()
-            .any(|k| k.as_bytes() == identifier_text.bytes())
-        {
-            // Finding a keyword is not a fatal error, it just means that this parser doesn't match.
+        if identifier_text.match_keyword().is_ok() {
             return Err(nom::Err::Error(IonParseError::Invalid(
                 InvalidInputError::new(self),
             )));
@@ -1889,7 +2083,10 @@ impl<'top> TextBufferView<'top> {
 
     /// Matches any character that is legal in an identifier, though not necessarily at the beginning.
     fn identifier_trailing_character(self) -> IonParseResult<'top, Self> {
-        recognize(alt((one_of("$_"), satisfy(|c| c.is_ascii_alphanumeric()))))(self)
+        recognize(alt((
+            complete_one_of("$_"),
+            nom::character::complete::satisfy(|c| c.is_ascii_alphanumeric()),
+        )))(self)
     }
 
     /// Matches characters that are legal in an identifier, though not necessarily at the beginning.
@@ -1899,7 +2096,7 @@ impl<'top> TextBufferView<'top> {
 
     /// Matches a quoted symbol (`'foo'`).
     fn match_quoted_symbol(self) -> IonParseResult<'top, MatchedSymbol> {
-        delimited(char('\''), Self::match_quoted_symbol_body, char('\''))
+        delimited(complete_tag("'"), Self::match_quoted_symbol_body, tag("'"))
             .map(|(_matched, contains_escaped_chars)| {
                 if contains_escaped_chars {
                     MatchedSymbol::QuotedWithEscapes
@@ -2038,7 +2235,7 @@ impl<'top> TextBufferView<'top> {
     fn match_timestamp_y(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
             Self::match_timestamp_year,
-            pair(complete_tag("T"), Self::peek_stop_character),
+            pair(tag("T"), Self::peek_stop_character),
         )
         .map(|_year| MatchedTimestamp::new(TimestampPrecision::Year))
         .parse(self)
@@ -2048,7 +2245,7 @@ impl<'top> TextBufferView<'top> {
     fn match_timestamp_ym(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
             pair(Self::match_timestamp_year, Self::match_timestamp_month),
-            pair(complete_tag("T"), Self::peek_stop_character),
+            pair(tag("T"), Self::peek_stop_character),
         )
         .map(|(_year, _month)| MatchedTimestamp::new(TimestampPrecision::Month))
         .parse(self)
@@ -2135,8 +2332,8 @@ impl<'top> TextBufferView<'top> {
         preceded(
             complete_tag("-"),
             recognize(alt((
-                pair(complete_char('0'), complete_one_of("123456789")),
-                pair(complete_char('1'), complete_one_of("012")),
+                pair(char('0'), one_of("123456789")),
+                pair(char('1'), one_of("012")),
             ))),
         )(self)
     }
@@ -2144,11 +2341,11 @@ impl<'top> TextBufferView<'top> {
     /// Matches the day component of a timestamp, including a leading `-`.
     fn match_timestamp_day(self) -> IonMatchResult<'top> {
         preceded(
-            complete_tag("-"),
+            tag("-"),
             recognize(alt((
-                pair(complete_char('0'), complete_one_of("123456789")),
-                pair(complete_one_of("12"), Self::match_any_digit),
-                pair(complete_char('3'), complete_one_of("01")),
+                pair(char('0'), one_of("123456789")),
+                pair(one_of("12"), Self::match_any_digit),
+                pair(char('3'), one_of("01")),
             ))),
         )(self)
     }
@@ -2163,13 +2360,13 @@ impl<'top> TextBufferView<'top> {
             separated_pair(
                 // Hour
                 recognize(alt((
-                    pair(complete_one_of("01"), Self::match_any_digit),
-                    pair(complete_char('2'), complete_one_of("0123")),
+                    pair(one_of("01"), Self::match_any_digit),
+                    pair(char('2'), one_of("0123")),
                 ))),
                 // Delimiter
-                complete_tag(":"),
+                tag(":"),
                 // Minutes
-                recognize(pair(complete_one_of("012345"), Self::match_any_digit)),
+                recognize(pair(one_of("012345"), Self::match_any_digit)),
             ),
         )(self)
     }
@@ -2177,27 +2374,24 @@ impl<'top> TextBufferView<'top> {
     /// Matches a leading `:`, and any two-digit second component from `00` to `59` inclusive.
     fn match_timestamp_seconds(self) -> IonMatchResult<'top> {
         preceded(
-            complete_tag(":"),
-            recognize(pair(complete_one_of("012345"), Self::match_any_digit)),
+            tag(":"),
+            recognize(pair(one_of("012345"), Self::match_any_digit)),
         )(self)
     }
 
     /// Matches the fractional seconds component of a timestamp, including a leading `.`.
     fn match_timestamp_fractional_seconds(self) -> IonMatchResult<'top> {
-        preceded(complete_tag("."), digit1)(self)
+        preceded(tag("."), digit1)(self)
     }
 
     /// Matches a timestamp offset of any format.
     fn match_timestamp_offset(self) -> IonParseResult<'top, MatchedTimestampOffset> {
         alt((
-            value(MatchedTimestampOffset::Zulu, complete_tag("Z")),
-            value(MatchedTimestampOffset::Zulu, complete_tag("+00:00")),
-            value(MatchedTimestampOffset::Unknown, complete_tag("-00:00")),
+            value(MatchedTimestampOffset::Zulu, tag("Z")),
+            value(MatchedTimestampOffset::Zulu, tag("+00:00")),
+            value(MatchedTimestampOffset::Unknown, tag("-00:00")),
             map(
-                pair(
-                    complete_one_of("-+"),
-                    Self::match_timestamp_offset_hours_and_minutes,
-                ),
+                pair(one_of("-+"), Self::match_timestamp_offset_hours_and_minutes),
                 |(sign, (_hours, _minutes))| {
                     if sign == '-' {
                         MatchedTimestampOffset::NegativeHoursAndMinutes
@@ -2215,20 +2409,20 @@ impl<'top> TextBufferView<'top> {
         separated_pair(
             // Hour
             recognize(alt((
-                pair(complete_one_of("01"), Self::match_any_digit),
-                pair(complete_char('2'), complete_one_of("0123")),
+                pair(one_of("01"), Self::match_any_digit),
+                pair(char('2'), one_of("0123")),
             ))),
             // Delimiter
-            complete_tag(":"),
+            tag(":"),
             // Minutes
-            recognize(pair(complete_one_of("012345"), Self::match_any_digit)),
+            recognize(pair(one_of("012345"), Self::match_any_digit)),
         )(self)
     }
 
     /// Matches a complete blob, including the opening `{{` and closing `}}`.
     pub fn match_blob(self) -> IonParseResult<'top, MatchedBlob> {
         delimited(
-            tag("{{"),
+            complete_tag("{{"),
             // Only whitespace (not comments) can appear within the blob
             recognize(Self::match_base64_content),
             preceded(Self::match_optional_whitespace, tag("}}")),
@@ -2242,12 +2436,17 @@ impl<'top> TextBufferView<'top> {
     /// Matches a clob of either short- or long-form syntax.
     pub fn match_clob(self) -> IonParseResult<'top, MatchedClob> {
         delimited(
-            tag("{{"),
+            complete_tag("{{"),
             preceded(
                 Self::match_optional_whitespace,
                 alt((
                     value(MatchedClob::Short, Self::match_short_clob_body),
-                    value(MatchedClob::Long, Self::match_long_clob_body),
+                    value(
+                        MatchedClob::Long,
+                        // Look ahead to make sure there's a complete triple quote following the `{{`.
+                        // If there isn't, the input is incomplete.
+                        preceded(peek(tag("'''")), Self::match_long_clob_body),
+                    ),
                 )),
             ),
             preceded(Self::match_optional_whitespace, tag("}}")),
@@ -2263,10 +2462,17 @@ impl<'top> TextBufferView<'top> {
 
     /// Matches the body (inside the `{{` and `}}`) of a long-form clob.
     fn match_long_clob_body(self) -> IonMatchResult<'top> {
-        recognize(many1_count(preceded(
-            Self::match_optional_whitespace,
-            Self::match_long_clob_body_segment,
-        )))(self)
+        let (remaining, body) = Self::match_only_complete_if_terminated(
+            "reading a long-form clob",
+            recognize(many1_count(preceded(
+                Self::match_optional_whitespace,
+                Self::match_long_clob_body_segment,
+            ))),
+            preceded(Self::match_optional_whitespace, tag(r#"}}"#)),
+            preceded(Self::match_optional_whitespace, tag("''")),
+        )(self)?;
+
+        Ok((remaining, body))
     }
 
     /// Matches a single segment of a long-form clob's content.
@@ -2472,6 +2678,11 @@ impl<'data> nom::InputTakeAtPosition for TextBufferView<'data> {
 
 // === end of `nom` trait implementations
 
+/// Convenience function to construct a nom `Incomplete` and wrap it in an `IonParseResult`
+fn incomplete<'a, T>() -> IonParseResult<'a, T> {
+    Err(nom::Err::Incomplete(Needed::Unknown))
+}
+
 /// Takes a given parser and returns a new one that accepts any amount of leading whitespace before
 /// calling the original parser.
 pub fn whitespace_and_then<'data, P, O>(
@@ -2583,7 +2794,7 @@ mod tests {
         {
             let result = self.try_match(parser);
             let (_remaining, match_length) = result.unwrap_or_else(|e| {
-                panic!("Unexpected parse fail for input '{}'\n{e}", self.input)
+                panic!("Unexpected parse fail for input <{}>\n{e}", self.input)
             });
             // Inputs have a trailing newline and `0` that should _not_ be part of the match
             assert_eq!(
@@ -2755,6 +2966,11 @@ mod tests {
             "null..int",
             "string.null",
         ],
+        expect_incomplete: [
+            "null.timestam",
+            "null.strin",
+            "null.nul"
+        ]
     }
 
     matcher_tests! {
@@ -2795,9 +3011,11 @@ mod tests {
             "_123",        // Leading underscore
             "0x0x5",       // Multiple 0x prefixes
             "0xx5",        // Multiple Xs after 0
+        ],
+        expect_incomplete: [
             "0x",          // Base 16 prefix w/no number
             "0b",          // Base 2 prefix w/no number
-        ],
+        ]
     }
 
     matcher_tests! {
@@ -2834,20 +3052,22 @@ mod tests {
             "2023-08-13T14:18:35.994-05:00",
         ],
         expect_mismatch: [
-            "2023",                          // No 'T'
-            "2023-08",                       // No 'T'
             "20233T",                        // 5-digit year
             "2023-13T",                      // Out of bounds month
             "2023-08-41T",                   // Out of bounds day
             "2023-08+18T",                   // Wrong delimiter
             "2023-08-18T25:00Z",             // Out of bounds hour
-            "2023-08-18T14:00",              // No offset
             "2023-08-18T14:62",              // Out of bounds minute
             "2023-08-18T14:35:61",           // Out of bounds second
             "2023-08-18T14:35:52.Z",         // Dot but no fractional
             "2023-08-18T14:35:52.000+24:30", // Out of bounds offset hour
             "2023-08-18T14:35:52.000+00:60", // Out of bounds offset minute
         ],
+        expect_incomplete: [
+            "2023",                          // No 'T'; it's an int
+            "2023-08",                       // No 'T'; it's incomplete
+            "2023-08-18T14:00",              // No offset
+        ]
     }
 
     matcher_tests! {
@@ -2899,6 +3119,7 @@ mod tests {
     matcher_tests! {
         match_symbol
         expect_match: [
+            "''",
             "'hello'",
             "'😀😀😀'",
             "'this has an escaped quote \\' right in the middle'",
@@ -2915,7 +3136,6 @@ mod tests {
         ],
         expect_mismatch: [
             "$-8",       // Negative SID
-            "nan",       // Identifier that is also a keyword
         ],
     }
 

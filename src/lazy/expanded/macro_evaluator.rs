@@ -1781,7 +1781,7 @@ mod tests {
           (values
             (make_string "foo" '''bar''' "\x62\u0061\U0000007A")
             (make_string 
-                '''Hello'''  
+                '''Hello'''
                 ''', '''
                 "world!"))
         )

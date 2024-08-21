@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 
 use std::fs::read;
+use std::io;
+use std::io::Read;
 use std::path::MAIN_SEPARATOR_STR as PATH_SEPARATOR;
 
 use ion_rs::v1_0;
@@ -12,6 +14,7 @@ use ion_rs::{
     Symbol, Value,
 };
 
+mod detect_incomplete_text;
 pub mod lazy_element_ion_tests;
 
 /// Concatenates two slices of string slices together.
@@ -435,3 +438,29 @@ pub const ELEMENT_EQUIVS_SKIP_LIST: SkipList = &[
     "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableNullSlots.ion",
     "ion-tests/iontestdata_1_0/good/equivs/nonIVMNoOps.ion",
 ];
+
+/// An implementation of `io::Read` that only yields a single byte on each
+/// call to `read()`. This is used in tests to confirm that the reader's
+/// data-incompleteness and retry logic will properly handle all corner
+/// cases.
+pub(crate) struct DataStraw<R> {
+    input: R,
+}
+
+impl<R> DataStraw<R> {
+    pub fn new(input: R) -> Self {
+        Self { input }
+    }
+}
+
+impl<R: Read> Read for DataStraw<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let single_byte_buffer = &mut [0u8; 1];
+        let bytes_read = self.input.read(single_byte_buffer)?;
+        if bytes_read == 0 {
+            return Ok(0);
+        }
+        buf[0] = single_byte_buffer[0];
+        Ok(1)
+    }
+}

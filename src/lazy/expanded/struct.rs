@@ -534,7 +534,10 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         evaluator.push(expansion);
         let expanded_value = match evaluator.next()? {
             Some(item) => item,
-            None => return IonResult::decoding_error(format!("macros in field name position must produce a single struct; '{:?}' produced nothing", invocation)),
+            None => {
+                // The macro produced an empty stream; return to reading from input.
+                return Ok(());
+            }
         };
         let struct_ = match expanded_value.read()? {
             ExpandedValueRef::Struct(s) => s,

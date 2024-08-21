@@ -141,13 +141,23 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
         let (buffer_head, buffer_tail) = match input.as_text() {
             // The buffer contains UTF-8 bytes, so we'll display it as text
             Ok(text) => {
-                let head = text.chars().take(NUM_CHARS_TO_SHOW).collect::<String>();
-                let tail_backwards = text
-                    .chars()
-                    .rev()
+                let mut head_chars = text.chars();
+                let mut head = (&mut head_chars)
+                    .take(NUM_CHARS_TO_SHOW)
+                    .collect::<String>();
+                if head_chars.next().is_some() {
+                    head.push_str("...");
+                }
+                let mut tail_chars = text.chars().rev();
+                let tail_backwards = (&mut tail_chars)
                     .take(NUM_CHARS_TO_SHOW)
                     .collect::<Vec<char>>();
-                let tail = tail_backwards.iter().rev().collect::<String>();
+                let mut tail = String::new();
+                if tail_chars.next().is_some() {
+                    tail.push_str("...");
+                }
+                tail.push_str(tail_backwards.iter().rev().collect::<String>().as_str());
+
                 (head, tail)
             }
             // The buffer contains non-text bytes, so we'll show its contents as formatted hex
@@ -170,8 +180,8 @@ impl<'data> From<InvalidInputError<'data>> for IonError {
             message,
             r#"
         offset={}
-        buffer head=<{}...>
-        buffer tail=<...{}>
+        buffer head=<{}>
+        buffer tail=<{}>
         buffer len={}
         "#,
             invalid_input_error.input.offset(),
