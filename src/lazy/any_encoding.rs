@@ -1601,7 +1601,7 @@ impl<'data> From<LazyRawFieldExpr<'data, BinaryEncoding_1_1>>
         use LazyRawFieldExpr::*;
         match binary_field {
             NameValue(name, value) => NameValue(name.into(), value.into()),
-            NameEExp(_, _) => todo!("(name, e-exp) field in binary Ion 1.1"),
+            NameEExp(name, eexp) => NameEExp(name.into(), eexp.into()),
             EExp(_) => todo!("e-exp field in binary Ion 1.1"),
         }
     }

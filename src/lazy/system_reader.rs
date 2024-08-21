@@ -334,18 +334,35 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         }
         let mut symbol_table = SymbolTable::new(IonVersion::v1_1);
         for arg in args {
-            let symbol_list = arg?.read()?.expect_list()?;
-            for value in symbol_list {
-                match value?.read()? {
-                    ValueRef::String(s) => symbol_table.add_symbol_for_text(s.text()),
-                    ValueRef::Symbol(s) => symbol_table.add_symbol(s.to_owned()),
-                    other => {
-                        return IonResult::decoding_error(format!(
-                            "found a non-text value in symbols list: {other:?}"
-                        ))
+            match arg?.read()? {
+                ValueRef::Symbol(symbol) if symbol == "$ion_encoding" => {
+                    let active_symtab = operation.expanded().context.symbol_table();
+                    for symbol in active_symtab.application_symbols() {
+                        symbol_table.add_symbol(symbol.clone());
                     }
-                };
-            }
+                }
+                ValueRef::Symbol(symbol) => {
+                    todo!("modules other than $ion_encoding (found symbol '{symbol:?}')")
+                }
+                ValueRef::List(symbol_list) => {
+                    for value in symbol_list {
+                        match value?.read()? {
+                            ValueRef::String(s) => symbol_table.add_symbol_for_text(s.text()),
+                            ValueRef::Symbol(s) => symbol_table.add_symbol(s.to_owned()),
+                            other => {
+                                return IonResult::decoding_error(format!(
+                                    "found a non-text value in symbols list: {other:?}"
+                                ))
+                            }
+                        };
+                    }
+                }
+                other => {
+                    return IonResult::decoding_error(format!(
+                        "found an unexpected value in the (symbol_table ...): {other:?}"
+                    ));
+                }
+            };
         }
         Ok(symbol_table)
     }

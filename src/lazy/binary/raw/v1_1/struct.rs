@@ -12,7 +12,8 @@ use crate::lazy::binary::raw::v1_1::{
 };
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName, LazyRawStruct,
+    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    LazyRawStruct, LazyRawValueExpr, RawValueExpr,
 };
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::span::Span;
@@ -229,21 +230,18 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// If a value is parsed successfully, it is returned along with an [`ImmutableBuffer`]
     /// positioned after the value. If the value consists of NOPs, no value is returned but a
     /// buffer positioned after the NOPs is returned.
-    fn peek_value(
+    fn peek_value_expr(
         buffer: ImmutableBuffer<'top>,
-    ) -> IonResult<(Option<LazyRawBinaryValue_1_1<'top>>, ImmutableBuffer<'top>)> {
+    ) -> IonResult<(
+        Option<LazyRawValueExpr<'top, BinaryEncoding_1_1>>,
+        ImmutableBuffer<'top>,
+    )> {
         let opcode = buffer.expect_opcode()?;
         if opcode.is_nop() {
             let after_nops = buffer.consume_nop_padding(opcode)?.1;
-            if after_nops.is_empty() {
-                // Non-NOP field wasn't found, nothing remaining.
-                return Ok((None, after_nops));
-            }
             Ok((None, after_nops))
         } else {
-            buffer
-                .read_value(opcode)
-                .map(|(v, remaining)| (Some(v), remaining))
+            buffer.read_sequence_value_expr()
         }
     }
 
@@ -279,24 +277,26 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
                 return IonResult::incomplete("found field name but no value", after_name.offset());
             }
 
-            let (value, after_value) = match Self::peek_value(after_name)? {
-                (None, after) => {
-                    if after.is_empty() {
+            let (value_expr, after_value) = match Self::peek_value_expr(after_name)? {
+                (None, after_value) => {
+                    if after_value.is_empty() {
                         return IonResult::incomplete(
                             "found field name but no value",
-                            after.offset(),
+                            after_value.offset(),
                         );
                     }
-                    buffer = after;
+                    buffer = after_value;
                     continue; // No value for this field, loop to try next field.
                 }
-                (Some(value), after) => (&*after.context().allocator().alloc_with(|| value), after),
+                (Some(value_expr), after) => (value_expr, after),
             };
 
-            return Ok((
-                Some((LazyRawFieldExpr::NameValue(field_name, value), mode)),
-                after_value,
-            ));
+            let field_expr = match value_expr {
+                RawValueExpr::ValueLiteral(value) => LazyRawFieldExpr::NameValue(field_name, value),
+                RawValueExpr::EExp(eexp) => LazyRawFieldExpr::NameEExp(field_name, eexp),
+            };
+
+            return Ok((Some((field_expr, mode)), after_value));
         }
     }
 }
@@ -319,5 +319,65 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
             self.mode = mode;
             field_expr
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        v1_1, AnyEncoding, Element, ElementReader, IonResult, MacroTable, Reader, SequenceWriter,
+        StructWriter, ValueWriter, Writer,
+    };
+
+    #[test]
+    fn field_value_eexp() -> IonResult<()> {
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        let encoding_directive = Element::read_one(
+            r#"
+                $ion_encoding::(
+                    (symbol_table $ion_encoding)
+                    (macro_table
+                        (macro greet (name) (make_string "hello, " name))
+                    )
+                )
+            "#,
+        )?;
+        writer.write(&encoding_directive)?;
+        let macro_id = MacroTable::FIRST_USER_MACRO_ID;
+        let mut struct_writer = writer.struct_writer()?;
+
+        let field_writer = struct_writer.field_writer("Waldo");
+        let mut eexp_writer = field_writer.eexp_writer(macro_id)?;
+        eexp_writer.write("Waldo")?;
+        eexp_writer.close()?;
+
+        let field_writer = struct_writer.field_writer("Winnifred");
+        let mut eexp_writer = field_writer.eexp_writer(macro_id)?;
+        eexp_writer.write("Winnifred")?;
+        eexp_writer.close()?;
+
+        let field_writer = struct_writer.field_writer("Winston");
+        let mut eexp_writer = field_writer.eexp_writer(macro_id)?;
+        eexp_writer.write("Winston")?;
+        eexp_writer.close()?;
+
+        struct_writer.close()?;
+
+        let bytes = writer.close()?;
+
+        let mut reader = Reader::new(AnyEncoding, bytes)?;
+        assert_eq!(
+            reader.read_one_element()?,
+            Element::read_one(
+                r#"
+                    {
+                        Waldo    : "hello, Waldo",
+                        Winnifred: "hello, Winnifred",
+                        Winston  : "hello, Winston",
+                    }
+                "#
+            )?
+        );
+        Ok(())
     }
 }
