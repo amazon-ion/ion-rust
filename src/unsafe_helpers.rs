@@ -19,6 +19,15 @@ pub(crate) unsafe fn ptr_to_mut_ref<'a, T>(ptr: *mut ()) -> &'a mut T {
     &mut *typed_ptr
 }
 
+/// Helper function that turns a raw pointer into an immutable reference of the specified type.
+///
+/// The caller is responsible for confirming that `ptr` is a valid reference to some value
+/// of type `T`.
+pub(crate) unsafe fn ptr_to_ref<'a, T>(ptr: *mut ()) -> &'a T {
+    let typed_ptr: *const T = ptr.cast();
+    &*typed_ptr
+}
+
 /// Helper function that turns a mutable reference into a raw pointer.
 ///
 /// Because this method does not read the data to which the reference points,
