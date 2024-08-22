@@ -349,6 +349,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         if let Some(new_version) = pending_changes.switch_to_version.take() {
             symbol_table.reset_to_version(new_version);
             pending_changes.has_changes = false;
+            pending_changes.is_lst_append = false;
             // If we're switching to a new version, the last stream item was a version marker
             // and there are no other pending changes. The `take()` above clears the `switch_to_version`.
             return;
@@ -357,6 +358,8 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         if let Some(mut module) = pending_changes.take_new_active_module() {
             std::mem::swap(symbol_table, module.symbol_table_mut());
             std::mem::swap(macro_table, module.macro_table_mut());
+            pending_changes.has_changes = false;
+            pending_changes.is_lst_append = false;
             return;
         }
 
@@ -407,7 +410,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             )?;
             pending_changes.has_changes = true;
             let lazy_struct = LazyStruct {
-                expanded_struct: value.read()?.expect_struct().unwrap(),
+                expanded_struct: value.read()?.expect_struct()?,
             };
             return Ok(SystemStreamItem::SymbolTable(lazy_struct));
         } else if self.detected_encoding().version() == IonVersion::v1_1
@@ -417,7 +420,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             SystemReader::<_, Input>::process_encoding_directive(pending_changes, value)?;
             pending_changes.has_changes = true;
             let lazy_sexp = LazySExp {
-                expanded_sexp: value.read()?.expect_sexp().unwrap(),
+                expanded_sexp: value.read()?.expect_sexp()?,
             };
             return Ok(SystemStreamItem::EncodingDirective(lazy_sexp));
         }

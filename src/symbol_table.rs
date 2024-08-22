@@ -23,6 +23,10 @@ impl Default for SymbolTable {
 }
 
 impl SymbolTable {
+    const NUM_SYSTEM_SYMBOLS_1_0: usize = 10;
+    // TODO: Update this when the implementation is complete
+    const NUM_SYSTEM_SYMBOLS_1_1: usize = 10;
+
     /// Constructs a new symbol table pre-populated with the system symbols defined in the spec.
     pub(crate) fn new(ion_version: IonVersion) -> SymbolTable {
         // Enough to hold the 1.0 system table and several user symbols.
@@ -141,6 +145,26 @@ impl SymbolTable {
     /// [Symbol] for more information.
     pub fn symbols(&self) -> &[Symbol] {
         &self.symbols_by_id
+    }
+
+    pub fn number_of_system_symbols(&self) -> usize {
+        match self.ion_version {
+            IonVersion::v1_0 => Self::NUM_SYSTEM_SYMBOLS_1_0,
+            IonVersion::v1_1 => Self::NUM_SYSTEM_SYMBOLS_1_1,
+        }
+    }
+
+    /// Returns a slice of the symbols that were defined by the application--those that follow the
+    /// system symbols in the table.
+    pub fn application_symbols(&self) -> &[Symbol] {
+        let num_sys_symbols = self.number_of_system_symbols();
+        &self.symbols()[num_sys_symbols..]
+    }
+
+    /// Returns the slice of symbols that were defined by the specification.
+    pub fn system_symbols(&self) -> &[Symbol] {
+        let num_sys_symbols = self.number_of_system_symbols();
+        &self.symbols()[0..num_sys_symbols]
     }
 
     /// Returns a slice of the last `n` symbols in the symbol table. The caller must confirm that

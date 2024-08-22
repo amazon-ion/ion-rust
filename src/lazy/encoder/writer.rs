@@ -24,8 +24,8 @@ use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    Decimal, Element, ElementWriter, Int, IonResult, IonType, MacroTable, RawSymbolRef, Symbol,
-    SymbolTable, Timestamp, UInt, Value,
+    Decimal, Element, ElementWriter, Int, IonResult, IonType, IonVersion, MacroTable, RawSymbolRef,
+    Symbol, SymbolTable, Timestamp, UInt, Value,
 };
 
 pub(crate) struct WriterContext {
@@ -100,7 +100,10 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Writes bytes of previously encoded values to the output stream.
     pub fn flush(&mut self) -> IonResult<()> {
         if self.context.num_pending_symbols > 0 {
-            self.write_lst_append()?;
+            match E::ion_version() {
+                IonVersion::v1_0 => self.write_lst_append()?,
+                IonVersion::v1_1 => self.write_encoding_directive()?,
+            }
             self.context.num_pending_symbols = 0;
         }
 
@@ -149,6 +152,34 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         new_symbol_list.close()?;
 
         lst.close()
+    }
+
+    /// Helper method to encode an LST append containing pending symbols.
+    fn write_encoding_directive(&mut self) -> IonResult<()> {
+        let Self {
+            context,
+            directive_writer,
+            ..
+        } = self;
+
+        let mut directive = directive_writer
+            .value_writer()
+            .with_annotations("$ion_encoding")?
+            .sexp_writer()?;
+
+        let pending_symbols = context
+            .symbol_table
+            .symbols_tail(context.num_pending_symbols)
+            .iter()
+            .map(Symbol::text);
+
+        let mut symbol_table = directive.sexp_writer()?;
+        symbol_table
+            .write_symbol("symbol_table")?
+            .write_symbol("$ion_encoding")?
+            .write_list(pending_symbols)?;
+        symbol_table.close()?;
+        directive.close()
     }
 }
 
