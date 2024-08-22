@@ -228,7 +228,7 @@ impl<'a> Debug for LazyRawTextList_1_1<'a> {
 #[derive(Debug, Copy, Clone)]
 pub struct RawTextListIterator_1_1<'top> {
     input: TextBufferView<'top>,
-    // If this iterator has returned an error, it should return `None` forever afterwards
+    // If this iterator has returned an error, it should return `None` forever afterward
     has_returned_error: bool,
 }
 

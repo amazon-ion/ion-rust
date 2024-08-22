@@ -309,8 +309,10 @@ impl MatchedDecimal {
 
         let digits_text = sanitized.as_utf8(digits.offset())?;
         let magnitude: Int = i128::from_str(digits_text)
-            .map_err(|_| {
-                IonError::decoding_error("decimal magnitude was larger than supported size")
+            .map_err(|e| {
+                IonError::decoding_error(format!(
+                    "decimal magnitude '{digits_text}' was larger than supported size ({e:?}"
+                ))
             })?
             .into();
 

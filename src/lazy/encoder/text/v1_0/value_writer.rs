@@ -166,19 +166,6 @@ pub(crate) struct TextContainerWriter_1_0<'a, W: Write> {
     trailing_delimiter: &'static str,
 }
 
-impl<'a, W: Write> Drop for TextContainerWriter_1_0<'a, W> {
-    fn drop(&mut self) {
-        // If the user didn't call `end`, the closing delimiter was not written to output.
-        // It's too late to call it here because we can't return a `Result`.
-        if !self.has_been_closed {
-            panic!(
-                "Container writer ({:?}) was dropped without calling `end()`.",
-                self.container_type
-            );
-        }
-    }
-}
-
 impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
     pub fn new(
         writer: &'a mut LazyRawTextWriter_1_0<W>,
