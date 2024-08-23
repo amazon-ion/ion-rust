@@ -388,7 +388,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     arg.ion_type()
                 ))
             })?;
-            let new_macro = TemplateCompiler::compile_from_sexp(context, macro_def_sexp)?;
+            let new_macro =
+                TemplateCompiler::compile_from_sexp(context, &macro_table, macro_def_sexp)?;
             macro_table.add_macro(new_macro)?;
         }
         Ok(macro_table)
