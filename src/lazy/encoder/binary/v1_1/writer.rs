@@ -12,7 +12,7 @@ use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::Encoding;
-use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref};
+use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref, ptr_to_ref};
 use crate::write_config::{WriteConfig, WriteConfigKind};
 use crate::{IonEncoding, IonResult};
 
@@ -74,7 +74,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
 
         let encoding_buffer = match encoding_buffer_ptr {
             // If `encoding_buffer_ptr` is set, get the slice of bytes to which it refers.
-            Some(ptr) => unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() },
+            Some(ptr) => unsafe { ptr_to_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() },
             // Otherwise, there's nothing in the buffer. Use an empty slice.
             None => &[],
         };
@@ -97,14 +97,17 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             Some(ptr) => unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(ptr) },
             // Otherwise, allocate a new encoding buffer and set the pointer to refer to it.
             None => {
-                let buffer = self.allocator.alloc_with(|| {
+                let buffer: &mut BumpVec<u8> = self.allocator.alloc_with(|| {
                     // Use half of the bump allocator's backing array as an encoding space for this
                     // top level value. The other half of the bump can be used for incidental
                     // bookkeeping.
                     BumpVec::with_capacity_in(DEFAULT_BUMP_SIZE / 2, &self.allocator)
                 });
+                // SAFETY: We cannot both store `buffer` in `encoding_buffer_ptr` AND return it
+                //         because this would (briefly) construct two mutable references. Instead,
+                //         we store it in `encoding_buffer_ptr` and then read it from its new location.
                 self.encoding_buffer_ptr = Some(mut_ref_to_ptr(buffer));
-                buffer
+                unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(self.encoding_buffer_ptr.unwrap()) }
             }
         };
         BinaryValueWriter_1_1::new(

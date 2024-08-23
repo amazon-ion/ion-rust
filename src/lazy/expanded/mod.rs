@@ -220,7 +220,7 @@ pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
     // the pointer and coerce the result into a `&'top mut MacroEvaluator`, allowing the value it
     // yields that can be used until `next()` is called again.
     //
-    // Because there is not valid lifetime we can use for the type `*mut MacroEvaluator<'lifetime>`,
+    // Because there is not a valid lifetime we can use for the type `*mut MacroEvaluator<'lifetime>`,
     // in the field below, we cast away the pointer's type for the purposes of storage and then cast
     // it back at dereference time when a 'top lifetime is available.
     evaluator_ptr: Cell<Option<*mut ()>>,
@@ -468,10 +468,12 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         if pending_lst.has_changes {
             // SAFETY: Nothing else holds a reference to the `EncodingContext`'s contents, so we can use the
             //         `UnsafeCell` to get a mutable reference to its symbol table.
-            let symbol_table: &mut SymbolTable =
-                &mut unsafe { &mut *self.encoding_context.get() }.symbol_table;
-            let macro_table: &mut MacroTable =
-                &mut unsafe { &mut *self.encoding_context.get() }.macro_table;
+            let encoding_context_ref = unsafe { &mut *self.encoding_context.get() };
+            let EncodingContext {
+                macro_table,
+                symbol_table,
+                ..
+            } = encoding_context_ref;
             Self::apply_pending_context_changes(pending_lst, symbol_table, macro_table);
         }
     }
@@ -530,8 +532,8 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // See if the raw reader can get another expression from the input stream. It's possible
         // to find an expression that yields no values (for example: `(:void)`), so we perform this
         // step in a loop until we get a value or end-of-stream.
-        let allocator: &BumpAllocator = self.context().allocator();
-        let context_ref = EncodingContextRef::new(allocator.alloc_with(|| self.context()));
+        let context_ref = self.context();
+
         // Pull another top-level expression from the input stream if one is available.
         use crate::lazy::raw_stream_item::RawStreamItem::*;
         let raw_reader = unsafe { &mut *self.raw_reader.get() };
@@ -548,7 +550,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             // It's another macro invocation, we'll add it to the evaluator so it will be evaluated
             // on the next call and then we'll return the e-expression itself.
             EExp(e_exp) => {
-                let context = self.context();
                 let resolved_e_exp = match e_exp.resolve(context_ref) {
                     Ok(resolved) => resolved,
                     Err(e) => return Err(e),
@@ -565,7 +566,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                     // If there's not an evaluator in the bump, make a new one.
                     None => {
                         let new_evaluator = MacroEvaluator::for_eexp(resolved_e_exp)?;
-                        context.allocator.alloc_with(|| new_evaluator)
+                        context_ref.allocator.alloc_with(|| new_evaluator)
                     }
                 };
 
@@ -613,9 +614,8 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // See if the raw reader can get another expression from the input stream. It's possible
         // to find an expression that yields no values (for example: `(:void)`), so we perform this
         // step in a loop until we get a value or end-of-stream.
+        let context_ref = self.context();
 
-        let allocator: &BumpAllocator = self.context().allocator();
-        let context_ref = EncodingContextRef::new(allocator.alloc_with(|| self.context()));
         loop {
             // Pull another top-level expression from the input stream if one is available.
             use crate::lazy::raw_stream_item::RawStreamItem::*;
@@ -631,7 +631,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                 }
                 // It's another macro invocation, we'll start evaluating it.
                 EExp(e_exp) => {
-                    let context = self.context();
                     let resolved_e_exp = match e_exp.resolve(context_ref) {
                         Ok(resolved) => resolved,
                         Err(e) => return Err(e),
@@ -653,7 +652,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                             bump_evaluator_ref
                         }
                         // If there's not an evaluator in the bump, make a new one.
-                        None => context.allocator.alloc_with(|| new_evaluator),
+                        None => context_ref.allocator.alloc_with(|| new_evaluator),
                     };
 
                     // Try to get a value by starting to evaluate the e-expression.

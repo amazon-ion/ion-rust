@@ -1,6 +1,6 @@
 name: Miri test
 
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 jobs:
   build:
@@ -11,9 +11,9 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
         # build and test for experimental features with miri
-        features: ['experimental']
+        features: [ 'experimental' ]
     permissions:
       checks: write
 
@@ -37,9 +37,17 @@ jobs:
       - name: Test with Miri (ubuntu and macos)
         # miri test for Linux and macOS os, since Windows os requires a different syntax to enable miri flags
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
-        # We need to pass the miri flag to disable host isolation in order to access host for clock information on timestamps
-        # more information can be found: https://github.com/rust-lang/miri#miri--z-flags-and-environment-variables
-        run: MIRIFLAGS="-Zmiri-disable-isolation" cargo miri test serde --features "${{ matrix.features }}"
+        # Miri flags
+        #
+        # -Zmiri-disable-isolation
+        #     We need to pass the miri flag to disable host isolation in order to access host for clock information on timestamps
+        #     more information can be found: https://github.com/rust-lang/miri#miri--z-flags-and-environment-variables
+        #
+        # -Zmiri-tree-borrows
+        #     Miri's default aliasing model (stacked borrows) is known to be unnecessarily restrictive. Their alternative
+        #     aliasing model (tree borrows) accepts valid programs that stacked borrows would reject.
+        #     For more information, see: https://www.ralfj.de/blog/2023/06/02/tree-borrows.html
+        run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows" cargo miri test serde --features "${{ matrix.features }}"
       - name: Test with Miri (windows)
         if: matrix.os == 'windows-latest'
-        run: $env:MIRIFLAGS="-Zmiri-disable-isolation" ; cargo miri test serde --features "${{ matrix.features }}"
+        run: $env:MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows" ; cargo miri test serde --features "${{ matrix.features }}"
