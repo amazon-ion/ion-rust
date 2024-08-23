@@ -299,7 +299,7 @@ impl MacroTable {
         self.macros_by_name.get(name).copied()
     }
 
-    pub fn macro_with_name<'a>(&'a self, name: &str) -> Option<MacroRef<'a>> {
+    pub fn macro_with_name(&self, name: &str) -> Option<MacroRef> {
         let address = *self.macros_by_name.get(name)?;
         let reference = self.macros_by_address.get(address)?;
         Some(MacroRef { address, reference })
