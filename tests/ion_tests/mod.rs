@@ -14,7 +14,6 @@ use ion_rs::{
     Symbol, Value,
 };
 
-mod detect_incomplete_text;
 pub mod lazy_element_ion_tests;
 
 /// Concatenates two slices of string slices together.
@@ -443,7 +442,7 @@ pub const ELEMENT_EQUIVS_SKIP_LIST: SkipList = &[
 /// call to `read()`. This is used in tests to confirm that the reader's
 /// data-incompleteness and retry logic will properly handle all corner
 /// cases.
-pub(crate) struct DataStraw<R> {
+pub struct DataStraw<R> {
     input: R,
 }
 

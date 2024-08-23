@@ -18,10 +18,7 @@ exclude = [
 ]
 version = "1.0.0-rc.6"
 edition = "2021"
-# We need at least 1.65 for GATs[1] and 1.67 for `ilog`[2]
-# [1] https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html
-# [2] https://blog.rust-lang.org/2023/01/26/Rust-1.67.0.html#stabilized-apis
-rust-version = "1.77"
+rust-version = "1.80"
 
 [features]
 default = []
