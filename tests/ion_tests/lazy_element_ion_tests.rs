@@ -56,22 +56,22 @@ good_round_trip! {
     fn pretty_lines(Format::Text(TextFormat::Pretty), Format::Text(TextFormat::Lines));
 }
 
-#[test_resources("ion-tests/iontestdata_1_0/bad/**/*.ion")]
-#[test_resources("ion-tests/iontestdata_1_0/bad/**/*.10n")]
+#[test_resources("ion-tests/iontestdata/bad/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/bad/**/*.10n")]
 fn lazy_bad(file_name: &str) {
     bad(LazyReaderElementApi, file_name)
 }
 
-#[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
-#[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.10n")]
+#[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
 fn lazy_equivs(file_name: &str) {
     equivs(LazyReaderElementApi, file_name)
 }
 
-#[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.ion")]
 // no binary files exist and the macro doesn't like empty globs...
 // see frehberg/test-generator#12
-//#[test_resources("ion-tests/iontestdata_1_0/good/non-equivs/**/*.10n")]
+//#[test_resources("ion-tests/iontestdata/good/non-equivs/**/*.10n")]
 fn lazy_non_equivs(file_name: &str) {
     non_equivs(LazyReaderElementApi, file_name)
 }

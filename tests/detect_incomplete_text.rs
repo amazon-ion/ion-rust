@@ -37,7 +37,7 @@ static SKIP_LIST_1_1: LazyLock<HashSet<String>> = LazyLock::new(|| {
         .collect()
 });
 
-#[test_resources("ion-tests/iontestdata_1_0/good/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/**/*.ion")]
 fn detect_incomplete_input_1_0(file_name: &str) {
     incomplete_text_detection_test(&SKIP_LIST_1_0, file_name).unwrap()
 }

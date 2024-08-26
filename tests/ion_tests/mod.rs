@@ -320,9 +320,9 @@ macro_rules! good_round_trip {
     (use $ElementApiImpl:ident; $(fn $test_name:ident($format1:expr, $format2:expr);)+) => {
         mod good_round_trip_tests {
             use super::*; $(
-            #[test_resources("ion-tests/iontestdata_1_0/good/**/*.ion")]
+            #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
             //#[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
-            #[test_resources("ion-tests/iontestdata_1_0/good/**/*.10n")]
+            #[test_resources("ion-tests/iontestdata/good/**/*.10n")]
             fn $test_name(file_name: &str) {
                 $ElementApiImpl::assert_file($ElementApiImpl::global_skip_list(), file_name, || {
                     $ElementApiImpl::assert_three_way_round_trip(file_name, $format1, $format2)
@@ -381,61 +381,61 @@ pub fn non_equivs<E: ElementApi>(_element_api: E, file_name: &str) {
 pub const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // The binary reader does not check whether nested values are longer than their
     // parent container.
-    "ion-tests/iontestdata_1_0/bad/listWithValueLargerThanSize.10n",
+    "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
     // ROUND TRIP
     // These tests have shared symbol table imports in them, which the Reader does not
     // yet support.
-    "ion-tests/iontestdata_1_0/good/subfieldVarInt.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt15bit.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt16bit.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt32bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
     // This test requires the reader to be able to read symbols whose ID is encoded
     // with more than 8 bytes. Having a symbol table with more than 18 quintillion
     // symbols is not very practical.
-    "ion-tests/iontestdata_1_0/good/typecodes/T7-large.10n",
+    "ion-tests/iontestdata/good/typecodes/T7-large.10n",
     // ---
     // Requires importing shared symbol tables
-    "ion-tests/iontestdata_1_0/good/item1.10n",
-    "ion-tests/iontestdata_1_0/good/localSymbolTableImportZeroMaxId.ion",
+    "ion-tests/iontestdata/good/item1.10n",
+    "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
     // Requires importing shared symbol tables
-    "ion-tests/iontestdata_1_0/good/testfile35.ion",
+    "ion-tests/iontestdata/good/testfile35.ion",
     // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
-    "ion-tests/iontestdata_1_0/good/utf16.ion",
-    "ion-tests/iontestdata_1_0/good/utf32.ion",
+    "ion-tests/iontestdata/good/utf16.ion",
+    "ion-tests/iontestdata/good/utf32.ion",
     // NON-EQUIVS
-    "ion-tests/iontestdata_1_0/good/non-equivs/localSymbolTableWithAnnotations.ion",
-    "ion-tests/iontestdata_1_0/good/non-equivs/symbolTablesUnknownText.ion",
+    "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
+    "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
     // Integers outside the i128 range
-    "ion-tests/iontestdata_1_0/good/intBigSize16.10n",
-    "ion-tests/iontestdata_1_0/good/intBigSize256.ion",
-    "ion-tests/iontestdata_1_0/good/intBigSize256.10n",
-    "ion-tests/iontestdata_1_0/good/intBigSize512.ion",
-    "ion-tests/iontestdata_1_0/good/intBigSize1201.10n",
-    "ion-tests/iontestdata_1_0/good/equivs/bigInts.ion",
-    "ion-tests/iontestdata_1_0/good/equivs/intsLargePositive3.10n",
-    "ion-tests/iontestdata_1_0/good/equivs/intsLargeNegative3.10n",
+    "ion-tests/iontestdata/good/intBigSize16.10n",
+    "ion-tests/iontestdata/good/intBigSize256.ion",
+    "ion-tests/iontestdata/good/intBigSize256.10n",
+    "ion-tests/iontestdata/good/intBigSize512.ion",
+    "ion-tests/iontestdata/good/intBigSize1201.10n",
+    "ion-tests/iontestdata/good/equivs/bigInts.ion",
+    "ion-tests/iontestdata/good/equivs/intsLargePositive3.10n",
+    "ion-tests/iontestdata/good/equivs/intsLargeNegative3.10n",
 ];
 
 pub const ELEMENT_ROUND_TRIP_SKIP_LIST: SkipList = &[
-    "ion-tests/iontestdata_1_0/good/item1.10n",
-    "ion-tests/iontestdata_1_0/good/localSymbolTableImportZeroMaxId.ion",
-    "ion-tests/iontestdata_1_0/good/notVersionMarkers.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldInt.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldUInt.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarInt.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt15bit.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt16bit.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarUInt32bit.ion",
-    "ion-tests/iontestdata_1_0/good/utf16.ion",
-    "ion-tests/iontestdata_1_0/good/utf32.ion",
+    "ion-tests/iontestdata/good/item1.10n",
+    "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
+    "ion-tests/iontestdata/good/notVersionMarkers.ion",
+    "ion-tests/iontestdata/good/subfieldInt.ion",
+    "ion-tests/iontestdata/good/subfieldUInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt15bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt16bit.ion",
+    "ion-tests/iontestdata/good/subfieldVarUInt32bit.ion",
+    "ion-tests/iontestdata/good/utf16.ion",
+    "ion-tests/iontestdata/good/utf32.ion",
 ];
 
 pub const ELEMENT_EQUIVS_SKIP_LIST: SkipList = &[
-    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableAppend.ion",
-    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableNullSlots.ion",
-    "ion-tests/iontestdata_1_0/good/equivs/nonIVMNoOps.ion",
+    "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
+    "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
+    "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
 ];
 
 /// An implementation of `io::Read` that only yields a single byte on each
