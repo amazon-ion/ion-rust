@@ -1546,7 +1546,7 @@ mod tests {
         // to its own address.
         let mut macro_definitions = String::from("$ion_encoding::(\n  (macro_table\n");
         for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
-            write!(macro_definitions, "    (macro m{address} () {address})\n")?;
+            writeln!(macro_definitions, "    (macro m{address} () {address})")?;
         }
         macro_definitions.push_str("  )\n)\n");
         let encoding_directive = Element::read_one(macro_definitions)?;

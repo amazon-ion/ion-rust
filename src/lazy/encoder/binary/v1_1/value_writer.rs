@@ -702,7 +702,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                     // Opcode with low nibble setting bias
                     0x40 | low_opcode_nibble as u8,
                     // Remaining byte of magnitude in biased address
-                    0xFF & biased as u8,
+                    biased as u8,
                 ]);
             }
             MacroIdRef::LocalAddress(address) if address <= MAX_20_BIT_ADDRESS => {
@@ -716,7 +716,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                         0x50 | low_opcode_nibble as u8,
                     ],
                     // Remaining bytes of magnitude in biased address
-                    &(0xFFFF & biased as u16).to_le_bytes(),
+                    &(biased as u16).to_le_bytes(),
                 ]);
             }
             MacroIdRef::LocalAddress(_address) => {
