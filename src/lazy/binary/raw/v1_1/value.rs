@@ -194,7 +194,13 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             return Ok(ValueRef::Int(int));
         }
         if self.is_null() {
-            return Ok(ValueRef::Null(self.ion_type()));
+            let ion_type = if self.encoded_value.header.ion_type_code == OpcodeType::TypedNull {
+                let body = self.value_body();
+                ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
+            } else {
+                IonType::Null
+            };
+            return Ok(ValueRef::Null(ion_type));
         }
         // Anecdotally, string and integer values are very common in Ion streams. This `match` creates
         // an inlineable fast path for them while other types go through the general case impl.
