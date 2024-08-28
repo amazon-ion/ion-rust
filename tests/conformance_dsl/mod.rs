@@ -260,7 +260,7 @@ pub(crate) fn parse_bytes_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -
     for elem in elems.into_iter() {
         match elem.ion_type() {
             IonType::Int => match elem.as_i64() {
-                Some(i) if (0..255).contains(&i) => bytes.push(i as u8),
+                Some(i) if (0..=255).contains(&i) => bytes.push(i as u8),
                 _ => return Err(ConformanceErrorKind::InvalidByte),
             }
             IonType::String => {

@@ -76,26 +76,17 @@ impl TryFrom<Clause> for Fragment {
     fn try_from(other: Clause) -> InnerResult<Self> {
         let frag = match other.tpe {
             ClauseType::Text => {
-                // TODO: grammar is "(" "text" string* ")", we need to handle 0+ strings.
-                let txt = match other.body.first() {
-                    Some(txt) if txt.ion_type() == IonType::String => txt.as_string().unwrap().to_owned(),
-                    Some(_) => return Err(ConformanceErrorKind::UnexpectedValue),
-                    None => String::from(""),
-                };
-                Fragment::Text(txt)
-            }
-            ClauseType::Binary => {
-                // TODO: Support string of hex values.
-                let mut bytes: Vec<u8> = vec!();
-                for elem in other.body {
-                    if let Some(byte) = elem.as_i64() {
-                        if (0..=255).contains(&byte) {
-                            bytes.push(byte as u8);
-                        }
-                    }
+                let mut text = String::from("");
+                for elem in other.body.iter() {
+                    let txt = match elem.ion_type() {
+                        IonType::String => elem.as_string().unwrap().to_owned(),
+                        _ => return Err(ConformanceErrorKind::UnexpectedValue),
+                    };
+                    text = text + " " + &txt;
                 }
-                Fragment::Binary(bytes)
+                Fragment::Text(text)
             }
+            ClauseType::Binary => Fragment::Binary(parse_bytes_exp(other.body.iter())?),
             ClauseType::Ivm => {
                 // IVM: (ivm <int> <int>)
                 let maj = other.body.first().map(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?.unwrap();

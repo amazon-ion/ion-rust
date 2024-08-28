@@ -9,8 +9,6 @@ pub fn main() {
     let test_paths = std::env::args().skip(1).collect::<Vec<String>>();
     let mut errors: Vec<(String, String, conformance_dsl::ConformanceError)> = vec!();
 
-    // Formatting: Get max test name length.
-
     println!("Testing {} conformance collections.\n", test_paths.len());
 
     let mut failures = 0;
@@ -37,8 +35,6 @@ pub fn main() {
             }
         }
     }
-
-    // println!("\nConformance Summary: {} Succeeded, {} Failed", collection.len() - failures, failures);
 
     for (test_path, test_name, err) in errors {
         println!("-------------------------");

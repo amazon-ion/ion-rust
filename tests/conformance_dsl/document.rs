@@ -46,8 +46,7 @@ impl Document {
             (true, false) => IonEncoding::Text,
             (false, true) => IonEncoding::Binary,
             (false, false) => IonEncoding::Unspecified,
-            (true, true) => panic!("Both binary and text fragments specified"), // TODO: Make
-                                                                                // error.
+            (true, true) => panic!("Both binary and text fragments specified"),
         }
     }
 }
