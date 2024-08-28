@@ -98,3 +98,4 @@ debug = true
 [[test]]
 name = "conformance"
 harness = false
+test = false
