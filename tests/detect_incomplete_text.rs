@@ -33,7 +33,7 @@ static SKIP_LIST_1_0: LazyLock<HashSet<String>> =
 static SKIP_LIST_1_1: LazyLock<HashSet<String>> = LazyLock::new(|| {
     CANONICAL_FILE_NAMES
         .iter()
-        .map(|file_1_0| file_1_0.replace("/iontestdata/", "/iontestdata_1_1/"))
+        .map(|file_1_0| file_1_0.replace("iontestdata", "iontestdata_1_1"))
         .collect()
 });
 
