@@ -24,6 +24,7 @@ use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
+use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::result::IonFailure;
 use crate::{v1_1, IonError, IonResult};
 
@@ -396,12 +397,11 @@ impl<'a> ImmutableBuffer<'a> {
 
         use OpcodeType::*;
         let result = match opcode.opcode_type {
-            EExpressionWithAddress => {
-                ParseValueExprResult::EExp(self.read_eexp_with_address_in_opcode(opcode))
-            }
-            EExpressionAddressFollows => todo!("eexp address follows"),
-            EExpressionWithLengthPrefix => {
-                ParseValueExprResult::EExp(self.read_eexp_with_length_prefix(opcode))
+            EExpressionWith6BitAddress
+            | EExpressionWith12BitAddress
+            | EExpressionWith20BitAddress
+            | EExpressionWithLengthPrefix => {
+                ParseValueExprResult::EExp(self.read_e_expression(opcode))
             }
             AnnotationFlexSym | AnnotationSymAddress => {
                 ParseValueExprResult::Value(self.read_annotated_value(opcode))
@@ -873,21 +873,43 @@ impl<'a> ImmutableBuffer<'a> {
     #[inline]
     pub fn read_e_expression(self, opcode: Opcode) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
-        match opcode.opcode_type {
-            EExpressionWithAddress => return self.read_eexp_with_address_in_opcode(opcode),
-            EExpressionAddressFollows => todo!("e-expr with trailing address; {opcode:#0x?}",),
+        let (macro_address, input_after_address) = match opcode.opcode_type {
+            EExpressionWith6BitAddress => (opcode.byte as usize, self.consume(1)),
+            EExpressionWith12BitAddress => {
+                if self.len() < 2 {
+                    return IonResult::incomplete("parsing a 12-bit e-exp address", self.offset);
+                }
+
+                let bias = ((opcode.byte as usize & 0x0F) << 8) + 64;
+                let fixed_uint = self.bytes()[1] as usize;
+                let address = fixed_uint + bias;
+                (address, self.consume(2))
+            }
+            EExpressionWith20BitAddress => {
+                if self.len() < 3 {
+                    return IonResult::incomplete("parsing a 20-bit e-exp address", self.offset);
+                }
+                let bias = ((opcode.byte as usize & 0x0F) << 16) + 4160;
+                let (fixed_uint, input_after_opcode) = self.consume(1).read_fixed_uint(2)?;
+                let address = fixed_uint.value().expect_usize()? + bias;
+                (address, input_after_opcode)
+            }
+            // Length-prefixed is a special case.
             EExpressionWithLengthPrefix => return self.read_eexp_with_length_prefix(opcode),
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
+        self.read_eexp_with_address(input_after_address, macro_address)
     }
 
-    fn read_eexp_with_address_in_opcode(
+    /// Reads a complete e-expression whose address is provided.
+    ///
+    /// `self` begins at the opcode, `input_after_address` begins after the opcode and any address
+    /// bytes, and `macro_address` is the address of the invoked macro.
+    fn read_eexp_with_address(
         self,
-        opcode: Opcode,
+        input_after_address: ImmutableBuffer<'a>,
+        macro_address: MacroAddress,
     ) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
-        let input_after_opcode = self.consume(1);
-        let macro_address = opcode.byte as usize;
-
         // Get a reference to the macro that lives at that address
         let macro_ref = self
             .context
@@ -907,9 +929,9 @@ impl<'a> ImmutableBuffer<'a> {
         let bitmap_size_in_bytes = signature.bitmap_size_in_bytes();
 
         let (bitmap_bits, input_after_bitmap) = if signature.num_variadic_params() == 0 {
-            (0, input_after_opcode)
+            (0, input_after_address)
         } else {
-            input_after_opcode.read_eexp_bitmap(bitmap_size_in_bytes)?
+            input_after_address.read_eexp_bitmap(bitmap_size_in_bytes)?
         };
 
         let bitmap = ArgGroupingBitmap::new(signature.num_variadic_params(), bitmap_bits);
@@ -927,7 +949,7 @@ impl<'a> ImmutableBuffer<'a> {
         let matched_eexp_bytes = self.slice(0, eexp_total_length);
         let remaining_input = self.consume(matched_eexp_bytes.len());
 
-        let bitmap_offset = input_after_opcode.offset() - self.offset();
+        let bitmap_offset = input_after_address.offset() - self.offset();
         let args_offset = input_after_bitmap.offset() - self.offset();
         Ok((
             {
@@ -973,7 +995,7 @@ impl<'a> ImmutableBuffer<'a> {
             input_after_length.read_eexp_bitmap(macro_ref.signature().bitmap_size_in_bytes())?;
         let args_offset = bitmap_offset + macro_ref.signature().bitmap_size_in_bytes() as u8;
         let remaining_input = self.consume(total_length);
-        return Ok((
+        Ok((
             BinaryEExpression_1_1::new(
                 MacroRef::new(macro_address, macro_ref),
                 bitmap_bits,
@@ -982,7 +1004,7 @@ impl<'a> ImmutableBuffer<'a> {
                 args_offset,
             ),
             remaining_input,
-        ));
+        ))
     }
 
     fn read_eexp_bitmap(self, bitmap_size_in_bytes: usize) -> ParseResult<'a, u64> {
@@ -1103,7 +1125,7 @@ mod tests {
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
     use crate::v1_0::RawValueRef;
-    use crate::{Element, ElementReader, Reader};
+    use crate::{AnyEncoding, Element, ElementReader, Reader, SequenceWriter, Writer};
 
     use super::*;
 
@@ -1507,6 +1529,42 @@ mod tests {
             actual.ion_eq(&expected),
             "Actual sequence\n{actual:?}\nwas not IonEq to expected sequence\n{expected:?}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_macro_addresses_up_to_20_bits() -> IonResult<()> {
+        use std::fmt::Write;
+
+        // This is a large enough value that many macros will be encoded using 20 bits.
+        // However, it is not large enough to fully exercise the 20-bit encoding space. To do that,
+        // we would need approximately 1 million macros, which takes too much time to execute in a
+        // debug build.
+        const MAX_TEST_MACRO_ADDRESS: usize = 6_000;
+
+        // Construct an encoding directive that defines this number of macros. Each macro will expand
+        // to its own address.
+        let mut macro_definitions = String::from("$ion_encoding::(\n  (macro_table\n");
+        for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
+            writeln!(macro_definitions, "    (macro m{address} () {address})")?;
+        }
+        macro_definitions.push_str("  )\n)\n");
+        let encoding_directive = Element::read_one(macro_definitions)?;
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        writer.write(&encoding_directive)?;
+
+        // Invoke each of the macros we just defined in order.
+        for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
+            writer.eexp_writer(address)?.close()?;
+        }
+        let data = writer.close()?;
+
+        // Read from the resulting stream and confirm that we get each value back in the expected order.
+        let mut reader = Reader::new(AnyEncoding, data)?;
+        for expected in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
+            let actual = reader.expect_next()?.read()?.expect_int()?.expect_usize()?;
+            assert_eq!(actual, expected, "actual {actual} != expected {expected}");
+        }
         Ok(())
     }
 

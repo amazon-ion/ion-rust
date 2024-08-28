@@ -672,19 +672,58 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         self,
         macro_id: impl Into<MacroIdRef<'a>>,
     ) -> IonResult<<Self as ValueWriter>::EExpWriter> {
+        // Thresholds above which an address must be encoded using each available encoding.
+        const MIN_4_BIT_ADDRESS: usize = 0;
+        const MAX_4_BIT_ADDRESS: usize = 63;
+
+        const MIN_12_BIT_ADDRESS: usize = 64;
+        const MAX_12_BIT_ADDRESS: usize = 4_159;
+
+        const MIN_20_BIT_ADDRESS: usize = 4_160;
+        const MAX_20_BIT_ADDRESS: usize = 1_052_735;
+
         match macro_id.into() {
             MacroIdRef::LocalName(_name) => {
                 // This would be handled by the system writer
-                todo!("macro invocation by name");
+                return IonResult::encoding_error(
+                    "the raw binary writer cannot encode macros by name",
+                );
             }
-            MacroIdRef::LocalAddress(address) if address < 64 => {
+            MacroIdRef::LocalAddress(address) if address <= MAX_4_BIT_ADDRESS => {
                 // Invoke this ID with a one-byte opcode
                 self.encoding_buffer.push(address as u8);
             }
+            MacroIdRef::LocalAddress(address) if address <= MAX_12_BIT_ADDRESS => {
+                // Encode as an opcode with trailing 1-byte FixedUInt
+                const BIAS: usize = MIN_12_BIT_ADDRESS;
+                let biased = address - BIAS;
+                let low_opcode_nibble = biased >> 8;
+                self.encoding_buffer.extend_from_slice_copy(&[
+                    // Opcode with low nibble setting bias
+                    0x40 | low_opcode_nibble as u8,
+                    // Remaining byte of magnitude in biased address
+                    biased as u8,
+                ]);
+            }
+            MacroIdRef::LocalAddress(address) if address <= MAX_20_BIT_ADDRESS => {
+                // Encode as an opcode with trailing 2-byte FixedUInt
+                const BIAS: usize = MIN_20_BIT_ADDRESS;
+                let biased = address - BIAS;
+                let low_opcode_nibble = biased >> 16;
+                let le_bytes = (biased as u16).to_le_bytes();
+                self.encoding_buffer.extend_from_slice_copy(&[
+                    // Opcode with low nibble setting bias
+                    0x50 | low_opcode_nibble as u8,
+                    // Remaining bytes of magnitude in biased address
+                    le_bytes[0],
+                    le_bytes[1],
+                ]);
+            }
             MacroIdRef::LocalAddress(_address) => {
-                todo!("macros with addresses higher than 64");
+                todo!("macros with addresses greater than {MAX_20_BIT_ADDRESS}");
             }
         };
+
         Ok(BinaryEExpWriter_1_1::new(
             self.allocator,
             self.encoding_buffer,
