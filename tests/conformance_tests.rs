@@ -11,18 +11,6 @@ use std::str::FromStr;
 mod implementation {
     use super::*;
 
-    // #[test]
-    fn toplevel_absent_symbols() {
-        let test = r#"
-           (ion_1_0 (toplevel '#$1') (produces $ion))
-        "#;
-
-        Document::from_str(test)
-            .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
-            .run()
-            .unwrap_or_else(|e| panic!("Test failed: <<{}>>\n{:?}", test, e));
-    }
-
     #[test]
     fn test_simple_docs() {
         let tests: &[&str] = &[
