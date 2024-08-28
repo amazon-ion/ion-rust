@@ -10,7 +10,8 @@ use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{
     AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr,
-    MacroExprArgsIterator, MakeStringExpansion, TemplateExpansion, ValueExpr, ValuesExpansion,
+    MacroExprArgsIterator, MakeSExpExpansion, MakeStringExpansion, TemplateExpansion, ValueExpr,
+    ValuesExpansion,
 };
 use crate::lazy::expanded::macro_table::{Macro, MacroKind, MacroRef};
 use crate::lazy::expanded::r#struct::UnexpandedField;
@@ -1065,6 +1066,7 @@ impl<'top> TemplateMacroInvocation<'top> {
             MacroKind::MakeString => {
                 MacroExpansionKind::MakeString(MakeStringExpansion::new(arguments))
             }
+            MacroKind::MakeSExp => MacroExpansionKind::MakeSExp(MakeSExpExpansion::new(arguments)),
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
             MacroKind::Template(template_body) => {
                 let template_ref = TemplateMacroRef::new(macro_ref, template_body);

@@ -103,6 +103,7 @@ pub enum MacroKind {
     Void,
     Values,
     MakeString,
+    MakeSExp,
     Annotate,
     Template(TemplateBody),
 }
@@ -174,6 +175,7 @@ impl MacroTable {
         MacroKind::Void,
         MacroKind::Values,
         MacroKind::MakeString,
+        MacroKind::MakeSExp,
         MacroKind::Annotate,
     ];
     pub const NUM_SYSTEM_MACROS: usize = Self::SYSTEM_MACRO_KINDS.len();
@@ -231,6 +233,30 @@ impl MacroTable {
                     expansion_singleton: Some(ExpansionSingleton {
                         is_null: false,
                         ion_type: IonType::String,
+                        num_annotations: 0,
+                    }),
+                },
+            ),
+            Macro::named(
+                "make_sexp",
+                MacroSignature::new(vec![Parameter::new(
+                    "sequences",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::MakeSExp,
+                ExpansionAnalysis {
+                    // `make_sexp` produces an unannotated s-expression, so it can't make a system
+                    // value when it's the body of a macro. (It would need to be nested in a call
+                    // to `annotate`.
+                    could_produce_system_value: false,
+                    must_produce_exactly_one_value: true,
+                    can_be_lazily_evaluated_at_top_level: true,
+                    expansion_singleton: Some(ExpansionSingleton {
+                        is_null: false,
+                        ion_type: IonType::SExp,
                         num_annotations: 0,
                     }),
                 },
