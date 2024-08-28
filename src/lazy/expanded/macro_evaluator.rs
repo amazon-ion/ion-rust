@@ -1048,11 +1048,17 @@ impl<'top, D: Decoder> MakeSExpExpansion<'top, D> {
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
     ) -> IonResult<MacroExpansionStep<'top, D>> {
+        // The `make_sexp` macro always produces a single s-expression. When `next()` is called
+        // to begin its evaluation, immediately return a lazy value representing the (not yet
+        // computed) struct. If/when the application tries to iterate over its child expressions,
+        // the iterator will evaluate the child expressions incrementally.
         let lazy_expanded_sexp = LazyExpandedSExp {
             source: ExpandedSExpSource::Constructed(environment, self.arguments),
             context,
         };
         let lazy_sexp = LazySExp::new(lazy_expanded_sexp);
+        // Store the `SExp` in the bump so it's guaranteed to be around as long as the reader is
+        // positioned on this top-level value.git
         let value_ref = context.allocator().alloc_with(|| ValueRef::SExp(lazy_sexp));
         let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
         Ok(MacroExpansionStep::FinalStep(Some(
