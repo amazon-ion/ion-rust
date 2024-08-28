@@ -42,6 +42,8 @@ pub(crate) enum ConformanceErrorKind {
     ExpectedInteger,
     ExpectedSignal(String),
     ExpectedString,
+    InvalidByte,
+    InvalidHexString,
     MismatchedProduce,
     MismatchedDenotes,
     UnexpectedValue,
@@ -249,6 +251,30 @@ impl TestCollection {
         self.documents.iter()
     }
 
+}
+
+pub(crate) fn parse_bytes_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Vec<u8>> {
+    // Bytes can be of the form int (0..255), and a string containing hexadecimal digits.
+    use std::result::Result;
+    let mut bytes: Vec<u8> = vec!();
+    for elem in elems.into_iter() {
+        match elem.ion_type() {
+            IonType::Int => match elem.as_i64() {
+                Some(i) if (0..255).contains(&i) => bytes.push(i as u8),
+                _ => return Err(ConformanceErrorKind::InvalidByte),
+            }
+            IonType::String => {
+                let hex = elem.as_string().ok_or(ConformanceErrorKind::ExpectedString)?.replace(" ", "");
+                let hex_bytes = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i+2], 16)).collect::<Result<Vec<u8>, _>>();
+                match hex_bytes {
+                    Err(_) => return Err(ConformanceErrorKind::InvalidHexString),
+                    Ok(v) => bytes.extend_from_slice(v.as_slice()),
+                }
+            }
+            _ => return Err(ConformanceErrorKind::InvalidByte),
+        }
+    }
+    Ok(bytes)
 }
 
 pub(crate) fn parse_text_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<String> {

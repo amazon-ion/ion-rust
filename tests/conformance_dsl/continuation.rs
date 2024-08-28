@@ -163,7 +163,7 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
                     let seq = clause.body.get(sequence_idx)
                         .and_then(|e| e.as_sequence())
                         .ok_or(ConformanceErrorKind::ExpectedModelValue)?;
-                    let mut seq_iter = seq.iter().peekable();
+                    let seq_iter = seq.iter().peekable();
 
                     let fragment = match Fragment::try_from(Sequence::new(seq_iter)) {
                         Ok(frag) => frag,

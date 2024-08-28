@@ -1,13 +1,42 @@
 use ion_rs::{Decimal, Element, IonType, Sequence};
-use super::{Clause, ClauseType, ConformanceErrorKind, InnerResult, parse_text_exp};
+use ion_rs::decimal::coefficient::Coefficient;
+use super::{Clause, ClauseType, ConformanceErrorKind, InnerResult, parse_text_exp, parse_bytes_exp};
 
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub(crate) enum SymTok {
     Text(String),
     Offset(i64),
     Absent(String, i64),
+}
+
+impl TryFrom<&Element> for SymTok {
+    type Error = ConformanceErrorKind;
+
+    fn try_from(other: &Element) -> InnerResult<Self> {
+        match other.ion_type() {
+            IonType::String => Ok(SymTok::Text(other.as_string().unwrap().to_owned())),
+            IonType::Int => Ok(SymTok::Offset(other.as_i64().unwrap())),
+            IonType::SExp => {
+                let clause: Clause = other.as_sequence().unwrap().try_into()?;
+
+                match clause.tpe {
+                    ClauseType::Text => {
+                        let text = parse_text_exp(clause.body.iter())?;
+                        Ok(SymTok::Text(text))
+                    },
+                    ClauseType::Absent => {
+                        let text = clause.body.get(1).and_then(|v| v.as_string()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
+                        let offset = clause.body.get(2).and_then(|v| v.as_i64()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
+                        Ok(SymTok::Absent(text.to_string(), offset))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => Err(ConformanceErrorKind::ExpectedSymbolType),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -16,7 +45,7 @@ pub(crate) enum ModelValue {
     Bool(bool),
     Int(i64),
     Float(f64),
-    Decimal(i64, i64),
+    Decimal(Decimal),
     // TODO: Timestamp
     String(String),
     Symbol(SymTok),
@@ -67,7 +96,28 @@ impl TryFrom<&Sequence> for ModelValue {
                     Err(_) => Err(ConformanceErrorKind::ExpectedFloatString),
                 }
             }
-            "Decimal" => todo!(),
+            "Decimal" => {
+                let (first, second) = (elems.get(1), elems.get(2));
+                match (first.map(|e| e.ion_type()), second.map(|e| e.ion_type())) {
+                    (Some(IonType::String), Some(IonType::Int)) => {
+                        let (first, second) = (first.unwrap(), second.unwrap()); // SAFETY: We have non-None types.
+                        if let Some("negative_0") = first.as_string() {
+                            let exp = second.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?;
+                            Ok(ModelValue::Decimal(Decimal::new(Coefficient::NEGATIVE_ZERO, exp)))
+                        } else {
+                            Err(ConformanceErrorKind::ExpectedModelValue)
+                        }
+                    }
+                    (Some(IonType::Int), Some(IonType::Int)) => {
+                        let (first, second) = (first.unwrap(), second.unwrap()); // SAFETY: We have non-None types.
+                        Ok(ModelValue::Decimal(Decimal::new(
+                                first.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?,
+                                second.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?,
+                        )))
+                    }
+                    _ => Err(ConformanceErrorKind::ExpectedModelValue),
+                }
+            }
             "String" => {
                 let string = parse_text_exp(elems.iter().skip(1))?;
                 Ok(ModelValue::String(string))
@@ -96,11 +146,53 @@ impl TryFrom<&Sequence> for ModelValue {
                     _ => Err(ConformanceErrorKind::ExpectedSymbolType),
                 }
             }
-            "List" => todo!(),
-            "Sexp" => todo!(),
-            "Struct" => todo!(),
-            "Blob" => todo!(),
-            "Clob" => todo!(),
+            "List" => {
+                let mut list = vec!();
+                for elem in elems.iter().skip(1) {
+                    if let Some(seq) = elem.as_sequence() {
+                        list.push(ModelValue::try_from(seq)?);
+                    }
+                }
+                Ok(ModelValue::List(list))
+            }
+            "Sexp" => {
+                let mut sexp = vec!();
+                for elem in elems.iter().skip(1) {
+                    if let Some(seq) = elem.as_sequence() {
+                        sexp.push(ModelValue::try_from(seq)?);
+                    }
+                }
+                Ok(ModelValue::Sexp(sexp))
+            }
+            "Struct" => {
+                let mut fields = HashMap::new();
+                for elem in elems.iter().skip(1) {
+                    if let Some(seq) = elem.as_sequence() {
+                        // Each elem should be a model symtok followed by a model value.
+                        let (first, second) = (seq.get(0), seq.get(1));
+                        let field_sym = first.map(SymTok::try_from).ok_or(ConformanceErrorKind::ExpectedSymbolType)?.unwrap();
+                        let value = match second.map(|e| e.ion_type()) {
+                            Some(IonType::String) => {
+                                let string = second.unwrap().as_string().unwrap();
+                                ModelValue::String(string.to_string())
+                            }
+                            Some(IonType::Int) => {
+                                let int_val = second.unwrap().as_i64().unwrap();
+                                ModelValue::Int(int_val)
+                            }
+                            Some(IonType::SExp) => {
+                                let seq = second.unwrap().as_sequence().unwrap();
+                                ModelValue::try_from(seq)?
+                            }
+                            _ => return Err(ConformanceErrorKind::ExpectedModelValue),
+                        };
+                        fields.insert(field_sym, value);
+                    }
+                }
+                Ok(ModelValue::Struct(fields))
+            }
+            "Blob" => Ok(ModelValue::Blob(parse_bytes_exp(elems.iter().skip(1))?)),
+            "Clob" => Ok(ModelValue::Clob(parse_bytes_exp(elems.iter().skip(1))?)),
             _ => unreachable!(),
         }
     }
@@ -113,12 +205,58 @@ impl PartialEq<Element> for ModelValue {
             ModelValue::Bool(val) => other.as_bool() == Some(*val),
             ModelValue::Int(val) => other.as_i64() == Some(*val),
             ModelValue::Float(val) => other.as_float() == Some(*val),
-            ModelValue::Decimal(coef, exp) => other.as_decimal() == Some(Decimal::new(*coef, *exp)),
+            ModelValue::Decimal(dec) => other.as_decimal() == Some(*dec),
             // TODO: Timestamp
             ModelValue::String(val) => other.as_string() == Some(val),
-            ModelValue::List(_vals) => todo!(),
-            ModelValue::Sexp(_vals) => todo!(),
-            ModelValue::Struct(_fields) => todo!(),
+            ModelValue::List(vals) => {
+                if other.ion_type() != IonType::List {
+                    return false;
+                }
+                let other_seq = other.as_sequence().unwrap(); // SAFETY: Confirmed it's a list.
+                if other_seq.len() != vals.len() {
+                    return false;
+                }
+
+                for (ours, others) in vals.iter().zip(other_seq) {
+                    if ours != others {
+                        return false;
+                    }
+                }
+                true
+            }
+            ModelValue::Sexp(vals) => {
+                if other.ion_type() != IonType::SExp {
+                    return false;
+                }
+                let other_seq = other.as_sequence().unwrap(); // SAFETY: Confirmed it's a list.
+                if other_seq.len() != vals.len() {
+                    return false;
+                }
+
+                for (ours, others) in vals.iter().zip(other_seq) {
+                    if ours != others {
+                        return false;
+                    }
+                }
+                true
+            }
+            ModelValue::Struct(fields) => {
+                if other.ion_type() != IonType::Struct {
+                    false
+                } else {
+                    let struct_val = other.as_struct().unwrap();
+                    for (field, val) in struct_val.fields() {
+                        let denoted_field = field.text().unwrap(); // TODO: Symbol IDs
+                        let denoted_symtok = SymTok::Text(denoted_field.to_string());
+                        if let Some(expected_val) = fields.get(&denoted_symtok) {
+                            if expected_val != val {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                }
+            }
             ModelValue::Blob(data) => other.as_blob() == Some(data.as_slice()),
             ModelValue::Clob(data) => other.as_clob() == Some(data.as_slice()),
             ModelValue::Symbol(sym) => {
@@ -132,7 +270,6 @@ impl PartialEq<Element> for ModelValue {
                     false
                 }
             }
-            _ => todo!(),
         }
     }
 }

@@ -61,6 +61,7 @@ mod ion_tests {
     #[test_resources("ion-tests/conformance/core/typed_null.ion")]
     #[test_resources("ion-tests/conformance/core/string_symbol.ion")]
     #[test_resources("ion-tests/conformance/core/empty_document.ion")]
+    #[test_resources("ion-tests/conformance/core/toplevel_produces.ion")]
     // #[test_resources("ion-tests/conformance/ivm.ion")]
     fn conformance(file_name: &str) {
         println!("Testing: {}", file_name);
