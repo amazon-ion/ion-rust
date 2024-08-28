@@ -58,7 +58,7 @@ impl Opcode {
         use OpcodeType::*;
 
         let (opcode_type, length_code, ion_type) = match (high_nibble, low_nibble) {
-            (0x0..=0x3, _) => (EExpressionWith4BitAddress, low_nibble, None),
+            (0x0..=0x3, _) => (EExpressionWith6BitAddress, low_nibble, None),
             (0x4, _) => (EExpressionWith12BitAddress, low_nibble, None),
             (0x5, _) => (EExpressionWith20BitAddress, low_nibble, None),
             (0x6, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
@@ -119,7 +119,7 @@ impl Opcode {
         use OpcodeType::*;
         matches!(
             self.opcode_type,
-            EExpressionWith4BitAddress
+            EExpressionWith6BitAddress
                 | EExpressionWith12BitAddress
                 | EExpressionWith20BitAddress
                 | EExpressionWithLengthPrefix

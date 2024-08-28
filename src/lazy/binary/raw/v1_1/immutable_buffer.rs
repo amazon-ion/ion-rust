@@ -397,7 +397,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         use OpcodeType::*;
         let result = match opcode.opcode_type {
-            EExpressionWith4BitAddress
+            EExpressionWith6BitAddress
             | EExpressionWith12BitAddress
             | EExpressionWith20BitAddress
             | EExpressionWithLengthPrefix => {
@@ -874,7 +874,7 @@ impl<'a> ImmutableBuffer<'a> {
     pub fn read_e_expression(self, opcode: Opcode) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
         let (macro_address, input_after_address) = match opcode.opcode_type {
-            EExpressionWith4BitAddress => (opcode.byte as usize, self.consume(1)),
+            EExpressionWith6BitAddress => (opcode.byte as usize, self.consume(1)),
             EExpressionWith12BitAddress => {
                 if self.len() < 2 {
                     return IonResult::incomplete("parsing a 12-bit e-exp address", self.offset);

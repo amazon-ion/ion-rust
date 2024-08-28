@@ -710,17 +710,17 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
                 const BIAS: usize = MIN_20_BIT_ADDRESS;
                 let biased = address - BIAS;
                 let low_opcode_nibble = biased >> 16;
-                self.encoding_buffer.extend_from_slices_copy(&[
-                    &[
-                        // Opcode with low nibble setting bias
-                        0x50 | low_opcode_nibble as u8,
-                    ],
+                let le_bytes = (biased as u16).to_le_bytes();
+                self.encoding_buffer.extend_from_slice_copy(&[
+                    // Opcode with low nibble setting bias
+                    0x50 | low_opcode_nibble as u8,
                     // Remaining bytes of magnitude in biased address
-                    &(biased as u16).to_le_bytes(),
+                    le_bytes[0],
+                    le_bytes[1],
                 ]);
             }
             MacroIdRef::LocalAddress(_address) => {
-                todo!("macros with addresses higher than (2^20)-1");
+                todo!("macros with addresses greater than {MAX_20_BIT_ADDRESS}");
             }
         };
 
