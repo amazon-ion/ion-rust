@@ -1,4 +1,4 @@
-use ion_rs::{Decimal, Element, IonType, Sequence};
+use ion_rs::{Decimal, Element, IonType, Sequence, Timestamp};
 use ion_rs::decimal::coefficient::Coefficient;
 use super::{Clause, ClauseType, ConformanceErrorKind, InnerResult, parse_text_exp, parse_bytes_exp};
 
@@ -46,7 +46,7 @@ pub(crate) enum ModelValue {
     Int(i64),
     Float(f64),
     Decimal(Decimal),
-    // TODO: Timestamp
+    Timestamp(Timestamp),
     String(String),
     Symbol(SymTok),
     List(Vec<ModelValue>),
@@ -96,28 +96,7 @@ impl TryFrom<&Sequence> for ModelValue {
                     Err(_) => Err(ConformanceErrorKind::ExpectedFloatString),
                 }
             }
-            "Decimal" => {
-                let (first, second) = (elems.get(1), elems.get(2));
-                match (first.map(|e| e.ion_type()), second.map(|e| e.ion_type())) {
-                    (Some(IonType::String), Some(IonType::Int)) => {
-                        let (first, second) = (first.unwrap(), second.unwrap()); // SAFETY: We have non-None types.
-                        if let Some("negative_0") = first.as_string() {
-                            let exp = second.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?;
-                            Ok(ModelValue::Decimal(Decimal::new(Coefficient::NEGATIVE_ZERO, exp)))
-                        } else {
-                            Err(ConformanceErrorKind::ExpectedModelValue)
-                        }
-                    }
-                    (Some(IonType::Int), Some(IonType::Int)) => {
-                        let (first, second) = (first.unwrap(), second.unwrap()); // SAFETY: We have non-None types.
-                        Ok(ModelValue::Decimal(Decimal::new(
-                                first.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?,
-                                second.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?,
-                        )))
-                    }
-                    _ => Err(ConformanceErrorKind::ExpectedModelValue),
-                }
-            }
+            "Decimal" => Ok(ModelValue::Decimal(parse_model_decimal(elems.iter().skip(1))?)),
             "String" => {
                 let string = parse_text_exp(elems.iter().skip(1))?;
                 Ok(ModelValue::String(string))
@@ -146,6 +125,7 @@ impl TryFrom<&Sequence> for ModelValue {
                     _ => Err(ConformanceErrorKind::ExpectedSymbolType),
                 }
             }
+            "Timestamp" => Ok(ModelValue::Timestamp(parse_timestamp(elems.iter().skip(1))?)),
             "List" => {
                 let mut list = vec!();
                 for elem in elems.iter().skip(1) {
@@ -206,7 +186,6 @@ impl PartialEq<Element> for ModelValue {
             ModelValue::Int(val) => other.as_i64() == Some(*val),
             ModelValue::Float(val) => other.as_float() == Some(*val),
             ModelValue::Decimal(dec) => other.as_decimal() == Some(*dec),
-            // TODO: Timestamp
             ModelValue::String(val) => other.as_string() == Some(val),
             ModelValue::List(vals) => {
                 if other.ion_type() != IonType::List {
@@ -270,7 +249,145 @@ impl PartialEq<Element> for ModelValue {
                     false
                 }
             }
+            ModelValue::Timestamp(ts) => other.as_timestamp() == Some(*ts),
         }
+    }
+}
+
+fn parse_timestamp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Timestamp> {
+    let mut iter = elems.into_iter();
+    let first = iter.next().and_then(|e| e.as_symbol()).and_then(|s| s.text());
+    match first {
+        Some("year") => {
+            let year = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            Ok(Timestamp::with_year(year as u32).build()?)
+        }
+        Some("month") => {
+            let year = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let month = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let ts = Timestamp::with_year(year as u32)
+                .with_month(month as u32)
+                .build()?;
+            Ok(ts)
+        }
+        Some("day") => {
+            let year = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let month = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let day = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let ts = Timestamp::with_year(year as u32)
+                .with_month(month as u32)
+                .with_day(day as u32)
+                .build()?;
+            Ok(ts)
+        }
+        Some("minute") => {
+            let year = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let month = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let day = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+
+            let offset = parse_ts_offset(iter.next().and_then(|e| e.as_sequence()).ok_or(ConformanceErrorKind::ExpectedInteger)?)?;
+
+            let hour = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let minute = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let ts = Timestamp::with_year(year as u32)
+                .with_month(month as u32)
+                .with_day(day as u32)
+                .with_hour_and_minute(hour as u32, minute as u32);
+            if let Some(offset) = offset {
+                let ts = ts.with_offset(offset as i32);
+                Ok(ts.build()?)
+            } else {
+                Ok(ts.build()?)
+            }
+        }
+        Some("second") => {
+            let year = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let month = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let day = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+
+            let offset = parse_ts_offset(iter.next().and_then(|e| e.as_sequence()).ok_or(ConformanceErrorKind::ExpectedInteger)?)?;
+
+            let hour = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let minute = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let second = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let ts = Timestamp::with_year(year as u32)
+                .with_month(month as u32)
+                .with_day(day as u32)
+                .with_hour_and_minute(hour as u32, minute as u32)
+                .with_second(second as u32);
+            if let Some(offset) = offset {
+                let ts = ts.with_offset(offset as i32);
+                Ok(ts.build()?)
+            } else {
+                Ok(ts.build()?)
+            }
+        }
+        Some("fraction") => {
+            let year = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let month = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let day = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+
+            let offset = parse_ts_offset(iter.next().and_then(|e| e.as_sequence()).ok_or(ConformanceErrorKind::ExpectedInteger)?)?;
+
+            let hour = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let minute = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let second = iter.next().and_then(|e| e.as_i64()).ok_or(ConformanceErrorKind::ExpectedInteger)?;
+            let fraction = parse_model_decimal(iter)?;
+            let ts = Timestamp::with_year(year as u32)
+                .with_month(month as u32)
+                .with_day(day as u32)
+                .with_hour_and_minute(hour as u32, minute as u32)
+                .with_second(second as u32)
+                .with_fractional_seconds(fraction);
+            if let Some(offset) = offset {
+                let ts = ts.with_offset(offset as i32);
+                Ok(ts.build()?)
+            } else {
+                Ok(ts.build()?)
+            }
+        }
+        _ => Err(ConformanceErrorKind::ExpectedTimestampPrecision),
+    }
+}
+
+fn parse_ts_offset<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Option<i64>> {
+    let mut iter = elems.into_iter();
+    match iter.next().and_then(|e| e.as_symbol()).and_then(|s| s.text()) {
+        Some("offset") => {
+            // Either an int or null..
+            let offset = iter.next().ok_or(ConformanceErrorKind::ExpectedTimestampOffset)?;
+            if offset.is_null() {
+                Ok(None)
+            } else {
+                let offset = offset.as_i64().ok_or(ConformanceErrorKind::ExpectedInteger)?;
+                Ok(Some(offset))
+            }
+        }
+        _ => Err(ConformanceErrorKind::ExpectedTimestampOffset),
+    }
+}
+
+fn parse_model_decimal<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Decimal> {
+    let mut iter = elems.into_iter();
+    let (first, second) = (iter.next(), iter.next());
+    match (first.map(|e| e.ion_type()), second.map(|e| e.ion_type())) {
+        (Some(IonType::String), Some(IonType::Int)) => {
+            let (first, second) = (first.unwrap(), second.unwrap()); // SAFETY: We have non-None types.
+            if let Some("negative_0") = first.as_string() {
+                let exp = second.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?;
+                Ok(Decimal::new(Coefficient::NEGATIVE_ZERO, exp))
+            } else {
+                Err(ConformanceErrorKind::ExpectedModelValue)
+            }
+        }
+        (Some(IonType::Int), Some(IonType::Int)) => {
+            let (first, second) = (first.unwrap(), second.unwrap()); // SAFETY: We have non-None types.
+            Ok(Decimal::new(
+                    first.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?,
+                    second.as_i64().ok_or(ConformanceErrorKind::ExpectedModelValue)?,
+            ))
+        }
+        _ => Err(ConformanceErrorKind::ExpectedModelValue),
     }
 }
 

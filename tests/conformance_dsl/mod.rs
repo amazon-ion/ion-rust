@@ -42,6 +42,8 @@ pub(crate) enum ConformanceErrorKind {
     ExpectedInteger,
     ExpectedSignal(String),
     ExpectedString,
+    ExpectedTimestampPrecision,
+    ExpectedTimestampOffset,
     InvalidByte,
     InvalidHexString,
     MismatchedProduce,
