@@ -3255,25 +3255,25 @@ mod tests {
             "(:foo (1 2 3))",
             "(:foo \"foo\")",
             "(:foo foo)",
-            "(:4)",
-            "(:4 1)",
-            "(:4 1 2 3)",
-            "(:4 (1 2 3))",
-            "(:4 \"foo\")",
-            "(:4 foo)",
-            "(:004 foo)", // Leading zeros are ok/ignored
+            "(:5)",
+            "(:5 1)",
+            "(:5 1 2 3)",
+            "(:5 (1 2 3))",
+            "(:5 \"foo\")",
+            "(:5 foo)",
+            "(:005 foo)", // Leading zeros are ok/ignored
         ],
         expect_mismatch: [
             "foo",   // No parens
             "(foo)", // No `:` after opening paren
-            "(4",    // No parens
-            "(4)",   // No `:` after opening paren
-            "(:0x4)",   // Hexadecimal not allowed
-            "(:4_000)", // Underscores not allowed
+            "(5",    // No parens
+            "(5)",   // No `:` after opening paren
+            "(:0x5)",   // Hexadecimal not allowed
+            "(:5_000)", // Underscores not allowed
         ],
         expect_incomplete: [
             "(:foo",
-            "(:4"
+            "(:5"
         ]
     }
 
