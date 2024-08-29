@@ -51,6 +51,8 @@ impl FromStr for ClauseType {
             "absent" => Ok(Absent),
             "ivm" => Ok(Ivm),
             "signals" => Ok(Signals),
+            "encoding" => Ok(Encoding),
+            "mactab" => Ok(MacTab),
             _ => Err(ConformanceErrorKind::UnknownClause(s.to_owned())),
         }
     }

@@ -16,8 +16,6 @@ pub(crate) enum Fragment {
     Ivm(i64, i64),
     Text(String),
     TopLevel(TopLevel),
-    MacTab,                 // TODO: Implement.
-    Encoding,               // TODO: Implement.
 }
 
 static EMPTY_TOPLEVEL: Fragment = Fragment::TopLevel(TopLevel { elems: vec!() });
@@ -94,8 +92,30 @@ impl TryFrom<Clause> for Fragment {
                 Fragment::Ivm(maj, min)
             }
             ClauseType::TopLevel => Fragment::TopLevel(TopLevel { elems: other.body }),
-            ClauseType::Encoding => Fragment::Encoding,
-            ClauseType::MacTab => Fragment::MacTab,
+            ClauseType::Encoding => {
+                // Rather than treat Encoding special, we expand it to a (toplevel ..) as described
+                // in the spec.
+                let inner: Element = SExp(Sequence::new(other.body)).into();
+                let inner = inner.with_annotations(["$ion_encoding"]);
+                Fragment::TopLevel(TopLevel { elems: vec!(inner) })
+            }
+            ClauseType::MacTab => {
+                // Like encoding, MacTab is expanded into a TopLevel fragment.
+                let mut mac_table_elems: Vec<Element> = vec!(Symbol::from("macro_table").into());
+                for elem in other.body {
+                    mac_table_elems.push(elem);
+                }
+                let mac_table: Element = SExp(Sequence::new(mac_table_elems)).into();
+                let module: Element = SExp(ion_seq!(
+                        Symbol::from("module"),
+                        Symbol::from("M"),
+                        mac_table,
+                        SExp(ion_seq!(Symbol::from("macro_table"), Symbol::from("M"))),
+                )).into();
+                let encoding: Element = SExp(ion_seq!(module)).into();
+                let encoding = encoding.with_annotations(["$ion_encoding"]);
+                Fragment::TopLevel(TopLevel { elems: vec!(encoding) })
+            }
             _ => return Err(ConformanceErrorKind::ExpectedFragment),
         };
         Ok(frag)
