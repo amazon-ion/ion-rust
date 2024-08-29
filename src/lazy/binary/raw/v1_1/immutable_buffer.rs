@@ -1,8 +1,8 @@
+use arrayvec::ArrayVec;
+use bumpalo::collections::Vec as BumpVec;
 use std::fmt::{Debug, Formatter};
 use std::mem::size_of;
 use std::ops::Range;
-
-use bumpalo::collections::Vec as BumpVec;
 
 use crate::binary::constants::v1_1::IVM;
 use crate::lazy::binary::encoded_value::EncodedValue;
@@ -10,6 +10,7 @@ use crate::lazy::binary::raw::v1_1::e_expression::{
     BinaryEExpArgsIterator_1_1, BinaryEExpression_1_1,
 };
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryFieldName_1_1;
+use crate::lazy::binary::raw::v1_1::type_code::OpcodeKind;
 use crate::lazy::binary::raw::v1_1::value::{
     BinaryValueEncoding, DelimitedContents, LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
@@ -25,7 +26,7 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::result::IonFailure;
-use crate::{v1_1, IonError, IonResult};
+use crate::{v1_1, IonError, IonResult, ValueExpr};
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -394,21 +395,15 @@ impl<'a> BinaryBuffer<'a> {
             EExp(ParseResult<'top, BinaryEExpression_1_1<'top>>),
         }
 
-        use OpcodeType::*;
-        let result = match opcode.opcode_type {
-            EExpressionWith6BitAddress
-            | EExpressionWith12BitAddress
-            | EExpressionWith20BitAddress
-            | EExpressionWithLengthPrefix => {
-                ParseValueExprResult::EExp(self.read_e_expression(opcode))
-            }
-            AnnotationFlexSym | AnnotationSymAddress => {
+        let result = match opcode.kind {
+            OpcodeKind::EExp => ParseValueExprResult::EExp(self.read_e_expression(opcode)),
+            OpcodeKind::Annotations => {
                 ParseValueExprResult::Value(self.read_annotated_value(opcode))
             }
-            _ if opcode.ion_type().is_some() => {
+            OpcodeKind::Value(_ion_type) => {
                 ParseValueExprResult::Value(self.read_value_without_annotations(opcode))
             }
-            _ => return self.read_nop_then_sequence_value(),
+            _other => return self.read_nop_then_sequence_value(),
         };
         let allocator = self.context().allocator();
         match result {
@@ -446,8 +441,9 @@ impl<'a> BinaryBuffer<'a> {
         if !input.opcode_after_nop(&mut opcode)? {
             return Ok((None, input));
         }
-        // TODO: Make an `OpcodeClass` enum that captures groups like this for fewer branches
-        if opcode.is_e_expression() || opcode.ion_type.is_some() || opcode.is_annotations_sequence()
+        if opcode.is_e_expression()
+            || opcode.ion_type().is_some()
+            || opcode.is_annotations_sequence()
         {
             return input.read_sequence_value_expr();
         }
@@ -460,7 +456,7 @@ impl<'a> BinaryBuffer<'a> {
     ) -> IonResult<(DelimitedContents<'a>, BinaryBuffer<'a>)> {
         use crate::IonType;
 
-        if let Some(IonType::Struct) = opcode.ion_type {
+        if let Some(IonType::Struct) = opcode.ion_type() {
             self.peek_delimited_struct()
         } else {
             self.peek_delimited_sequence()
@@ -933,11 +929,27 @@ impl<'a> BinaryBuffer<'a> {
             BinaryEExpArgsIterator_1_1::for_input(bitmap.iter(), input_after_bitmap, signature);
         let mut cache =
             BumpVec::with_capacity_in(args_iter.size_hint().0, self.context.allocator());
+
+        // XXX: This is on the hot path for e-expression-heavy streams. Pushing args into the
+        // BumpVec one at a time is surprisingly slow, presumably because each value is copied to
+        // a remote buffer individually. Here we create a stack-allocated array that we fill,
+        // emptying into the BumpVec as needed. This allows us to do the `memcpy`s in bulk.
+        // At the time of this writing, a `ValueExpr<v1_1::Binary>` is 96 bytes. I chose `4` as
+        // the batch size because it is a power of two and ~400 bytes seemed like a reasonable
+        // chunk of stack space. This can be changed as needed.
+        const ARG_BATCH_SIZE: usize = 4;
+        let mut args_array: ArrayVec<ValueExpr<v1_1::Binary>, 4> = ArrayVec::new();
         for arg in &mut args_iter {
             let arg = arg?;
             let value_expr = arg.resolve(self.context)?;
-            cache.push(value_expr);
+            args_array.push(value_expr);
+            if args_array.is_full() {
+                cache.extend_from_slice_copy(args_array.as_slice());
+                args_array.clear();
+            }
         }
+        // Copy over anything left in the args_array
+        cache.extend_from_slice_copy(args_array.as_slice());
 
         let eexp_total_length = args_iter.offset() - self.offset();
         let matched_eexp_bytes = self.slice(0, eexp_total_length);

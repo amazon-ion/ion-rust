@@ -4,6 +4,7 @@ use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 
 use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
+use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::IonResult;
@@ -85,7 +86,7 @@ impl<'top> FlexSym<'top> {
                 (FlexSymValue::SymbolRef(symbol_ref), flex_int_len + len)
             }
             Ordering::Equal => (
-                FlexSymValue::Opcode(Opcode::from_byte(input[value.size_in_bytes()])),
+                FlexSymValue::Opcode(ION_1_1_OPCODES[input[value.size_in_bytes()] as usize]),
                 value.size_in_bytes() + 1,
             ),
         };

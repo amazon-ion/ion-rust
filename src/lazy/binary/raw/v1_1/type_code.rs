@@ -87,3 +87,16 @@ impl TryFrom<OpcodeType> for IonType {
         Ok(ion_type)
     }
 }
+
+/// High-level categories of syntactic elements that an [`Opcode`](super::Opcode) may represent.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum OpcodeKind {
+    /// A value
+    Value(IonType),
+    /// A data stream macro invocation (e-expression)
+    EExp,
+    /// An annotations sequence
+    Annotations,
+    /// e.g. An IVM, NOP, or delimited container END
+    Control,
+}
