@@ -1,5 +1,5 @@
-use ion_rs::{Element, Sequence};
-use ion_rs::{v1_0, v1_1, WriteConfig, Encoding};
+use ion_rs::{Element, Sequence, SExp, Symbol};
+use ion_rs::{v1_0, v1_1, WriteConfig, Encoding, ion_seq};
 
 use super::*;
 use super::context::Context;
