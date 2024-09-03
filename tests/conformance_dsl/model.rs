@@ -4,32 +4,33 @@ use super::{Clause, ClauseType, ConformanceErrorKind, InnerResult, parse_text_ex
 
 use std::collections::HashMap;
 
+/// Represents a symbol in the Data Model representation of ion data.
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub(crate) enum SymTok {
+pub(crate) enum SymbolToken {
     Text(String),
     Offset(i64),
     Absent(String, i64),
 }
 
-impl TryFrom<&Element> for SymTok {
+impl TryFrom<&Element> for SymbolToken {
     type Error = ConformanceErrorKind;
 
     fn try_from(other: &Element) -> InnerResult<Self> {
         match other.ion_type() {
-            IonType::String => Ok(SymTok::Text(other.as_string().unwrap().to_owned())),
-            IonType::Int => Ok(SymTok::Offset(other.as_i64().unwrap())),
+            IonType::String => Ok(SymbolToken::Text(other.as_string().unwrap().to_owned())),
+            IonType::Int => Ok(SymbolToken::Offset(other.as_i64().unwrap())),
             IonType::SExp => {
                 let clause: Clause = other.as_sequence().unwrap().try_into()?;
 
                 match clause.tpe {
                     ClauseType::Text => {
                         let text = parse_text_exp(clause.body.iter())?;
-                        Ok(SymTok::Text(text))
+                        Ok(SymbolToken::Text(text))
                     },
                     ClauseType::Absent => {
                         let text = clause.body.get(1).and_then(|v| v.as_string()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
                         let offset = clause.body.get(2).and_then(|v| v.as_i64()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
-                        Ok(SymTok::Absent(text.to_string(), offset))
+                        Ok(SymbolToken::Absent(text.to_string(), offset))
                     }
                     _ => unreachable!(),
                 }
@@ -39,6 +40,11 @@ impl TryFrom<&Element> for SymTok {
     }
 }
 
+/// Data Model value representation. Implementation provides parsing of data model clauses and
+/// comparison functionality for test evaluation. Each variant represents a single data model value
+/// clause.
+///
+/// [Grammar]: https://github.com/amazon-ion/ion-tests/tree/master/conformance#grammar
 #[derive(Debug, Clone)]
 pub(crate) enum ModelValue {
     Null(IonType),
@@ -48,10 +54,10 @@ pub(crate) enum ModelValue {
     Decimal(Decimal),
     Timestamp(Timestamp),
     String(String),
-    Symbol(SymTok),
+    Symbol(SymbolToken),
     List(Vec<ModelValue>),
     Sexp(Vec<ModelValue>),
-    Struct(HashMap<SymTok, ModelValue>),
+    Struct(HashMap<SymbolToken, ModelValue>),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
 }
@@ -104,20 +110,20 @@ impl TryFrom<&Sequence> for ModelValue {
             "Symbol" => {
                 let value = elems.get(1).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
                 match value.ion_type() {
-                    IonType::String => Ok(ModelValue::Symbol(SymTok::Text(value.as_string().unwrap().to_owned()))),
-                    IonType::Int => Ok(ModelValue::Symbol(SymTok::Offset(value.as_i64().unwrap()))),
+                    IonType::String => Ok(ModelValue::Symbol(SymbolToken::Text(value.as_string().unwrap().to_owned()))),
+                    IonType::Int => Ok(ModelValue::Symbol(SymbolToken::Offset(value.as_i64().unwrap()))),
                     IonType::SExp => {
                         let clause: Clause = value.as_sequence().unwrap().try_into()?;
 
                         match clause.tpe {
                             ClauseType::Text => {
                                 let text = parse_text_exp(clause.body.iter())?;
-                                Ok(ModelValue::Symbol(SymTok::Text(text)))
+                                Ok(ModelValue::Symbol(SymbolToken::Text(text)))
                             },
                             ClauseType::Absent => {
                                 let text = clause.body.get(1).and_then(|v| v.as_string()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
                                 let offset = clause.body.get(2).and_then(|v| v.as_i64()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
-                                Ok(ModelValue::Symbol(SymTok::Absent(text.to_string(), offset)))
+                                Ok(ModelValue::Symbol(SymbolToken::Absent(text.to_string(), offset)))
                             }
                             _ => unreachable!(),
                         }
@@ -150,7 +156,7 @@ impl TryFrom<&Sequence> for ModelValue {
                     if let Some(seq) = elem.as_sequence() {
                         // Each elem should be a model symtok followed by a model value.
                         let (first, second) = (seq.get(0), seq.get(1));
-                        let field_sym = first.map(SymTok::try_from).ok_or(ConformanceErrorKind::ExpectedSymbolType)?.unwrap();
+                        let field_sym = first.map(SymbolToken::try_from).ok_or(ConformanceErrorKind::ExpectedSymbolType)?.unwrap();
                         let value = match second.map(|e| e.ion_type()) {
                             Some(IonType::String) => {
                                 let string = second.unwrap().as_string().unwrap();
@@ -226,7 +232,7 @@ impl PartialEq<Element> for ModelValue {
                     let struct_val = other.as_struct().unwrap();
                     for (field, val) in struct_val.fields() {
                         let denoted_field = field.text().unwrap(); // TODO: Symbol IDs
-                        let denoted_symtok = SymTok::Text(denoted_field.to_string());
+                        let denoted_symtok = SymbolToken::Text(denoted_field.to_string());
                         if let Some(expected_val) = fields.get(&denoted_symtok) {
                             if expected_val != val {
                                 return false;
@@ -241,9 +247,9 @@ impl PartialEq<Element> for ModelValue {
             ModelValue::Symbol(sym) => {
                 if let Some(other_sym) = other.as_symbol() {
                     match sym {
-                        SymTok::Text(text) => Some(text.as_ref()) == other_sym.text(),
-                        SymTok::Offset(_offset) => todo!(),
-                        SymTok::Absent(_text, _offset) => todo!(),
+                        SymbolToken::Text(text) => Some(text.as_ref()) == other_sym.text(),
+                        SymbolToken::Offset(_offset) => todo!(),
+                        SymbolToken::Absent(_text, _offset) => todo!(),
                     }
                 } else {
                     false
@@ -254,6 +260,7 @@ impl PartialEq<Element> for ModelValue {
     }
 }
 
+/// Parses a Timestamp clause into an ion-rs Timestamp.
 fn parse_timestamp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Timestamp> {
     let mut iter = elems.into_iter();
     let first = iter.next().and_then(|e| e.as_symbol()).and_then(|s| s.text());
@@ -350,6 +357,7 @@ fn parse_timestamp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResu
     }
 }
 
+/// Parses a data-model value timestamp's 'offset' clause into an i64.
 fn parse_ts_offset<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Option<i64>> {
     let mut iter = elems.into_iter();
     match iter.next().and_then(|e| e.as_symbol()).and_then(|s| s.text()) {
@@ -367,6 +375,7 @@ fn parse_ts_offset<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResu
     }
 }
 
+/// Parses a data-model value's Decimal clause into an ion-rs Decimal.
 fn parse_model_decimal<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Decimal> {
     let mut iter = elems.into_iter();
     let (first, second) = (iter.next(), iter.next());

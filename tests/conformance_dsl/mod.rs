@@ -23,6 +23,7 @@ pub(crate) mod prelude {
     pub(crate) use super::IonVersion;
 }
 
+/// Specific errors used during parsing and test evaluation.
 #[derive(Clone, Default, Debug)]
 pub(crate) enum ConformanceErrorKind {
     #[default]
@@ -64,10 +65,14 @@ impl From<IonError> for ConformanceErrorKind {
     }
 }
 
+/// Error details for a user-facing error.
 #[derive(Clone, Default, Debug)]
 struct ConformanceErrorImpl {
+    /// Path to the file containing the test.
     file: PathBuf,
+    /// The document-level test name.
     test_name: String,
+    /// The specific error kind.
     kind: ConformanceErrorKind,
 }
 
@@ -107,13 +112,13 @@ impl From<ConformanceErrorKind> for ConformanceError {
     }
 }
 
-// Used for internal error handling.
+/// Used for internal error handling.
 type InnerResult<T> = std::result::Result<T, ConformanceErrorKind>;
 
-// Used for public conformance API error handling.
+/// Used for public conformance API error handling.
 pub(crate) type Result<T> = std::result::Result<T, ConformanceError>;
 
-// Encoding captures whether an encoding is forced by including a text, or binary clause.
+/// Encoding captures whether an encoding is forced by including a text, or binary clause.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum IonEncoding {
     Text,        // Text clause used.
@@ -140,6 +145,8 @@ pub(crate) trait DocumentLike: Default {
     fn set_continuation(&mut self, continuation: continuation::Continuation);
 }
 
+/// Parses a Clause that has the format of a Document clause. This includes, an optional name,
+/// multiple fragments, followed by an expectation or multiple extensions.
 pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResult<T> {
     // let clause: Clause = Clause::try_from(seq)?;
     let mut doc_like = T::default();
@@ -238,6 +245,7 @@ impl TestCollection {
         Ok(collection)
     }
 
+    /// Evaluates the tests in all of the test documents contained in the collection.
     pub fn run(&self) -> Result<()> {
         for test in self.documents.iter() {
             test.run()?;
@@ -255,6 +263,9 @@ impl TestCollection {
 
 }
 
+/// Parses a 'bytes*' expression. A bytes expression can be either an integer (0..255) or a string
+/// containing hexadecimal digits (whitespace allowed). The `elems` provided should be all of the
+/// arguments to be included in the bytes* expression.
 pub(crate) fn parse_bytes_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Vec<u8>> {
     // Bytes can be of the form int (0..255), and a string containing hexadecimal digits.
     use std::result::Result;
@@ -279,6 +290,7 @@ pub(crate) fn parse_bytes_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -
     Ok(bytes)
 }
 
+/// Parses a sequence of Elements that represent text data.
 pub(crate) fn parse_text_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<String> {
     let bytes: Vec<Vec<u8>> = elems.into_iter().map(|v| match v.ion_type() {
         IonType::String => v.as_string().map(|s| Ok(s.as_bytes().to_vec())).unwrap(),
@@ -293,5 +305,4 @@ pub(crate) fn parse_text_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) ->
 
     let val_string = bytes.iter().map(|v| unsafe { String::from_utf8_unchecked(v.to_vec()) }).collect();
     Ok(val_string)
-
 }

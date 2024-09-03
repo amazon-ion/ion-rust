@@ -6,6 +6,7 @@ use super::continuation::*;
 
 use ion_rs::{Element, Sequence};
 
+/// Convert a collection of Fragments into a binary encoded ion stream.
 pub(crate) fn to_binary<'a, T: IntoIterator<Item=&'a Fragment>>(ctx: &'a Context, fragments: T) -> InnerResult<Vec<u8>> {
     let mut bin_encoded = vec!();
     for frag in fragments {
@@ -15,6 +16,7 @@ pub(crate) fn to_binary<'a, T: IntoIterator<Item=&'a Fragment>>(ctx: &'a Context
     Ok(bin_encoded)
 }
 
+/// Convert a collection of Fragments into a text encoded ion stream.
 pub(crate) fn to_text<'a, T: IntoIterator<Item=&'a Fragment>>(ctx: &'a Context, fragments: T) -> InnerResult<Vec<u8>> {
     let mut txt_encoded = vec!();
     for frag in fragments {
@@ -25,6 +27,8 @@ pub(crate) fn to_text<'a, T: IntoIterator<Item=&'a Fragment>>(ctx: &'a Context, 
     Ok(txt_encoded)
 }
 
+/// The root clause for a test. A document contains an optional name, set of fragments, and a
+/// continuation. All tests defined by this document are evaluated through the `run` function.
 #[derive(Debug, Default)]
 pub(crate) struct Document {
     pub name: Option<String>,
@@ -33,12 +37,15 @@ pub(crate) struct Document {
 }
 
 impl Document {
+    /// Execute the test by evaluating the document's continuation.
     pub fn run(&self) -> Result<()> {
         let ctx = Context::new(IonVersion::Unspecified, self.encoding(), &self.fragments);
         self.continuation.evaluate(&ctx)?;
         Ok(())
     }
 
+    /// Determine the ion encoding (text/binary) of this document based on the fragments defined by
+    /// the document.
     fn encoding(&self) -> IonEncoding {
         match self.fragments.iter().fold((false,false), |acc, f| {
             (acc.0 || matches!(f, Fragment::Text(_)), acc.1 || matches!(f, Fragment::Binary(_)))

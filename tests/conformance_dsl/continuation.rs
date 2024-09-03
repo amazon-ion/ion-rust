@@ -1,3 +1,7 @@
+//! Continuations are clauses which represent both Expectations (tests validating the expectations
+//! of the test document when read) and Extensions (clauses that allow the chaining, or
+//! permutations for document creation).
+
 use super::*;
 use super::context::Context;
 use super::model::ModelValue;
@@ -7,18 +11,31 @@ use ion_rs::{Element, Sequence};
 #[derive(Clone, Debug)]
 pub(crate) enum Continuation {
     // expectations
+
+    // Verify that reading the current document produces the expected data provided.
     Produces(Vec<Element>),
+    // Verify that reading the current document produces the expected data, provided through data
+    // model elements.
     Denotes(Vec<ModelValue>),
+    // Verify that reading the current document produces an error.
     Signals(String),
     // extensions
+    // Internal. This continuation tracks multiple continuations that are allowed in a document.
     Extensions(Vec<Continuation>),
+    // Contiunue the document within a sub-branch of the test; this allows for multiple tests that
+    // deviate from the same start.
     Then(Box<Then>),
+    // Allows a single expectation to be evaluated for multiple fragments.
     Each(Vec<EachBranch>, Box<Continuation>),
+    // Apply a logical-AND to the outcomes of each continuation provided.
     And(Vec<Continuation>),
+    // Negate the outcome of the provided continuation.
     Not(Box<Continuation>),
 }
 
 impl Continuation {
+    /// Test the outcome of the current continuation. This will generate the serialization of the
+    /// document and any other parent nodes.
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
         match self {
             // Produces is terminal, so we can evaluate.
@@ -88,6 +105,7 @@ impl Default for Continuation {
     }
 }
 
+/// Parses a clause known to be a continuation into a proper Continuation instance.
 pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
     let continuation = match clause.tpe {
         ClauseType::Produces => {
@@ -204,12 +222,16 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
     Ok(continuation)
 }
 
+/// Represents a single branch in an Each clause. Each branch is allowed to be named (optionally)
+/// and must contain a fragment.
 #[derive(Clone, Debug)]
 pub(crate) struct EachBranch {
     name: Option<String>,
     fragment: Fragment,
 }
 
+/// Represents a Then clause, it's optional name, the list of fragments, and continuation. A 'Then'
+/// acts as almost a sub-document.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Then {
     pub test_name: Option<String>,
@@ -218,6 +240,7 @@ pub(crate) struct Then {
 }
 
 impl Then {
+    /// Evaluate the outcome of the Then clause.
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
         // We need to create a new context for the Then scope.
         let mut then_ctx = Context::extend(ctx, &self.fragments);
@@ -227,6 +250,7 @@ impl Then {
         self.continuation.evaluate(&then_ctx)
     }
 
+    /// Determine the encoding (text/binary) of the fragments contained within this Then clause.
     fn fragment_encoding(&self) -> IonEncoding {
         let enc = self.fragments.iter().find(|f| matches!(f, Fragment::Text(_) | Fragment::Binary(_)));
         match enc {
@@ -236,6 +260,7 @@ impl Then {
         }
     }
 
+    /// Determine the ion version of the fragments contained within this Then clause.
     fn fragment_version(&self) -> IonVersion {
         match self.fragments.first() {
             Some(Fragment::Ivm(1, 0)) => IonVersion::V1_0,
