@@ -119,7 +119,13 @@ impl<'top> HasRange for &'top LazyRawBinaryValue_1_1<'top> {
 
 impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
     fn ion_type(&self) -> IonType {
-        self.encoded_value.ion_type()
+        // Handle retrieving the type for a typed null.
+        if self.encoded_value.header.type_code() == OpcodeType::TypedNull {
+            let body = self.value_body();
+            ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
+        } else {
+            self.encoded_value.ion_type()
+        }
     }
 
     fn is_null(&self) -> bool {
@@ -145,13 +151,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         }
 
         if self.is_null() {
-            let ion_type = if self.encoded_value.header.ion_type_code == OpcodeType::TypedNull {
-                let body = self.value_body();
-                ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
-            } else {
-                IonType::Null
-            };
-            return Ok(RawValueRef::Null(ion_type));
+            return Ok(RawValueRef::Null(self.ion_type()));
         }
 
         match self.ion_type() {

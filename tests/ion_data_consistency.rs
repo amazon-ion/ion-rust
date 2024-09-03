@@ -20,23 +20,23 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
 }
 
 const SKIP_LIST: &[&str] = &[
-    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableAppend.ion",
-    "ion-tests/iontestdata_1_0/good/equivs/localSymbolTableNullSlots.ion",
-    "ion-tests/iontestdata_1_0/good/equivs/nonIVMNoOps.ion",
+    "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
+    "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
+    "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
     // Integers outside the i128 range
-    "ion-tests/iontestdata_1_0/good/intBigSize16.10n",
-    "ion-tests/iontestdata_1_0/good/intBigSize256.ion",
-    "ion-tests/iontestdata_1_0/good/intBigSize256.10n",
-    "ion-tests/iontestdata_1_0/good/intBigSize512.ion",
-    "ion-tests/iontestdata_1_0/good/intBigSize1201.10n",
-    "ion-tests/iontestdata_1_0/good/equivs/bigInts.ion",
-    "ion-tests/iontestdata_1_0/good/subfieldVarInt.ion",
-    "ion-tests/iontestdata_1_0/good/equivs/intsLargePositive3.10n",
-    "ion-tests/iontestdata_1_0/good/equivs/intsLargeNegative3.10n",
+    "ion-tests/iontestdata/good/intBigSize16.10n",
+    "ion-tests/iontestdata/good/intBigSize256.ion",
+    "ion-tests/iontestdata/good/intBigSize256.10n",
+    "ion-tests/iontestdata/good/intBigSize512.ion",
+    "ion-tests/iontestdata/good/intBigSize1201.10n",
+    "ion-tests/iontestdata/good/equivs/bigInts.ion",
+    "ion-tests/iontestdata/good/subfieldVarInt.ion",
+    "ion-tests/iontestdata/good/equivs/intsLargePositive3.10n",
+    "ion-tests/iontestdata/good/equivs/intsLargeNegative3.10n",
 ];
 
-#[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.ion")]
-#[test_resources("ion-tests/iontestdata_1_0/good/equivs/**/*.10n")]
+#[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
+#[test_resources("ion-tests/iontestdata/good/equivs/**/*.10n")]
 fn ion_data_eq_ord_consistency(file_name: &str) {
     // Best-effort tests to check that Eq and Ord are consistent.
 

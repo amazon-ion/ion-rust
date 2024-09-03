@@ -94,3 +94,8 @@ codegen-units = 1
 [profile.profiling]
 inherits = "release"
 debug = true
+
+[[test]]
+name = "conformance"
+harness = false
+test = false
