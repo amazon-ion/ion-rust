@@ -13,18 +13,19 @@ use crate::IonType;
 /// * Whether the next type code is reserved.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum OpcodeType {
-    EExpressionWithAddress,    // 0x00-0x50 -
-    EExpressionAddressFollows, // 0x50-0x5F -
-    Integer,                   // 0x60-0x68 - Integer up to 8 bytes wide
-    Float,                     // 0x6A-0x6D -
-    Boolean,                   // 0x6E-0x6F -
-    Decimal,                   // 0x70-0x7F -
-    TimestampShort,            // 0x80-0x8F -
-    String,                    // 0x90-0x9F -
-    InlineSymbol,              // 0xA0-0xAF -
-    List,                      // 0xB0-0xBF -
-    SExpression,               // 0xC0-0xCF -
-    StructEmpty,               // 0xD0      -
+    EExpressionWith6BitAddress,  // 0x00-0x3F -
+    EExpressionWith12BitAddress, // 0x40-0x4F -
+    EExpressionWith20BitAddress, // 0x50-0x5F -
+    Integer,                     // 0x60-0x68 - Integer up to 8 bytes wide
+    Float,                       // 0x6A-0x6D -
+    Boolean,                     // 0x6E-0x6F -
+    Decimal,                     // 0x70-0x7F -
+    TimestampShort,              // 0x80-0x8F -
+    String,                      // 0x90-0x9F -
+    InlineSymbol,                // 0xA0-0xAF -
+    List,                        // 0xB0-0xBF -
+    SExpression,                 // 0xC0-0xCF -
+    StructEmpty,                 // 0xD0      -
     // 0xD1 reserved
     Struct,           // 0xD2-0xDF -
     IonVersionMarker, // 0xE0      -

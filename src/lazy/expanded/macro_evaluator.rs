@@ -33,7 +33,10 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{ExpandedValueSource, IonError, IonResult, LazyValue, Span, SymbolRef, ValueRef};
+use crate::{
+    ExpandedSExpSource, ExpandedValueSource, IonError, IonResult, LazyExpandedSExp, LazySExp,
+    LazyValue, Span, SymbolRef, ValueRef,
+};
 
 pub trait EExpArgGroupIterator<'top, D: Decoder>:
     Copy + Clone + Debug + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
@@ -387,6 +390,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     Void,
     Values(ValuesExpansion<'top, D>),
     MakeString(MakeStringExpansion<'top, D>),
+    MakeSExp(MakeSExpExpansion<'top, D>),
     Annotate(AnnotateExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
 }
@@ -459,6 +463,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Template(template_expansion) => template_expansion.next(context, environment),
             Values(values_expansion) => values_expansion.next(context, environment),
             MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
+            MakeSExp(make_sexp_expansion) => make_sexp_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             // `void` is trivial and requires no delegation
             Void => Ok(MacroExpansionStep::FinalStep(None)),
@@ -478,6 +483,7 @@ impl<'top, D: Decoder> Debug for MacroExpansion<'top, D> {
             MacroExpansionKind::Void => "void",
             MacroExpansionKind::Values(_) => "values",
             MacroExpansionKind::MakeString(_) => "make_string",
+            MacroExpansionKind::MakeSExp(_) => "make_sexp",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Template(t) => {
                 return if let Some(name) = t.template.name() {
@@ -1024,6 +1030,44 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
     }
 }
 
+// ====== Implementation of the `make_sexp` macro
+
+#[derive(Copy, Clone, Debug)]
+pub struct MakeSExpExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+}
+
+impl<'top, D: Decoder> MakeSExpExpansion<'top, D> {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self { arguments }
+    }
+
+    /// Yields the next [`ValueExpr`] in this `make_sexp` macro's evaluation.
+    pub fn next(
+        &mut self,
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        // The `make_sexp` macro always produces a single s-expression. When `next()` is called
+        // to begin its evaluation, immediately return a lazy value representing the (not yet
+        // computed) sexp. If/when the application tries to iterate over its child expressions,
+        // the iterator will evaluate the child expressions incrementally.
+        let lazy_expanded_sexp = LazyExpandedSExp {
+            source: ExpandedSExpSource::Constructed(environment, self.arguments),
+            context,
+        };
+        let lazy_sexp = LazySExp::new(lazy_expanded_sexp);
+        // Store the `SExp` in the bump so it's guaranteed to be around as long as the reader is
+        // positioned on this top-level value.
+        let value_ref = context.allocator().alloc_with(|| ValueRef::SExp(lazy_sexp));
+        let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
+        Ok(MacroExpansionStep::FinalStep(Some(
+            ValueExpr::ValueLiteral(lazy_expanded_value),
+        )))
+    }
+}
+
+// ===== Implementation of the `annotate` macro =====
 #[derive(Copy, Clone, Debug)]
 pub struct AnnotateExpansion<'top, D: Decoder> {
     arguments: MacroExprArgsIterator<'top, D>,
@@ -1173,7 +1217,7 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{v1_1, ElementReader, Int, IonResult, Reader};
+    use crate::{v1_1, ElementReader, Int, IonResult, MacroTable, Reader};
 
     /// Reads `input` and `expected` using an expanding reader and asserts that their output
     /// is the same.
@@ -1224,6 +1268,62 @@ mod tests {
             "#,
             r#"
                 1 2 3 4 5
+            "#,
+        )
+    }
+
+    #[test]
+    fn make_sexp() -> IonResult<()> {
+        eval_template_invocation(
+            r#"(macro foo ($x) (make_sexp [1, $x, 3] [(literal a), $x, (literal c)]))"#,
+            r#"
+                (:foo 5)
+                (:foo quuz)
+                (:foo {a: 1, b: 2})
+                (:foo [])
+            "#,
+            r#"
+                (1 5 3 a 5 c)
+                (1 quuz 3 a quuz c)
+                (1 {a: 1, b: 2} 3 a {a: 1, b: 2} c)
+                (1 [] 3 a [] c)
+            "#,
+        )
+    }
+
+    #[test]
+    fn produce_system_value() -> IonResult<()> {
+        // This macro produces the following system value:
+        //    $ion_encoding::(
+        //        (macro_table
+        //            ... // $macros expand here
+        //        )
+        //    )
+        eval_template_invocation(
+            r#"
+                (macro def_macros ($macros*)
+                    (annotate
+                        (literal $ion_encoding)
+                        (make_sexp [
+                            (make_sexp [
+                                (literal macro_table),
+                                $macros
+                            ])
+                        ])
+                    )
+                )"#,
+            r#"
+                (:def_macros
+                    (macro foo () 1)
+                    (macro bar () 2)
+                    (macro baz () 3)
+                )
+                (:foo)
+                (:bar)
+                (:baz)
+            "#,
+            r#"
+                1 2 3
             "#,
         )
     }
@@ -1466,11 +1566,12 @@ mod tests {
     #[test]
     fn flex_uint_parameters() -> IonResult<()> {
         let template_definition = "(macro int_pair (flex_uint::$x flex_uint::$y) (values $x $y)))";
+        let macro_id = MacroTable::FIRST_USER_MACRO_ID as u8;
         let tests: &[(&[u8], (u64, u64))] = &[
             // invocation+args, expected arg values
-            (&[0x04, 0x01, 0x01], (0, 0)),
-            (&[0x04, 0x09, 0x03], (4, 1)),
-            (&[0x04, 0x0B, 0x0D], (5, 6)), // TODO: non-required cardinalities
+            (&[macro_id, 0x01, 0x01], (0, 0)),
+            (&[macro_id, 0x09, 0x03], (4, 1)),
+            (&[macro_id, 0x0B, 0x0D], (5, 6)), // TODO: non-required cardinalities
         ];
 
         for test in tests {
@@ -1772,6 +1873,21 @@ mod tests {
             e_expression,
             r#" "foobarbaz" "foobarbaz" "first name" "Hello, world!" "#,
         )
+    }
+
+    #[test]
+    fn make_sexp_e_expression() -> IonResult<()> {
+        let e_expression = r#"
+        (:make_sexp
+            [1, 2, 3]
+            []
+            []
+            (4 5 6)
+            ()
+            ()
+            (7))
+        "#;
+        eval_enc_expr(e_expression, r#" (1 2 3 4 5 6 7) "#)
     }
 
     #[test]
