@@ -304,7 +304,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
 
             header_offset: input.offset(),
-            opcode_length: 0,
             length_length: 0,
             value_body_length: input.len(),
             total_length: input.len(),
@@ -847,7 +846,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
 impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
     fn opcode_length(&self) -> usize {
-        self.encoded_value.opcode_length as usize
+        self.encoded_value.opcode_length()
     }
 
     fn length_length(&self) -> usize {

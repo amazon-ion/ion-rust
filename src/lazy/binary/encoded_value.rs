@@ -90,8 +90,6 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     pub annotations_encoding: AnnotationsEncoding,
     // The offset of the type descriptor byte within the overall input stream.
     pub header_offset: usize,
-    // If this value was written with a tagless encoding, this will be 0. Otherwise, it's 1.
-    pub opcode_length: u8,
     // The number of bytes used to encode the optional length VarUInt following the header byte.
     pub length_length: u8,
     // The number of bytes used to encode the value itself, not including the header byte
@@ -128,6 +126,15 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
         let start = self.header_offset;
         let end = start + self.header_length();
         start..end
+    }
+
+    /// Returns the number of bytes used to encode this value's opcode. If this value was serialized
+    /// using a tagless encoding, returns `0`.
+    pub fn opcode_length(&self) -> usize {
+        match self.encoding {
+            ParameterEncoding::Tagged => 1,
+            _ => 0,
+        }
     }
 
     /// Returns the number of bytes used to encode this value's data.
@@ -279,7 +286,6 @@ mod tests {
             annotations_sequence_length: 1,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset: 200,
-            opcode_length: 1,
             length_length: 0,
             value_body_length: 3,
             total_length: 7,

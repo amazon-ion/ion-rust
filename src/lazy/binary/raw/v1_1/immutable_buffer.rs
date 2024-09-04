@@ -670,8 +670,6 @@ impl<'a> ImmutableBuffer<'a> {
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset,
-            // This is a tagged value, so its opcode length is always 1
-            opcode_length: 1,
             length_length,
             value_body_length,
             total_length,

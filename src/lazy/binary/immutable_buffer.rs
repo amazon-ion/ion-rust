@@ -711,7 +711,6 @@ impl<'a> ImmutableBuffer<'a> {
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset,
-            opcode_length: 1,
             length_length,
             value_body_length: value_length,
             total_length,

@@ -225,7 +225,7 @@ pub trait EncodedBinaryValue<'top, D: Decoder>: LazyRawValue<'top, D> {
 
 impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
     fn opcode_length(&self) -> usize {
-        self.encoded_value.opcode_length as usize
+        self.encoded_value.opcode_length()
     }
 
     fn length_length(&self) -> usize {
