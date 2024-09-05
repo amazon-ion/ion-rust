@@ -47,6 +47,7 @@ use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
+use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpansion, MacroExpr, RawEExpression,
 };
@@ -92,6 +93,7 @@ pub mod template;
 //  would need to be proved out first.
 #[derive(Debug)]
 pub struct EncodingContext {
+    pub(crate) system_module: EncodingModule,
     pub(crate) macro_table: MacroTable,
     pub(crate) symbol_table: SymbolTable,
     pub(crate) allocator: BumpAllocator,
@@ -104,6 +106,7 @@ impl EncodingContext {
         allocator: BumpAllocator,
     ) -> Self {
         Self {
+            system_module: EncodingModule::ion_1_1_system_module(),
             macro_table,
             symbol_table,
             allocator,
@@ -112,7 +115,7 @@ impl EncodingContext {
 
     pub fn for_ion_version(version: IonVersion) -> Self {
         Self::new(
-            MacroTable::new(),
+            MacroTable::with_system_macros(),
             SymbolTable::new(version),
             BumpAllocator::new(),
         )
@@ -120,7 +123,7 @@ impl EncodingContext {
 
     pub fn empty() -> Self {
         Self::new(
-            MacroTable::new(),
+            MacroTable::with_system_macros(),
             SymbolTable::new(IonVersion::default()),
             BumpAllocator::new(),
         )

@@ -1,8 +1,7 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-
 use delegate::delegate;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::borrow::Cow;
+use std::rc::Rc;
 
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::template::{
@@ -121,7 +120,7 @@ impl<'top> MacroRef<'top> {
 
     pub fn require_template(self) -> TemplateMacroRef<'top> {
         if let MacroKind::Template(body) = &self.kind() {
-            return TemplateMacroRef::new(self, body);
+            return TemplateMacroRef::new(self.reference(), body);
         }
         unreachable!(
             "caller required a template macro but found {:?}",
@@ -159,14 +158,14 @@ impl<'top> MacroRef<'top> {
 /// its validity and allowing evaluation to begin.
 #[derive(Debug, Clone)]
 pub struct MacroTable {
-    macros_by_address: Vec<Macro>,
+    macros_by_address: Vec<Rc<Macro>>,
     // Maps names to an address that can be used to query the Vec above.
     macros_by_name: FxHashMap<String, usize>,
 }
 
 impl Default for MacroTable {
     fn default() -> Self {
-        Self::new()
+        Self::with_system_macros()
     }
 }
 
@@ -183,9 +182,9 @@ impl MacroTable {
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
-    pub fn new() -> Self {
-        let macros_by_id = vec![
-            Macro::named(
+    fn system_macros() -> Vec<Rc<Macro>> {
+        vec![
+            Rc::new(Macro::named(
                 "void",
                 MacroSignature::new(vec![]).unwrap(),
                 MacroKind::Void,
@@ -198,8 +197,8 @@ impl MacroTable {
                     can_be_lazily_evaluated_at_top_level: false,
                     expansion_singleton: None,
                 },
-            ),
-            Macro::named(
+            )),
+            Rc::new(Macro::named(
                 "values",
                 MacroSignature::new(vec![Parameter::new(
                     "expr_group",
@@ -215,8 +214,8 @@ impl MacroTable {
                     can_be_lazily_evaluated_at_top_level: false,
                     expansion_singleton: None,
                 },
-            ),
-            Macro::named(
+            )),
+            Rc::new(Macro::named(
                 "make_string",
                 MacroSignature::new(vec![Parameter::new(
                     "expr_group",
@@ -236,8 +235,8 @@ impl MacroTable {
                         num_annotations: 0,
                     }),
                 },
-            ),
-            Macro::named(
+            )),
+            Rc::new(Macro::named(
                 "make_sexp",
                 MacroSignature::new(vec![Parameter::new(
                     "sequences",
@@ -260,8 +259,8 @@ impl MacroTable {
                         num_annotations: 0,
                     }),
                 },
-            ),
-            Macro::named(
+            )),
+            Rc::new(Macro::named(
                 "annotate",
                 MacroSignature::new(vec![
                     Parameter::new(
@@ -285,9 +284,14 @@ impl MacroTable {
                     can_be_lazily_evaluated_at_top_level: false,
                     expansion_singleton: None,
                 },
-            ),
-        ];
-        let mut macros_by_name = HashMap::default();
+            )),
+        ]
+    }
+
+    pub fn with_system_macros() -> Self {
+        let macros_by_id = Self::system_macros();
+        let mut macros_by_name =
+            FxHashMap::with_capacity_and_hasher(macros_by_id.len(), FxBuildHasher);
         for (id, mac) in macros_by_id.iter().enumerate() {
             if let Some(name) = mac.name() {
                 macros_by_name.insert(name.to_owned(), id);
@@ -297,6 +301,13 @@ impl MacroTable {
         Self {
             macros_by_address: macros_by_id,
             macros_by_name,
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            macros_by_address: Vec::new(),
+            macros_by_name: FxHashMap::default(),
         }
     }
 
@@ -331,6 +342,25 @@ impl MacroTable {
         Some(MacroRef { address, reference })
     }
 
+    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Rc<Macro>> {
+        let address = *self.macros_by_name.get(name)?;
+        let reference = self.macros_by_address.get(address)?;
+        Some(Rc::clone(reference))
+    }
+
+    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Rc<Macro>> {
+        let reference = self.macros_by_address.get(address)?;
+        Some(Rc::clone(reference))
+    }
+
+    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef) -> Option<Rc<Macro>> {
+        use MacroIdRef::*;
+        match macro_id {
+            LocalName(name) => self.clone_macro_with_name(name),
+            LocalAddress(address) => self.clone_macro_with_address(address),
+        }
+    }
+
     pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
@@ -348,7 +378,23 @@ impl MacroTable {
             template.expansion_analysis,
         );
 
-        self.macros_by_address.push(new_macro);
+        self.macros_by_address.push(Rc::new(new_macro));
         Ok(id)
+    }
+
+    pub(crate) fn append_all_macros_from(&mut self, other: &MacroTable) -> IonResult<()> {
+        for macro_ref in &other.macros_by_address {
+            let next_id = self.len();
+            if let Some(name) = macro_ref.name() {
+                if self.macros_by_name.contains_key(name) {
+                    return IonResult::decoding_error(format!(
+                        "macro named '{name}' already exists"
+                    ));
+                }
+                self.macros_by_name.insert(name.to_owned(), next_id);
+            }
+            self.macros_by_address.push(Rc::clone(macro_ref))
+        }
+        Ok(())
     }
 }

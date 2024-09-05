@@ -128,7 +128,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
             MacroKind::MakeSExp => MacroExpansionKind::MakeSExp(MakeSExpExpansion::new(arguments)),
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
             MacroKind::Template(template_body) => {
-                let template_ref = TemplateMacroRef::new(invoked_macro, template_body);
+                let template_ref = TemplateMacroRef::new(invoked_macro.reference(), template_body);
                 environment = self.new_evaluation_environment()?;
                 MacroExpansionKind::Template(TemplateExpansion::new(template_ref))
             }

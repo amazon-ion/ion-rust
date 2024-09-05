@@ -263,7 +263,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                             self.context,
                             *environment,
                             TemplateElement::new(
-                                element.template().macro_ref(),
+                                element.template(),
                                 body_element,
                                 first_result_expr.expr_range(),
                             ),
@@ -291,7 +291,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                     TemplateBodyExprKind::MacroInvocation(body_invocation) => {
                         let invocation = body_invocation.resolve(
                             self.context,
-                            element.template().address(),
+                            element.template(),
                             first_result_expr.expr_range(),
                         );
                         let mut evaluator = MacroEvaluator::new_with_environment(*environment);

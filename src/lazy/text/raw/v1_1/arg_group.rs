@@ -170,7 +170,7 @@ impl<'top> IntoIterator for TextEExpArgGroup<'top> {
 impl<'top> EExpressionArgGroup<'top, TextEncoding_1_1> for TextEExpArgGroup<'top> {
     type Iterator = TextEExpArgGroupIterator<'top>;
 
-    fn encoding(&self) -> ParameterEncoding {
+    fn encoding(&self) -> &ParameterEncoding {
         self.parameter.encoding()
     }
 

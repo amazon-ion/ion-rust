@@ -176,7 +176,7 @@ impl<'top, D: Decoder> HasSpan<'top> for NeverArgGroup<'top, D> {
 impl<'top, D: Decoder> EExpressionArgGroup<'top, D> for NeverArgGroup<'top, D> {
     type Iterator = NeverArgGroupIterator<'top, D>;
 
-    fn encoding(&self) -> ParameterEncoding {
+    fn encoding(&self) -> &ParameterEncoding {
         unreachable!("<NeverArgGroup as EExpressionArgGroup>::encoding")
     }
 

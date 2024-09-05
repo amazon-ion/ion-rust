@@ -1,8 +1,8 @@
 //! Compiles template definition language (TDL) expressions into a form suitable for fast incremental
 //! evaluation.
-use std::ops::Range;
-
 use rustc_hash::FxHashMap;
+use std::ops::Range;
+use std::rc::Rc;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::Decoder;
@@ -19,7 +19,7 @@ use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
-use crate::{v1_1, IonError, IonResult, IonType, MacroTable, Reader, Symbol, SymbolRef};
+use crate::{v1_1, IonError, IonResult, IonType, Macro, MacroTable, Reader, Symbol, SymbolRef};
 
 /// Information inferred about a template's expansion at compile time.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -272,18 +272,128 @@ impl TemplateCompiler {
         }
     }
 
-    fn encoding_for<Encoding: Decoder>(value: LazyValue<Encoding>) -> IonResult<ParameterEncoding> {
-        match value.annotations().next() {
-            None => Ok(ParameterEncoding::Tagged),
-            Some(Ok(text)) => match text.expect_text()? {
+    /// Interprets the annotations on the parameter name to determine its encoding.
+    fn encoding_for<Encoding: Decoder>(
+        context: EncodingContextRef,
+        pending_macros: &MacroTable,
+        parameter: LazyValue<Encoding>,
+    ) -> IonResult<ParameterEncoding> {
+        // * If the parameter has no annotations, it uses the default encoding.
+        //   For example:
+        //       foo
+        // * If the parameter has one annotation, the annotation is the encoding name. This can be
+        //   either a built-in encoding like `uint8` or a user-defined macro that takes at least
+        //   one parameter of its own.
+        //   For example:
+        //          uint8::foo
+        //        float32::foo
+        //       my_macro::foo
+        // * If the parameter has two annotations, the first annotation is the module name and the
+        //   second is the name of an encoding in that module.
+        //   For example:
+        //               $ion::uint8::foo
+        //             $ion::float32::foo
+        //       my_module::my_macro::foo
+        let mut annotations_iter = parameter.annotations();
+        let annotation1 = match annotations_iter.next().transpose()? {
+            // If there aren't any annotations, this parameter uses the default encoding: tagged.
+            None => return Ok(ParameterEncoding::Tagged),
+            // Otherwise, it's a module name or encoding name. We'll have to see if there's a
+            // second annotation to know for certain. Either way, the annotation must have known text.
+            Some(symbol) => symbol.expect_text()?,
+        };
+        let annotation2 = match annotations_iter.next().transpose()? {
+            // If there's a second annotation, get its associated text.
+            Some(symbol) => Some(symbol.expect_text()?),
+            None => None,
+        };
+
+        // Make sure there isn't a third annotation.
+        match annotations_iter.next() {
+            // This is the expected case. Having more than 2 annotations is illegal.
+            None => {}
+            Some(Err(e)) => return Err(e),
+            Some(Ok(annotation)) => {
+                return IonResult::decoding_error(format!(
+                    "found unexpected third annotation ('{:?}') on parameter",
+                    annotation
+                ))
+            }
+        };
+
+        // If it's an unqualified name, look for the associated macro in the local scope.
+        if let (encoding_name, None) = (annotation1, annotation2) {
+            if let Some(macro_ref) =
+                Self::resolve_unqualified_macro_id(context, pending_macros, encoding_name)
+            {
+                Self::validate_macro_shape_for_encoding(&macro_ref)?;
+                return Ok(ParameterEncoding::MacroShaped(macro_ref));
+            }
+            // If it's not in the local scope, see if it's a built-in.
+            return match encoding_name {
                 "flex_uint" => Ok(ParameterEncoding::FlexUInt),
-                other => IonResult::decoding_error(format!(
-                    "unsupported encoding '{other}' specified for parameter"
+                _ => IonResult::decoding_error(format!(
+                    "unrecognized encoding '{encoding_name}' specified for parameter"
                 )),
-            },
-            Some(Err(e)) => IonResult::decoding_error(format!(
-                "error occurred while parsing annotations for parameter: {e:?}"
-            )),
+            };
+        };
+
+        // At this point we know that we have a qualified name. Look it up in the active encoding
+        // context.
+        let (module_name, encoding_name) = (annotation1, annotation2.unwrap());
+        let macro_ref = Self::resolve_qualified_macro_id(context, module_name, encoding_name)
+            .ok_or_else(|| {
+                IonError::decoding_error(format!(
+                    "unrecognized encoding '{encoding_name}' specified for parameter"
+                ))
+            })?;
+        Self::validate_macro_shape_for_encoding(&macro_ref)?;
+        Ok(ParameterEncoding::MacroShaped(macro_ref))
+    }
+
+    /// Confirms that the selected macro is legal to use as a parameter encoding.
+    pub fn validate_macro_shape_for_encoding(macro_ref: &Macro) -> IonResult<()> {
+        if macro_ref.signature().len() == 0 {
+            // This macro had to have a name to reach the validation step, so we can safely `unwrap()` it.
+            return IonResult::decoding_error(format!(
+                "macro '{}' cannot be used as an encoding because it takes no parameters",
+                macro_ref.name().unwrap()
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn resolve_unqualified_macro_id<'a>(
+        context: EncodingContextRef,
+        pending_macros: &'a MacroTable,
+        macro_id: impl Into<MacroIdRef<'a>>,
+    ) -> Option<Rc<Macro>> {
+        let macro_id = macro_id.into();
+        // Since this ID is unqualified, it must be in either...
+        // ...the local namespace, having just been defined...
+        pending_macros
+            .clone_macro_with_id(macro_id)
+            // ...or in the active encoding environment.
+            .or_else(|| context.macro_table().clone_macro_with_id(macro_id))
+    }
+
+    pub fn resolve_qualified_macro_id<'a>(
+        context: EncodingContextRef,
+        module_name: &'a str,
+        macro_id: impl Into<MacroIdRef<'a>>,
+    ) -> Option<Rc<Macro>> {
+        let macro_id = macro_id.into();
+        match module_name {
+            // If the module is `$ion`, this refers to the system module.
+            "$ion" => context
+                .system_module
+                .macro_table()
+                .clone_macro_with_id(macro_id),
+            // If the module is `$ion_encoding`, this refers to the active encoding module.
+            "$ion_encoding" => context.macro_table().clone_macro_with_id(macro_id),
+            _ => todo!(
+                "qualified references to modules other than $ion_encoding (found {module_name}"
+            ),
         }
     }
 
@@ -317,7 +427,7 @@ impl TemplateCompiler {
         while let Some(item) = param_items.next().transpose()? {
             is_final_parameter |= param_items.peek().is_none();
             let name = Self::expect_symbol_text("a parameter name", item)?.to_owned();
-            let parameter_encoding = Self::encoding_for(item)?;
+            let parameter_encoding = Self::encoding_for(context, pending_macros, item)?;
 
             use ParameterCardinality::*;
             let mut cardinality = ExactlyOne;
@@ -602,15 +712,11 @@ impl TemplateCompiler {
         let mut expressions = lazy_sexp.iter();
         // Convert the macro ID (name or address) into an address. If this refers to a macro that
         // doesn't exist yet, this will return an error. This prevents recursion.
-        // TODO: Consider storing the name of the invoked target macro in the host's definition
-        //       as debug information. The name cannot be stored directly on the
-        //       TemplateBodyMacroInvocation as that would prevent the type from being `Copy`.
-        let (_maybe_name, macro_address) =
-            Self::name_and_address_from_id_expr(tdl_context, expressions.next())?;
+        let macro_ref = Self::name_and_address_from_id_expr(tdl_context, expressions.next())?;
         let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
         // this at the end of the function.
-        definition.push_macro_invocation(macro_address, ExprRange::empty());
+        definition.push_macro_invocation(Rc::clone(&macro_ref), ExprRange::empty());
         for argument_result in expressions {
             let argument = argument_result?;
             Self::compile_value(tdl_context, definition, /*is_quoted=*/ false, argument)?;
@@ -620,7 +726,7 @@ impl TemplateCompiler {
         // contains
         let invocation_expr_range = ExprRange::new(macro_step_index..arguments_end);
         definition.expressions[macro_step_index] =
-            TemplateBodyExpr::macro_invocation(macro_address, invocation_expr_range);
+            TemplateBodyExpr::macro_invocation(macro_ref, invocation_expr_range);
         Ok(())
     }
 
@@ -629,63 +735,61 @@ impl TemplateCompiler {
     fn name_and_address_from_id_expr<D: Decoder>(
         tdl_context: TdlContext,
         id_expr: Option<IonResult<LazyValue<D>>>,
-    ) -> IonResult<(Option<String>, usize)> {
+    ) -> IonResult<Rc<Macro>> {
         // Get the name or address from the `Option<IonResult<LazyValue<_>>>` if possible, or
         // surface an appropriate error message.
-        let macro_id = match id_expr {
+        let value = match id_expr {
             None => {
                 return IonResult::decoding_error(
                     "found an empty s-expression in an unquoted context",
                 )
             }
             Some(Err(e)) => return Err(e),
-            Some(Ok(value)) => match value.read()? {
-                ValueRef::Symbol(s) => {
-                    if let Some(name) = s.text() {
-                        MacroIdRef::LocalName(name)
-                    } else {
-                        return IonResult::decoding_error("macro names must be an identifier");
-                    }
-                }
-                ValueRef::Int(int) => {
-                    let address = usize::try_from(int.expect_i64()?).map_err(|_| {
-                        IonError::decoding_error(format!("found an invalid macro address: {int}"))
-                    })?;
-                    MacroIdRef::LocalAddress(address)
-                }
-                other => {
-                    return IonResult::decoding_error(format!(
-                        "expected a macro name (symbol) or address (int), but found: {other:?}"
-                    ))
-                }
-            },
+            Some(Ok(value)) => value,
         };
-        // Now that we have our ID (name/address), try to resolve it to a previously defined macro.
-        // We'll look in the pending macros table first...
-        Self::resolve_macro_id_in(macro_id, tdl_context.pending_macros)
-            // ...or we'll raise an error.
+
+        let macro_id = match value.read()? {
+            ValueRef::Symbol(s) => {
+                if let Some(name) = s.text() {
+                    MacroIdRef::LocalName(name)
+                } else {
+                    return IonResult::decoding_error("macro names must be an identifier");
+                }
+            }
+            ValueRef::Int(int) => {
+                let address = usize::try_from(int.expect_i64()?).map_err(|_| {
+                    IonError::decoding_error(format!("found an invalid macro address: {int}"))
+                })?;
+                MacroIdRef::LocalAddress(address)
+            }
+            other => {
+                return IonResult::decoding_error(format!(
+                    "expected a macro name (symbol) or address (int), but found: {other:?}"
+                ))
+            }
+        };
+
+        let mut annotations = value.annotations();
+        if let Some(module_name) = annotations.next().transpose()? {
+            Self::resolve_qualified_macro_id(
+                tdl_context.context,
+                module_name.expect_text()?,
+                macro_id,
+            )
+            .ok_or_else(|| {
+                IonError::decoding_error(format!(
+                    "macro '{module_name:?}::{macro_id}' has not been defined (yet?)"
+                ))
+            })
+        } else {
+            Self::resolve_unqualified_macro_id(
+                tdl_context.context,
+                tdl_context.pending_macros,
+                macro_id,
+            )
             .ok_or_else(|| {
                 IonError::decoding_error(format!("macro '{macro_id}' has not been defined (yet?)"))
             })
-        // TODO: Should it be possible for a macro to reference (and therefore "close over") a macro
-        //       in the current context? The referenced macro would not necessarily be accessible
-        //       in the new encoding context, but would still need to be accessible internally.
-    }
-
-    fn resolve_macro_id_in(
-        macro_id: MacroIdRef,
-        macro_table: &MacroTable,
-    ) -> Option<(Option<String>, usize)> {
-        use MacroIdRef::*;
-        match macro_id {
-            LocalName(name) => {
-                let address = macro_table.address_for_name(name)?;
-                Some((Some(name.to_string()), address))
-            }
-            LocalAddress(address) => {
-                let macro_ref = macro_table.macro_at_address(address)?;
-                Some((macro_ref.name().map(str::to_owned), address))
-            }
         }
     }
 
@@ -852,6 +956,7 @@ struct TdlContext<'top> {
 #[cfg(test)]
 mod tests {
     use rustc_hash::FxHashMap;
+    use std::rc::Rc;
 
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::template::{
@@ -859,7 +964,7 @@ mod tests {
     };
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
     use crate::{
-        AnyEncoding, Element, ElementReader, Int, IntoAnnotations, IonResult, Reader, Symbol,
+        AnyEncoding, Element, ElementReader, Int, IntoAnnotations, IonResult, Macro, Reader, Symbol,
     };
 
     // This function only looks at the value portion of the TemplateElement. To compare annotations,
@@ -883,16 +988,16 @@ mod tests {
     fn expect_macro(
         definition: &TemplateMacro,
         index: usize,
-        expected_address: usize,
-        expected_num_arguments: usize,
+        expected_macro: Rc<Macro>,
+        expected_num_args: usize,
     ) -> IonResult<()> {
         expect_step(
             definition,
             index,
             TemplateBodyExpr::macro_invocation(
-                expected_address,
+                Rc::clone(&expected_macro),
                 // First arg position to last arg position (exclusive)
-                ExprRange::new(index..index + 1 + expected_num_arguments),
+                ExprRange::new(index..index + 1 + expected_num_args),
             ),
         )
     }
@@ -1008,7 +1113,7 @@ mod tests {
         expect_macro(
             &template,
             0,
-            context.macro_table.address_for_name("values").unwrap(),
+            context.macro_table.clone_macro_with_name("values").unwrap(),
             3,
         )?;
         expect_value(&template, 1, TemplateValue::Int(42.into()))?;
@@ -1074,7 +1179,7 @@ mod tests {
                 .first()
                 .unwrap()
                 .encoding(),
-            ParameterEncoding::FlexUInt
+            &ParameterEncoding::FlexUInt
         );
         expect_variable(&template, 0, 0)?;
         Ok(())
@@ -1103,14 +1208,14 @@ mod tests {
         expect_macro(
             &template,
             0,
-            context.macro_table.address_for_name("values").unwrap(),
+            context.macro_table.clone_macro_with_name("values").unwrap(),
             5,
         )?;
         // First argument: `(values x)`
         expect_macro(
             &template,
             1,
-            context.macro_table.address_for_name("values").unwrap(),
+            context.macro_table.clone_macro_with_name("values").unwrap(),
             1,
         )?;
         expect_variable(&template, 2, 0)?;
@@ -1129,6 +1234,7 @@ mod tests {
             $ion_1_1
             $ion_encoding::(
                 (macro_table
+                    $ion_encoding
                     (macro hello ($name) (make_string "hello " $name))
                     (macro hello_world () (hello "world")) // Depends on macro 'hello'
                 )

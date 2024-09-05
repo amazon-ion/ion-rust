@@ -306,6 +306,9 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                         EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
                         remaining,
                     )
+                }
+                ParameterEncoding::MacroShaped(_macro_ref) => {
+                    todo!("macro-shaped parameter encoding")
                 } // TODO: The other tagless encodings
             },
             // If it's an argument group...
@@ -448,7 +451,7 @@ impl<'top> IntoIterator for BinaryEExpArgGroup<'top> {
 impl<'top> EExpressionArgGroup<'top, BinaryEncoding_1_1> for BinaryEExpArgGroup<'top> {
     type Iterator = BinaryEExpArgGroupIterator<'top>;
 
-    fn encoding(&self) -> ParameterEncoding {
+    fn encoding(&self) -> &ParameterEncoding {
         self.parameter.encoding()
     }
 

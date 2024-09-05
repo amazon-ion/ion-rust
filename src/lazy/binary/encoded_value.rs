@@ -1,6 +1,6 @@
 use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
-use crate::lazy::expanded::template::ParameterEncoding;
+use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::IonType;
 use std::ops::Range;
 
@@ -41,7 +41,7 @@ impl EncodedHeader for Header {
 /// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
-    pub(crate) encoding: ParameterEncoding,
+    pub(crate) encoding: BinaryValueEncoding,
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
     //
@@ -132,7 +132,7 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
     /// using a tagless encoding, returns `0`.
     pub fn opcode_length(&self) -> usize {
         match self.encoding {
-            ParameterEncoding::Tagged => 1,
+            BinaryValueEncoding::Tagged => 1,
             _ => 0,
         }
     }
@@ -269,14 +269,14 @@ mod tests {
     use crate::lazy::binary::encoded_value::EncodedValue;
     use crate::lazy::binary::raw::type_descriptor::Header;
     use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
-    use crate::lazy::expanded::template::ParameterEncoding;
+    use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
     use crate::{IonResult, IonType};
 
     #[test]
     fn accessors() -> IonResult<()> {
         // 3-byte String with 1-byte annotation
         let value = EncodedValue {
-            encoding: ParameterEncoding::Tagged,
+            encoding: BinaryValueEncoding::Tagged,
             header: Header {
                 ion_type: IonType::String,
                 ion_type_code: IonTypeCode::String,

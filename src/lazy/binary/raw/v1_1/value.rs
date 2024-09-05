@@ -11,7 +11,6 @@ use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBin
 use crate::lazy::binary::raw::value::EncodedBinaryValue;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
-use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
@@ -95,6 +94,16 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
     }
 }
 
+/// Encodings that can back a lazy binary value. Binary 1.0 values are always backed by
+/// the `Tagged` variant.
+///
+/// This is a subset of the encodings in the [`ParameterEncoding`] enum.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BinaryValueEncoding {
+    Tagged,
+    FlexUInt,
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryValue_1_1<'top> {
     pub(crate) encoded_value: EncodedValue<Header>,
@@ -144,7 +153,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
     }
 
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_1>> {
-        if self.encoded_value.encoding == ParameterEncoding::FlexUInt {
+        if self.encoded_value.encoding == BinaryValueEncoding::FlexUInt {
             let flex_uint = FlexUInt::read(self.input.bytes(), self.input.offset())?;
             let int: Int = flex_uint.value().into();
             return Ok(RawValueRef::Int(int));
@@ -188,7 +197,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         &self,
         context: EncodingContextRef<'top>,
     ) -> IonResult<ValueRef<'top, BinaryEncoding_1_1>> {
-        if self.encoded_value.encoding == ParameterEncoding::FlexUInt {
+        if self.encoded_value.encoding == BinaryValueEncoding::FlexUInt {
             let flex_uint = FlexUInt::read(self.input.bytes(), self.input.offset())?;
             let int: Int = flex_uint.value().into();
             return Ok(ValueRef::Int(int));
@@ -211,7 +220,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             value: &'a LazyRawBinaryValue_1_1<'a>,
             context: EncodingContextRef<'a>,
         ) -> IonResult<ValueRef<'a, BinaryEncoding_1_1>> {
-            if value.encoded_value.encoding == ParameterEncoding::FlexUInt {
+            if value.encoded_value.encoding == BinaryValueEncoding::FlexUInt {
                 let flex_uint = FlexUInt::read(value.input.bytes(), value.input.offset())?;
                 let int: Int = flex_uint.value().into();
                 return Ok(ValueRef::Int(int));
@@ -286,7 +295,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// a complete `FlexUInt`.
     pub(crate) fn for_flex_uint(input: ImmutableBuffer<'top>) -> Self {
         let encoded_value = EncodedValue {
-            encoding: ParameterEncoding::FlexUInt,
+            encoding: BinaryValueEncoding::FlexUInt,
             header: Header {
                 // It is an int, that's true.
                 ion_type: IonType::Int,
