@@ -83,7 +83,6 @@ pub enum ParameterEncoding {
     /// A 'tagged' type is one whose binary encoding begins with an opcode (sometimes called a 'tag'.)
     Tagged,
     FlexUInt,
-    // MacroShaped(MacroAddress),
     // TODO: tagless types, including fixed-width types and macros
     MacroShaped(Rc<Macro>),
 }

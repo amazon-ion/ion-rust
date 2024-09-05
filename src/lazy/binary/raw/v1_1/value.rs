@@ -97,7 +97,8 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
 /// Encodings that can back a lazy binary value. Binary 1.0 values are always backed by
 /// the `Tagged` variant.
 ///
-/// This is a subset of the encodings in the [`ParameterEncoding`] enum.
+/// This is a subset of the encodings in the
+/// [`ParameterEncoding`](crate::lazy::expanded::template::ParameterEncoding) enum.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BinaryValueEncoding {
     Tagged,
