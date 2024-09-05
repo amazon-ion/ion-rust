@@ -390,12 +390,12 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 }
                 ValueRef::Symbol(module_name) if module_name == "$ion_encoding" => {
                     let active_mactab = operation.expanded().context.macro_table();
-                    macro_table.append_all_macros_from(&active_mactab)?;
+                    macro_table.append_all_macros_from(active_mactab)?;
                 }
                 ValueRef::Symbol(module_name) if module_name == "$ion" => {
                     let expanded_value = operation.expanded();
                     let system_mactab = expanded_value.context.system_module.macro_table();
-                    macro_table.append_all_macros_from(&system_mactab)?;
+                    macro_table.append_all_macros_from(system_mactab)?;
                 }
                 ValueRef::Symbol(_module_name) => {
                     todo!("re-exporting macros from a module other than $ion_encoding")
