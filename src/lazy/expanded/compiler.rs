@@ -712,7 +712,7 @@ impl TemplateCompiler {
         let mut expressions = lazy_sexp.iter();
         // Convert the macro ID (name or address) into an address. If this refers to a macro that
         // doesn't exist yet, this will return an error. This prevents recursion.
-        let macro_ref = Self::name_and_address_from_id_expr(tdl_context, expressions.next())?;
+        let macro_ref = Self::resolve_macro_id_expr(tdl_context, expressions.next())?;
         let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
         // this at the end of the function.
@@ -731,8 +731,8 @@ impl TemplateCompiler {
     }
 
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
-    /// ID to a macro address.
-    fn name_and_address_from_id_expr<D: Decoder>(
+    /// ID to a macro reference.
+    fn resolve_macro_id_expr<D: Decoder>(
         tdl_context: TdlContext,
         id_expr: Option<IonResult<LazyValue<D>>>,
     ) -> IonResult<Rc<Macro>> {
