@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 use crate::lazy::binary::raw::v1_1::immutable_buffer::{
-    ArgGrouping, ArgGroupingBitmapIterator, ImmutableBuffer,
+    ArgGrouping, ArgGroupingBitmapIterator, BinaryBuffer,
 };
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::encoding::BinaryEncoding_1_1;
@@ -71,14 +71,14 @@ pub struct BinaryEExpression_1_1<'top> {
     // the first position after the opcode, address, length, and bitmap.
     args_offset: u8,
 
-    pub(crate) input: ImmutableBuffer<'top>,
+    pub(crate) input: BinaryBuffer<'top>,
 }
 
 impl<'top> BinaryEExpression_1_1<'top> {
     pub fn new(
         macro_ref: MacroRef<'top>,
         bitmap_bits: u64,
-        input: ImmutableBuffer<'top>,
+        input: BinaryBuffer<'top>,
         bitmap_offset: u8,
         args_offset: u8,
     ) -> Self {
@@ -174,7 +174,7 @@ pub struct BinaryEExpArgsIterator_1_1<'top> {
 impl<'top> BinaryEExpArgsIterator_1_1<'top> {
     pub fn for_input(
         groupings_iter: ArgGroupingBitmapIterator,
-        remaining_args_buffer: ImmutableBuffer<'top>,
+        remaining_args_buffer: BinaryBuffer<'top>,
         signature: &'top MacroSignature,
     ) -> Self {
         Self {
@@ -248,7 +248,7 @@ impl<'top> Iterator for BinaryEExpArgsIterator_1_1<'top> {
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgsInputIter<'top> {
     bitmap_iter: ArgGroupingBitmapIterator,
-    remaining_args_buffer: ImmutableBuffer<'top>,
+    remaining_args_buffer: BinaryBuffer<'top>,
     param_index: usize,
     signature: &'top MacroSignature,
 }
@@ -382,12 +382,12 @@ impl<'top> BinaryEExpArgsCacheIter<'top> {
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgGroup<'top> {
     parameter: &'top Parameter,
-    input: ImmutableBuffer<'top>,
+    input: BinaryBuffer<'top>,
     header_size: u8,
 }
 
 impl<'top> BinaryEExpArgGroup<'top> {
-    pub fn new(parameter: &'top Parameter, input: ImmutableBuffer<'top>, header_size: u8) -> Self {
+    pub fn new(parameter: &'top Parameter, input: BinaryBuffer<'top>, header_size: u8) -> Self {
         Self {
             parameter,
             input,
@@ -411,7 +411,7 @@ impl<'top> HasSpan<'top> for BinaryEExpArgGroup<'top> {
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgGroupIterator<'top> {
     parameter: &'top Parameter,
-    remaining_args_buffer: ImmutableBuffer<'top>,
+    remaining_args_buffer: BinaryBuffer<'top>,
 }
 
 impl<'top> EExpArgGroupIterator<'top, BinaryEncoding_1_1> for BinaryEExpArgGroupIterator<'top> {

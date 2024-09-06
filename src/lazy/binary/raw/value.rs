@@ -7,7 +7,7 @@ use std::{fmt, mem};
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::immutable_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct_1_0;
 use crate::lazy::binary::raw::sequence::{
@@ -29,11 +29,11 @@ use crate::{
 pub struct LazyRawBinaryVersionMarker_1_0<'top> {
     major: u8,
     minor: u8,
-    input: ImmutableBuffer<'top>,
+    input: BinaryBuffer<'top>,
 }
 
 impl<'top> LazyRawBinaryVersionMarker_1_0<'top> {
-    pub fn new(input: ImmutableBuffer<'top>, major: u8, minor: u8) -> Self {
+    pub fn new(input: BinaryBuffer<'top>, major: u8, minor: u8) -> Self {
         Self {
             major,
             minor,
@@ -76,7 +76,7 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_0<'top> {
 #[derive(Clone, Copy)]
 pub struct LazyRawBinaryValue_1_0<'top> {
     pub(crate) encoded_value: EncodedValue<Header>,
-    pub(crate) input: ImmutableBuffer<'top>,
+    pub(crate) input: BinaryBuffer<'top>,
 }
 
 impl<'top> Debug for LazyRawBinaryValue_1_0<'top> {
@@ -94,7 +94,7 @@ pub type ValueParseResult<'top, F> = IonResult<RawValueRef<'top, F>>;
 impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_0<'top> {
     fn span(&self) -> Span<'top> {
         let range = self.range();
-        // Subtract the `offset()` of the ImmutableBuffer to get the local indexes for start/end
+        // Subtract the `offset()` of the BinaryBuffer to get the local indexes for start/end
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
@@ -434,9 +434,9 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         self.encoded_value.has_annotations()
     }
 
-    /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
+    /// Returns an `BinaryBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
-    fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
+    fn annotations_sequence(&self) -> BinaryBuffer<'top> {
         let offset_and_length = self
             .encoded_value
             .annotations_sequence_offset()
@@ -495,10 +495,10 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         self.input.bytes_range(value_offset, value_body_length)
     }
 
-    /// Returns an [`ImmutableBuffer`] containing whatever bytes of this value's body are currently
+    /// Returns an [`BinaryBuffer`] containing whatever bytes of this value's body are currently
     /// available. This method is used to construct lazy containers, which are not required to be
     /// fully buffered before reading begins.
-    pub(crate) fn available_body(&self) -> ImmutableBuffer<'top> {
+    pub(crate) fn available_body(&self) -> BinaryBuffer<'top> {
         let value_total_length = self.encoded_value.total_length();
         let value_body_length = self.encoded_value.value_body_length();
         let value_offset = value_total_length - value_body_length;
@@ -572,7 +572,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         }
 
         // Skip the type descriptor and length bytes
-        let input = ImmutableBuffer::new(self.value_body());
+        let input = BinaryBuffer::new(self.value_body());
 
         let (exponent_var_int, remaining) = input.read_var_int()?;
         let coefficient_size_in_bytes =
@@ -594,7 +594,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     fn read_timestamp(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
 
-        let input = ImmutableBuffer::new(self.value_body());
+        let input = BinaryBuffer::new(self.value_body());
 
         let (offset, input) = input.read_var_int()?;
         let is_known_offset = !offset.is_negative_zero();

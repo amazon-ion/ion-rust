@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
-use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::immutable_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
@@ -92,7 +92,7 @@ pub struct RawBinaryStructIterator_1_0<'top> {
 }
 
 impl<'top> RawBinaryStructIterator_1_0<'top> {
-    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinaryStructIterator_1_0<'top> {
+    pub(crate) fn new(input: BinaryBuffer<'top>) -> RawBinaryStructIterator_1_0<'top> {
         RawBinaryStructIterator_1_0 {
             source: DataSource::new(input),
         }
@@ -104,7 +104,7 @@ impl<'top> Iterator for RawBinaryStructIterator_1_0<'top> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.source
-            .try_parse_next_field(ImmutableBuffer::peek_field)
+            .try_parse_next_field(BinaryBuffer::peek_field)
             .transpose()
     }
 }
@@ -114,11 +114,11 @@ pub struct LazyRawBinaryFieldName_1_0<'top> {
     // The field ID has to be read in order to discover its length, so we store it here to avoid
     // needing to re-read it.
     field_id: SymbolId,
-    matched: ImmutableBuffer<'top>,
+    matched: BinaryBuffer<'top>,
 }
 
 impl<'top> LazyRawBinaryFieldName_1_0<'top> {
-    pub fn new(field_id: SymbolId, matched: ImmutableBuffer<'top>) -> Self {
+    pub fn new(field_id: SymbolId, matched: BinaryBuffer<'top>) -> Self {
         Self { field_id, matched }
     }
 }

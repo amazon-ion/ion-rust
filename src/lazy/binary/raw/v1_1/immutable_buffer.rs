@@ -30,12 +30,12 @@ use crate::{v1_1, IonError, IonResult};
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
 ///
-/// Upon success, each parsing method on the `ImmutableBuffer` will return the value that was read
-/// and a copy of the `ImmutableBuffer` that starts _after_ the bytes that were parsed.
+/// Upon success, each parsing method on the `BinaryBuffer` will return the value that was read
+/// and a copy of the `BinaryBuffer` that starts _after_ the bytes that were parsed.
 ///
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
 #[derive(Clone, Copy)]
-pub struct ImmutableBuffer<'a> {
+pub struct BinaryBuffer<'a> {
     // `data` is a slice of remaining data in the larger input stream.
     // `offset` is the position in the overall input stream where that slice begins.
     //
@@ -48,9 +48,9 @@ pub struct ImmutableBuffer<'a> {
     context: EncodingContextRef<'a>,
 }
 
-impl<'a> Debug for ImmutableBuffer<'a> {
+impl<'a> Debug for BinaryBuffer<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ImmutableBuffer {{")?;
+        write!(f, "BinaryBuffer {{")?;
         for byte in self.bytes().iter().take(16) {
             write!(f, "{:x?} ", *byte)?;
         }
@@ -58,7 +58,7 @@ impl<'a> Debug for ImmutableBuffer<'a> {
     }
 }
 
-impl<'a> PartialEq for ImmutableBuffer<'a> {
+impl<'a> PartialEq for BinaryBuffer<'a> {
     fn eq(&self, other: &Self) -> bool {
         // A definition of equality that ignores the `context` field.
         self.offset == other.offset && self.data == other.data
@@ -69,17 +69,17 @@ impl<'a> PartialEq for ImmutableBuffer<'a> {
 }
 
 /// When `Ok`, contains the value that was matched/parsed and the remainder of the input buffer.
-pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
+pub(crate) type ParseResult<'a, T> = IonResult<(T, BinaryBuffer<'a>)>;
 
 enum SymAddressFieldName<'top> {
     ModeChange,
     FieldName(LazyRawBinaryFieldName_1_1<'top>),
 }
 
-impl<'a> ImmutableBuffer<'a> {
-    /// Constructs a new `ImmutableBuffer` that wraps `data`.
+impl<'a> BinaryBuffer<'a> {
+    /// Constructs a new `BinaryBuffer` that wraps `data`.
     #[inline]
-    pub fn new(context: EncodingContextRef<'a>, data: &'a [u8]) -> ImmutableBuffer<'a> {
+    pub fn new(context: EncodingContextRef<'a>, data: &'a [u8]) -> BinaryBuffer<'a> {
         Self::new_with_offset(context, data, 0)
     }
 
@@ -88,8 +88,8 @@ impl<'a> ImmutableBuffer<'a> {
         context: EncodingContextRef<'a>,
         data: &'a [u8],
         offset: usize,
-    ) -> ImmutableBuffer<'a> {
-        ImmutableBuffer {
+    ) -> BinaryBuffer<'a> {
+        BinaryBuffer {
             data,
             offset,
             context,
@@ -112,10 +112,10 @@ impl<'a> ImmutableBuffer<'a> {
         &self.data[offset..offset + length]
     }
 
-    /// Like [`Self::bytes_range`] above, but returns an updated copy of the [`ImmutableBuffer`]
+    /// Like [`Self::bytes_range`] above, but returns an updated copy of the [`BinaryBuffer`]
     /// instead of a `&[u8]`.
-    pub fn slice(&self, offset: usize, length: usize) -> ImmutableBuffer<'a> {
-        ImmutableBuffer {
+    pub fn slice(&self, offset: usize, length: usize) -> BinaryBuffer<'a> {
+        BinaryBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
             context: self.context,
@@ -123,7 +123,7 @@ impl<'a> ImmutableBuffer<'a> {
     }
 
     /// Returns the number of bytes between the start of the original input byte array and the
-    /// subslice of that byte array that this `ImmutableBuffer` represents.
+    /// subslice of that byte array that this `BinaryBuffer` represents.
     pub fn offset(&self) -> usize {
         self.offset
     }
@@ -154,7 +154,7 @@ impl<'a> ImmutableBuffer<'a> {
         self.data.get(..n)
     }
 
-    /// Creates a copy of this `ImmutableBuffer` that begins `num_bytes_to_consume` further into the
+    /// Creates a copy of this `BinaryBuffer` that begins `num_bytes_to_consume` further into the
     /// slice.
     #[inline]
     pub fn consume(&self, num_bytes_to_consume: usize) -> Self {
@@ -207,7 +207,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
-                let matched = ImmutableBuffer::new_with_offset(self.context, bytes, self.offset);
+                let matched = BinaryBuffer::new_with_offset(self.context, bytes, self.offset);
                 let marker = LazyRawBinaryVersionMarker_1_1::new(matched, *major, *minor);
                 Ok((marker, self.consume(IVM.len())))
             }
@@ -253,8 +253,8 @@ impl<'a> ImmutableBuffer<'a> {
         Ok((value, remaining_input))
     }
 
-    pub fn slice_to_end(&self, offset: usize) -> ImmutableBuffer<'a> {
-        ImmutableBuffer {
+    pub fn slice_to_end(&self, offset: usize) -> BinaryBuffer<'a> {
+        BinaryBuffer {
             data: &self.data[offset..],
             // stream offset + local offset
             offset: self.offset + offset,
@@ -457,7 +457,7 @@ impl<'a> ImmutableBuffer<'a> {
     pub(crate) fn peek_delimited_container(
         self,
         opcode: Opcode,
-    ) -> IonResult<(DelimitedContents<'a>, ImmutableBuffer<'a>)> {
+    ) -> IonResult<(DelimitedContents<'a>, BinaryBuffer<'a>)> {
         use crate::IonType;
 
         if let Some(IonType::Struct) = opcode.ion_type {
@@ -469,7 +469,7 @@ impl<'a> ImmutableBuffer<'a> {
 
     pub(crate) fn peek_delimited_sequence(
         self,
-    ) -> IonResult<(DelimitedContents<'a>, ImmutableBuffer<'a>)> {
+    ) -> IonResult<(DelimitedContents<'a>, BinaryBuffer<'a>)> {
         let mut input = self.consume(1);
         let mut values =
             BumpVec::<LazyRawValueExpr<'a, v1_1::Binary>>::new_in(self.context.allocator());
@@ -482,7 +482,7 @@ impl<'a> ImmutableBuffer<'a> {
             } else if opcode.opcode_type == OpcodeType::Nop {
                 let res = input.consume_nop_padding(opcode)?;
                 input = res.1;
-            } else if let (Some(value), after) = ImmutableBuffer::read_sequence_value_expr(input)? {
+            } else if let (Some(value), after) = BinaryBuffer::read_sequence_value_expr(input)? {
                 values.push(value);
                 input = after;
                 // input = input.consume(value.range().len());
@@ -495,7 +495,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// Reads the value for a delimited struct field, consuming NOPs if present.
     fn peek_delimited_struct_value(
         &self,
-    ) -> IonResult<(Option<LazyRawBinaryValue_1_1<'a>>, ImmutableBuffer<'a>)> {
+    ) -> IonResult<(Option<LazyRawBinaryValue_1_1<'a>>, BinaryBuffer<'a>)> {
         let opcode = self.expect_opcode()?;
         if opcode.is_nop() {
             let after_nops = self.consume_nop_padding(opcode)?.1;
@@ -512,7 +512,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// Reads the field name, as a flexsym, for the current delimited struct field.
     fn peek_delimited_field_flexsym(
         &self,
-    ) -> IonResult<(Option<LazyRawBinaryFieldName_1_1<'a>>, ImmutableBuffer<'a>)> {
+    ) -> IonResult<(Option<LazyRawBinaryFieldName_1_1<'a>>, BinaryBuffer<'a>)> {
         if self.is_empty() {
             return Ok((None, *self));
         }
@@ -532,10 +532,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// Reads a field within a delimited struct and returns the LazyRawFieldExpr for that field.
     pub(crate) fn peek_delimited_field(
         &self,
-    ) -> IonResult<(
-        Option<LazyRawFieldExpr<'a, v1_1::Binary>>,
-        ImmutableBuffer<'a>,
-    )> {
+    ) -> IonResult<(Option<LazyRawFieldExpr<'a, v1_1::Binary>>, BinaryBuffer<'a>)> {
         let mut buffer = *self;
         loop {
             // Peek at our field name.
@@ -576,7 +573,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// that can be used with a struct iterator.
     pub(crate) fn peek_delimited_struct(
         self,
-    ) -> IonResult<(DelimitedContents<'a>, ImmutableBuffer<'a>)> {
+    ) -> IonResult<(DelimitedContents<'a>, BinaryBuffer<'a>)> {
         let mut input = self.consume(1);
         let mut values =
             BumpVec::<LazyRawFieldExpr<'a, v1_1::Binary>>::new_in(self.context.allocator());
@@ -904,7 +901,7 @@ impl<'a> ImmutableBuffer<'a> {
     /// bytes, and `macro_address` is the address of the invoked macro.
     fn read_eexp_with_address(
         self,
-        input_after_address: ImmutableBuffer<'a>,
+        input_after_address: BinaryBuffer<'a>,
         macro_address: MacroAddress,
     ) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         // Get a reference to the macro that lives at that address
@@ -1139,7 +1136,7 @@ mod tests {
         #[case] expected_entries: &[ArgGrouping],
     ) -> IonResult<()> {
         let context = EncodingContext::for_ion_version(IonVersion::v1_1);
-        let buffer = ImmutableBuffer::new(context.get_ref(), bitmap_bytes);
+        let buffer = BinaryBuffer::new(context.get_ref(), bitmap_bytes);
         let bitmap =
             ArgGroupingBitmap::new(num_args, buffer.read_eexp_bitmap(bitmap_bytes.len())?.0);
 
@@ -1155,7 +1152,7 @@ mod tests {
     fn input_test<A: AsRef<[u8]>>(input: A) {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let input = ImmutableBuffer::new(context, input.as_ref());
+        let input = BinaryBuffer::new(context, input.as_ref());
         // We can peek at the first byte...
         assert_eq!(input.peek_next_byte(), Some(b'f'));
         // ...without modifying the input. Looking at the next 3 bytes still includes 'f'.
@@ -1192,11 +1189,11 @@ mod tests {
         // size for these values.
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let buffer = ImmutableBuffer::new(context, &[0xECu8]);
+        let buffer = BinaryBuffer::new(context, &[0xECu8]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 1);
 
-        let buffer = ImmutableBuffer::new(context, &[0xEDu8, 0x05, 0x00, 0x00]);
+        let buffer = BinaryBuffer::new(context, &[0xEDu8, 0x05, 0x00, 0x00]);
         let (pad_size, _) = buffer.read_nop_pad().expect("unable to read NOP pad");
         assert_eq!(pad_size, 4);
     }
@@ -1214,7 +1211,7 @@ mod tests {
         #[case] expected_sequence_length: usize,
     ) -> IonResult<()> {
         let context = EncodingContext::empty();
-        let buffer = ImmutableBuffer::new(context.get_ref(), input);
+        let buffer = BinaryBuffer::new(context.get_ref(), input);
         let (sequence, remaining) =
             buffer.read_annotations_sequence(Opcode::from_byte(buffer.data[0]))?;
         assert_eq!(
@@ -1241,7 +1238,7 @@ mod tests {
         let macro_address = context.macro_table.add_macro(template_macro)?;
         let opcode_byte = u8::try_from(macro_address).unwrap();
         let binary_ion = encode_macro_fn(opcode_byte as usize);
-        let buffer = ImmutableBuffer::new(context.get_ref(), &binary_ion);
+        let buffer = BinaryBuffer::new(context.get_ref(), &binary_ion);
         let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?.0;
         let eexp_ref = &*context.allocator.alloc_with(|| eexp);
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
