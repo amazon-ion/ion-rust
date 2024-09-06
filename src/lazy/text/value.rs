@@ -10,7 +10,7 @@ use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValue, RawVersionM
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::{IonEncoding, IonResult, IonType, RawSymbolRef};
 
@@ -24,14 +24,11 @@ use crate::{IonEncoding, IonResult, IonType, RawSymbolRef};
 #[derive(Copy, Clone)]
 pub struct LazyRawTextValue<'top, E: TextEncoding<'top>> {
     pub(crate) encoded_value: EncodedTextValue<'top, E>,
-    pub(crate) input: TextBufferView<'top>,
+    pub(crate) input: TextBuffer<'top>,
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
-    pub(crate) fn new(
-        input: TextBufferView<'top>,
-        encoded_value: EncodedTextValue<'top, E>,
-    ) -> Self {
+    pub(crate) fn new(input: TextBuffer<'top>, encoded_value: EncodedTextValue<'top, E>) -> Self {
         Self {
             encoded_value,
             input,
@@ -85,7 +82,7 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
 pub struct LazyRawTextVersionMarker<'top, E: TextEncoding<'top>> {
     major: u8,
     minor: u8,
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     // We need distinct version marker types for 1.0 and 1.1 even though the data/logic is the same.
     // This allows us to implement a `From<LazyRawTextVersionMarker_1_x> for LazyRawAnyVersionMarker`
     // unambiguously for the two encodings.
@@ -93,11 +90,7 @@ pub struct LazyRawTextVersionMarker<'top, E: TextEncoding<'top>> {
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawTextVersionMarker<'top, E> {
-    pub fn new(
-        input: TextBufferView<'top>,
-        major: u8,
-        minor: u8,
-    ) -> LazyRawTextVersionMarker<'top, E> {
+    pub fn new(input: TextBuffer<'top>, major: u8, minor: u8) -> LazyRawTextVersionMarker<'top, E> {
         Self {
             major,
             minor,
@@ -232,12 +225,12 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
 }
 
 pub struct RawTextAnnotationsIterator<'data> {
-    input: TextBufferView<'data>,
+    input: TextBuffer<'data>,
     has_returned_error: bool,
 }
 
 impl<'top> RawTextAnnotationsIterator<'top> {
-    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
+    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
         RawTextAnnotationsIterator {
             input,
             has_returned_error: false,
@@ -256,7 +249,7 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
         // Match the first annotation in the input. In order for this iterator to be created,
         // the parser already successfully matched this input once before, so we know it will succeed.
         use nom::Parser;
-        let (remaining, (symbol, span)) = TextBufferView::match_annotation
+        let (remaining, (symbol, span)) = TextBuffer::match_annotation
             .parse(self.input)
             .expect("annotations were already matched successfully by this parser");
         let matched_input = self
@@ -277,7 +270,7 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::expanded::EncodingContext;
-    use crate::lazy::text::buffer::TextBufferView;
+    use crate::lazy::text::buffer::TextBuffer;
     use crate::lazy::text::value::RawTextAnnotationsIterator;
     use crate::{IonResult, RawSymbolRef};
 
@@ -286,7 +279,7 @@ mod tests {
         fn test(input: &str) -> IonResult<()> {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let input = TextBufferView::new(context, input.as_bytes());
+            let input = TextBuffer::new(context, input.as_bytes());
             let mut iter = RawTextAnnotationsIterator::new(input);
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("foo"));
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("bar"));

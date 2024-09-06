@@ -6,7 +6,7 @@ use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::parse_result::AddContext;
 use crate::{Encoding, IonResult};
 
@@ -48,7 +48,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
     where
         'data: 'top,
     {
-        let input = TextBufferView::new_with_offset(
+        let input = TextBuffer::new_with_offset(
             context,
             &self.input[self.local_offset..],
             self.stream_offset + self.local_offset,

@@ -6,9 +6,9 @@
 //!
 //! This module defines `IonParseError`, a custom error type that can capture more information than is
 //! supported by [`nom::error::Error`]. It also defines `IonParseResult`, a type alias for an
-//! [`IResult`] that parses `TextBufferView`s and produces `IonParseError`s if something goes wrong.
+//! [`IResult`] that parses `TextBuffer`s and produces `IonParseError`s if something goes wrong.
 
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::position::Position;
 use crate::result::{DecodingError, IonFailure};
 use crate::{IonError, IonResult};
@@ -17,7 +17,7 @@ use nom::{Err, IResult};
 use std::borrow::Cow;
 use std::fmt::{Debug, Display};
 
-/// A type alias for a [`IResult`] whose input is a `TextBufferView` and whose error type is an
+/// A type alias for a [`IResult`] whose input is a `TextBuffer` and whose error type is an
 /// [`InvalidInputError`]. All of the Ion parsers in the `text::parsers` module return an
 /// [`IonParseResult`].
 ///
@@ -35,15 +35,14 @@ use std::fmt::{Debug, Display};
 ///    number of minutes because it's `>=60`. We know this was the right parser, but it wasn't
 ///    able to process it. (This is slightly contrived; it would be possible to write a parser
 ///    that rejected `71` as a number of minutes based on syntax alone.)
-pub(crate) type IonParseResult<'a, O> = IResult<TextBufferView<'a>, O, IonParseError<'a>>;
-// Functions that return IonParseResult parse TextBufferView-^   ^     ^
+pub(crate) type IonParseResult<'a, O> = IResult<TextBuffer<'a>, O, IonParseError<'a>>;
+// Functions that return IonParseResult parse TextBuffer-^   ^     ^
 //                            ...return a value of type `O` -----+     |
 //         ...or a nom::Err<IonParseError> if something goes wrong ----+
 
 /// As above, but for parsers that simply identify (i.e. 'match') a slice of the input as a
 /// particular item.
-pub(crate) type IonMatchResult<'a> =
-    IResult<TextBufferView<'a>, TextBufferView<'a>, IonParseError<'a>>;
+pub(crate) type IonMatchResult<'a> = IResult<TextBuffer<'a>, TextBuffer<'a>, IonParseError<'a>>;
 
 #[derive(Debug, PartialEq)]
 pub enum IonParseError<'data> {
@@ -53,7 +52,7 @@ pub enum IonParseError<'data> {
     Invalid(InvalidInputError<'data>),
 }
 
-/// Describes a problem that occurred while trying to parse a given input `TextBufferView`.
+/// Describes a problem that occurred while trying to parse a given input `TextBuffer`.
 ///
 /// When returned as part of an `IonParseResult`, an `IonParseError` is always wrapped in
 /// a [nom::Err] (see `IonParseResult`'s documentation for details). If the `nom::Err` is
@@ -63,7 +62,7 @@ pub enum IonParseError<'data> {
 #[derive(Debug, PartialEq)]
 pub struct InvalidInputError<'data> {
     // The input that being parsed when the error arose
-    input: TextBufferView<'data>,
+    input: TextBuffer<'data>,
     // A human-friendly name for what the parser was working on when the error occurred
     label: Option<Cow<'static, str>>,
     // The nature of the error--what went wrong?
@@ -75,7 +74,7 @@ pub struct InvalidInputError<'data> {
 
 impl<'data> InvalidInputError<'data> {
     /// Constructs a new `IonParseError` from the provided `input` text.
-    pub(crate) fn new(input: TextBufferView<'data>) -> Self {
+    pub(crate) fn new(input: TextBuffer<'data>) -> Self {
         InvalidInputError {
             input,
             label: None,
@@ -209,8 +208,8 @@ impl<'data> From<nom::Err<IonParseError<'data>>> for IonParseError<'data> {
 
 /// Allows an `IonParseError` to be constructed from a `(&str, ErrorKind)` tuple, which is the
 /// data provided by core `nom` parsers if they do not match the input.
-impl<'data> From<(TextBufferView<'data>, ErrorKind)> for IonParseError<'data> {
-    fn from((input, error_kind): (TextBufferView<'data>, ErrorKind)) -> Self {
+impl<'data> From<(TextBuffer<'data>, ErrorKind)> for IonParseError<'data> {
+    fn from((input, error_kind): (TextBuffer<'data>, ErrorKind)) -> Self {
         InvalidInputError::new(input)
             .with_nom_error_kind(error_kind)
             .into()
@@ -218,8 +217,8 @@ impl<'data> From<(TextBufferView<'data>, ErrorKind)> for IonParseError<'data> {
 }
 
 /// Allows a [nom::error::Error] to be converted into an [IonParseError] by calling `.into()`.
-impl<'data> From<NomError<TextBufferView<'data>>> for IonParseError<'data> {
-    fn from(nom_error: NomError<TextBufferView<'data>>) -> Self {
+impl<'data> From<NomError<TextBuffer<'data>>> for IonParseError<'data> {
+    fn from(nom_error: NomError<TextBuffer<'data>>) -> Self {
         InvalidInputError::new(nom_error.input)
             .with_nom_error_kind(nom_error.code)
             .into()
@@ -227,14 +226,14 @@ impl<'data> From<NomError<TextBufferView<'data>>> for IonParseError<'data> {
 }
 
 /// Allows `IonParseError` to be used as the error type in various `nom` functions.
-impl<'data> ParseError<TextBufferView<'data>> for IonParseError<'data> {
-    fn from_error_kind(input: TextBufferView<'data>, error_kind: ErrorKind) -> Self {
+impl<'data> ParseError<TextBuffer<'data>> for IonParseError<'data> {
+    fn from_error_kind(input: TextBuffer<'data>, error_kind: ErrorKind) -> Self {
         InvalidInputError::new(input)
             .with_nom_error_kind(error_kind)
             .into()
     }
 
-    fn append(_input: TextBufferView<'data>, _kind: ErrorKind, other: Self) -> Self {
+    fn append(_input: TextBuffer<'data>, _kind: ErrorKind, other: Self) -> Self {
         // When an error stack is being built, this method is called to give the error
         // type an opportunity to aggregate the errors into a collection or a more descriptive
         // message. For now, we simply allow the most recent error to take precedence.
@@ -244,12 +243,12 @@ impl<'data> ParseError<TextBufferView<'data>> for IonParseError<'data> {
 
 /// `Result<Option<T>, _>` has a method called `transpose` that converts it into an `Option<Result<T, _>>`,
 /// allowing it to be easily used in places like iterators that expect that return type.
-/// This trait defines a similar extension method for `Result<(TextBufferView, Option<T>)>`.
+/// This trait defines a similar extension method for `Result<(TextBuffer, Option<T>)>`.
 pub(crate) trait ToIteratorOutput<'data, T> {
     fn transpose(self) -> Option<IonResult<T>>;
 }
 
-impl<'data, T> ToIteratorOutput<'data, T> for IonResult<(TextBufferView<'data>, Option<T>)> {
+impl<'data, T> ToIteratorOutput<'data, T> for IonResult<(TextBuffer<'data>, Option<T>)> {
     fn transpose(self) -> Option<IonResult<T>> {
         match self {
             Ok((_remaining, Some(value))) => Some(Ok(value)),
@@ -266,8 +265,8 @@ pub(crate) trait AddContext<'data, T> {
     fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
-        input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'a>, T)>
+        input: TextBuffer<'data>,
+    ) -> IonResult<(TextBuffer<'a>, T)>
     where
         'data: 'a;
 }
@@ -276,8 +275,8 @@ impl<'data, T> AddContext<'data, T> for nom::Err<IonParseError<'data>> {
     fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
-        input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'a>, T)>
+        input: TextBuffer<'data>,
+    ) -> IonResult<(TextBuffer<'a>, T)>
     where
         'data: 'a,
     {
@@ -291,8 +290,8 @@ impl<'data, T> AddContext<'data, T> for IonParseError<'data> {
     fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
-        input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'a>, T)>
+        input: TextBuffer<'data>,
+    ) -> IonResult<(TextBuffer<'a>, T)>
     where
         'data: 'a,
     {
@@ -314,8 +313,8 @@ impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
     fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
-        input: TextBufferView<'data>,
-    ) -> IonResult<(TextBufferView<'a>, T)>
+        input: TextBuffer<'data>,
+    ) -> IonResult<(TextBuffer<'a>, T)>
     where
         'data: 'a,
     {
@@ -330,7 +329,7 @@ impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
 /// Constructs a `nom::Err::Failure` that contains an `IonParseError` describing the problem
 /// that was encountered.
 pub(crate) fn fatal_parse_error<D: Into<Cow<'static, str>>, O>(
-    input: TextBufferView,
+    input: TextBuffer,
     description: D,
 ) -> IonParseResult<O> {
     Err(nom::Err::Failure(
@@ -343,8 +342,7 @@ pub(crate) fn fatal_parse_error<D: Into<Cow<'static, str>>, O>(
 /// An extension trait that allows a [std::result::Result] of any kind to be mapped to an
 /// `IonParseResult` concisely.
 pub(crate) trait OrFatalParseError<T> {
-    fn or_fatal_parse_error<L: Display>(self, input: TextBufferView, label: L)
-        -> IonParseResult<T>;
+    fn or_fatal_parse_error<L: Display>(self, input: TextBuffer, label: L) -> IonParseResult<T>;
 }
 
 /// See the documentation for [OrFatalParseError].
@@ -352,11 +350,7 @@ impl<T, E> OrFatalParseError<T> for Result<T, E>
 where
     E: Debug,
 {
-    fn or_fatal_parse_error<L: Display>(
-        self,
-        input: TextBufferView,
-        label: L,
-    ) -> IonParseResult<T> {
+    fn or_fatal_parse_error<L: Display>(self, input: TextBuffer, label: L) -> IonParseResult<T> {
         match self {
             Ok(value) => Ok((input, value)),
             Err(error) => fatal_parse_error(input, format!("{label}: {error:?}")),
