@@ -11,12 +11,12 @@ use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryFieldName_1_0;
 use crate::lazy::binary::raw::type_descriptor::{Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS};
 use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::LazyRawFieldExpr;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
-use crate::lazy::expanded::template::ParameterEncoding;
 use crate::result::IonFailure;
 use crate::{Int, IonError, IonResult, IonType};
 
@@ -704,14 +704,13 @@ impl<'a> ImmutableBuffer<'a> {
         }
 
         let encoded_value = EncodedValue {
-            encoding: ParameterEncoding::Tagged,
+            encoding: BinaryValueEncoding::Tagged,
             header,
             // If applicable, these are populated by the caller: `read_annotated_value()`
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset,
-            opcode_length: 1,
             length_length,
             value_body_length: value_length,
             total_length,

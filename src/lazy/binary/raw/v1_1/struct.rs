@@ -337,6 +337,7 @@ mod tests {
                 $ion_encoding::(
                     (symbol_table $ion_encoding)
                     (macro_table
+                        $ion_encoding
                         (macro greet (name) (make_string "hello, " name))
                     )
                 )

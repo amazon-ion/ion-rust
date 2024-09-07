@@ -21,7 +21,6 @@ use crate::lazy::decoder::{Decoder, HasSpan, LazyRawValueExpr};
 use crate::lazy::expanded::e_expression::{
     ArgGroup, ArgGroupIterator, EExpression, EExpressionArgsIterator,
 };
-use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     ParameterEncoding, TemplateBodyExprKind, TemplateBodyVariableReference, TemplateElement,
@@ -35,7 +34,7 @@ use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{
     ExpandedSExpSource, ExpandedValueSource, IonError, IonResult, LazyExpandedSExp, LazySExp,
-    LazyValue, Span, SymbolRef, ValueRef,
+    LazyValue, Macro, Span, SymbolRef, ValueRef,
 };
 
 pub trait EExpArgGroupIterator<'top, D: Decoder>:
@@ -57,7 +56,7 @@ pub trait EExpressionArgGroup<'top, D: Decoder>:
 {
     type Iterator: EExpArgGroupIterator<'top, D>;
 
-    fn encoding(&self) -> ParameterEncoding;
+    fn encoding(&self) -> &ParameterEncoding;
     fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, D>;
 
     fn iter(self) -> Self::Iterator {
@@ -175,15 +174,6 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         self.kind
     }
 
-    fn id(&self) -> MacroIdRef {
-        use MacroExprKind::*;
-        match &self.kind {
-            TemplateMacro(m) => m.id(),
-            EExp(e) => e.id(),
-            EExpArgGroup(_) => MacroIdRef::LocalAddress(1), // `values`
-        }
-    }
-
     fn arguments(&self, environment: Environment<'top, D>) -> MacroExprArgsIterator<'top, D> {
         use MacroExprKind::*;
         let args_kind = match &self.kind {
@@ -196,12 +186,12 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         MacroExprArgsIterator { source: args_kind }
     }
 
-    pub(crate) fn invoked_macro(&self) -> MacroRef<'top> {
+    pub(crate) fn invoked_macro(&self) -> &'top Macro {
         use MacroExprKind::*;
         match &self.kind {
             TemplateMacro(m) => m.invoked_macro(),
-            EExp(e) => e.invoked_macro(),
-            EExpArgGroup(g) => g.invoked_macro(),
+            EExp(e) => e.invoked_macro().reference(),
+            EExpArgGroup(g) => g.invoked_macro().reference(),
         }
     }
 
@@ -1191,18 +1181,15 @@ impl<'top> TemplateExpansion<'top> {
                 ValueExpr::ValueLiteral(LazyExpandedValue::from_template(
                     context,
                     environment,
-                    TemplateElement::new(self.template.macro_ref(), e, value_expr.expr_range()),
+                    TemplateElement::new(self.template, e, value_expr.expr_range()),
                 ))
             }
             TemplateBodyExprKind::Variable(variable) => {
                 environment.require_expr(variable.signature_index())
             }
             TemplateBodyExprKind::MacroInvocation(raw_invocation) => {
-                let invocation = raw_invocation.resolve(
-                    context,
-                    self.template.address(),
-                    value_expr.expr_range(),
-                );
+                let invocation =
+                    raw_invocation.resolve(context, self.template, value_expr.expr_range());
                 ValueExpr::MacroInvocation(invocation.into())
             }
         };
@@ -1268,6 +1255,81 @@ mod tests {
             "#,
             r#"
                 1 2 3 4 5
+            "#,
+        )
+    }
+
+    #[test]
+    fn macros_close_over_dependencies() -> IonResult<()> {
+        eval_enc_expr(
+            r#"
+                // Define macro `double`
+                $ion_encoding::(
+                    (macro_table
+                        $ion
+                        (macro double ($x) ($ion::values $x $x))
+                    )
+                )
+
+                // `double` exists until the *end* of the encoding directive below. Define a new
+                // macro that depends on `double`.
+                $ion_encoding::(
+                    (macro_table
+                        (macro quadruple ($y)
+                            ($ion::values
+                                // Because `double` is in the active encoding module, we can refer
+                                // to it without qualification.
+                                (double $y)
+                                // We could also refer to it with a qualification.
+                                ($ion_encoding::double $y)))
+                    )
+                )
+
+                // At this point, only `quadruple` is accessible/addressable, but it still works.
+                (:quadruple "foo")
+            "#,
+            r#"
+                "foo"
+                "foo"
+                "foo"
+                "foo"
+            "#,
+        )
+    }
+
+    #[test]
+    fn reexporting_ion_encoding_makes_macros_local() -> IonResult<()> {
+        eval_enc_expr(
+            r#"
+                // Define macro `double`
+                $ion_encoding::(
+                    (macro_table
+                        $ion_encoding
+                        (macro double ($x) (values $x $x))
+                    )
+                )
+
+                $ion_encoding::(
+                    (macro_table
+                        $ion_encoding // Re-export the active encoding module's macros
+                        (macro quadruple ($y)
+                            ($ion::values
+                                // Because `double` has been added to the local namespace,
+                                // we can refer to it without a qualified reference.
+                                (double $y)
+                                // However, we can also refer to it using a qualified reference.
+                                ($ion_encoding::double $y)))
+                    )
+                )
+
+                // At this point, only `quadruple` is accessible/addressable, but it still works.
+                (:quadruple "foo")
+            "#,
+            r#"
+                "foo"
+                "foo"
+                "foo"
+                "foo"
             "#,
         )
     }

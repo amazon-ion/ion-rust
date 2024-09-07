@@ -1,9 +1,9 @@
+use bumpalo::collections::Vec as BumpVec;
+use rustc_hash::FxHashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
-
-use bumpalo::collections::Vec as BumpVec;
-use rustc_hash::FxHashMap;
+use std::rc::Rc;
 
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
@@ -13,13 +13,12 @@ use crate::lazy::expanded::macro_evaluator::{
     MacroExprArgsIterator, MakeSExpExpansion, MakeStringExpansion, TemplateExpansion, ValueExpr,
     ValuesExpansion,
 };
-use crate::lazy::expanded::macro_table::{Macro, MacroKind, MacroRef};
+use crate::lazy::expanded::macro_table::{Macro, MacroKind};
 use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedValueSource, LazyExpandedValue, TemplateVariableReference,
 };
-use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{
     try_or_some_err, Bytes, Decimal, Int, IonResult, IonType, LazyExpandedFieldName, Str, Symbol,
@@ -53,8 +52,8 @@ impl Parameter {
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
-    pub fn encoding(&self) -> ParameterEncoding {
-        self.encoding
+    pub fn encoding(&self) -> &ParameterEncoding {
+        &self.encoding
     }
     pub fn cardinality(&self) -> ParameterCardinality {
         self.cardinality
@@ -79,12 +78,13 @@ impl Parameter {
 }
 
 /// The encoding used to serialize and deserialize the associated parameter.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ParameterEncoding {
     /// A 'tagged' type is one whose binary encoding begins with an opcode (sometimes called a 'tag'.)
     Tagged,
     FlexUInt,
     // TODO: tagless types, including fixed-width types and macros
+    MacroShaped(Rc<Macro>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -344,15 +344,15 @@ impl TemplateMacro {
     }
 }
 
-/// A reference to a template macro definition paired with the macro table address at which it was found.
+/// A reference to a template macro definition paired with the more general macro reference.
 #[derive(Copy, Clone, Debug)]
 pub struct TemplateMacroRef<'top> {
-    macro_ref: MacroRef<'top>,
+    macro_ref: &'top Macro,
     template_body: &'top TemplateBody,
 }
 
 impl<'top> TemplateMacroRef<'top> {
-    pub fn new(macro_ref: MacroRef<'top>, template_body: &'top TemplateBody) -> Self {
+    pub fn new(macro_ref: &'top Macro, template_body: &'top TemplateBody) -> Self {
         Self {
             macro_ref,
             template_body,
@@ -362,13 +362,13 @@ impl<'top> TemplateMacroRef<'top> {
         self.template_body
     }
 
-    pub fn macro_ref(&self) -> MacroRef<'top> {
+    pub fn macro_ref(&self) -> &'top Macro {
         self.macro_ref
     }
 }
 
 impl<'top> Deref for TemplateMacroRef<'top> {
-    type Target = MacroRef<'top>;
+    type Target = &'top Macro;
 
     fn deref(&self) -> &Self::Target {
         &self.macro_ref
@@ -422,7 +422,7 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                         source: ExpandedValueSource::Template(
                             environment,
                             TemplateElement::new(
-                                self.template.macro_ref,
+                                self.template,
                                 element,
                                 current_expr.expr_range(),
                             ),
@@ -434,14 +434,10 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                 TemplateBodyExprKind::MacroInvocation(body_invocation) => {
                     // ...it's a TDL macro invocation. Resolve the invocation to get a reference to the
                     // macro being invoked.
-                    let invoked_macro = self
-                        .context
-                        .macro_table()
-                        .macro_at_address(body_invocation.invoked_macro_address)
-                        .unwrap();
+                    let invoked_macro = body_invocation.invoked_macro.as_ref();
                     let invocation = TemplateMacroInvocation::new(
                         self.context,
-                        self.template.address(),
+                        self.template,
                         invoked_macro,
                         ExprRange::new(current_expr.expr_range().tail()),
                     );
@@ -554,21 +550,17 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
                     self.context,
                     self.environment,
                     TemplateElement::new(
-                        self.template.macro_ref(),
+                        self.template,
                         element,
                         value_expr.expr_range(),
                     ),
                 ),
             ),
             TemplateBodyExprKind::MacroInvocation(body_invocation) => {
-                let invoked_macro = self
-                    .context
-                    .macro_table()
-                    .macro_at_address(body_invocation.invoked_macro_address)
-                    .unwrap();
+                let invoked_macro = body_invocation.invoked_macro.as_ref();
                 let invocation = TemplateMacroInvocation::new(
                     self.context,
-                    self.template.address(),
+                    self.template,
                     invoked_macro,
                     ExprRange::new(value_expr.expr_range().tail()),
                 );
@@ -579,7 +571,7 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
             }
             TemplateBodyExprKind::Variable(variable) => {
                 let arg_expr = self.environment.require_expr(variable.signature_index());
-                let variable_ref = variable.resolve(self.template.macro_ref.reference());
+                let variable_ref = variable.resolve(self.template.macro_ref);
                 let field_name = LazyExpandedFieldName::TemplateName(self.template, name);
                 let field = match arg_expr {
                     ValueExpr::ValueLiteral(value) => {
@@ -632,9 +624,9 @@ impl TemplateBody {
         ))
     }
 
-    pub fn push_macro_invocation(&mut self, invoked_macro_address: usize, expr_range: ExprRange) {
+    pub fn push_macro_invocation(&mut self, macro_ref: Rc<Macro>, expr_range: ExprRange) {
         self.expressions.push(TemplateBodyExpr::macro_invocation(
-            invoked_macro_address,
+            macro_ref,
             expr_range,
         ))
     }
@@ -667,10 +659,10 @@ impl TemplateBodyExpr {
         }
     }
 
-    pub fn macro_invocation(invoked_macro_address: MacroAddress, expr_range: ExprRange) -> Self {
+    pub fn macro_invocation(invoked_macro: Rc<Macro>, expr_range: ExprRange) -> Self {
         Self {
             kind: TemplateBodyExprKind::MacroInvocation(TemplateBodyMacroInvocation::new(
-                invoked_macro_address,
+                invoked_macro,
             )),
             expr_range,
         }
@@ -858,8 +850,8 @@ impl TemplateBodyExprKind {
     ) -> Result<usize, fmt::Error> {
         writeln!(
             f,
-            "{indentation}<invoke macro @ address {}>",
-            invocation.invoked_macro_address
+            "{indentation}<invoke macro {}>",
+            invocation.invoked_macro.name().unwrap_or("<anonymous>")
         )?;
         let args = host_template
             .body
@@ -899,46 +891,34 @@ impl TemplateBodyExprKind {
 }
 
 /// A macro invocation found in the body of a template.
-///
-/// Because the template definition lives in the macro table (which may need to grow in the process
-/// of evaluating a stream), this type holds the address of the invoked macro rather than a
-/// reference to it.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TemplateBodyMacroInvocation {
-    invoked_macro_address: MacroAddress,
+    pub(crate) invoked_macro: Rc<Macro>,
 }
 
 impl TemplateBodyMacroInvocation {
-    pub fn new(invoked_macro_address: MacroAddress) -> Self {
+    pub fn new(invoked_macro: Rc<Macro>) -> Self {
         Self {
-            invoked_macro_address,
+            invoked_macro,
         }
-    }
-    pub fn macro_address(&self) -> MacroAddress {
-        self.invoked_macro_address
     }
 
     /// Finds the definition of the macro being invoked in the provided `context`'s macro table.
     ///
     /// It is a logic error for this method to be called with an [`EncodingContextRef`] that does not
     /// contain the necessary information; doing so will cause this method to panic.
-    pub(crate) fn resolve(
-        self,
-        context: EncodingContextRef,
-        host_template_address: MacroAddress,
+    pub(crate) fn resolve<'a>(
+        &'a self,
+        context: EncodingContextRef<'a>,
+        host_template: TemplateMacroRef<'a>,
         expr_range: ExprRange,
-    ) -> TemplateMacroInvocation {
-        let invoked_macro = context
-            .macro_table()
-            .macro_at_address(self.invoked_macro_address)
-            .unwrap();
-
+    ) -> TemplateMacroInvocation<'a> {
         let arg_expr_range = ExprRange::new(expr_range.tail());
 
         TemplateMacroInvocation::new(
             context,
-            host_template_address,
-            invoked_macro,
+            host_template,
+            self.invoked_macro.as_ref(),
             arg_expr_range,
         )
     }
@@ -949,10 +929,9 @@ impl TemplateBodyMacroInvocation {
 #[derive(Copy, Clone)]
 pub struct TemplateMacroInvocation<'top> {
     context: EncodingContextRef<'top>,
-    // We store the address of the host template (8 bytes) rather than a full TemplateMacroRef (24)
-    host_template_address: MacroAddress,
+    host_template: TemplateMacroRef<'top>,
     // The macro being invoked
-    invoked_macro: MacroRef<'top>,
+    invoked_macro: &'top Macro,
     // The range of value expressions in the host template's body that are arguments to the
     // macro being invoked
     arg_expressions_range: ExprRange,
@@ -962,8 +941,8 @@ impl<'top> Debug for TemplateMacroInvocation<'top> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "TemplateMacroInvocation <target macro address={}>",
-            self.invoked_macro.address()
+            "TemplateMacroInvocation <target macro={}>",
+            self.invoked_macro.name().unwrap_or("<anonymous>")
         )
     }
 }
@@ -971,21 +950,18 @@ impl<'top> Debug for TemplateMacroInvocation<'top> {
 impl<'top> TemplateMacroInvocation<'top> {
     pub fn new(
         context: EncodingContextRef<'top>,
-        host_template_address: MacroAddress,
-        invoked_macro: MacroRef<'top>,
+        host_template: TemplateMacroRef<'top>,
+        invoked_macro: &'top Macro,
         arg_expressions_range: ExprRange,
     ) -> Self {
         Self {
             context,
-            host_template_address,
+            host_template,
             invoked_macro,
             arg_expressions_range,
         }
     }
 
-    pub fn id(&self) -> MacroIdRef<'top> {
-        MacroIdRef::LocalAddress(self.invoked_macro.address())
-    }
     pub fn arguments<D: Decoder>(
         &self,
         environment: Environment<'top, D>,
@@ -994,32 +970,20 @@ impl<'top> TemplateMacroInvocation<'top> {
             self.context,
             environment,
             self.arg_expressions(),
-            self.host_macro_ref(),
+            self.host_template(),
         )
-    }
-    pub fn host_template_address(&self) -> MacroAddress {
-        self.host_template_address
     }
 
     /// Helper method to access the definition of the host template. Useful for debugging,
     /// but not required for macro expansion.
-    pub fn host_macro_ref(&self) -> MacroRef<'top> {
-        self.context()
-            .macro_table()
-            .macro_at_address(self.host_template_address)
-            .unwrap()
+    pub fn host_macro_ref(&self) -> &'top Macro {
+        self.host_template.macro_ref
     }
 
     /// Helper method to access the definition of the host template. Useful for debugging,
     /// but not required for macro expansion.
     pub fn host_template(&self) -> TemplateMacroRef<'top> {
-        // We only store the macro address (8 bytes) instead of the full `TemplateMacroRef` (24 bytes)
-        // for size savings. Because the address was copied from a resolved `TemplateMacroRef` in the
-        // constructor and the encoding context is frozen for the duration of `'top`, we can safely
-        // assume that the address maps to a template macro in the current encoding context. This
-        // allows us to call `unwrap()` freely.
-        let macro_ref = self.host_macro_ref();
-        macro_ref.require_template()
+        self.host_template
     }
 
     pub fn arg_expressions(&self) -> &'top [TemplateBodyExpr] {
@@ -1029,9 +993,11 @@ impl<'top> TemplateMacroInvocation<'top> {
             .get(self.arg_expressions_range.ops_range())
             .unwrap()
     }
-    pub fn invoked_macro(&self) -> MacroRef<'top> {
+
+    pub fn invoked_macro(&self) -> &'top Macro {
         self.invoked_macro
     }
+
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
@@ -1058,7 +1024,7 @@ impl<'top> TemplateMacroInvocation<'top> {
     ) -> IonResult<MacroExpansion<'top, D>> {
         // Initialize a `MacroExpansionKind` with the state necessary to evaluate the requested
         // macro.
-        let macro_ref: MacroRef<'top> = self.invoked_macro();
+        let macro_ref = self.invoked_macro();
         let arguments = MacroExprArgsIterator::from_template_macro(self.arguments(environment));
         let expansion_kind = match macro_ref.kind() {
             MacroKind::Void => MacroExpansionKind::Void,
@@ -1093,7 +1059,7 @@ impl<'top, D: Decoder> From<TemplateMacroInvocation<'top>> for MacroExpr<'top, D
 pub struct TemplateMacroInvocationArgsIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     environment: Environment<'top, D>,
-    host_template: MacroRef<'top>,
+    host_template: TemplateMacroRef<'top>,
     // The range of value expressions in the host template's body that are arguments to the
     // macro being invoked
     arg_expressions: &'top [TemplateBodyExpr],
@@ -1105,7 +1071,7 @@ impl<'top, D: Decoder> TemplateMacroInvocationArgsIterator<'top, D> {
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
         arg_expressions: &'top [TemplateBodyExpr],
-        host_template: MacroRef<'top>,
+        host_template: TemplateMacroRef<'top>,
     ) -> Self {
         Self {
             environment,
@@ -1145,14 +1111,14 @@ impl<'top, D: Decoder> Iterator for TemplateMacroInvocationArgsIterator<'top, D>
                 // come from this variable in the template body.
                 if let ValueExpr::ValueLiteral(ref mut value) = expr {
                     *value =
-                        value.via_variable(variable_ref.resolve(self.host_template.reference()))
+                        value.via_variable(variable_ref.resolve(self.host_template.macro_ref()))
                 }
                 expr
             }
             TemplateBodyExprKind::MacroInvocation(body_invocation) => {
                 let invocation = body_invocation.resolve(
                     self.context,
-                    self.host_template.address(),
+                    self.host_template,
                     arg.expr_range(),
                 );
                 ValueExpr::MacroInvocation(invocation.into())
@@ -1204,14 +1170,14 @@ impl TemplateBodyVariableReference {
 pub struct TemplateElement<'top> {
     // This type holds a reference to the host template macro, which contains some shared resources
     // like a `Vec` of annotation definitions.
-    template: MacroRef<'top>,
+    template: TemplateMacroRef<'top>,
     element: &'top TemplateBodyElement,
     expr_range: ExprRange,
 }
 
 impl<'top> TemplateElement<'top> {
     pub fn new(
-        template: MacroRef<'top>,
+        template: TemplateMacroRef<'top>,
         element: &'top TemplateBodyElement,
         expr_range: ExprRange,
     ) -> Self {
@@ -1223,7 +1189,6 @@ impl<'top> TemplateElement<'top> {
     }
     pub fn annotations(&self) -> &'top [Symbol] {
         self.template
-            .require_template()
             .body()
             .annotations_storage()
             .get(self.element.annotations_range().ops_range())
@@ -1236,7 +1201,7 @@ impl<'top> TemplateElement<'top> {
         &self.element.value
     }
     pub fn template(&self) -> TemplateMacroRef<'top> {
-        self.template.require_template()
+        self.template
     }
     pub fn expr_range(&self) -> ExprRange {
         self.expr_range

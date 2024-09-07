@@ -41,7 +41,7 @@ impl<'a> SymbolRef<'a> {
         }
     }
 
-    pub fn expect_text(&self) -> IonResult<&str> {
+    pub fn expect_text(&self) -> IonResult<&'a str> {
         match self.text() {
             Some(text) => Ok(text),
             None => IonResult::decoding_error("symbol has unknown text"),

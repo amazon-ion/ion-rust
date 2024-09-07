@@ -11,7 +11,7 @@ use crate::lazy::binary::raw::v1_1::e_expression::{
 };
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryFieldName_1_1;
 use crate::lazy::binary::raw::v1_1::value::{
-    DelimitedContents, LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
+    BinaryValueEncoding, DelimitedContents, LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
 use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, OpcodeType, ION_1_1_OPCODES};
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
@@ -21,7 +21,6 @@ use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_sym::{FlexSym, FlexSymValue};
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::macro_table::MacroRef;
-use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
@@ -663,15 +662,13 @@ impl<'a> ImmutableBuffer<'a> {
         }
 
         let encoded_value = EncodedValue {
-            encoding: ParameterEncoding::Tagged,
+            encoding: BinaryValueEncoding::Tagged,
             header,
             // If applicable, these are populated by the caller: `read_annotated_value()`
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset,
-            // This is a tagged value, so its opcode length is always 1
-            opcode_length: 1,
             length_length,
             value_body_length,
             total_length,
@@ -1544,7 +1541,8 @@ mod tests {
 
         // Construct an encoding directive that defines this number of macros. Each macro will expand
         // to its own address.
-        let mut macro_definitions = String::from("$ion_encoding::(\n  (macro_table\n");
+        let mut macro_definitions =
+            String::from("$ion_encoding::(\n  (macro_table $ion_encoding\n");
         for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
             writeln!(macro_definitions, "    (macro m{address} () {address})")?;
         }

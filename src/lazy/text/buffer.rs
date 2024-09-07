@@ -2132,7 +2132,7 @@ impl<'top> TextBufferView<'top> {
                 contains_escaped_chars = true;
                 // Peek at the next two bytes to see if this is a \r\n
                 let next_two_bytes = self.bytes().get(index + 1..index + 3);
-                let bytes_to_skip = if next_two_bytes == Some(&[b'\r', b'\n']) {
+                let bytes_to_skip = if next_two_bytes == Some(b"\r\n") {
                     2
                 } else {
                     1
