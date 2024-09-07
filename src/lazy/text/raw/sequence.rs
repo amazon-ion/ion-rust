@@ -11,7 +11,7 @@ use crate::lazy::decoder::{
     Decoder, LazyRawContainer, LazyRawSequence, LazyRawValue, LazyRawValueExpr, RawValueExpr,
 };
 use crate::lazy::encoding::TextEncoding_1_0;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::parse_result::AddContext;
 use crate::lazy::text::parse_result::ToIteratorOutput;
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
@@ -88,13 +88,13 @@ impl<'a> Debug for LazyRawTextList_1_0<'a> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct RawTextListIterator_1_0<'data> {
-    input: TextBufferView<'data>,
+    input: TextBuffer<'data>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
 impl<'data> RawTextListIterator_1_0<'data> {
-    pub(crate) fn new(input: TextBufferView<'data>) -> RawTextListIterator_1_0<'data> {
+    pub(crate) fn new(input: TextBuffer<'data>) -> RawTextListIterator_1_0<'data> {
         RawTextListIterator_1_0 {
             input,
             has_returned_error: false,
@@ -182,13 +182,13 @@ impl<'data> LazyRawTextSExp_1_0<'data> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct RawTextSExpIterator_1_0<'top> {
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
 impl<'top> RawTextSExpIterator_1_0<'top> {
-    pub(crate) fn new(input: TextBufferView<'top>) -> RawTextSExpIterator_1_0<'top> {
+    pub(crate) fn new(input: TextBuffer<'top>) -> RawTextSExpIterator_1_0<'top> {
         RawTextSExpIterator_1_0 {
             input,
             has_returned_error: false,

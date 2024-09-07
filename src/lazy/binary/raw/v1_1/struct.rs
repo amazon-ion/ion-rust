@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::{
-    immutable_buffer::{ImmutableBuffer, ParseResult},
+    immutable_buffer::{BinaryBuffer, ParseResult},
     value::{DelimitedContents, LazyRawBinaryValue_1_1},
     OpcodeType,
 };
@@ -25,11 +25,11 @@ pub struct LazyRawBinaryFieldName_1_1<'top> {
     // needing to re-read it.
     field_name: RawSymbolRef<'top>,
     // For viewing the span/range of the field name
-    matched: ImmutableBuffer<'top>,
+    matched: BinaryBuffer<'top>,
 }
 
 impl<'top> LazyRawBinaryFieldName_1_1<'top> {
-    pub fn new(field_name: RawSymbolRef<'top>, matched: ImmutableBuffer<'top>) -> Self {
+    pub fn new(field_name: RawSymbolRef<'top>, matched: BinaryBuffer<'top>) -> Self {
         Self {
             field_name,
             matched,
@@ -152,7 +152,7 @@ enum SymAddressFieldName<'top> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RawBinaryStructIterator_1_1<'top> {
-    source: ImmutableBuffer<'top>,
+    source: BinaryBuffer<'top>,
     mode: StructMode,
     field_expr_index: usize,
     field_expr_cache: Option<&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]>,
@@ -161,7 +161,7 @@ pub struct RawBinaryStructIterator_1_1<'top> {
 impl<'top> RawBinaryStructIterator_1_1<'top> {
     pub(crate) fn new(
         opcode_type: OpcodeType,
-        input: ImmutableBuffer<'top>,
+        input: BinaryBuffer<'top>,
         field_expr_cache: Option<&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]>,
     ) -> RawBinaryStructIterator_1_1<'top> {
         RawBinaryStructIterator_1_1 {
@@ -178,12 +178,12 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
 
     /// Helper function called by [`Self::peek_field`] in order to parse a FlexSym encoded
     /// struct field names. If no field is available, None is returned, otherwise the symbol and an
-    /// [`ImmutableBuffer`] positioned after the field name is returned.
+    /// [`BinaryBuffer`] positioned after the field name is returned.
     ///
     /// The opcode variant of the FlexSym is not currently implemented.
     fn peek_field_flexsym(
-        buffer: ImmutableBuffer<'top>,
-    ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, ImmutableBuffer<'top>)>> {
+        buffer: BinaryBuffer<'top>,
+    ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, BinaryBuffer<'top>)>> {
         use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSymValue;
 
         if buffer.is_empty() {
@@ -204,10 +204,10 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
 
     /// Helper function called by [`Self::peek_field`] in order to parse a symbol address encoded
     /// struct field names. If no field is available, None is returned, otherwise the symbol and an
-    /// [`ImmutableBuffer`] positioned after the field name is returned.
+    /// [`BinaryBuffer`] positioned after the field name is returned.
     fn peek_field_symbol_addr(
-        buffer: ImmutableBuffer<'top>,
-    ) -> IonResult<Option<(SymAddressFieldName<'top>, ImmutableBuffer<'top>)>> {
+        buffer: BinaryBuffer<'top>,
+    ) -> IonResult<Option<(SymAddressFieldName<'top>, BinaryBuffer<'top>)>> {
         if buffer.is_empty() {
             return Ok(None);
         }
@@ -227,14 +227,14 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     }
 
     /// Helper function called by [`Self::peek_field`] in order to parse a struct field's value.
-    /// If a value is parsed successfully, it is returned along with an [`ImmutableBuffer`]
+    /// If a value is parsed successfully, it is returned along with an [`BinaryBuffer`]
     /// positioned after the value. If the value consists of NOPs, no value is returned but a
     /// buffer positioned after the NOPs is returned.
     fn peek_value_expr(
-        buffer: ImmutableBuffer<'top>,
+        buffer: BinaryBuffer<'top>,
     ) -> IonResult<(
         Option<LazyRawValueExpr<'top, BinaryEncoding_1_1>>,
-        ImmutableBuffer<'top>,
+        BinaryBuffer<'top>,
     )> {
         let opcode = buffer.expect_opcode()?;
         if opcode.is_nop() {
@@ -249,7 +249,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// struct. On success, returns both the field pair via [`LazyRawFieldExpr`] as well as the
     /// total bytes needed to skip the field.
     fn peek_field(
-        input: ImmutableBuffer<'top>,
+        input: BinaryBuffer<'top>,
         mut mode: StructMode,
     ) -> ParseResult<Option<(LazyRawFieldExpr<'top, BinaryEncoding_1_1>, StructMode)>> {
         let mut buffer = input;

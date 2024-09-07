@@ -22,7 +22,7 @@ use crate::{
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
-                    immutable_buffer::ImmutableBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
+                    immutable_buffer::BinaryBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
                     Header, OpcodeType,
                 },
                 value::ValueParseResult,
@@ -59,11 +59,11 @@ impl ExtractBitmask for u64 {}
 pub struct LazyRawBinaryVersionMarker_1_1<'top> {
     major: u8,
     minor: u8,
-    input: ImmutableBuffer<'top>,
+    input: BinaryBuffer<'top>,
 }
 
 impl<'top> LazyRawBinaryVersionMarker_1_1<'top> {
-    pub fn new(input: ImmutableBuffer<'top>, major: u8, minor: u8) -> Self {
+    pub fn new(input: BinaryBuffer<'top>, major: u8, minor: u8) -> Self {
         Self {
             major,
             minor,
@@ -113,7 +113,7 @@ pub enum BinaryValueEncoding {
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryValue_1_1<'top> {
     pub(crate) encoded_value: EncodedValue<Header>,
-    pub(crate) input: ImmutableBuffer<'top>,
+    pub(crate) input: BinaryBuffer<'top>,
     pub(crate) delimited_contents: DelimitedContents<'top>,
 }
 
@@ -271,7 +271,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             // If there are no annotations, return an empty slice positioned at the opcode
             return Span::with_offset(self.encoded_value.header_offset, &[]);
         };
-        // Subtract the `offset()` of the ImmutableBuffer to get the local indexes for start/end
+        // Subtract the `offset()` of the BinaryBuffer to get the local indexes for start/end
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
@@ -299,7 +299,7 @@ impl<'top> DelimitedContents<'top> {
 impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Constructs a lazy raw binary value from an input buffer slice that has been found to contain
     /// a complete `FlexUInt`.
-    pub(crate) fn for_flex_uint(input: ImmutableBuffer<'top>) -> Self {
+    pub(crate) fn for_flex_uint(input: BinaryBuffer<'top>) -> Self {
         let encoded_value = EncodedValue {
             encoding: BinaryValueEncoding::FlexUInt,
             header: Header {
@@ -346,9 +346,9 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         <&'top Self as LazyRawValue<'top, BinaryEncoding_1_1>>::has_annotations(&self)
     }
 
-    /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
+    /// Returns an `BinaryBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
-    fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
+    fn annotations_sequence(&self) -> BinaryBuffer<'top> {
         let annotations_header_length = self.encoded_value.annotations_header_length as usize;
         let sequence_length = self.encoded_value.annotations_sequence_length as usize;
         let sequence = self.input.slice(annotations_header_length, sequence_length);
@@ -383,10 +383,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         self.input.bytes_range(value_offset, value_body_length)
     }
 
-    /// Returns an [`ImmutableBuffer`] representing this value's data.
+    /// Returns an [`BinaryBuffer`] representing this value's data.
     /// For this raw value to have been created, lexing had to indicate that the complete value
     /// was available. Because of that invariant, this method will always succeed.
-    pub(crate) fn value_body_buffer(&self) -> ImmutableBuffer<'top> {
+    pub(crate) fn value_body_buffer(&self) -> BinaryBuffer<'top> {
         let value_total_length = self.encoded_value.total_length();
         let value_body_length = self.encoded_value.value_body_length();
         let value_offset = value_total_length - value_body_length;

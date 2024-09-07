@@ -8,7 +8,7 @@ use crate::lazy::expanded::macro_evaluator::{
 };
 use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::result::IonFailure;
 use crate::{Decoder, HasRange, HasSpan, IonResult, LazyExpandedValue, Span};
 
@@ -100,7 +100,7 @@ impl<'top, D: Decoder> HasRange for EExpArgExpr<'top, D> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct TextEExpArgGroup<'top> {
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     parameter: &'top Parameter,
     // Notice that the expressions inside an arg group cannot themselves be arg groups,
     // only value literals or e-expressions.
@@ -110,7 +110,7 @@ pub struct TextEExpArgGroup<'top> {
 impl<'top> TextEExpArgGroup<'top> {
     pub fn new(
         parameter: &'top Parameter,
-        input: TextBufferView<'top>,
+        input: TextBuffer<'top>,
         child_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
     ) -> Self {
         Self {

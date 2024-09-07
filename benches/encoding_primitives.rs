@@ -16,7 +16,7 @@ mod benchmark {
     use rand::{distributions::Uniform, Rng, SeedableRng};
     use std::io;
 
-    use ion_rs::v1_0::{ImmutableBuffer, VarInt, VarUInt};
+    use ion_rs::v1_0::{BinaryBuffer, VarInt, VarUInt};
     use ion_rs::v1_1::{FlexInt, FlexUInt};
 
     // Rather than store a set of test values, we hardcode a seed value and generate the same set
@@ -74,7 +74,7 @@ mod benchmark {
         binary_1_0_group.bench_function("read VarUInt", |b| {
             b.iter(|| {
                 let mut decoded_length: usize = 0;
-                let mut input = ImmutableBuffer::new(encoded_var_uints.as_slice());
+                let mut input = BinaryBuffer::new(encoded_var_uints.as_slice());
                 for _ in 0..unsigned_values.len() {
                     let (var_uint, remaining) = input.read_var_uint().unwrap();
                     input = remaining;
@@ -96,7 +96,7 @@ mod benchmark {
         binary_1_0_group.bench_function("read VarInt", |b| {
             b.iter(|| {
                 let mut decoded_length: usize = 0;
-                let mut input = ImmutableBuffer::new(encoded_var_ints.as_slice());
+                let mut input = BinaryBuffer::new(encoded_var_ints.as_slice());
                 for _ in 0..unsigned_values.len() {
                     let (var_int, remaining) = input.read_var_int().unwrap();
                     input = remaining;
@@ -121,7 +121,7 @@ mod benchmark {
         binary_1_1_group.bench_function("read FlexUInt", |b| {
             b.iter(|| {
                 let mut decoded_length: usize = 0;
-                let mut input = ImmutableBuffer::new(encoded_flex_uints.as_slice());
+                let mut input = BinaryBuffer::new(encoded_flex_uints.as_slice());
                 for _ in 0..unsigned_values.len() {
                     let (flex_uint, remaining) = input.read_flex_uint().unwrap();
                     input = remaining;
@@ -143,7 +143,7 @@ mod benchmark {
         binary_1_1_group.bench_function("read FlexInt", |b| {
             b.iter(|| {
                 let mut decoded_length: usize = 0;
-                let mut input = ImmutableBuffer::new(encoded_flex_ints.as_slice());
+                let mut input = BinaryBuffer::new(encoded_flex_ints.as_slice());
                 for _ in 0..unsigned_values.len() {
                     let (flex_int, remaining) = input.read_flex_int().unwrap();
                     input = remaining;
@@ -161,7 +161,7 @@ mod benchmark {
             VarUInt::write_u64(&mut encoded_values_buffer, *value)?;
         }
         let mut decoded_values = Vec::new();
-        let mut input = ImmutableBuffer::new(encoded_values_buffer.as_slice());
+        let mut input = BinaryBuffer::new(encoded_values_buffer.as_slice());
         for _ in 0..unsigned_values.len() {
             let (var_uint, remaining) = input.read_var_uint()?;
             input = remaining;
@@ -177,7 +177,7 @@ mod benchmark {
             VarInt::write_i64(&mut encoded_values_buffer, *value)?;
         }
         let mut decoded_values = Vec::new();
-        let mut input = ImmutableBuffer::new(encoded_values_buffer.as_slice());
+        let mut input = BinaryBuffer::new(encoded_values_buffer.as_slice());
         for _ in 0..signed_values.len() {
             let (var_int, remaining) = input.read_var_int()?;
             input = remaining;
@@ -193,7 +193,7 @@ mod benchmark {
             FlexUInt::write(&mut encoded_values_buffer, *value)?;
         }
         let mut decoded_values = Vec::new();
-        let mut input = ImmutableBuffer::new(encoded_values_buffer.as_slice());
+        let mut input = BinaryBuffer::new(encoded_values_buffer.as_slice());
         for _ in 0..unsigned_values.len() {
             let (flex_uint, remaining) = input.read_flex_uint()?;
             input = remaining;
@@ -209,7 +209,7 @@ mod benchmark {
             FlexInt::write_i64(&mut encoded_values_buffer, *value)?;
         }
         let mut decoded_values = Vec::new();
-        let mut input = ImmutableBuffer::new(encoded_values_buffer.as_slice());
+        let mut input = BinaryBuffer::new(encoded_values_buffer.as_slice());
         for _ in 0..signed_values.len() {
             let (flex_int, remaining) = input.read_flex_int()?;
             input = remaining;

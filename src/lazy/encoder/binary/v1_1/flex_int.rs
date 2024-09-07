@@ -167,7 +167,7 @@ impl FlexInt {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+    use crate::lazy::binary::immutable_buffer::BinaryBuffer;
     use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
     use crate::{IonError, IonResult};
     const FLEX_INT_TEST_CASES: &[(i64, &[u8])] = &[
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn decode_flex_int() -> IonResult<()> {
         for (expected_value, encoding) in FLEX_INT_TEST_CASES {
-            let (flex_int, _remaining) = ImmutableBuffer::new(encoding).read_flex_int()?;
+            let (flex_int, _remaining) = BinaryBuffer::new(encoding).read_flex_int()?;
             let actual_value = flex_int.value();
             assert_eq!(actual_value, *expected_value, "actual value {actual_value} was != expected value {expected_value} for encoding {encoding:x?}")
         }
@@ -356,7 +356,7 @@ mod tests {
             // Exhaustively check incomplete input detection by trying to read all prefixes of a test
             // value's complete encoding.
             for end in 0..expected_encoding.len() - 1 {
-                let partial_encoding = ImmutableBuffer::new(&expected_encoding[..end]);
+                let partial_encoding = BinaryBuffer::new(&expected_encoding[..end]);
                 assert!(matches!(
                     partial_encoding.read_flex_int(),
                     Err(IonError::Incomplete(_))

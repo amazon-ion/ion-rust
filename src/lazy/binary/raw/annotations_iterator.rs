@@ -1,13 +1,13 @@
-use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::immutable_buffer::BinaryBuffer;
 use crate::{IonResult, RawSymbolRef};
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.
 pub struct RawBinaryAnnotationsIterator<'a> {
-    buffer: ImmutableBuffer<'a>,
+    buffer: BinaryBuffer<'a>,
 }
 
 impl<'a> RawBinaryAnnotationsIterator<'a> {
-    pub(crate) fn new(buffer: ImmutableBuffer<'a>) -> RawBinaryAnnotationsIterator<'a> {
+    pub(crate) fn new(buffer: BinaryBuffer<'a>) -> RawBinaryAnnotationsIterator<'a> {
         RawBinaryAnnotationsIterator { buffer }
     }
 }

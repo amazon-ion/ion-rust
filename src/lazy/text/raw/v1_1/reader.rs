@@ -19,7 +19,7 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
@@ -66,7 +66,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
     where
         'data: 'top,
     {
-        let input = TextBufferView::new_with_offset(
+        let input = TextBuffer::new_with_offset(
             context,
             &self.input[self.local_offset..],
             self.stream_offset + self.local_offset,
@@ -145,7 +145,7 @@ impl<'data> From<&'data str> for MacroIdRef<'data> {
 
 #[derive(Copy, Clone)]
 pub struct TextEExpression_1_1<'top> {
-    pub(crate) input: TextBufferView<'top>,
+    pub(crate) input: TextBuffer<'top>,
     pub(crate) id: MacroIdRef<'top>,
     pub(crate) arg_cache: &'top [EExpArg<'top, TextEncoding_1_1>],
 }
@@ -185,7 +185,7 @@ impl<'data> Debug for TextEExpression_1_1<'data> {
 impl<'top> TextEExpression_1_1<'top> {
     pub(crate) fn new(
         id: MacroIdRef<'top>,
-        input: TextBufferView<'top>,
+        input: TextBuffer<'top>,
         arg_cache: &'top [EExpArg<'top, TextEncoding_1_1>],
     ) -> Self {
         Self {
@@ -227,13 +227,13 @@ impl<'a> Debug for LazyRawTextList_1_1<'a> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RawTextListIterator_1_1<'top> {
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     // If this iterator has returned an error, it should return `None` forever afterward
     has_returned_error: bool,
 }
 
 impl<'top> RawTextListIterator_1_1<'top> {
-    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
+    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
         Self {
             input,
             has_returned_error: false,
@@ -317,13 +317,13 @@ impl<'a> Debug for LazyRawTextSExp_1_1<'a> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RawTextSExpIterator_1_1<'top> {
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
 }
 
 impl<'top> RawTextSExpIterator_1_1<'top> {
-    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
+    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
         Self {
             input,
             has_returned_error: false,
@@ -561,12 +561,12 @@ impl<'a> Debug for LazyRawTextStruct_1_1<'a> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RawTextStructIterator_1_1<'top> {
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     has_returned_error: bool,
 }
 
 impl<'top> RawTextStructIterator_1_1<'top> {
-    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
+    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
         Self {
             input,
             has_returned_error: false,

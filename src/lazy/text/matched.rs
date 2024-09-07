@@ -40,7 +40,7 @@ use crate::lazy::decoder::{Decoder, LazyRawFieldExpr, LazyRawValueExpr};
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
 use crate::{
@@ -101,7 +101,7 @@ impl MatchedFieldNameSyntax {
         &self,
         // TODO: Remove allocator, use the one in TBV
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<RawSymbolRef<'data>> {
         match self {
             MatchedFieldNameSyntax::Symbol(matched_symbol) => {
@@ -117,12 +117,12 @@ impl MatchedFieldNameSyntax {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct MatchedFieldName<'top> {
     // This is stored as a tuple to allow this type to be `Copy`; Range<usize> is not `Copy`.
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     syntax: MatchedFieldNameSyntax,
 }
 
 impl<'top> MatchedFieldName<'top> {
-    pub fn new(input: TextBufferView<'top>, syntax: MatchedFieldNameSyntax) -> Self {
+    pub fn new(input: TextBuffer<'top>, syntax: MatchedFieldNameSyntax) -> Self {
         Self { input, syntax }
     }
 
@@ -181,7 +181,7 @@ impl MatchedInt {
     }
 
     /// Attempts to finish reading the partially parsed integer.
-    pub fn read(&self, matched_input: TextBufferView) -> IonResult<Int> {
+    pub fn read(&self, matched_input: TextBuffer) -> IonResult<Int> {
         let digits = matched_input.slice_to_end(self.digits_offset as usize);
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
@@ -233,7 +233,7 @@ impl MatchedFloat {
     // Floats that take more than 32 bytes of text to represent will heap allocate a larger buffer.
     const STACK_ALLOC_BUFFER_CAPACITY: usize = 32;
 
-    pub fn read(&self, matched_input: TextBufferView) -> IonResult<f64> {
+    pub fn read(&self, matched_input: TextBuffer) -> IonResult<f64> {
         match self {
             MatchedFloat::PositiveInfinity => return Ok(f64::INFINITY),
             MatchedFloat::NegativeInfinity => return Ok(f64::NEG_INFINITY),
@@ -292,7 +292,7 @@ impl MatchedDecimal {
         }
     }
 
-    pub fn read(&self, matched_input: TextBufferView) -> IonResult<Decimal> {
+    pub fn read(&self, matched_input: TextBuffer) -> IonResult<Decimal> {
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
 
@@ -389,7 +389,7 @@ impl MatchedString {
     pub fn read<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         match self {
             MatchedString::ShortWithoutEscapes => {
@@ -410,7 +410,7 @@ impl MatchedString {
 
     fn read_long_string_single_segment_without_escapes<'data>(
         &self,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last three bytes, which are quotes.
         let body = matched_input.slice(3, matched_input.len() - 6);
@@ -423,7 +423,7 @@ impl MatchedString {
     fn read_long_string_single_segment_with_escapes<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last three bytes, which are quotes.
         let body = matched_input.slice(3, matched_input.len() - 6);
@@ -444,7 +444,7 @@ impl MatchedString {
     fn read_long_string<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         // We're going to re-parse the input to visit each segment, copying its sanitized bytes into
         // a contiguous buffer.
@@ -457,8 +457,8 @@ impl MatchedString {
         // This is the same parser that matched the input initially, which means that the only
         // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
         while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
-            TextBufferView::match_optional_comments_and_whitespace,
-            TextBufferView::match_long_string_segment,
+            TextBuffer::match_optional_comments_and_whitespace,
+            TextBuffer::match_long_string_segment,
         )(remaining)
         {
             remaining = remaining_after_match;
@@ -477,7 +477,7 @@ impl MatchedString {
 
     fn read_short_string_without_escapes<'data>(
         &self,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
@@ -490,7 +490,7 @@ impl MatchedString {
     fn read_short_string_with_escapes<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
@@ -511,7 +511,7 @@ impl MatchedString {
 }
 
 fn replace_escapes_with_byte_values(
-    matched_input: TextBufferView,
+    matched_input: TextBuffer,
     sanitized: &mut BumpVec<u8>,
     // If the text being escaped is in a long string or a clob, then unescaped \r\n and \r get
     // normalized to \n.
@@ -563,10 +563,10 @@ fn replace_escapes_with_byte_values(
 // This code is only called when a \r is encountered in either a clob or long-form string
 #[cold]
 fn normalize_newline<'data>(
-    remaining: TextBufferView<'data>,
+    remaining: TextBuffer<'data>,
     sanitized: &mut BumpVec<u8>,
     escape_offset: usize,
-) -> TextBufferView<'data> {
+) -> TextBuffer<'data> {
     // Insert the normalized newline
     sanitized.push(b'\n');
     // Check whether we're skipping one byte (\r) or two (\r\n).
@@ -584,10 +584,10 @@ fn normalize_newline<'data>(
 /// byte values onto the end of `sanitized`. Returns the remaining input following the escape
 /// sequence.
 fn decode_escape_into_bytes<'data>(
-    input: TextBufferView<'data>,
+    input: TextBuffer<'data>,
     sanitized: &mut BumpVec<u8>,
     support_unicode_escapes: bool,
-) -> IonResult<TextBufferView<'data>> {
+) -> IonResult<TextBuffer<'data>> {
     // Note that by the time this method has been called, the parser has already confirmed that
     // there is an appropriate closing delimiter. Thus, if any of the branches below run out of
     // data, it means that it's a fatal error and not just an Incomplete.
@@ -662,10 +662,10 @@ fn decode_escape_into_bytes<'data>(
 /// to `sanitized`.
 fn decode_hex_digits_escape<'data>(
     num_digits: usize,
-    input: TextBufferView<'data>,
+    input: TextBuffer<'data>,
     sanitized: &mut BumpVec<u8>,
     support_unicode_escapes: bool,
-) -> IonResult<TextBufferView<'data>> {
+) -> IonResult<TextBuffer<'data>> {
     if input.len() < num_digits {
         return Err(IonError::Decoding(
             DecodingError::new(format!(
@@ -747,14 +747,14 @@ fn decode_hex_digits_escape<'data>(
 fn complete_surrogate_pair<'data>(
     sanitized: &mut BumpVec<u8>,
     high_surrogate: u32,
-    input: TextBufferView<'data>,
-) -> IonResult<TextBufferView<'data>> {
+    input: TextBuffer<'data>,
+) -> IonResult<TextBuffer<'data>> {
     let mut match_next_codepoint = preceded(
         tag("\\"),
         alt((
-            preceded(tag("x"), TextBufferView::match_n_hex_digits(2)),
-            preceded(tag("u"), TextBufferView::match_n_hex_digits(4)),
-            preceded(tag("U"), TextBufferView::match_n_hex_digits(8)),
+            preceded(tag("x"), TextBuffer::match_n_hex_digits(2)),
+            preceded(tag("u"), TextBuffer::match_n_hex_digits(4)),
+            preceded(tag("U"), TextBuffer::match_n_hex_digits(8)),
         )),
     );
     let (remaining, hex_digits) = match match_next_codepoint.parse(input) {
@@ -836,7 +836,7 @@ impl MatchedSymbol {
     pub fn read<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<RawSymbolRef<'data>> {
         use MatchedSymbol::*;
         match self {
@@ -849,7 +849,7 @@ impl MatchedSymbol {
 
     pub(crate) fn read_quoted_without_escapes<'data>(
         &self,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<RawSymbolRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
@@ -864,7 +864,7 @@ impl MatchedSymbol {
     pub(crate) fn read_quoted_with_escapes<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<RawSymbolRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
         let body = matched_input.slice(1, matched_input.len() - 2);
@@ -881,14 +881,14 @@ impl MatchedSymbol {
     /// This is used for both identifiers and (within s-expressions) operators.
     pub(crate) fn read_unquoted<'data>(
         &self,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<RawSymbolRef<'data>> {
         matched_input.as_text().map(RawSymbolRef::Text)
     }
 
     fn read_symbol_id<'data>(
         &self,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<RawSymbolRef<'data>> {
         // Skip past the first byte, which has to be a `$`.
         let text = matched_input.slice_to_end(1).as_text()?;
@@ -920,7 +920,7 @@ impl MatchedTimestamp {
         self
     }
 
-    pub(crate) fn read(&self, matched_input: TextBufferView) -> IonResult<Timestamp> {
+    pub(crate) fn read(&self, matched_input: TextBuffer) -> IonResult<Timestamp> {
         // The parser has already confirmed that each subfield is made of ASCII digits,
         // so UTF-8 validation and parsing cannot fail. `unwrap()` is used in such cases
         // throughout.
@@ -1078,7 +1078,7 @@ impl MatchedBlob {
     pub(crate) fn read<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<BytesRef<'data>> {
         let base64_text = matched_input.slice(self.content_offset, self.content_length);
         let matched_bytes = base64_text.bytes();
@@ -1145,7 +1145,7 @@ impl MatchedClob {
     pub(crate) fn read<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_input: TextBufferView<'data>,
+        matched_input: TextBuffer<'data>,
     ) -> IonResult<BytesRef<'data>> {
         // `matched_input` contains the entire clob, including the opening {{ and closing }}.
         // We can trim those off, but each function below will need to find the nested short- or
@@ -1159,7 +1159,7 @@ impl MatchedClob {
     fn read_short_clob<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_inside_braces: TextBufferView<'data>,
+        matched_inside_braces: TextBuffer<'data>,
     ) -> IonResult<BytesRef<'data>> {
         // There can be whitespace between the leading {{ and the `"`, so we need to scan ahead
         // to the `"`.
@@ -1190,7 +1190,7 @@ impl MatchedClob {
     fn read_long_clob<'data>(
         &self,
         allocator: &'data BumpAllocator,
-        matched_inside_braces: TextBufferView<'data>,
+        matched_inside_braces: TextBuffer<'data>,
     ) -> IonResult<BytesRef<'data>> {
         // We're going to re-parse the input to visit each segment, copying its sanitized bytes into
         // a contiguous buffer.
@@ -1203,8 +1203,8 @@ impl MatchedClob {
         // This is the same parser that matched the input initially, which means that the only
         // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
         while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
-            TextBufferView::match_optional_whitespace,
-            TextBufferView::match_long_string_segment,
+            TextBuffer::match_optional_whitespace,
+            TextBuffer::match_long_string_segment,
         )(remaining)
         {
             remaining = remaining_after_match;
@@ -1226,7 +1226,7 @@ mod tests {
 
     use crate::lazy::bytes_ref::BytesRef;
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
-    use crate::lazy::text::buffer::TextBufferView;
+    use crate::lazy::text::buffer::TextBuffer;
     use crate::{Decimal, Int, IonResult, Timestamp};
 
     #[test]
@@ -1235,7 +1235,7 @@ mod tests {
             let expected: Int = expected.into();
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBufferView::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_int().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1270,7 +1270,7 @@ mod tests {
             let data = format!("{data} "); // Append a space
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBufferView::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_timestamp().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1373,7 +1373,7 @@ mod tests {
         fn expect_decimal(data: &str, expected: Decimal) {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBufferView::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes());
             let result = buffer.match_decimal();
             assert!(
                 result.is_ok(),
@@ -1456,7 +1456,7 @@ mod tests {
             let data = format!("{data} "); // Append a space
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBufferView::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_blob().unwrap();
             let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
@@ -1495,7 +1495,7 @@ mod tests {
             let data = format!("{data}\n0");
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBufferView::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes());
             let (_remaining, matched) = buffer.match_string().unwrap();
             let matched_input = buffer.slice(0, buffer.len() - 2);
             let actual = matched.read(context.allocator(), matched_input).unwrap();
@@ -1534,7 +1534,7 @@ mod tests {
             context: EncodingContextRef<'a>,
             data: &'a str,
         ) -> IonResult<BytesRef<'a>> {
-            let buffer = TextBufferView::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes());
             // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
             // call to `match_clob()`.
             let (_remaining, matched) = buffer.match_clob().unwrap();

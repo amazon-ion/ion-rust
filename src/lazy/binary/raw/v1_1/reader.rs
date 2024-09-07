@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::{ImmutableBuffer, ParseResult};
+use crate::lazy::binary::raw::v1_1::immutable_buffer::{BinaryBuffer, ParseResult};
 use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
 use crate::lazy::decoder::{LazyRawReader, RawValueExpr};
 use crate::lazy::encoder::private::Sealed;
@@ -38,7 +38,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
 
     fn read_ivm<'top>(
         &mut self,
-        buffer: ImmutableBuffer<'top>,
+        buffer: BinaryBuffer<'top>,
     ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_1>>
     where
         'data: 'top,
@@ -52,7 +52,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
 
     fn read_value_expr<'top>(
         &'top mut self,
-        buffer: ImmutableBuffer<'top>,
+        buffer: BinaryBuffer<'top>,
     ) -> ParseResult<'top, LazyRawStreamItem<'top, BinaryEncoding_1_1>>
     where
         'data: 'top,
@@ -79,7 +79,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
         let Some(&first_byte) = data.first() else {
             return Ok(self.end_of_stream(self.position()));
         };
-        let mut buffer = ImmutableBuffer::new_with_offset(context, data, self.position());
+        let mut buffer = BinaryBuffer::new_with_offset(context, data, self.position());
         let mut opcode = ION_1_1_OPCODES[first_byte as usize];
         if opcode.is_nop() && !buffer.opcode_after_nop(&mut opcode)? {
             return Ok(self.end_of_stream(buffer.offset()));
@@ -714,13 +714,13 @@ mod tests {
     #[test]
     fn nested_sequence() -> IonResult<()> {
         let ion_data: &[u8] = &[
-            0xF1,             // [
-              0x61, 0x01,     //    1,
-              0xF1,           //    [
-                0x61, 0x02,   //      2,
-              0xF0,           //    ],
-              0x61, 0x03,     //    3
-            0xF0              // ]
+            0xF1, // [
+            0x61, 0x01, //    1,
+            0xF1, //    [
+            0x61, 0x02, //      2,
+            0xF0, //    ],
+            0x61, 0x03, //    3
+            0xF0, // ]
         ];
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();

@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::immutable_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
@@ -145,7 +145,7 @@ pub struct RawBinarySequenceIterator_1_0<'top> {
 }
 
 impl<'top> RawBinarySequenceIterator_1_0<'top> {
-    pub(crate) fn new(input: ImmutableBuffer<'top>) -> RawBinarySequenceIterator_1_0<'top> {
+    pub(crate) fn new(input: BinaryBuffer<'top>) -> RawBinarySequenceIterator_1_0<'top> {
         RawBinarySequenceIterator_1_0 {
             source: DataSource::new(input),
         }
@@ -158,7 +158,7 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_0<'top> {
     fn next(&mut self) -> Option<Self::Item> {
         match self
             .source
-            .try_parse_next_value(ImmutableBuffer::peek_sequence_value)
+            .try_parse_next_value(BinaryBuffer::peek_sequence_value)
         {
             Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(value))),
             Ok(None) => None,

@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::binary::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::immutable_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::{HasRange, LazyRawFieldExpr, LazyRawReader};
 use crate::lazy::encoding::BinaryEncoding_1_0;
@@ -29,7 +29,7 @@ impl<'data> LazyRawBinaryReader_1_0<'data> {
     /// of a larger data stream. This offset is used for reporting the absolute (stream-level)
     /// position of values encountered in `data`.
     fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawBinaryReader_1_0<'data> {
-        let data = DataSource::new(ImmutableBuffer::new_with_offset(data, offset));
+        let data = DataSource::new(BinaryBuffer::new_with_offset(data, offset));
         Self { data }
     }
 
@@ -37,7 +37,7 @@ impl<'data> LazyRawBinaryReader_1_0<'data> {
     /// marker. If the version is not 1.0, returns an [`crate::IonError::Decoding`].
     fn read_ivm<'top>(
         &mut self,
-        buffer: ImmutableBuffer<'data>,
+        buffer: BinaryBuffer<'data>,
     ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_0>>
     where
         'data: 'top,
@@ -52,12 +52,12 @@ impl<'data> LazyRawBinaryReader_1_0<'data> {
 
     fn read_value<'top>(
         &mut self,
-        buffer: ImmutableBuffer<'data>,
+        buffer: BinaryBuffer<'data>,
     ) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_0>>
     where
         'data: 'top,
     {
-        let lazy_value = match ImmutableBuffer::peek_sequence_value(buffer)? {
+        let lazy_value = match BinaryBuffer::peek_sequence_value(buffer)? {
             Some(lazy_value) => lazy_value,
             None => {
                 return Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::EndOfStream(
@@ -113,7 +113,7 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
     ) -> Self {
         LazyRawBinaryReader_1_0 {
             data: DataSource {
-                buffer: ImmutableBuffer::new_with_offset(data, offset),
+                buffer: BinaryBuffer::new_with_offset(data, offset),
                 bytes_to_skip: 0,
             },
         }
@@ -147,30 +147,30 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
     }
 }
 
-/// Wraps an [`ImmutableBuffer`], allowing the reader to advance each time an item is successfully
+/// Wraps an [`BinaryBuffer`], allowing the reader to advance each time an item is successfully
 /// parsed from it.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct DataSource<'data> {
     // The buffer we're reading from
-    buffer: ImmutableBuffer<'data>,
+    buffer: BinaryBuffer<'data>,
     // Each time something is parsed from the buffer successfully, the caller will mark the number
     // of bytes that may be skipped the next time `advance_to_next_item` is called.
     bytes_to_skip: usize,
 }
 
 impl<'data> DataSource<'data> {
-    pub(crate) fn new(buffer: ImmutableBuffer<'data>) -> DataSource<'data> {
+    pub(crate) fn new(buffer: BinaryBuffer<'data>) -> DataSource<'data> {
         DataSource {
             buffer,
             bytes_to_skip: 0,
         }
     }
 
-    pub(crate) fn buffer(&self) -> ImmutableBuffer<'data> {
+    pub(crate) fn buffer(&self) -> BinaryBuffer<'data> {
         self.buffer
     }
 
-    fn advance_to_next_item(&mut self) -> IonResult<ImmutableBuffer<'data>> {
+    fn advance_to_next_item(&mut self) -> IonResult<BinaryBuffer<'data>> {
         if self.buffer.len() < self.bytes_to_skip {
             return IonResult::incomplete(
                 "cannot advance to next item, insufficient data in buffer",
@@ -190,7 +190,7 @@ impl<'data> DataSource<'data> {
     /// that were consumed.
     /// If it does not succeed, the `DataSource` remains unchanged.
     pub(crate) fn try_parse_next_value<
-        F: Fn(ImmutableBuffer<'data>) -> IonResult<Option<LazyRawBinaryValue_1_0<'data>>>,
+        F: Fn(BinaryBuffer<'data>) -> IonResult<Option<LazyRawBinaryValue_1_0<'data>>>,
     >(
         &mut self,
         parser: F,
@@ -215,9 +215,7 @@ impl<'data> DataSource<'data> {
     /// that were consumed.
     /// If it does not succeed, the `DataSource` remains unchanged.
     pub(crate) fn try_parse_next_field<
-        F: Fn(
-            ImmutableBuffer<'data>,
-        ) -> IonResult<Option<LazyRawFieldExpr<'data, BinaryEncoding_1_0>>>,
+        F: Fn(BinaryBuffer<'data>) -> IonResult<Option<LazyRawFieldExpr<'data, BinaryEncoding_1_0>>>,
     >(
         &mut self,
         parser: F,
