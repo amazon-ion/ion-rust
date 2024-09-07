@@ -99,6 +99,11 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
 ///
 /// This is a subset of the encodings in the
 /// [`ParameterEncoding`](crate::lazy::expanded::template::ParameterEncoding) enum.
+/// `BinaryValueEncoding` contains only those variants that can back a binary value literal--
+/// encodings that are not macro-shaped.
+///
+/// When `LazyRawBinaryValue::read()` is called, this enum is inspected to determine how the
+/// bytes in the `BinaryBuffer` should be parsed to yield the value it represents.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BinaryValueEncoding {
     Tagged,
