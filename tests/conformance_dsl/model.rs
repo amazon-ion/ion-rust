@@ -1,8 +1,8 @@
-use ion_rs::{Decimal, Element, IonType, Sequence, Timestamp};
+use ion_rs::{Decimal, Element, IonType, Sequence, Timestamp, ValueRef};
+use ion_rs::{LazyRawValue, LazyRawFieldName, v1_0::RawValueRef};
 use ion_rs::decimal::coefficient::Coefficient;
 use super::{Clause, ClauseType, ConformanceErrorKind, InnerResult, parse_text_exp, parse_bytes_exp};
 
-use std::collections::HashMap;
 
 /// Represents a symbol in the Data Model representation of ion data.
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
@@ -11,6 +11,17 @@ pub(crate) enum SymbolToken {
     Offset(i64),
     Absent(String, i64),
 }
+
+impl std::fmt::Display for SymbolToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            SymbolToken::Text(txt) => write!(f, "{}", txt),
+            SymbolToken::Offset(id) => write!(f, "#${}", id),
+            SymbolToken::Absent(txt, id) => write!(f, "#${}#{}", txt, id),
+        }
+    }
+}
+
 
 impl TryFrom<&Element> for SymbolToken {
     type Error = ConformanceErrorKind;
@@ -28,9 +39,9 @@ impl TryFrom<&Element> for SymbolToken {
                         Ok(SymbolToken::Text(text))
                     },
                     ClauseType::Absent => {
-                        let text = clause.body.get(1).and_then(|v| v.as_string()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
-                        let offset = clause.body.get(2).and_then(|v| v.as_i64()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
-                        Ok(SymbolToken::Absent(text.to_string(), offset))
+                        let symtab = clause.body.first().and_then(|v| v.as_string()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
+                        let offset = clause.body.get(1).and_then(|v| v.as_i64()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
+                        Ok(SymbolToken::Absent(symtab.to_string(), offset))
                     }
                     _ => unreachable!(),
                 }
@@ -57,7 +68,7 @@ pub(crate) enum ModelValue {
     Symbol(SymbolToken),
     List(Vec<ModelValue>),
     Sexp(Vec<ModelValue>),
-    Struct(HashMap<SymbolToken, ModelValue>),
+    Struct(Vec<(SymbolToken, ModelValue)>),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
 }
@@ -121,9 +132,9 @@ impl TryFrom<&Sequence> for ModelValue {
                                 Ok(ModelValue::Symbol(SymbolToken::Text(text)))
                             },
                             ClauseType::Absent => {
-                                let text = clause.body.get(1).and_then(|v| v.as_string()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
+                                let symtab= clause.body.get(1).and_then(|v| v.as_string()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
                                 let offset = clause.body.get(2).and_then(|v| v.as_i64()).ok_or(ConformanceErrorKind::ExpectedSymbolType)?;
-                                Ok(ModelValue::Symbol(SymbolToken::Absent(text.to_string(), offset)))
+                                Ok(ModelValue::Symbol(SymbolToken::Absent(symtab.to_string(), offset)))
                             }
                             _ => unreachable!(),
                         }
@@ -151,7 +162,7 @@ impl TryFrom<&Sequence> for ModelValue {
                 Ok(ModelValue::Sexp(sexp))
             }
             "Struct" => {
-                let mut fields = HashMap::new();
+                let mut fields = vec!();
                 for elem in elems.iter().skip(1) {
                     if let Some(seq) = elem.as_sequence() {
                         // Each elem should be a model symtok followed by a model value.
@@ -172,7 +183,8 @@ impl TryFrom<&Sequence> for ModelValue {
                             }
                             _ => return Err(ConformanceErrorKind::ExpectedModelValue),
                         };
-                        fields.insert(field_sym, value);
+
+                        fields.push((field_sym, value));
                     }
                 }
                 Ok(ModelValue::Struct(fields))
@@ -225,37 +237,118 @@ impl PartialEq<Element> for ModelValue {
                 }
                 true
             }
-            ModelValue::Struct(fields) => {
-                if other.ion_type() != IonType::Struct {
-                    false
-                } else {
-                    let struct_val = other.as_struct().unwrap();
-                    for (field, val) in struct_val.fields() {
-                        let denoted_field = field.text().unwrap(); // TODO: Symbol IDs
-                        let denoted_symtok = SymbolToken::Text(denoted_field.to_string());
-                        if let Some(expected_val) = fields.get(&denoted_symtok) {
-                            if expected_val != val {
-                                return false;
-                            }
-                        }
-                    }
-                    true
-                }
-            }
+            ModelValue::Struct(_) => panic!("should not be using element eq for struct"),
             ModelValue::Blob(data) => other.as_blob() == Some(data.as_slice()),
             ModelValue::Clob(data) => other.as_clob() == Some(data.as_slice()),
             ModelValue::Symbol(sym) => {
                 if let Some(other_sym) = other.as_symbol() {
                     match sym {
                         SymbolToken::Text(text) => Some(text.as_ref()) == other_sym.text(),
-                        SymbolToken::Offset(_offset) => todo!(),
-                        SymbolToken::Absent(_text, _offset) => todo!(),
+                        _ => unreachable!(),
                     }
                 } else {
                     false
                 }
             }
             ModelValue::Timestamp(ts) => other.as_timestamp() == Some(*ts),
+        }
+    }
+}
+
+impl PartialEq<Element> for &ModelValue {
+    fn eq(&self, other: &Element) -> bool {
+        *self == other
+    }
+}
+
+impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for &ModelValue {
+    fn eq(&self, other: &ion_rs::LazyValue<'_, T>) -> bool {
+        match self {
+            ModelValue::Symbol(symbol_token) if other.ion_type() == IonType::Symbol => {
+                let Some(raw_symbol) = other.raw().map(|r| r.read()) else {
+                    unreachable!()
+                };
+                let raw_symbol = raw_symbol.expect("error reading symbol");
+
+                let RawValueRef::Symbol(raw_symbol) = raw_symbol else {
+                    return false
+                };
+
+                let ValueRef::Symbol(symbol_text) = other.read().expect("error resolving symbol") else {
+                    return false;
+                };
+
+                let (expected_txt, expected_id) = match symbol_token {
+                    SymbolToken::Text(txt) => return symbol_text == txt,
+                    SymbolToken::Offset(id) => (&String::from(""), *id as usize),
+                    SymbolToken::Absent(txt, id) => (txt, *id as usize),
+                };
+
+                raw_symbol.matches_sid_or_text(expected_id, expected_txt)
+            }
+            ModelValue::Struct(expected_fields) if other.ion_type() == IonType::Struct => {
+                let ValueRef::Struct(strukt) = other.read().expect("error reading struct") else {
+                    return false;
+                };
+
+                let mut is_equal = true;
+                let mut strukt_iter = strukt.iter();
+                let mut expected_iter = expected_fields.iter();
+
+                while is_equal {
+                    let actual = strukt_iter.next();
+                    let expected = expected_iter.next();
+
+                    match (actual, expected) {
+                        (Some(actual), Some((expected_field, expected_val))) => {
+                            let actual = actual.expect("unable to read struct field");
+                            let actual_field = actual.raw_name().map(|n| n.read()).expect("unable to get symbolref for field name");
+                            let actual_field = actual_field.expect("unable to read symbolref for field name");
+
+                            let (expected_txt, expected_id) = match expected_field {
+                                SymbolToken::Text(txt) => (txt, usize::MAX),
+                                SymbolToken::Offset(id) => (&String::from(""), *id as usize),
+                                SymbolToken::Absent(txt, id) => (txt, *id as usize),
+                            };
+                            is_equal = is_equal && actual_field.matches_sid_or_text(expected_id, expected_txt);
+
+                            let actual_value = actual.value();
+
+                            is_equal = is_equal && (expected_val == actual_value);
+                        }
+                        (None, None) => break,
+                        _ => is_equal = false,
+                    }
+                }
+                is_equal
+            }
+            ModelValue::List(expected) if other.ion_type() == IonType::List => {
+                let ValueRef::List(list) = other.read().expect("error reading list") else {
+                    unreachable!();
+                };
+
+                let actual: ion_rs::IonResult<Vec<ion_rs::LazyValue<_>>> = list.iter().collect();
+                let actual = actual.expect("Error parsing list");
+
+                actual.iter().zip(expected.iter())
+                    .fold(true, |acc, (actual_val, expected_val)| acc && (&expected_val == actual_val))
+            }
+            ModelValue::Sexp(expected) if other.ion_type() == IonType::SExp => {
+                let ValueRef::SExp(sexp) = other.read().expect("error reading sexp") else {
+                    unreachable!();
+                };
+
+                let actual: ion_rs::IonResult<Vec<ion_rs::LazyValue<_>>> = sexp.iter().collect();
+                let actual = actual.expect("Error parsing sexp");
+                actual.iter().zip(expected.iter())
+                    .fold(true, |acc, (actual_val, expected_val)| acc && (&expected_val == actual_val))
+            }
+            _ => {
+                // Anything that reaches down here isn't a symbol, or can't contain a symbol. So
+                // we just have to worry about equality.
+                let other_elem: Element = Element::try_from(*other).expect("Unable to convert value into element");
+                *self == other_elem
+            }
         }
     }
 }

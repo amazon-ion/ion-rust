@@ -306,3 +306,26 @@ pub(crate) fn parse_text_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) ->
     let val_string = bytes.iter().map(|v| unsafe { String::from_utf8_unchecked(v.to_vec()) }).collect();
     Ok(val_string)
 }
+
+/// Parses absent symbol notation from a symbol within a Toplevel fragment, or produces
+/// Continuation. The notation is '#$<id>' for an absent symbol id, or '#$<name>#<id>' for a symbol
+/// ID from a specific symbol table named 'name'.
+pub(crate) fn parse_absent_symbol<T: AsRef<str>>(txt: T) -> (Option<String>, Option<usize>) {
+    let txt = txt.as_ref();
+    if let Some(id_txt) = txt.strip_prefix("#$") {
+        let split_txt: Vec<&str> = id_txt.split('#').collect(); // format: '#$<name>#<id>' or '#$<id>'
+        match split_txt.len() {
+            1 => (
+                None,
+                split_txt[0].parse::<usize>().map(Some).unwrap_or(None)
+            ),
+            2 => (
+                Some(split_txt[0].to_string()),
+                split_txt[1].parse::<usize>().map(Some).unwrap_or(None)
+            ),
+            _ => panic!("invalid absent symbol notation"),
+        }
+    } else {
+        (None, None)
+    }
+}

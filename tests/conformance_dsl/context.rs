@@ -120,6 +120,7 @@ impl<'a> Context<'a> {
         let (data, data_encoding) = self.input(encoding)?;
         let data_slice = IonSlice::new(data);
 
+
         if self.fragments.is_empty() {
             let empty: Vec<Element> = vec!();
             return Ok(empty.into());

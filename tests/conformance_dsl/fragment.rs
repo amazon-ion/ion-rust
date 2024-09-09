@@ -1,5 +1,6 @@
-use ion_rs::{Element, Sequence, SExp, Symbol};
+use ion_rs::{Element, Sequence, SExp, Struct, Symbol};
 use ion_rs::{v1_0, v1_1, WriteConfig, Encoding, ion_seq};
+use ion_rs::{RawSymbolRef, StructWriter, SequenceWriter, Writer, WriteAsIon, ValueWriter};
 
 use super::*;
 use super::context::Context;
@@ -140,6 +141,161 @@ impl TryFrom<Sequence> for Fragment {
     }
 }
 
+// newtype to handle writing an Element, after we check to make sure it's not a symbol that has our
+// special absent symbol sauce.
+#[derive(Debug)]
+pub(crate) struct ProxyElement<'a>(pub &'a Element);
+
+impl<'a> ProxyElement<'a> {
+
+    fn write_struct<V: ValueWriter>(&self, val: &Struct, writer: V) -> ion_rs::IonResult<()> {
+        let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
+        let annot_writer = writer.with_annotations(annotations)?;
+        let mut strukt = annot_writer.struct_writer()?;
+
+        for (name, value) in val.fields() {
+            match parse_absent_symbol(name.text().unwrap_or("")) {
+                (None, None) => { strukt.write(name, ProxyElement(value))?; }
+                (_, Some(id)) => { strukt.write(RawSymbolRef::from(id), ProxyElement(value))?; },
+                _ => unreachable!(),
+            }
+        }
+        strukt.close()
+    }
+
+    fn write_symbol<V: ValueWriter>(&self, writer: V) -> ion_rs::IonResult<()> {
+        if !self.0.is_null() {
+            let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
+            let annot_writer = writer.with_annotations(annotations)?;
+            let symbol = self.0.as_symbol().unwrap();
+            match parse_absent_symbol(symbol.text().unwrap_or("")) {
+                (None, None) => annot_writer.write(symbol),
+                (_, Some(id)) => annot_writer.write(RawSymbolRef::from(id)),
+                _ => unreachable!(),
+            }
+        } else {
+            writer.write(self.0)
+        }
+    }
+
+}
+
+impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_> {
+    fn eq(&self, other: &ion_rs::LazyValue<'_, T>) -> bool {
+        use ion_rs::{LazyRawFieldName, LazyRawValue, v1_0::RawValueRef, ValueRef};
+        match self.0.ion_type() {
+            IonType::Symbol => match parse_absent_symbol(self.0.as_symbol().unwrap().text().unwrap_or("")) {
+                (None, None) => *self.0 == Element::try_from(*other).expect("unable to convert lazyvalue into element"),
+                (_, Some(id)) => {
+                    let Some(raw_symbol) = other.raw().map(|r| r.read()) else {
+                        unreachable!()
+                    };
+                    let raw_symbol = raw_symbol.expect("error reading symbol");
+
+                    let RawValueRef::Symbol(raw_symbol) = raw_symbol else {
+                        return false;
+                    };
+                    raw_symbol.matches_sid_or_text(id, "")
+                }
+                _ => unreachable!(),
+            }
+            IonType::Struct => {
+                let ValueRef::Struct(actual_struct) = other.read().expect("error reading input value") else {
+                    return false;
+                };
+
+                let mut is_equal = true;
+                let mut actual_iter = actual_struct.iter();
+                let mut expected_field_iter = self.0.as_struct().expect("error reading struct").fields();
+
+                while is_equal {
+                    let actual = actual_iter.next();
+                    let expected = expected_field_iter.next();
+
+                    match (actual, expected) {
+                        (Some(actual), Some((expected_field, expected_field_elem))) => {
+                            let actual = actual.expect("unable to read struct field");
+                            let actual_field = actual.raw_name().map(|n| n.read()).expect("unable to get SymbolRef for field name");
+                            let actual_field = actual_field.expect("unable to read SymbolRef for field name");
+
+                            is_equal &= match parse_absent_symbol(expected_field.text().unwrap_or("")) {
+                                (None, None) => *self.0 == Element::try_from(*other).expect("unable to convert LazyValue into Element"),
+                                (_, Some(id)) => actual_field.matches_sid_or_text(id, ""),
+                                _ => unreachable!(),
+                            };
+
+                            let actual_value = actual.value();
+                            is_equal &= ProxyElement(expected_field_elem) == actual_value;
+                        }
+                        (None, None) => break,
+                        _ => is_equal = false,
+                    }
+                }
+                is_equal
+            }
+            IonType::List | IonType::SExp => {
+                let ValueRef::List(actual_list) = other.read().expect("error reading list") else {
+                    return false;
+                };
+
+                let actual_list: ion_rs::IonResult<Vec<ion_rs::LazyValue<_>>> = actual_list.iter().collect();
+                let actual_list = actual_list.expect("error parsing list");
+
+                let expected_list = self.0.as_sequence().expect("unable to get sequence for list");
+                let expected_list: Vec<&Element> = expected_list.iter().collect();
+
+                if actual_list.len() != expected_list.len() {
+                    false
+                } else {
+                    for (actual, expected) in actual_list.iter().zip(expected_list.iter()) {
+                        if ProxyElement(expected) != *actual {
+                            return false
+                        }
+                    }
+                    true
+                }
+            }
+            _ => *self.0 == Element::try_from(*other).expect("unable to convert lazyvalue into element"),
+        }
+    }
+}
+
+impl<'a> WriteAsIon for ProxyElement<'a> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> ion_rs::IonResult<()> {
+        match self.0.ion_type() {
+            IonType::Symbol => self.write_symbol(writer),
+            IonType::Struct => {
+                if !self.0.is_null() {
+                    self.write_struct(self.0.as_struct().unwrap(), writer)
+                } else {
+                    writer.write(self.0)
+                }
+            }
+            IonType::List => {
+                let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
+                let annot_writer = writer.with_annotations(annotations)?;
+                let mut list_writer = annot_writer.list_writer()?;
+                for elem in self.0.as_sequence().unwrap() {
+                    list_writer.write(ProxyElement(elem))?;
+                }
+                list_writer.close()?;
+                Ok(())
+            }
+            IonType::SExp => {
+                let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
+                let annot_writer = writer.with_annotations(annotations)?;
+                let mut sexp_writer = annot_writer.sexp_writer()?;
+                for elem in self.0.as_sequence().unwrap() {
+                    sexp_writer.write(ProxyElement(elem))?;
+                }
+                sexp_writer.close()?;
+                Ok(())
+            }
+            _ => writer.write(self.0),
+        }
+    }
+}
+
 /// Implments the TopLevel fragment.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TopLevel {
@@ -149,11 +305,11 @@ pub(crate) struct TopLevel {
 impl FragmentImpl for TopLevel {
     /// Encodes the provided ion literals into an ion stream, using the provided WriteConfig.
     fn encode<E: Encoding>(&self, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>> {
-        use ion_rs::Writer;
         let mut buffer = Vec::with_capacity(1024);
         let mut writer = Writer::new(config, buffer)?;
+
         for elem in self.elems.as_slice() {
-            writer.write(elem)?;
+            writer.write(ProxyElement(elem))?;
         }
         buffer = writer.close()?;
         Ok(buffer)

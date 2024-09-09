@@ -13,10 +13,10 @@ pub(crate) enum Continuation {
     // expectations
 
     // Verify that reading the current document produces the expected data provided.
-    Produces(Vec<Element>),
+    Produces(Produces),
     // Verify that reading the current document produces the expected data, provided through data
     // model elements.
-    Denotes(Vec<ModelValue>),
+    Denotes(Denotes),
     // Verify that reading the current document produces an error.
     Signals(String),
     // extensions
@@ -39,18 +39,7 @@ impl Continuation {
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
         match self {
             // Produces is terminal, so we can evaluate.
-            Continuation::Produces(expected_elems) => {
-                let elems = ctx.read_all(ctx.encoding())?;
-                if expected_elems.len() != elems.len() {
-                    Err(ConformanceErrorKind::MismatchedProduce)
-                } else {
-                    let zip = expected_elems.iter().zip(elems.iter());
-                    match zip.fold(true, |acc, (x, y)| acc && (*x == *y)) {
-                        true => Ok(()),
-                        false => Err(ConformanceErrorKind::MismatchedProduce),
-                    }
-                }
-            }
+            Continuation::Produces(produces) => produces.evaluate(ctx),
             Continuation::Not(inner) => match inner.evaluate(ctx) {
                 Err(_) => Ok(()),
                 Ok(_) => Err(ConformanceErrorKind::UnknownError),
@@ -62,18 +51,7 @@ impl Continuation {
                 Ok(())
             }
             Continuation::Then(then) => then.evaluate(ctx),
-            Continuation::Denotes(expected_vals) => {
-                let elems = ctx.read_all(ctx.encoding())?;
-                if expected_vals.len() != elems.len() {
-                    Err(ConformanceErrorKind::MismatchedDenotes)
-                } else {
-                    let zip = expected_vals.iter().zip(elems.iter());
-                    match zip.fold(true, |acc, (x, y)| acc && (*x == *y)) {
-                        true => Ok(()),
-                        false => Err(ConformanceErrorKind::MismatchedDenotes),
-                    }
-                }
-            }
+            Continuation::Denotes(denotes) => denotes.evaluate(ctx),
             Continuation::Extensions(exts) => {
                 for ext in exts {
                     ext.evaluate(ctx)?;
@@ -97,11 +75,12 @@ impl Continuation {
             }
         }
     }
+
 }
 
 impl Default for Continuation {
     fn default() -> Self {
-        Continuation::Produces(vec!())
+        Continuation::Produces(Produces { elems: vec!() })
     }
 }
 
@@ -109,7 +88,7 @@ impl Default for Continuation {
 pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
     let continuation = match clause.tpe {
         ClauseType::Produces => {
-            Continuation::Produces(clause.body.clone())
+            Continuation::Produces(Produces { elems: clause.body.clone() })
         }
         ClauseType::And => {
             if !clause.body.is_empty() {
@@ -159,7 +138,7 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
                     return Err(ConformanceErrorKind::ExpectedModelValue);
                 }
             }
-            Continuation::Denotes(values)
+            Continuation::Denotes(Denotes { model: values })
         }
         ClauseType::Each => {
             let mut parsing_branches = true;
@@ -228,6 +207,66 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
 pub(crate) struct EachBranch {
     name: Option<String>,
     fragment: Fragment,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Produces {
+    pub elems: Vec<Element>,
+}
+
+impl Produces {
+    pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
+        let (input, _encoding) = ctx.input(ctx.encoding())?;
+        let mut reader = ion_rs::Reader::new(ion_rs::AnyEncoding, input)?;
+
+        let mut is_equal = true;
+        let mut elem_iter = self.elems.iter();
+
+        while is_equal {
+            let (actual_value, expected_elem) = (reader.next()?, elem_iter.next());
+            match (actual_value, expected_elem) {
+                (None, None) => break,
+                (Some(actual_value), Some(expected_elem)) => 
+                    is_equal &= super::fragment::ProxyElement(expected_elem) == actual_value,
+                _ => is_equal = false,
+            }
+        }
+
+        if is_equal {
+            Ok(())
+        } else {
+            Err(ConformanceErrorKind::MismatchedProduce)
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Denotes {
+    pub model: Vec<ModelValue>,
+}
+
+impl Denotes {
+    pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
+        let (input, _encoding) = ctx.input(ctx.encoding())?;
+        let mut reader = ion_rs::Reader::new(ion_rs::AnyEncoding, input)?;
+        let mut elem_iter = self.model.iter();
+
+        let mut is_equal = true;
+        while is_equal {
+            let (read_value, expected_element) = (reader.next()?, elem_iter.next());
+            match (read_value, expected_element) {
+                (Some(actual), Some(expected)) => is_equal = is_equal && (expected == actual),
+                (None, None) => break,
+                _ => is_equal = false,
+            }
+        }
+
+        if is_equal {
+            Ok(())
+        } else {
+            Err(ConformanceErrorKind::MismatchedDenotes)
+        }
+    }
 }
 
 /// Represents a Then clause, it's optional name, the list of fragments, and continuation. A 'Then'

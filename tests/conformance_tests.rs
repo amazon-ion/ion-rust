@@ -1,4 +1,5 @@
 #![cfg(feature = "experimental-reader-writer")]
+#![cfg(feature = "experimental-tooling-apis")]
 mod conformance_dsl;
 use conformance_dsl::prelude::*;
 
@@ -10,6 +11,21 @@ use std::str::FromStr;
 
 mod implementation {
     use super::*;
+
+    #[test]
+    fn test_absent_symbol() {
+        let test = r#"
+           (ion_1_1
+              (toplevel '#$2' {'#$9': '#$8'})
+              (text "")
+              (denotes (Symbol 2) (Struct (9 (Symbol 8))))
+           )
+        "#;
+        Document::from_str(test)
+            .unwrap_or_else(|e| panic!("Failed to load document:\n{:?}", e))
+            .run()
+            .unwrap_or_else(|e| panic!("Test failed: {:?}", e));
+    }
 
     #[test]
     fn test_timestamps() {
