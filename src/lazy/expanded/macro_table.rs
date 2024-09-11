@@ -14,7 +14,7 @@ use crate::{IonResult, IonType};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
-    name: Option<String>,
+    name: Option<Rc<str>>,
     signature: MacroSignature,
     kind: MacroKind,
     // Compile-time heuristics that allow the reader to evaluate e-expressions lazily or using fewer
@@ -38,7 +38,7 @@ pub struct Macro {
 
 impl Macro {
     pub fn named(
-        name: impl Into<String>,
+        name: impl Into<Rc<str>>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -55,7 +55,7 @@ impl Macro {
     }
 
     pub fn new(
-        name: Option<String>,
+        name: Option<Rc<str>>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -70,6 +70,9 @@ impl Macro {
 
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+    pub(crate) fn clone_name(&self) -> Option<Rc<str>> {
+        self.name.as_ref().map(Rc::clone)
     }
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
@@ -158,9 +161,23 @@ impl<'top> MacroRef<'top> {
 /// its validity and allowing evaluation to begin.
 #[derive(Debug, Clone)]
 pub struct MacroTable {
+    // Stores `Rc` references to the macro definitions to make cloning the table's contents cheaper.
     macros_by_address: Vec<Rc<Macro>>,
     // Maps names to an address that can be used to query the Vec above.
-    macros_by_name: FxHashMap<String, usize>,
+    macros_by_name: FxHashMap<Rc<str>, usize>,
+}
+
+thread_local! {
+    /// An instance of the Ion 1.1 system macro table is lazily instantiated once per thread,
+    /// minimizing the number of times macro compilation occurs.
+    ///
+    /// The thread-local instance holds `Rc` references to its macro names and macro definitions,
+    /// making its contents inexpensive to `clone()` and reducing the number of duplicate `String`s
+    /// being allocated over time.
+    ///
+    /// Each time the user constructs a reader, it clones the thread-local copy of the system macro
+    /// table.
+    pub static ION_1_1_SYSTEM_MACROS: MacroTable = MacroTable::construct_system_macro_table();
 }
 
 impl Default for MacroTable {
@@ -182,7 +199,7 @@ impl MacroTable {
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
-    fn system_macros() -> Vec<Rc<Macro>> {
+    fn compile_system_macros() -> Vec<Rc<Macro>> {
         vec![
             Rc::new(Macro::named(
                 "void",
@@ -288,13 +305,13 @@ impl MacroTable {
         ]
     }
 
-    pub fn with_system_macros() -> Self {
-        let macros_by_id = Self::system_macros();
+    pub(crate) fn construct_system_macro_table() -> Self {
+        let macros_by_id = Self::compile_system_macros();
         let mut macros_by_name =
             FxHashMap::with_capacity_and_hasher(macros_by_id.len(), FxBuildHasher);
         for (id, mac) in macros_by_id.iter().enumerate() {
             if let Some(name) = mac.name() {
-                macros_by_name.insert(name.to_owned(), id);
+                macros_by_name.insert(name.into(), id);
             }
             // Anonymous macros are not entered into the macros_by_name lookup table
         }
@@ -302,6 +319,10 @@ impl MacroTable {
             macros_by_address: macros_by_id,
             macros_by_name,
         }
+    }
+
+    pub fn with_system_macros() -> Self {
+        ION_1_1_SYSTEM_MACROS.with(|system_macros| system_macros.clone())
     }
 
     pub fn empty() -> Self {
@@ -364,11 +385,11 @@ impl MacroTable {
     pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
-        if let Some(name) = template.name.as_deref() {
-            if self.macros_by_name.contains_key(name) {
+        if let Some(name) = &template.name {
+            if self.macros_by_name.contains_key(name.as_ref()) {
                 return IonResult::decoding_error(format!("macro named '{name}' already exists"));
             }
-            self.macros_by_name.insert(name.to_owned(), id);
+            self.macros_by_name.insert(Rc::clone(name), id);
         }
 
         let new_macro = Macro::new(
@@ -385,13 +406,13 @@ impl MacroTable {
     pub(crate) fn append_all_macros_from(&mut self, other: &MacroTable) -> IonResult<()> {
         for macro_ref in &other.macros_by_address {
             let next_id = self.len();
-            if let Some(name) = macro_ref.name() {
-                if self.macros_by_name.contains_key(name) {
+            if let Some(name) = macro_ref.clone_name() {
+                if self.macros_by_name.contains_key(name.as_ref()) {
                     return IonResult::decoding_error(format!(
                         "macro named '{name}' already exists"
                     ));
                 }
-                self.macros_by_name.insert(name.to_owned(), next_id);
+                self.macros_by_name.insert(name, next_id);
             }
             self.macros_by_address.push(Rc::clone(macro_ref))
         }

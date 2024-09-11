@@ -324,7 +324,7 @@ mod macro_signature_tests {
 /// in the macro table rather than by a human-friendly name.
 #[derive(Clone, PartialEq)]
 pub struct TemplateMacro {
-    pub(crate) name: Option<String>,
+    pub(crate) name: Option<Rc<str>>,
     pub(crate) signature: MacroSignature,
     pub(crate) body: TemplateBody,
     pub(crate) expansion_analysis: ExpansionAnalysis,

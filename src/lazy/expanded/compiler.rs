@@ -407,7 +407,7 @@ impl TemplateCompiler {
 
         // TODO: Enforce 'identifier' syntax subset of symbol
         let template_name =
-            Self::expect_nullable_name("a macro name", &mut values)?.map(|name| name.to_owned());
+            Self::expect_nullable_name("a macro name", &mut values)?.map(|name| name.into());
 
         // The `params` clause of the macro definition is an s-expression enumerating the parameters
         // that the macro accepts. For example: `(flex_uint::x, y*, z?)`.
