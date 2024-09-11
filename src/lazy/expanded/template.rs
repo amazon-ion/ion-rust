@@ -28,7 +28,9 @@ use crate::{
 /// A parameter in a user-defined macro's signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
-    name: String,
+    // Using an `Rc<str>` makes this type cheap to clone and takes 16 bytes instead of the 24 bytes
+    // required for a `String`.
+    name: Rc<str>,
     encoding: ParameterEncoding,
     cardinality: ParameterCardinality,
     rest_syntax_policy: RestSyntaxPolicy,
@@ -36,7 +38,7 @@ pub struct Parameter {
 
 impl Parameter {
     pub fn new(
-        name: impl Into<String>,
+        name: impl Into<Rc<str>>,
         encoding: ParameterEncoding,
         cardinality: ParameterCardinality,
         rest_syntax_policy: RestSyntaxPolicy,
@@ -50,7 +52,7 @@ impl Parameter {
     }
 
     pub fn name(&self) -> &str {
-        self.name.as_str()
+        self.name.as_ref()
     }
     pub fn encoding(&self) -> &ParameterEncoding {
         &self.encoding
@@ -61,10 +63,27 @@ impl Parameter {
     pub fn rest_syntax_policy(&self) -> RestSyntaxPolicy {
         self.rest_syntax_policy
     }
-    /// Returns true if this parameter is of any cardinality other than `ExactlyOne` (`!`).
+
+    /// Returns `true` if this parameter is of any cardinality other than `ExactlyOne` (`!`).
     pub fn is_variadic(&self) -> bool {
         !matches!(self.cardinality, ParameterCardinality::ExactlyOne)
     }
+
+    /// Returns `true` if this parameter accepts populated expression groups.
+    pub fn accepts_multi(&self) -> bool {
+        matches!(self.cardinality, ParameterCardinality::ZeroOrMore | ParameterCardinality::OneOrMore)
+    }
+
+    /// Returns `true` if this parameter accepts empty expression groups.
+    pub fn accepts_none(&self) -> bool {
+        matches!(self.cardinality, ParameterCardinality::ZeroOrOne | ParameterCardinality::ZeroOrMore)
+    }
+
+    /// Returns `true` if this parameter is using a tagged encoding.
+    pub fn is_tagged(&self) -> bool {
+        self.encoding == ParameterEncoding::Tagged
+    }
+
     /// Returns true if a text e-expression can omit this argument.
     ///
     /// Arguments for parameters with a cardinality of zero-or-one (`?`) or zero-or-more (`*`) can
@@ -431,7 +450,8 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                     };
                     Some(Ok(value))
                 }
-                TemplateBodyExprKind::MacroInvocation(body_invocation) => {
+                TemplateBodyExprKind::MacroInvocation(body_invocation)
+                | TemplateBodyExprKind::ArgExprGroup(_, body_invocation) => {
                     // ...it's a TDL macro invocation. Resolve the invocation to get a reference to the
                     // macro being invoked.
                     let invoked_macro = body_invocation.invoked_macro.as_ref();
@@ -556,7 +576,8 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
                     ),
                 ),
             ),
-            TemplateBodyExprKind::MacroInvocation(body_invocation) => {
+            TemplateBodyExprKind::MacroInvocation(body_invocation)
+            | TemplateBodyExprKind::ArgExprGroup(_, body_invocation) => {
                 let invoked_macro = body_invocation.invoked_macro.as_ref();
                 let invocation = TemplateMacroInvocation::new(
                     self.context,
@@ -668,6 +689,13 @@ impl TemplateBodyExpr {
         }
     }
 
+    pub fn arg_expr_group(parameter: Parameter, values_macro: Rc<Macro>, expr_range: ExprRange) -> Self {
+        Self {
+            kind: TemplateBodyExprKind::ArgExprGroup(parameter, TemplateBodyMacroInvocation::new(values_macro)),
+            expr_range,
+        }
+    }
+
     pub fn kind(&self) -> &TemplateBodyExprKind {
         &self.kind
     }
@@ -690,6 +718,11 @@ pub enum TemplateBodyExprKind {
     Variable(TemplateBodyVariableReference),
     /// A macro invocation that needs to be expanded.
     MacroInvocation(TemplateBodyMacroInvocation),
+    // An arg expression group being passed to a macro invocation.
+    // In a TDL context, this is functionally equivalent to a `MacroInvocation` but:
+    //   * can only appear in macro argument position
+    //   * may have additional range constraints on arguments (TODO)
+    ArgExprGroup(Parameter, TemplateBodyMacroInvocation),
 }
 
 impl TemplateBodyExprKind {
@@ -724,7 +757,10 @@ impl TemplateBodyExprKind {
                 Self::fmt_variable(f, indentation, host_template, v)
             }
             TemplateBodyExprKind::MacroInvocation(m) => {
-                Self::fmt_invocation(f, indentation, host_template, m, expr.expr_range())
+                Self::fmt_invocation(f, indentation, host_template, /*is_arg_group=*/ false, m, expr.expr_range())
+            }
+            TemplateBodyExprKind::ArgExprGroup(_, m) => {
+                Self::fmt_invocation(f, indentation, host_template, /*is_arg_group=*/ true, m, expr.expr_range())
             }
         }
     }
@@ -753,11 +789,11 @@ impl TemplateBodyExprKind {
         match element.value() {
             List => {
                 writeln!(f, "list")?;
-                return Self::fmt_sequence_body(f, indentation, host_template, expr_range);
+                return Self::fmt_sequence_body(f, indentation, host_template, ExprRange::new(expr_range.tail()));
             }
             SExp => {
                 writeln!(f, "sexp")?;
-                return Self::fmt_sequence_body(f, indentation, host_template, expr_range);
+                return Self::fmt_sequence_body(f, indentation, host_template, ExprRange::new(expr_range.tail()));
             }
             Struct(_) => {
                 writeln!(f, "struct")?;
@@ -845,14 +881,23 @@ impl TemplateBodyExprKind {
         f: &mut Formatter<'_>,
         indentation: &mut String,
         host_template: &TemplateMacro,
+        is_arg_group: bool,
         invocation: &TemplateBodyMacroInvocation,
         expr_range: ExprRange,
     ) -> Result<usize, fmt::Error> {
-        writeln!(
-            f,
-            "{indentation}<invoke macro {}>",
-            invocation.invoked_macro.name().unwrap_or("<anonymous>")
-        )?;
+        if is_arg_group {
+            writeln!(
+                f,
+                "{indentation}<arg group>",
+            )?;
+        } else {
+            writeln!(
+                f,
+                "{indentation}<invoke macro '{}'>",
+                invocation.invoked_macro.name().unwrap_or("<anonymous>")
+            )?;
+        }
+
         let args = host_template
             .body
             .expressions
@@ -1115,7 +1160,8 @@ impl<'top, D: Decoder> Iterator for TemplateMacroInvocationArgsIterator<'top, D>
                 }
                 expr
             }
-            TemplateBodyExprKind::MacroInvocation(body_invocation) => {
+            TemplateBodyExprKind::MacroInvocation(body_invocation)
+            | TemplateBodyExprKind::ArgExprGroup(_, body_invocation) => {
                 let invocation = body_invocation.resolve(
                     self.context,
                     self.host_template,

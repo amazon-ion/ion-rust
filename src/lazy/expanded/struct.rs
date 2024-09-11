@@ -288,7 +288,10 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                             }
                         }
                     }
-                    TemplateBodyExprKind::MacroInvocation(body_invocation) => {
+                    // If the expression is a macro invocation, evaluate it enough to get a single value
+                    // to return.
+                    TemplateBodyExprKind::MacroInvocation(body_invocation)
+                    | TemplateBodyExprKind::ArgExprGroup(_, body_invocation) => {
                         let invocation = body_invocation.resolve(
                             self.context,
                             element.template(),

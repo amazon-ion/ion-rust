@@ -319,6 +319,14 @@ impl<'top, D: Decoder> AnnotationsIterator<'top, D> {
         mut self,
         annotations_to_match: I,
     ) -> IonResult<bool> {
+        // We've exhausted `annotations_to_match`, now make sure `self` is empty
+        Ok(self.starts_with(annotations_to_match)? && self.next().is_none())
+    }
+
+    pub fn starts_with<A: AsSymbolRef, I: IntoIterator<Item = A>>(
+        &mut self,
+        annotations_to_match: I,
+    ) -> IonResult<bool> {
         for to_match in annotations_to_match {
             match self.next() {
                 Some(Ok(actual)) if actual == to_match => {}
@@ -326,8 +334,7 @@ impl<'top, D: Decoder> AnnotationsIterator<'top, D> {
                 Some(_) | None => return Ok(false),
             }
         }
-        // We've exhausted `annotations_to_match`, now make sure `self` is empty
-        Ok(self.next().is_none())
+        Ok(true)
     }
 
     /// Like [`Self::are`], but returns an [`IonError::Decoding`] if the iterator's annotations

@@ -1187,7 +1187,8 @@ impl<'top> TemplateExpansion<'top> {
             TemplateBodyExprKind::Variable(variable) => {
                 environment.require_expr(variable.signature_index())
             }
-            TemplateBodyExprKind::MacroInvocation(raw_invocation) => {
+            TemplateBodyExprKind::MacroInvocation(raw_invocation)
+            | TemplateBodyExprKind::ArgExprGroup(_, raw_invocation) => {
                 let invocation =
                     raw_invocation.resolve(context, self.template, value_expr.expr_range());
                 ValueExpr::MacroInvocation(invocation.into())
@@ -1206,30 +1207,20 @@ impl<'top> TemplateExpansion<'top> {
 mod tests {
     use crate::{v1_1, ElementReader, Int, IonResult, MacroTable, Reader};
 
-    /// Reads `input` and `expected` using an expanding reader and asserts that their output
-    /// is the same.
-    fn eval_enc_expr<'data>(input: &'data str, expected: &'data str) -> IonResult<()> {
-        let mut actual_reader = Reader::new(v1_1::Text, input.as_bytes())?;
+    /// Reads `input` and `expected` and asserts that their output is Ion-equivalent.
+    fn stream_eq<'data>(input: &'data str, expected: &'data str) -> IonResult<()> {
+        let mut actual_reader = Reader::new(v1_1::Text, input)?;
         let actual = actual_reader.read_all_elements()?;
 
-        let mut expected_reader = Reader::new(v1_1::Text, expected.as_bytes())?;
-        // For the moment, this is using the old reader impl.
+        let mut expected_reader = Reader::new(v1_1::Text, expected)?;
         let expected = expected_reader.read_all_elements()?;
 
         assert_eq!(actual, expected);
         Ok(())
     }
 
-    /// Constructs a TdlTemplateEvaluator and evaluates the TDL macro invocation.
-    /// Note that the current implementation of TDL template evaluation is very limited; templates
-    /// cannot:
-    /// * Be defined by an encoding directive
-    /// * Be invoked by an e-expression (that is: from a data stream)
-    /// * Have parameters
-    /// * Expand variables
-    ///
-    /// This test exists to demonstrate that macro evaluation within the TDL context works the
-    /// same as evaluation in the data stream.
+    /// Manually registers a macro with `template_definition` as its source, evaluates `invocation`,
+    /// and confirms that its expansion produces the same Ion stream as `expected`.
     fn eval_template_invocation(
         template_definition: &str,
         invocation: &str,
@@ -1261,7 +1252,7 @@ mod tests {
 
     #[test]
     fn macros_close_over_dependencies() -> IonResult<()> {
-        eval_enc_expr(
+        stream_eq(
             r#"
                 // Define macro `double`
                 $ion_encoding::(
@@ -1299,7 +1290,7 @@ mod tests {
 
     #[test]
     fn reexporting_ion_encoding_makes_macros_local() -> IonResult<()> {
-        eval_enc_expr(
+        stream_eq(
             r#"
                 // Define macro `double`
                 $ion_encoding::(
@@ -1349,6 +1340,42 @@ mod tests {
                 (1 quuz 3 a quuz c)
                 (1 {a: 1, b: 2} 3 a {a: 1, b: 2} c)
                 (1 [] 3 a [] c)
+            "#,
+        )
+    }
+
+    #[test]
+    fn tdl_arg_expr_group() -> IonResult<()> {
+        eval_template_invocation(
+            r#"(macro abc () (make_string (; "a" "b" "c")))"#,
+            r#"
+                (:abc)
+            "#,
+            r#"
+                "abc"
+            "#,
+        )
+    }
+
+    #[test]
+    fn multiple_arg_expr_groups() -> IonResult<()> {
+        stream_eq(
+            r#"
+                $ion_encoding::(
+                    (macro_table
+                        (macro foo ($x+ $y* $z+)
+                            (make_string (; $x "-" $y "-" $z)))
+                        (macro letters ()
+                            (foo
+                                (; "a" "b" "c")
+                                (; "d" "e" "f")
+                                (; "g" "h" "i")))
+                    )
+                )
+                (:letters)
+            "#,
+            r#"
+                "abc-def-ghi"
             "#,
         )
     }
@@ -1410,7 +1437,6 @@ mod tests {
     }
 
     mod cardinality {
-
         mod bang {
             use crate::lazy::expanded::macro_evaluator::tests::eval_template_invocation;
 
@@ -1902,7 +1928,7 @@ mod tests {
 
     #[test]
     fn values_e_expression() -> IonResult<()> {
-        eval_enc_expr(
+        stream_eq(
             r"(:values 1 2 (:values 3 4 (:values 5 6) 7 8) 9 10)",
             "1 2 3 4 5 6 7 8 9 10",
         )
@@ -1910,7 +1936,7 @@ mod tests {
 
     #[test]
     fn void_e_expression() -> IonResult<()> {
-        eval_enc_expr(r"(:values (:void) (:void) (:void) )", "/* nothing */")
+        stream_eq(r"(:values (:void) (:void) (:void) )", "/* nothing */")
     }
 
     #[test]
@@ -1931,7 +1957,7 @@ mod tests {
             (:make_string "first " $4)
             (:make_string "Hello" ", " "world!"))
         "#;
-        eval_enc_expr(
+        stream_eq(
             e_expression,
             r#" "foobarbaz" "foobarbaz" "first name" "Hello, world!" "#,
         )
@@ -1949,7 +1975,7 @@ mod tests {
             ()
             (7))
         "#;
-        eval_enc_expr(e_expression, r#" (1 2 3 4 5 6 7) "#)
+        stream_eq(e_expression, r#" (1 2 3 4 5 6 7) "#)
     }
 
     #[test]
@@ -1969,7 +1995,7 @@ mod tests {
 
     #[test]
     fn e_expressions_inside_a_list() -> IonResult<()> {
-        eval_enc_expr(
+        stream_eq(
             "[1, 2, (:values 3 4), 5, 6, (:make_string (:values foo bar) baz), 7]",
             r#"[1, 2, 3, 4, 5, 6, "foobarbaz", 7]"#,
         )?;
@@ -2002,19 +2028,40 @@ mod tests {
 
     #[test]
     fn e_expressions_inside_a_sexp() -> IonResult<()> {
-        eval_enc_expr(
+        stream_eq(
             "(1 2 (:values 3 4) 5 6 (:make_string (:values foo bar) baz) 7)",
             r#"(1 2 3 4 5 6 "foobarbaz" 7)"#,
         )?;
         Ok(())
     }
 
-    // TODO: macros_inside_a_tdl_sexp()
-    // This requires an implementation of TDL's `(make_sexp)`.
+    #[test]
+    fn macros_inside_a_tdl_sexp() -> IonResult<()> {
+        eval_template_invocation(
+            r#"
+            (macro foo ()
+                (make_sexp [
+                    1,
+                    2,
+                    (values 3 4),
+                    5,
+                    (void),
+                    (void),
+                    6,
+                    (make_string "foo" "bar" "baz"),
+                    7
+                ])
+            )
+            "#,
+            "(:foo)",
+            "(1 2 3 4 5 6 \"foobarbaz\" 7)",
+        )?;
+        Ok(())
+    }
 
     #[test]
     fn e_expressions_inside_a_struct() -> IonResult<()> {
-        eval_enc_expr(
+        stream_eq(
             r#"
             {
                 a: 1,
