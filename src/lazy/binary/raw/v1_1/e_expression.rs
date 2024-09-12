@@ -8,9 +8,9 @@ use crate::lazy::binary::raw::v1_1::immutable_buffer::{
 };
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::encoding::BinaryEncoding_1_1;
-use crate::lazy::expanded::e_expression::ArgGroup;
-use crate::lazy::expanded::macro_evaluator::{EExpArgGroupIterator, MacroExprKind};
+use crate::lazy::expanded::e_expression::EExpArgGroup;
 use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression, ValueExpr};
+use crate::lazy::expanded::macro_evaluator::{IsExhaustedIterator, MacroExprKind};
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::template::{MacroSignature, Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
@@ -366,8 +366,8 @@ impl<'top> BinaryEExpArgsCacheIter<'top> {
             ValueExpr::MacroInvocation(invocation) => {
                 use MacroExprKind::*;
                 let expr = match invocation.source() {
-                    TemplateMacro(_) => {
-                        unreachable!("e-expression cannot be a TDL macro invocation")
+                    TemplateMacro(_) | TemplateArgGroup(_) => {
+                        unreachable!("e-expression cannot be a TDL construct")
                     }
                     EExp(eexp) => EExpArgExpr::EExp(eexp.raw_invocation),
                     EExpArgGroup(group) => EExpArgExpr::ArgGroup(group.raw_arg_group()),
@@ -414,7 +414,7 @@ pub struct BinaryEExpArgGroupIterator<'top> {
     remaining_args_buffer: BinaryBuffer<'top>,
 }
 
-impl<'top> EExpArgGroupIterator<'top, BinaryEncoding_1_1> for BinaryEExpArgGroupIterator<'top> {
+impl<'top> IsExhaustedIterator<'top, BinaryEncoding_1_1> for BinaryEExpArgGroupIterator<'top> {
     fn is_exhausted(&self) -> bool {
         self.remaining_args_buffer.is_empty()
     }
@@ -455,8 +455,8 @@ impl<'top> EExpressionArgGroup<'top, BinaryEncoding_1_1> for BinaryEExpArgGroup<
         self.parameter.encoding()
     }
 
-    fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, BinaryEncoding_1_1> {
-        ArgGroup::new(self, context)
+    fn resolve(self, context: EncodingContextRef<'top>) -> EExpArgGroup<'top, BinaryEncoding_1_1> {
+        EExpArgGroup::new(self, context)
     }
 
     fn iter(self) -> Self::Iterator {

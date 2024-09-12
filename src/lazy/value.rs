@@ -323,6 +323,39 @@ impl<'top, D: Decoder> AnnotationsIterator<'top, D> {
         Ok(self.starts_with(annotations_to_match)? && self.next().is_none())
     }
 
+    /// Returns `Ok(true)` if this annotations iterator's first elements match the provided sequence
+    /// or `Ok(false)` if not. If a decoding error occurs while visiting and resolving each annotation,
+    /// returns an `Err(IonError)`.
+    /// ```
+    ///# use ion_rs::IonResult;
+    ///# #[cfg(feature = "experimental-reader-writer")]
+    ///# fn main() -> IonResult<()> {
+    ///
+    /// // Construct an Element and serialize it as binary Ion.
+    /// use ion_rs::{Element, Reader};
+    /// use ion_rs::v1_0::Binary;
+    ///
+    /// let element = Element::read_one("foo::bar::baz::99")?;
+    /// let binary_ion = element.encode_as(Binary)?;
+    /// let mut lazy_reader = Reader::new(Binary, binary_ion)?;
+    ///
+    /// // Get the first value from the stream
+    /// let lazy_value = lazy_reader.expect_next()?;
+    ///
+    /// assert!(lazy_value.annotations().starts_with(["foo"])?);
+    /// assert!(lazy_value.annotations().starts_with(["foo", "bar"])?);
+    /// assert!(lazy_value.annotations().starts_with(["foo", "bar", "baz"])?);
+    ///
+    /// assert!(!lazy_value.annotations().starts_with(["foo", "bar", "baz", "quux"])?);
+    /// assert!(!lazy_value.annotations().starts_with(["baz", "bar", "foo"])?);
+    /// assert!(!lazy_value.annotations().starts_with(["bar", "foo"])?);
+    /// assert!(!lazy_value.annotations().starts_with(["bar"])?);
+    ///
+    ///# Ok(())
+    ///# }
+    ///# #[cfg(not(feature = "experimental-reader-writer"))]
+    ///# fn main() -> IonResult<()> { Ok(()) }
+    /// ```
     pub fn starts_with<A: AsSymbolRef, I: IntoIterator<Item = A>>(
         &mut self,
         annotations_to_match: I,

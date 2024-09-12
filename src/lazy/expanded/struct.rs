@@ -6,8 +6,7 @@ use crate::lazy::expanded::macro_evaluator::{
 };
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    TemplateBodyExprKind, TemplateElement, TemplateMacroRef, TemplateStructIndex,
-    TemplateStructUnexpandedFieldsIterator,
+    TemplateElement, TemplateMacroRef, TemplateStructIndex, TemplateStructUnexpandedFieldsIterator,
 };
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
@@ -256,51 +255,13 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                     .expressions()
                     .get(first_result_address)
                     .unwrap();
-                match first_result_expr.kind() {
-                    // If the expression is a value literal, wrap it in a LazyExpandedValue and return it.
-                    TemplateBodyExprKind::Element(body_element) => {
-                        let value = LazyExpandedValue::from_template(
-                            self.context,
-                            *environment,
-                            TemplateElement::new(
-                                element.template(),
-                                body_element,
-                                first_result_expr.expr_range(),
-                            ),
-                        );
-                        Ok(Some(value))
-                    }
-                    // If the expression is a variable, resolve it in the current environment.
-                    TemplateBodyExprKind::Variable(variable_ref) => {
-                        let value_expr = environment
-                            .expressions()
-                            .get(variable_ref.signature_index())
-                            .unwrap();
-                        match value_expr {
-                            // If the variable maps to a value literal, return it.
-                            ValueExpr::ValueLiteral(value) => Ok(Some(*value)),
-                            // If the variable maps to a macro invocation, evaluate it until we get
-                            // the first value back.
-                            ValueExpr::MacroInvocation(invocation) => {
-                                let mut evaluator =
-                                    MacroEvaluator::for_macro_expr(*environment, *invocation)?;
-                                evaluator.next()
-                            }
-                        }
-                    }
-                    // If the expression is a macro invocation, evaluate it enough to get a single value
-                    // to return.
-                    TemplateBodyExprKind::MacroInvocation(body_invocation)
-                    | TemplateBodyExprKind::ArgExprGroup(_, body_invocation) => {
-                        let invocation = body_invocation.resolve(
-                            self.context,
-                            element.template(),
-                            first_result_expr.expr_range(),
-                        );
-                        let mut evaluator = MacroEvaluator::new_with_environment(*environment);
-                        let expansion =
-                            MacroExpansion::initialize(*environment, invocation.into())?;
-                        evaluator.push(expansion);
+                let value_expr =
+                    first_result_expr.to_value_expr(self.context, *environment, element.template());
+                match value_expr {
+                    ValueExpr::ValueLiteral(lazy_expanded_value) => Ok(Some(lazy_expanded_value)),
+                    ValueExpr::MacroInvocation(invocation) => {
+                        // Evaluate the invocation enough to get the first result.
+                        let mut evaluator = MacroEvaluator::for_macro_expr(invocation)?;
                         evaluator.next()
                     }
                 }
@@ -505,12 +466,10 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         field_name: LazyExpandedFieldName<'top, D>,
         invocation: MacroExpr<'top, D>,
     ) -> Option<IonResult<LazyExpandedField<'top, D>>> {
-        let environment = evaluator.environment();
-        let expansion = try_or_some_err!(MacroExpansion::initialize(environment, invocation));
+        let expansion = try_or_some_err!(MacroExpansion::initialize(invocation));
         // If the macro is guaranteed to expand to exactly one value, we can evaluate it
         // in place.
         if invocation
-            .invoked_macro()
             .expansion_analysis()
             .must_produce_exactly_one_value()
         {
@@ -532,8 +491,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         evaluator: &mut MacroEvaluator<'top, D>,
         invocation: MacroExpr<'top, D>,
     ) -> IonResult<()> {
-        let environment = evaluator.environment();
-        let expansion = MacroExpansion::initialize(environment, invocation)?;
+        let expansion = MacroExpansion::initialize(invocation)?;
         evaluator.push(expansion);
         let expanded_value = match evaluator.next()? {
             Some(item) => item,
