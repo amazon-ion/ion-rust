@@ -1,3 +1,26 @@
+//! Fragments within the DSL are responsible for piecing together the ion document used during the
+//! test. Each fragment contributes in some way to the full ion stream that is tested, usually
+//! providing different mechanisms for representing ion data, but also by providing shortcuts to
+//! adding common data to be tested such as encoding directives and macros.
+//!
+//! In order to produce the input document each fragment is encoded in the order that they appear
+//! in the test document. In the case of `Text`, the data is concatenated to an ion text stream
+//! verbatim. The `Toplevel` fragment requires a little more work in order to support the
+//! missing/absent symbol notation. Since all of the Toplevel fragments are provided as ion
+//! literals within the test document, any symbols that is unknown in the context of the test
+//! document, or may otherwise differ in value, needs to be encoded using a notation that
+//! communicates the Symbol ID and an optional Symbol Table, to the DSL parser. When the values are
+//! read by the ion reader they're treated as normal quoted symbols. When the Toplevel fragment is
+//! encoded however, each Element read from the Toplevel clause is wrapped within a `ProxyElement`,
+//! which by implementing `WriteAsIon` is able to recursively look at all values being written to
+//! the test's input and capture any symbols that match the unknown symbol notation.
+//!
+//! The `ProxyElement` type is also used for testing equality between LazyValues and Elements. The
+//! type is used in order to hold onto a Context for accessing the input document's symbol tables,
+//! so that symbols from the Produces continuation can be evaluated for unknown symbol notation as
+//! well.
+
+
 use ion_rs::{Element, Sequence, SExp, Struct, Symbol};
 use ion_rs::{v1_0, v1_1, WriteConfig, Encoding, ion_seq};
 use ion_rs::{RawSymbolRef, StructWriter, SequenceWriter, Writer, WriteAsIon, ValueWriter};
@@ -8,7 +31,7 @@ use super::context::Context;
 /// Shared functionality for Fragments.
 trait FragmentImpl  {
     /// Encode the current fragment into ion given the provided `WriteConfig`
-    fn encode<E: Encoding>(&self, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>>;
+    fn encode<E: Encoding>(&self, ctx: &Context, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>>;
 }
 
 
@@ -45,9 +68,9 @@ impl Fragment {
     }
 
     /// Internal. Writes the fragment as binary ion using the provided WriteConfig.
-    fn write_as_binary<E: Encoding>(&self, _ctx: &Context, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>> {
+    fn write_as_binary<E: Encoding>(&self, ctx: &Context, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>> {
         match self {
-            Fragment::TopLevel(toplevel) => toplevel.encode(config),
+            Fragment::TopLevel(toplevel) => toplevel.encode(ctx, config),
             Fragment::Binary(bin) => Ok(bin.clone()),
             Fragment::Text(_) => unreachable!(),
             Fragment::Ivm(maj, min) => Ok([0xE0, *maj as u8, *min as u8, 0xEA].to_vec()),
@@ -55,9 +78,9 @@ impl Fragment {
     }
 
     /// Internal. Writes the fragment as text ion using the provided WriteConfig.
-    fn write_as_text<E: Encoding>(&self, _ctx: &Context, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>> {
+    fn write_as_text<E: Encoding>(&self, ctx: &Context, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>> {
         match self {
-            Fragment::TopLevel(toplevel) => toplevel.encode(config),
+            Fragment::TopLevel(toplevel) => toplevel.encode(ctx, config),
             Fragment::Text(txt) => {
                 let bytes = txt.as_bytes();
                 Ok(bytes.to_owned())
@@ -143,8 +166,7 @@ impl TryFrom<Sequence> for Fragment {
 
 // newtype to handle writing an Element, after we check to make sure it's not a symbol that has our
 // special absent symbol sauce.
-#[derive(Debug)]
-pub(crate) struct ProxyElement<'a>(pub &'a Element);
+pub(crate) struct ProxyElement<'a>(pub &'a Element, pub &'a Context<'a>);
 
 impl<'a> ProxyElement<'a> {
 
@@ -155,8 +177,8 @@ impl<'a> ProxyElement<'a> {
 
         for (name, value) in val.fields() {
             match parse_absent_symbol(name.text().unwrap_or("")) {
-                (None, None) => { strukt.write(name, ProxyElement(value))?; }
-                (_, Some(id)) => { strukt.write(RawSymbolRef::from(id), ProxyElement(value))?; },
+                (None, None) => { strukt.write(name, ProxyElement(value, self.1))?; }
+                (_, Some(id)) => { strukt.write(RawSymbolRef::from(id), ProxyElement(value, self.1))?; },
                 _ => unreachable!(),
             }
         }
@@ -170,7 +192,13 @@ impl<'a> ProxyElement<'a> {
             let symbol = self.0.as_symbol().unwrap();
             match parse_absent_symbol(symbol.text().unwrap_or("")) {
                 (None, None) => annot_writer.write(symbol),
-                (_, Some(id)) => annot_writer.write(RawSymbolRef::from(id)),
+                (None, Some(id)) => annot_writer.write(RawSymbolRef::from(id)),
+                (Some(symtab), Some(id)) => {
+                    match self.1.get_symbol_from_table(symtab, id) {
+                        Some(symbol) => annot_writer.write(RawSymbolRef::from(symbol.text().unwrap_or(""))),
+                        None => annot_writer.write(RawSymbolRef::from(0)), // TODO: error.
+                    }
+                }
                 _ => unreachable!(),
             }
         } else {
@@ -181,24 +209,13 @@ impl<'a> ProxyElement<'a> {
 }
 
 impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_> {
+    // TODO: Move this out of PartialEq - there are a lot of potential errors comparing these two
+    // types that might be better bubbling up.
     fn eq(&self, other: &ion_rs::LazyValue<'_, T>) -> bool {
-        use ion_rs::{LazyRawFieldName, LazyRawValue, v1_0::RawValueRef, ValueRef};
+        use ion_rs::{LazyRawFieldName, ValueRef};
+        use super::compare_symbols_eq;
         match self.0.ion_type() {
-            IonType::Symbol => match parse_absent_symbol(self.0.as_symbol().unwrap().text().unwrap_or("")) {
-                (None, None) => *self.0 == Element::try_from(*other).expect("unable to convert lazyvalue into element"),
-                (_, Some(id)) => {
-                    let Some(raw_symbol) = other.raw().map(|r| r.read()) else {
-                        unreachable!()
-                    };
-                    let raw_symbol = raw_symbol.expect("error reading symbol");
-
-                    let RawValueRef::Symbol(raw_symbol) = raw_symbol else {
-                        return false;
-                    };
-                    raw_symbol.matches_sid_or_text(id, "")
-                }
-                _ => unreachable!(),
-            }
+            IonType::Symbol => compare_symbols_eq(self.1, other, self.0).unwrap_or(false),
             IonType::Struct => {
                 let ValueRef::Struct(actual_struct) = other.read().expect("error reading input value") else {
                     return false;
@@ -220,12 +237,23 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
 
                             is_equal &= match parse_absent_symbol(expected_field.text().unwrap_or("")) {
                                 (None, None) => *self.0 == Element::try_from(*other).expect("unable to convert LazyValue into Element"),
-                                (_, Some(id)) => actual_field.matches_sid_or_text(id, ""),
-                                _ => unreachable!(),
+                                (None, Some(id)) => actual_field.matches_sid_or_text(id, ""),
+                                (Some(symtab), Some(id)) => {
+                                    let symbol_table = other.symbol_table();
+                                    match self.1.get_symbol_from_table(symtab, id) {
+                                        None => actual_field.matches_sid_or_text(0, ""),
+                                        Some(shared_symbol) => {
+                                            let shared_symbol_txt = shared_symbol.text().unwrap_or("");
+                                            let shared_id = symbol_table.sid_for(&shared_symbol_txt).unwrap_or(0);
+                                            actual_field.matches_sid_or_text(shared_id, shared_symbol_txt)
+                                        }
+                                    }
+                                }
+                                _ => unreachable!(), // Cannot have symtab without id.
                             };
 
                             let actual_value = actual.value();
-                            is_equal &= ProxyElement(expected_field_elem) == actual_value;
+                            is_equal &= ProxyElement(expected_field_elem, self.1) == actual_value;
                         }
                         (None, None) => break,
                         _ => is_equal = false,
@@ -248,7 +276,7 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
                     false
                 } else {
                     for (actual, expected) in actual_list.iter().zip(expected_list.iter()) {
-                        if ProxyElement(expected) != *actual {
+                        if ProxyElement(expected, self.1) != *actual {
                             return false
                         }
                     }
@@ -276,7 +304,7 @@ impl<'a> WriteAsIon for ProxyElement<'a> {
                 let annot_writer = writer.with_annotations(annotations)?;
                 let mut list_writer = annot_writer.list_writer()?;
                 for elem in self.0.as_sequence().unwrap() {
-                    list_writer.write(ProxyElement(elem))?;
+                    list_writer.write(ProxyElement(elem, self.1))?;
                 }
                 list_writer.close()?;
                 Ok(())
@@ -286,7 +314,7 @@ impl<'a> WriteAsIon for ProxyElement<'a> {
                 let annot_writer = writer.with_annotations(annotations)?;
                 let mut sexp_writer = annot_writer.sexp_writer()?;
                 for elem in self.0.as_sequence().unwrap() {
-                    sexp_writer.write(ProxyElement(elem))?;
+                    sexp_writer.write(ProxyElement(elem, self.1))?;
                 }
                 sexp_writer.close()?;
                 Ok(())
@@ -304,12 +332,12 @@ pub(crate) struct TopLevel {
 
 impl FragmentImpl for TopLevel {
     /// Encodes the provided ion literals into an ion stream, using the provided WriteConfig.
-    fn encode<E: Encoding>(&self, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>> {
+    fn encode<E: Encoding>(&self, ctx: &Context, config: impl Into<WriteConfig<E>>) -> InnerResult<Vec<u8>> {
         let mut buffer = Vec::with_capacity(1024);
         let mut writer = Writer::new(config, buffer)?;
 
         for elem in self.elems.as_slice() {
-            writer.write(ProxyElement(elem))?;
+            writer.write(ProxyElement(elem, ctx))?;
         }
         buffer = writer.close()?;
         Ok(buffer)

@@ -4,7 +4,7 @@
 
 use super::*;
 use super::context::Context;
-use super::model::ModelValue;
+use super::model::{compare_values, ModelValue};
 
 use ion_rs::{Element, Sequence};
 
@@ -209,15 +209,19 @@ pub(crate) struct EachBranch {
     fragment: Fragment,
 }
 
+/// Represents a Produces clause, used for defining the expected ion values, using ion literals.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Produces {
     pub elems: Vec<Element>,
 }
 
 impl Produces {
+    /// Creates a reader using the provided context, and compares the read values from the input
+    /// document with the elements specified in the associated Produces clause for equality.
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
+        use ion_rs::{Decoder, AnyEncoding};
         let (input, _encoding) = ctx.input(ctx.encoding())?;
-        let mut reader = ion_rs::Reader::new(ion_rs::AnyEncoding, input)?;
+        let mut reader = ion_rs::Reader::new(AnyEncoding.with_catalog(ctx.build_catalog()), input)?;
 
         let mut is_equal = true;
         let mut elem_iter = self.elems.iter();
@@ -226,8 +230,9 @@ impl Produces {
             let (actual_value, expected_elem) = (reader.next()?, elem_iter.next());
             match (actual_value, expected_elem) {
                 (None, None) => break,
-                (Some(actual_value), Some(expected_elem)) => 
-                    is_equal &= super::fragment::ProxyElement(expected_elem) == actual_value,
+                (Some(actual_value), Some(expected_elem)) => {
+                    is_equal &= super::fragment::ProxyElement(expected_elem, ctx) == actual_value
+                }
                 _ => is_equal = false,
             }
         }
@@ -240,6 +245,7 @@ impl Produces {
     }
 }
 
+/// Represents a Denotes clause, used for defining the expected ion values using the Denotes Value Model.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Denotes {
     pub model: Vec<ModelValue>,
@@ -247,17 +253,19 @@ pub(crate) struct Denotes {
 
 impl Denotes {
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
+        use ion_rs::{Decoder, AnyEncoding};
         let (input, _encoding) = ctx.input(ctx.encoding())?;
-        let mut reader = ion_rs::Reader::new(ion_rs::AnyEncoding, input)?;
+        let mut reader = ion_rs::Reader::new(AnyEncoding.with_catalog(ctx.build_catalog()), input)?;
         let mut elem_iter = self.model.iter();
 
         let mut is_equal = true;
         while is_equal {
             let (read_value, expected_element) = (reader.next()?, elem_iter.next());
-            match (read_value, expected_element) {
-                (Some(actual), Some(expected)) => is_equal = is_equal && (expected == actual),
+            is_equal = match (read_value, expected_element) {
+                (Some(actual), Some(expected)) =>
+                    is_equal && compare_values(ctx, expected, &actual)?,
                 (None, None) => break,
-                _ => is_equal = false,
+                _ => false,
             }
         }
 

@@ -1,24 +1,27 @@
 use crate::conformance_dsl::*;
 
-use ion_rs::{Element, ElementReader, Sequence, Reader, IonSlice};
+use ion_rs::{Catalog, Element, ElementReader, Sequence, Reader, IonSlice, SharedSymbolTable, Symbol, SymbolId};
 use ion_rs::{v1_0, v1_1};
 
 /// A Context forms a scope for tracking all of the document fragments and any parent Contexts that
 /// also need to be considered. Through this context the ability to generate the full test
 /// document input, and evaluate any forced encodings or Ion versions, is provided.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone)]
 pub(crate) struct Context<'a> {
     version: IonVersion,
     encoding: IonEncoding,
     fragments: &'a Vec<Fragment>,
     parent_ctx: Option<&'a Context<'a>>,
+    symbol_tables: Vec<SharedSymbolTable>, // To build Catalogs when needed, Catalog doesn't
+                                           // require Clone.
 }
 
 impl<'a> Context<'a> {
     /// Creates a new Context with the provided version, encoding and fragments. A parent context
     /// is not set.
-    pub fn new(version: IonVersion, encoding: IonEncoding, fragments: &'a Vec<Fragment>) -> Self {
-        Self { version, encoding, fragments, parent_ctx: None}
+    pub fn new(version: IonVersion, encoding: IonEncoding, fragments: &'a Vec<Fragment>) -> Result<Self> {
+        let symbol_tables = build_ion_tests_symtables()?;
+        Ok(Self { version, encoding, fragments, parent_ctx: None, symbol_tables })
     }
 
     /// Creates a new Context with the provided fragments, based on the supplied `parent`. The
@@ -29,6 +32,7 @@ impl<'a> Context<'a> {
             encoding: parent.encoding,
             parent_ctx: Some(parent),
             fragments,
+            symbol_tables: parent.symbol_tables.clone(),
         }
     }
 
@@ -99,6 +103,26 @@ impl<'a> Context<'a> {
             (n, IonEncoding::Unspecified) => n,
             _ => panic!("Mismatched encodings for nested contexts"), // TODO: Bubble error.
         }
+    }
+
+    /// Build all of the symbol tables loaded from ion-tests/catalog into a usuable Catalog.
+    pub fn build_catalog(&self) -> impl Catalog {
+        let mut catalog = MapCatalog::new();
+
+        for sym_table in self.symbol_tables.iter() {
+            catalog.insert_table(sym_table.clone());
+        }
+
+        catalog
+    }
+
+    /// Returns the symbol at the provided offset `offset` within the symbol table named `symtab`,
+    /// if either the symbol table, or the offset, is not valid then None is returned.
+    pub fn get_symbol_from_table<S: AsRef<str>>(&self, symtab: S, offset: SymbolId) -> Option<Symbol> {
+        self.symbol_tables.iter()
+            .filter(|st| st.name() == symtab.as_ref())
+            .max_by_key(|sst| sst.version())
+            .and_then(|st| st.symbols().get(offset - 1).cloned())
     }
 
     /// Returns a Vec<u8> containing the serialized data consisting of all fragments in the path

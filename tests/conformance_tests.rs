@@ -14,17 +14,30 @@ mod implementation {
 
     #[test]
     fn test_absent_symbol() {
-        let test = r#"
-           (ion_1_1
+        let tests: &[&str] = &[
+        r#"(ion_1_1
               (toplevel '#$2' {'#$9': '#$8'})
               (text "")
               (denotes (Symbol 2) (Struct (9 (Symbol 8))))
-           )
-        "#;
-        Document::from_str(test)
-            .unwrap_or_else(|e| panic!("Failed to load document:\n{:?}", e))
-            .run()
-            .unwrap_or_else(|e| panic!("Test failed: {:?}", e));
+           )"#,
+        r#"(ion_1_0
+              (text '''$ion_symbol_table::{imports:[{name:"abcs", version: 2}]}''')
+              (text "$10 $11")
+              (produces '#$abcs#1' '#$abcs#2')
+           )"#,
+        r#"(ion_1_0
+              (text '''$ion_symbol_table::{imports:[{name:"abcs", version: 2}]}''')
+              (text "$10 $11")
+              (denotes (Symbol (absent "abcs" 1)) (Symbol (absent "abcs" 2)))
+           )"#,
+        ];
+
+        for test in tests {
+            Document::from_str(test)
+                .unwrap_or_else(|e| panic!("Failed to load document:\n{:?}", e))
+                .run()
+                .unwrap_or_else(|e| panic!("Test failed: {:?}", e));
+        }
     }
 
     #[test]
@@ -37,12 +50,13 @@ mod implementation {
             r#"(ion_1_1 "Timestamp Second" (text "2023-03-23T10:12:21Z") (denotes (Timestamp second 2023 3 23 (offset 0) 10 12 21))) "#,
             r#"(ion_1_1 "Timestamp Fractional" (text "2023-03-23T10:12:21.23Z") (denotes (Timestamp fraction 2023 3 23 (offset 0) 10 12 21 23 -2))) "#,
         ];
+
         for test in tests {
             Document::from_str(test)
                 .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
                 .run()
                 .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
-            }
+         }
     }
 
     #[test]
@@ -103,7 +117,6 @@ mod ion_tests {
         println!("Testing: {}", file_name);
         let collection = TestCollection::load(file_name).expect("unable to load test file");
 
-        println!("Collection: {:?}", collection);
         collection.run().expect("failed to run collection");
     }
 }

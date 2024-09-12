@@ -145,7 +145,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         }
 
         if self.is_null() {
-            return self.read_null();
+            return Ok(RawValueRef::Null(self.read_null()?));
         }
 
         match self.ion_type() {
@@ -189,7 +189,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             return Ok(ValueRef::Int(int));
         }
         if self.is_null() {
-            return self.read_null()?.resolve(context);
+            return Ok(ValueRef::Null(self.read_null()?));
         }
         // Anecdotally, string and integer values are very common in Ion streams. This `match` creates
         // an inlineable fast path for them while other types go through the general case impl.
@@ -213,7 +213,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             }
 
             if value.is_null() {
-                return value.read_null()?.resolve(context);
+                return Ok(ValueRef::Null(value.read_null()?));
             }
 
             let value_ref =
@@ -349,14 +349,14 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         <&'top Self as LazyRawValue<'top, BinaryEncoding_1_1>>::read(&self)
     }
 
-    fn read_null(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_1>> {
-        let tpe = if self.encoded_value.header.type_code() == OpcodeType::TypedNull {
+    fn read_null(&self) -> IonResult<IonType> {
+        let ion_type = if self.encoded_value.header.type_code() == OpcodeType::TypedNull {
             let body = self.value_body();
             ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
         } else {
             self.encoded_value.ion_type()
         };
-        Ok(RawValueRef::Null(tpe))
+        Ok(ion_type)
     }
 
     pub fn is_delimited(&self) -> bool {
