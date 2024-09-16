@@ -1169,7 +1169,6 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
         let expansion_kind = match macro_ref.kind() {
             MacroKind::Void => MacroExpansionKind::Void,
             MacroKind::ExprGroup => {
-                // MacroExpansionKind::ExprGroup(ExprGroupExpansion::new(arguments))
                 unreachable!("cannot invoke ExprGroup from a TemplateMacroInvocation")
             },
             MacroKind::MakeString => {
