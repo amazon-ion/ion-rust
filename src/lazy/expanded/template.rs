@@ -979,7 +979,8 @@ impl TemplateBodyMacroInvocation {
     }
 }
 
-/// TODO: Doc comment, explain how this is different from a macro invocation
+/// An expression group in the body of a macro. This behaves like the `values` macro, but is not
+/// user-addressable.
 #[derive(Copy, Clone)]
 pub struct TemplateExprGroup<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
