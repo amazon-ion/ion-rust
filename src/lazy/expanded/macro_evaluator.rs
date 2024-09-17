@@ -1455,6 +1455,47 @@ mod tests {
     }
 
     #[test]
+    fn append_macros_preserves_symbols() -> IonResult<()> {
+        // TODO: update symbol IDs when reading and writing system symbols are implemented
+        stream_eq(
+            r#"
+            $ion_encoding::(
+                (symbol_table ["foo", "bar", "baz"]) // $10, $11, $12
+            )
+            $10
+            $11
+            $12
+
+            // Define a new macro
+            (:append_macros
+                (macro greet ($x)
+                    (make_string "Hello, " $x)
+                )
+                (macro greet_foo()
+                    (greet (literal $10))
+                )
+            )
+
+            (:greet "Gary")
+            (:greet_foo)
+            $10
+            $11
+            $12
+        "#,
+            r#"
+            foo
+            bar
+            baz
+            "Hello, Gary"
+            "Hello, foo"
+            foo
+            bar
+            baz
+        "#,
+        )
+    }
+
+    #[test]
     fn produce_system_value() -> IonResult<()> {
         // This macro produces the following system value:
         //    $ion_encoding::(

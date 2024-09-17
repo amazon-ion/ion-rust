@@ -323,6 +323,7 @@ impl MacroTable {
             //        (annotate
             //          (literal $ion_encoding)
             //          (make_sexp [
+            //              (literal (symbol_table $ion_encoding)),
             //              (make_sexp [
             //                  (literal macro_table),
             //                  (literal $ion_encoding),
@@ -351,21 +352,41 @@ impl MacroTable {
                             TemplateBodyElement::with_value(TemplateValue::SExp)
                                 // Has the first annotation in annotations storage below; `$ion_encoding`
                                 .with_annotations(0..1),
-                            // Contains expressions 0 (itself) through 5 (exclusive)
-                            ExprRange::new(0..5),
+                            // Contains expressions 0 (itself) through 8 (exclusive)
+                            ExprRange::new(0..8),
+                        ),
+                        // The `(symbol_table ...)` s-expression.
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 1 (itself) through 3 (exclusive)
+                            ExprRange::new(1..4),
+                        ),
+                        // The clause name `symbol_table`
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "symbol_table",
+                            ))),
+                            ExprRange::new(2..3),
+                        ),
+                        // The module name $ion_encoding
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(3..4),
                         ),
                         // The `(macro_table ...)` s-expression.
                         TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 1 (itself) through 5 (exclusive)
-                            ExprRange::new(1..5),
+                            // Contains expression 4 (itself) through 8 (exclusive)
+                            ExprRange::new(4..8),
                         ),
                         // The clause name `macro_table`
                         TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
                                 "macro_table",
                             ))),
-                            ExprRange::new(2..3),
+                            ExprRange::new(5..6),
                         ),
                         // The symbol literal `$ion_encoding`, indicating that we're appending
                         // to the existing macro table.
@@ -373,10 +394,10 @@ impl MacroTable {
                             TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
                                 "$ion_encoding",
                             ))),
-                            ExprRange::new(3..4),
+                            ExprRange::new(6..7),
                         ),
                         // The variable at signature index 0 (`$macro_definitions`)
-                        TemplateBodyExpr::variable(0, ExprRange::new(4..5)),
+                        TemplateBodyExpr::variable(0, ExprRange::new(7..8)),
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },

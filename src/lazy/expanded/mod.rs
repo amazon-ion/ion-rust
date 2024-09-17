@@ -293,7 +293,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 
     pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        println!("{template_macro:?}");
         self.add_macro(template_macro)
     }
 
