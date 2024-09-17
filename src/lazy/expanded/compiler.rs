@@ -1,9 +1,5 @@
 //! Compiles template definition language (TDL) expressions into a form suitable for fast incremental
 //! evaluation.
-use rustc_hash::FxHashMap;
-use std::ops::Range;
-use std::rc::Rc;
-
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::template::{
@@ -13,13 +9,16 @@ use crate::lazy::expanded::template::{
 };
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::r#struct::LazyStruct;
-use crate::lazy::sequence::{LazyList, LazySExp};
+use crate::lazy::sequence::{LazyList, LazySExp, SExpIterator};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
-use crate::symbol_ref::AsSymbolRef;
 use crate::{v1_1, IonError, IonResult, IonType, Macro, MacroTable, Reader, Symbol, SymbolRef};
+use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
+use std::ops::Range;
+use std::rc::Rc;
 
 /// Information inferred about a template's expansion at compile time.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -29,6 +28,19 @@ pub struct ExpansionAnalysis {
     // A memoized combination of the above flags.
     pub(crate) can_be_lazily_evaluated_at_top_level: bool,
     pub(crate) expansion_singleton: Option<ExpansionSingleton>,
+}
+
+impl Default for ExpansionAnalysis {
+    /// By default, macros are assumed to be capable of expanding to produce multiple values,
+    /// any of which could be system values.
+    fn default() -> Self {
+        ExpansionAnalysis {
+            could_produce_system_value: true,
+            must_produce_exactly_one_value: false,
+            can_be_lazily_evaluated_at_top_level: false,
+            expansion_singleton: None,
+        }
+    }
 }
 
 impl ExpansionAnalysis {
@@ -147,7 +159,7 @@ impl TemplateCompiler {
         let mut reader = Reader::new(v1_1::Text, expression.as_bytes())?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
 
-        Self::compile_from_sexp(context, &MacroTable::default(), macro_def_sexp)
+        Self::compile_from_sexp(context, &MacroTable::empty(), macro_def_sexp)
     }
 
     /// Pulls the next value from the provided source and confirms that it is a symbol whose
@@ -408,7 +420,7 @@ impl TemplateCompiler {
 
         // TODO: Enforce 'identifier' syntax subset of symbol
         let template_name =
-            Self::expect_nullable_name("a macro name", &mut values)?.map(|name| name.to_owned());
+            Self::expect_nullable_name("a macro name", &mut values)?.map(|name| name.into());
 
         // The `params` clause of the macro definition is an s-expression enumerating the parameters
         // that the macro accepts. For example: `(flex_uint::x, y*, z?)`.
@@ -491,8 +503,20 @@ impl TemplateCompiler {
             tdl_context,
             &mut compiled_body,
             /*is_literal=*/ false,
+            /*target_parameter=*/ None, /*; this is not a macro invocation arg.*/
             body,
         )?;
+        // Make sure there aren't any unexpected expressions following the body.
+        match values.next() {
+            None => {}
+            Some(expr) => {
+                let name = template_name.unwrap_or_else(|| "<anonymous>".into());
+                return IonResult::decoding_error(format!(
+                    "found unexpected expression following the body of macro '{name}': {:?}",
+                    expr?
+                ));
+            }
+        }
         let template_macro = TemplateMacro {
             name: template_name,
             signature,
@@ -565,10 +589,14 @@ impl TemplateCompiler {
     /// [`TemplateBodyExpr`] sequences to the `TemplateBody`.
     ///
     /// If `is_literal` is true, nested symbols and s-expressions will not be interpreted.
+    ///
+    /// If this value is being passed to a macro as an argument, `target_parameter` will be the
+    /// parameter to which the argument corresponds.
     fn compile_value<D: Decoder>(
         tdl_context: TdlContext,
         definition: &mut TemplateBody,
         is_literal: bool,
+        target_parameter: Option<&Parameter>,
         lazy_value: LazyValue<D>,
     ) -> IonResult<()> {
         // Add the value's annotations to the annotations storage vec and take note of the
@@ -581,7 +609,7 @@ impl TemplateCompiler {
         let annotations_range_end = definition.annotations_storage.len();
         let annotations_range = annotations_range_start..annotations_range_end;
 
-        // Make a `TemplateValue` that represent's the value's unannotated data. Scalar `TemplateValue`s
+        // Make a `TemplateValue` that represents the value's unannotated data. Scalar `TemplateValue`s
         // are very similar to their scalar `Value` counterparts, but its container types are more
         // barebones.
         let value = match lazy_value.read()? {
@@ -610,6 +638,7 @@ impl TemplateCompiler {
                     tdl_context,
                     definition,
                     is_literal,
+                    target_parameter,
                     annotations_range.clone(),
                     s,
                 );
@@ -658,7 +687,13 @@ impl TemplateCompiler {
         definition.push_element(list_element, ExprRange::empty());
         for value_result in &lazy_list {
             let value = value_result?;
-            Self::compile_value(tdl_context, definition, is_literal, value)?;
+            Self::compile_value(
+                tdl_context,
+                definition,
+                is_literal,
+                None, /*<-- target_parameter; this is a list element, not a macro arg.*/
+                value,
+            )?;
         }
         let list_children_end = definition.expressions.len();
         // Update the list entry to reflect the number of child expressions it contains
@@ -671,58 +706,123 @@ impl TemplateCompiler {
     }
 
     /// Helper method for visiting all of the child expressions in a sexp.
+    ///
+    /// If this sexp appears in macro argument position, `target_parameter` will be a reference to
+    /// the `Parameter` to which this sexp is being passed as an argument. If the sexp is an
+    /// arg expression group, the `Parameter` will be consulted to make sure that variadics
+    /// are legal.
     fn compile_sexp<D: Decoder>(
         tdl_context: TdlContext,
         definition: &mut TemplateBody,
         is_literal: bool,
+        target_parameter: Option<&Parameter>,
         annotations_range: Range<usize>,
         lazy_sexp: LazySExp<D>,
     ) -> IonResult<()> {
+        // First, verify that it doesn't have annotations.
+        if !annotations_range.is_empty() {
+            return IonResult::decoding_error("found annotations on a macro invocation");
+        }
+        // See if we should interpret this s-expression or leave it as-is.
         if is_literal {
             // If `is_literal` is true, this s-expression is nested somewhere inside a `(literal ...)`
             // macro invocation. The sexp and its child expressions can be added to the TemplateBody
             // without interpretation.
-            Self::compile_quoted_sexp(tdl_context, definition, annotations_range, lazy_sexp)
-        } else {
-            // If `is_quoted` is false, the sexp is a macro invocation.
-            // First, verify that it doesn't have annotations.
-            if !annotations_range.is_empty() {
-                return IonResult::decoding_error("found annotations on a macro invocation");
-            }
-            // Peek at the first expression in the sexp. If it's the symbol `literal`...
-            if Self::sexp_is_literal_macro(&lazy_sexp)? {
-                // ...then we set `is_quoted` to true and compile all of its child expressions.
-                Self::compile_quoted_elements(tdl_context, definition, lazy_sexp)
-            } else {
-                // Otherwise, add the macro invocation to the template body.
-                Self::compile_macro(tdl_context, definition, lazy_sexp)
-            }
-        }?;
+            return Self::compile_quoted_sexp(
+                tdl_context,
+                definition,
+                annotations_range,
+                lazy_sexp,
+            );
+        }
 
-        Ok(())
+        // If `is_literal` is false, we need to interpret this s-expression. Peek at the first
+        // child expression.
+        match TdlSExpKind::of(tdl_context, lazy_sexp, target_parameter)? {
+            // If it's the symbol `literal`...
+            TdlSExpKind::Literal(arguments) => {
+                // ...then we set `is_quoted` to true and compile all of its child expressions.
+                Self::compile_literal_elements(tdl_context, definition, arguments)
+            }
+            // If it's a macro ID...
+            TdlSExpKind::MacroInvocation(macro_ref, arguments) => {
+                // ...add the macro invocation to the template body.
+                Self::compile_macro(tdl_context, definition, macro_ref, arguments)
+            }
+            // If it's a semicolon (`;`)...
+            TdlSExpKind::ArgExprGroup(parameter, arguments) => {
+                // ...add the arg expr group to the template body.
+                Self::compile_arg_expr_group(tdl_context, definition, arguments, parameter)
+            }
+        }
     }
 
     /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
     /// TemplateBody.
-    fn compile_macro<D: Decoder>(
+    fn compile_macro<'top, D: Decoder>(
         tdl_context: TdlContext,
         definition: &mut TemplateBody,
-        lazy_sexp: LazySExp<D>,
+        macro_ref: Rc<Macro>,
+        mut arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<()> {
-        let mut expressions = lazy_sexp.iter();
-        // Convert the macro ID (name or address) into an address. If this refers to a macro that
-        // doesn't exist yet, this will return an error. This prevents recursion.
-        let macro_ref = Self::resolve_macro_id_expr(tdl_context, expressions.next())?;
+        // If this macro doesn't accept any parameters but arg expressions have been passed,
+        // raise an error.
+        if macro_ref.signature().len() == 0 && arguments.next().is_some() {
+            return IonResult::decoding_error(format!(
+                "unexpected argument passed to macro '{}', which takes no parameters",
+                macro_ref.name().unwrap_or("<anonymous>")
+            ));
+        }
+
+        // Get the 'compiled' step index that the macro invocation will occupy.
         let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
-        // this at the end of the function.
+        // this at the end of the function after we've compiled any argument expressions.
         definition.push_macro_invocation(Rc::clone(&macro_ref), ExprRange::empty());
-        for argument_result in expressions {
-            let argument = argument_result?;
-            Self::compile_value(tdl_context, definition, /*is_quoted=*/ false, argument)?;
+
+        // We'll step through the parameters one at a time, looking for a corresponding argument
+        // expression for each. If the ratio of arguments to parameters isn't 1:1, we'll also
+        // handle placeholder `none`s and implicit expression groups.
+        for (index, param) in macro_ref.signature().parameters().iter().enumerate() {
+            // If this is the last parameter...
+            if index + 1 == macro_ref.signature().len() {
+                // ...handle the possibility that there are going to be more arguments than
+                // parameters, indicating an implicit expression group.
+                Self::compile_trailing_args(
+                    tdl_context,
+                    definition,
+                    macro_ref.name(),
+                    arguments,
+                    param,
+                )?;
+                break;
+            }
+            // Otherwise, get the next argument.
+            let Some(arg) = arguments.next().transpose()? else {
+                // If there isn't another argument, then that means there are fewer arg expressions
+                // than parameters. For each remaining parameter (including this one) confirm that
+                // it accepts the empty stream and insert a placeholder call to `none`.
+                Self::insert_placeholder_none_invocations::<D>(
+                    tdl_context,
+                    definition,
+                    &macro_ref,
+                    index,
+                )?;
+                break;
+            };
+
+            // From here on we're dealing with the simple case of the expression `arg` being passed
+            // to `param`.
+            Self::compile_value(
+                tdl_context,
+                definition,
+                /*is_quoted=*/ false,
+                Some(param),
+                arg,
+            )?;
         }
         let arguments_end = definition.expressions.len();
-        // Update the macro step to reflect the macro's address and number of child expressions it
+        // update the macro step to reflect the number of child expressions it
         // contains
         let invocation_expr_range = ExprRange::new(macro_step_index..arguments_end);
         definition.expressions[macro_step_index] =
@@ -730,9 +830,161 @@ impl TemplateCompiler {
         Ok(())
     }
 
-    /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
-    /// ID to a macro reference.
-    fn resolve_macro_id_expr<D: Decoder>(
+    /// Compiles a TDL macro invocation's final argument expression(s).
+    ///
+    /// If `arguments` contains more than one expression, this method will construct an expression
+    /// group.
+    fn compile_trailing_args<'top, D: Decoder>(
+        tdl_context: TdlContext,
+        definition: &mut TemplateBody,
+        invoked_macro_name: Option<&str>,
+        arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>> + Sized,
+        param: &Parameter,
+    ) -> IonResult<()> {
+        // Collect the remaining argument expressions into a (probably) stack-allocated SmallVec.
+        let arguments: SmallVec<[LazyValue<'_, D>; 2]> =
+            arguments.collect::<IonResult<SmallVec<_>>>()?;
+
+        // If there aren't any more arguments, make sure `param` will accept `none`.
+        if arguments.is_empty() {
+            return if param.accepts_none() {
+                // ...and then insert a placeholder `none` invocation.
+                Self::compile_macro(
+                    tdl_context,
+                    definition,
+                    tdl_context.context.none_macro(),
+                    std::iter::empty::<Result<LazyValue<'_, D>, IonError>>(),
+                )
+            } else {
+                IonResult::decoding_error(
+                    format!(
+                        "missing argument in call to macro '{}'; final parameter '{}' has cardinality '{:?}' and cannot be omitted",
+                        invoked_macro_name.unwrap_or("<anonymous>"),
+                        param.name(),
+                        param.cardinality()
+                    )
+                )
+            };
+        }
+
+        // If it turns out there was only one expression, we can simply compile it like we would
+        // any other argument.
+        if arguments.len() == 1 {
+            return Self::compile_value(
+                tdl_context,
+                definition,
+                /*is_quoted=*/ false,
+                Some(param),
+                arguments[0],
+            );
+        }
+
+        // Otherwise, there were multiple argument expressions remaining. If the parameter is
+        // neither `*` nor `+` (the two cardinalities that accept an expression group), raise an error.
+        if !param.accepts_multi() {
+            return IonResult::decoding_error(
+                format!(
+                    "too many arguments passed to macro '{}'; final parameter '{}' has cardinality '{:?}' and cannot accept multiple expressions",
+                    invoked_macro_name.unwrap_or("<anonymous>"),
+                    param.name(),
+                    param.cardinality()
+                )
+            );
+        }
+
+        // Otherwise, construct an arg expr group using the remaining arguments.
+        Self::compile_arg_expr_group(
+            tdl_context,
+            definition,
+            arguments.iter().cloned().map(Ok),
+            param.clone(),
+        )
+    }
+
+    /// Inserts a `(none)` invocation for each remaining parameter that did not receive an explicit
+    /// argument expression. If any of the remaining parameters are required (`!` or `+`), raises an
+    /// error.
+    fn insert_placeholder_none_invocations<D: Decoder>(
+        tdl_context: TdlContext,
+        definition: &mut TemplateBody,
+        macro_ref: &Rc<Macro>,
+        index: usize,
+    ) -> Result<(), IonError> {
+        // There are fewer args than parameters. That's ok as long as all of the remaining
+        // parameters are `?` or `*`. For each remaining parameter...
+        for remaining_param in &macro_ref.signature().parameters()[index..] {
+            // ...confirm that the parameter is either `?` or `*` (and can be omitted)
+            if !remaining_param.can_be_omitted() {
+                return IonResult::decoding_error(format!(
+                    "invocation of macro '{}' is missing required parameter '{}'",
+                    macro_ref.name().unwrap_or("<anonymous>"),
+                    remaining_param.name()
+                ));
+            }
+            // ...and then insert a placeholder `none` invocation.
+            Self::compile_macro(
+                tdl_context,
+                definition,
+                tdl_context.context.none_macro(),
+                std::iter::empty::<Result<LazyValue<'_, D>, IonError>>(),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Adds a `lazy_sexp` that has been determined to represent an expression group to the
+    /// TemplateBody.
+    fn compile_arg_expr_group<'a, D: Decoder>(
+        tdl_context: TdlContext,
+        definition: &mut TemplateBody,
+        expressions: impl Iterator<Item = IonResult<LazyValue<'a, D>>>,
+        parameter: Parameter,
+    ) -> IonResult<()> {
+        let expr_group_start_index = definition.expressions.len();
+        // Put a placeholder expression in the template body. We'll overwrite it at the end of this
+        // method when we have more information.
+        definition.push_placeholder();
+        for argument_result in expressions {
+            let argument = argument_result?;
+            Self::compile_value(
+                tdl_context,
+                definition,
+                /*is_quoted=*/ false,
+                None,
+                argument,
+            )?;
+        }
+        let arguments_end = definition.expressions.len();
+
+        // See if this was an empty arg group `(;)`
+        let is_none = expr_group_start_index == arguments_end - 1;
+
+        // Confirm that this was a legal expression for the corresponding parameter.
+        if is_none {
+            if !parameter.accepts_none() {
+                return IonResult::decoding_error(format!(
+                    "parameter '{}' has cardinality {:?}; it does not accept empty argument groups: `(;)`",
+                    parameter.name(),
+                    parameter.cardinality()
+                ));
+            }
+        } else if !parameter.accepts_multi() {
+            return IonResult::decoding_error(format!(
+                "parameter '{}' has cardinality {:?}; it does not accept populated argument groups",
+                parameter.name(),
+                parameter.cardinality()
+            ));
+        }
+
+        // update the macro step to reflect the number of child expressions it
+        // contains
+        let invocation_expr_range = ExprRange::new(expr_group_start_index..arguments_end);
+        definition.expressions[expr_group_start_index] =
+            TemplateBodyExpr::arg_expr_group(parameter, invocation_expr_range);
+        Ok(())
+    }
+
+    fn resolve_maybe_macro_id_expr<D: Decoder>(
         tdl_context: TdlContext,
         id_expr: Option<IonResult<LazyValue<D>>>,
     ) -> IonResult<Rc<Macro>> {
@@ -747,8 +999,16 @@ impl TemplateCompiler {
             Some(Err(e)) => return Err(e),
             Some(Ok(value)) => value,
         };
+        Self::resolve_macro_id_expr(tdl_context, value)
+    }
 
-        let macro_id = match value.read()? {
+    /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
+    /// ID to a macro reference.
+    fn resolve_macro_id_expr<D: Decoder>(
+        tdl_context: TdlContext,
+        id_expr: LazyValue<D>,
+    ) -> IonResult<Rc<Macro>> {
+        let macro_id = match id_expr.read()? {
             ValueRef::Symbol(s) => {
                 if let Some(name) = s.text() {
                     MacroIdRef::LocalName(name)
@@ -769,7 +1029,7 @@ impl TemplateCompiler {
             }
         };
 
-        let mut annotations = value.annotations();
+        let mut annotations = id_expr.annotations();
         if let Some(module_name) = annotations.next().transpose()? {
             Self::resolve_qualified_macro_id(
                 tdl_context.context,
@@ -793,26 +1053,50 @@ impl TemplateCompiler {
         }
     }
 
-    /// Visits all of the child expressions of `lazy_sexp`, adding them to the `TemplateBody`
-    /// without interpretation. `lazy_sexp` itself is the `quote` macro, and does not get added
-    /// to the template body as there is nothing more for it to do at evaluation time.
-    fn compile_quoted_elements<D: Decoder>(
+    /// Visits all of the arguments to a `(literal ...)` operation, adding them to the `TemplateBody`
+    /// without interpretation.
+    fn compile_literal_elements<'top, D: Decoder>(
         tdl_context: TdlContext,
         definition: &mut TemplateBody,
-        lazy_sexp: LazySExp<D>,
+        arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<()> {
-        let mut elements = lazy_sexp.iter();
-        // If this method is called, we've already peeked at the first element to confirm that
-        // it's the symbol `quote`. We can discard it.
-        let _ = elements.next().unwrap()?;
-        for element_result in elements {
+        // Collect the remaining argument expressions into a (probably) stack-allocated SmallVec.
+        let arguments: SmallVec<[LazyValue<'_, D>; 2]> =
+            arguments.collect::<IonResult<SmallVec<_>>>()?;
+        // If there's only one expression, add it to the body directly.
+        if arguments.len() == 1 {
+            return Self::compile_value(
+                tdl_context,
+                definition,
+                /*is_quoted=*/ true,
+                /*target_parameter=*/ None, /*; this is a literal, not an arg expr. */
+                arguments[0],
+            );
+        }
+
+        // Otherwise, we'll call `values` and pass the literal expressions as arguments.
+        let expr_group_start_index = definition.expressions.len();
+        // Add a placeholder expression; we'll overwrite this with a properly defined macro invocation
+        // expression at the end of the method when we know how many argument expressions there are.
+        definition.push_placeholder();
+        // Add the compiled form of each literal as arguments to `(values ...)`
+        for argument in arguments {
             Self::compile_value(
                 tdl_context,
                 definition,
                 /*is_quoted=*/ true,
-                element_result?,
+                None,
+                argument,
             )?;
         }
+        let arguments_end = definition.expressions.len();
+
+        // Update the macro step to reflect the number of child expressions it contains
+        let invocation_expr_range = ExprRange::new(expr_group_start_index..arguments_end);
+        definition.expressions[expr_group_start_index] = TemplateBodyExpr::macro_invocation(
+            tdl_context.context.values_macro(),
+            invocation_expr_range,
+        );
         Ok(())
     }
 
@@ -829,7 +1113,13 @@ impl TemplateCompiler {
         definition.push_element(sexp_element, ExprRange::empty());
         for value_result in &lazy_sexp {
             let value = value_result?;
-            Self::compile_value(tdl_context, definition, /*is_quoted=*/ true, value)?;
+            Self::compile_value(
+                tdl_context,
+                definition,
+                /*is_quoted=*/ true,
+                /*target_parameter=*/ None,
+                value,
+            )?;
         }
         let sexp_children_end = definition.expressions.len();
         let sexp_element = TemplateBodyElement::with_value(TemplateValue::SExp)
@@ -839,23 +1129,6 @@ impl TemplateCompiler {
         definition.expressions[sexp_element_index] =
             TemplateBodyExpr::element(sexp_element, sexp_expr_range);
         Ok(())
-    }
-
-    /// Returns `Ok(true)` if the first child value in the `LazySexp` is the symbol `literal`.
-    /// This method should only be called in a non-literal context.
-    fn sexp_is_literal_macro<D: Decoder>(sexp: &LazySExp<D>) -> IonResult<bool> {
-        let first_expr = sexp.iter().next();
-        match first_expr {
-            // If the sexp is empty and we're not in a literal context, that's an error.
-            None => {
-                IonResult::decoding_error("found an empty s-expression in a non-literal context")
-            }
-            Some(Err(e)) => Err(e),
-            Some(Ok(lazy_value)) => {
-                let value = lazy_value.read()?;
-                Ok(value == ValueRef::Symbol("literal".as_symbol_ref()))
-            }
-        }
     }
 
     /// Recursively adds all of the expressions in `lazy_struct` to the `TemplateBody`.
@@ -896,7 +1169,14 @@ impl TemplateCompiler {
                 }
             }
 
-            Self::compile_value(tdl_context, definition, is_literal, field.value())?;
+            Self::compile_value(
+                tdl_context,
+                definition,
+                is_literal,
+                /*target_parameter=*/
+                None, /*; we're in a struct, not a macro invocation.*/
+                field.value(),
+            )?;
         }
         let struct_end = definition.expressions.len();
         // Update the struct entry to reflect the range of expansion steps it contains.
@@ -940,6 +1220,72 @@ impl TemplateCompiler {
     }
 }
 
+/// Possible meanings of an S-expression in the template definition language (TDL).
+enum TdlSExpKind<'a, D: Decoder> {
+    /// The `literal` operation, which (in this implementation) exists only at compile time.
+    ///     (literal ...)
+    /// * Associated iterator returns the s-expression's remaining child expressions.
+    Literal(SExpIterator<'a, D>),
+    /// A macro invocation in the template body.
+    ///     (macro_id ...)
+    /// * Associated `Rc<Macro>` is a reference to the macro definition to which the `macro_id` referred.
+    /// * Associated iterator returns the s-expression's remaining child expressions.
+    MacroInvocation(Rc<Macro>, SExpIterator<'a, D>),
+    /// An expression group being passed as an argument to a macro invocation.
+    ///     (; ...)
+    /// * Associated `Parameter` is the parameter to which this arg expression group is being passed.
+    /// * Associated iterator returns the s-expression's remaining child expressions.
+    ArgExprGroup(Parameter, SExpIterator<'a, D>),
+}
+
+impl<'top, D: Decoder> TdlSExpKind<'top, D> {
+    /// Inspects the contents of `sexp` to determine whether it is a special form (e.g. `literal`),
+    /// macro invocation (e.g. `make_string`), or arg expression group (e.g. `(;)`).
+    pub fn of(
+        tdl_context: TdlContext,
+        sexp: LazySExp<'top, D>,
+        target_parameter: Option<&Parameter>,
+    ) -> IonResult<Self> {
+        let mut values = sexp.iter();
+        let Some(first_value) = values.next().transpose()? else {
+            return IonResult::decoding_error(
+                "found an empty s-expression instead of a macro invocation or arg group",
+            );
+        };
+        let symbol = first_value.read()?.expect_symbol()?.expect_text()?;
+        // `values` now yields all of the arguments that follow the first value, whatever that may be.
+        // This creates a new binding that reflects that.
+        let arguments = values;
+
+        // If this is an argument expression group...
+        if symbol == ";" {
+            let Some(parameter) = target_parameter else {
+                return IonResult::decoding_error("argument expression groups `(; ...)` are only valid in macro argument position");
+            };
+            return Ok(TdlSExpKind::ArgExprGroup(parameter.clone(), arguments));
+        }
+
+        // If the operation name is `literal`, we need to see if it's the special form or a user-defined macro.
+        if symbol == "literal" {
+            // If it's `$ion::literal`, it's the special form.
+            if first_value.annotations().are(["$ion"])?
+                // Otherwise, if it has no annotations...
+                || (!first_value.has_annotations()
+                // ...and has not been shadowed by a user-defined macro name...
+                    && tdl_context.pending_macros.macro_with_name("literal").is_none()
+                    && tdl_context.context.macro_table.macro_with_name("literal").is_none())
+            {
+                // ...then it's the special form.
+                return Ok(TdlSExpKind::Literal(arguments));
+            }
+        }
+
+        // Otherwise, the symbol is a macro ID to resolve.
+        let macro_ref = TemplateCompiler::resolve_macro_id_expr(tdl_context, first_value)?;
+        Ok(TdlSExpKind::MacroInvocation(macro_ref, arguments))
+    }
+}
+
 #[derive(Copy, Clone)]
 struct TdlContext<'top> {
     // The encoding context that was active when compilation began. The body of the macro we're
@@ -966,6 +1312,11 @@ mod tests {
     use crate::{
         AnyEncoding, Element, ElementReader, Int, IntoAnnotations, IonResult, Macro, Reader, Symbol,
     };
+
+    // XXX: The tests in this module compile inputs and expect a specific output. There is no "correct"
+    // output, only correct behavior. As such, these tests are fragile; it is possible that optimizing
+    // the compiler to produce different output will cause these tests to fail. That does not necessarily
+    // indicate that the compiled output is invalid.
 
     // This function only looks at the value portion of the TemplateElement. To compare annotations,
     // see the `expect_annotations` method.
@@ -1114,11 +1465,11 @@ mod tests {
             &template,
             0,
             context.macro_table.clone_macro_with_name("values").unwrap(),
-            3,
+            4,
         )?;
-        expect_value(&template, 1, TemplateValue::Int(42.into()))?;
-        expect_value(&template, 2, TemplateValue::String("hello".into()))?;
-        expect_value(&template, 3, TemplateValue::Bool(false))?;
+        expect_value(&template, 2, TemplateValue::Int(42.into()))?;
+        expect_value(&template, 3, TemplateValue::String("hello".into()))?;
+        expect_value(&template, 4, TemplateValue::Bool(false))?;
         Ok(())
     }
 
@@ -1205,25 +1556,15 @@ mod tests {
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 1);
         // Outer `values`
-        expect_macro(
-            &template,
-            0,
-            context.macro_table.clone_macro_with_name("values").unwrap(),
-            5,
-        )?;
+        expect_macro(&template, 0, context.values_macro(), 6)?;
         // First argument: `(values x)`
-        expect_macro(
-            &template,
-            1,
-            context.macro_table.clone_macro_with_name("values").unwrap(),
-            1,
-        )?;
-        expect_variable(&template, 2, 0)?;
+        expect_macro(&template, 2, context.values_macro(), 1)?;
+        expect_variable(&template, 3, 0)?;
         // Second argument: `(literal (values x))`
         // Notice that the `literal` is not part of the compiled output, only its arguments
-        expect_value(&template, 3, TemplateValue::SExp)?;
-        expect_value(&template, 4, TemplateValue::Symbol("values".into()))?;
-        expect_value(&template, 5, TemplateValue::Symbol("x".into()))?;
+        expect_value(&template, 4, TemplateValue::SExp)?;
+        expect_value(&template, 5, TemplateValue::Symbol("values".into()))?;
+        expect_value(&template, 6, TemplateValue::Symbol("x".into()))?;
 
         Ok(())
     }

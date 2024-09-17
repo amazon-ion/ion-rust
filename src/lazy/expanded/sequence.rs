@@ -7,8 +7,9 @@ use crate::lazy::expanded::template::{TemplateElement, TemplateSequenceIterator}
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, LazyExpandedValue,
 };
-use crate::{try_or_some_err, ExpandedValueRef, IonResult, IonType, SymbolRef};
 use crate::result::IonFailure;
+use crate::{try_or_some_err, ExpandedValueRef, IonResult, IonType, SymbolRef};
+use std::fmt::Debug;
 
 /// A sequence of not-yet-evaluated expressions passed as arguments to a macro invocation.
 ///
@@ -25,9 +26,19 @@ use crate::result::IonFailure;
 /// ```
 /// The `Environment` would contain the expressions `1`, `2` and `(:values 3)`, corresponding to parameters
 /// `x`, `y`, and `z` respectively.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub struct Environment<'top, D: Decoder> {
     expressions: &'top [ValueExpr<'top, D>],
+}
+
+impl<'top, D: Decoder> Debug for Environment<'top, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Environment::[")?;
+        for expr in self.expressions {
+            writeln!(f, "{:?}", expr)?;
+        }
+        write!(f, "]")
+    }
 }
 
 impl<'top, D: Decoder> Environment<'top, D> {
@@ -53,9 +64,12 @@ impl<'top, D: Decoder> Environment<'top, D> {
     pub const fn empty() -> Environment<'top, D> {
         Environment { expressions: &[] }
     }
+
     pub fn expressions(&self) -> &'top [ValueExpr<'top, D>] {
         self.expressions
     }
+
+    /// Constructs a new environment with the expressions found in the provided EExp.
     pub fn for_eexp(context: EncodingContextRef<'top>, eexp: D::EExp<'top>) -> IonResult<Self> {
         use bumpalo::collections::Vec as BumpVec;
         let allocator = context.allocator();
@@ -329,7 +343,11 @@ impl<'top, D: Decoder> Iterator for ExpandedSExpIterator<'top, D> {
 }
 
 impl<'top, D: Decoder> ExpandedSExpIterator<'top, D> {
-    fn next_concatenated_value(evaluator: &mut MacroEvaluator<'top, D>, iter: &mut MacroExprArgsIterator<'top, D>, current_sequence: &mut Option<FlattenedSequence<'top, D>>) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
+    fn next_concatenated_value(
+        evaluator: &mut MacroEvaluator<'top, D>,
+        iter: &mut MacroExprArgsIterator<'top, D>,
+        current_sequence: &mut Option<FlattenedSequence<'top, D>>,
+    ) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
         loop {
             // If we're currently traversing a list or sexp, get the next value out of it.
             if let Some(sequence) = current_sequence {
@@ -340,7 +358,7 @@ impl<'top, D: Decoder> ExpandedSExpIterator<'top, D> {
 
             // If we get this far, any sequence we may have been traversing is now exhausted. We should
             // start evaluating the next expression from `iter`, expecting another sequence to traverse.
-            let value = match expand_next_sequence_value_from_resolved(evaluator.environment(), evaluator, iter) {
+            let value = match expand_next_sequence_value_from_resolved(evaluator, iter) {
                 Some(Ok(value)) => value,
                 Some(Err(e)) => return Some(Err(e)),
                 None => return None,
@@ -349,15 +367,23 @@ impl<'top, D: Decoder> ExpandedSExpIterator<'top, D> {
             // We got another value from our iterator. Make sure it's a sequence and then store
             // an iterator for it
             match try_or_some_err!(value.read()) {
-                ExpandedValueRef::List(list) => *current_sequence = {
-                    let list_iter = value.context().allocator().alloc_with(||list.iter());
-                    Some(FlattenedSequence::List(list_iter))
-                },
-                ExpandedValueRef::SExp(sexp) => *current_sequence = {
-                    let sexp_iter = value.context().allocator().alloc_with(||sexp.iter());
-                    Some(FlattenedSequence::SExp(sexp_iter))
-                },
-                other => return Some(IonResult::decoding_error(format!("`make_sexp` arguments must be sequences (list or sexp); found {other:?}")))
+                ExpandedValueRef::List(list) => {
+                    *current_sequence = {
+                        let list_iter = value.context().allocator().alloc_with(|| list.iter());
+                        Some(FlattenedSequence::List(list_iter))
+                    }
+                }
+                ExpandedValueRef::SExp(sexp) => {
+                    *current_sequence = {
+                        let sexp_iter = value.context().allocator().alloc_with(|| sexp.iter());
+                        Some(FlattenedSequence::SExp(sexp_iter))
+                    }
+                }
+                other => {
+                    return Some(IonResult::decoding_error(format!(
+                        "`make_sexp` arguments must be sequences (list or sexp); found {other:?}"
+                    )))
+                }
             }
         }
     }
@@ -401,7 +427,6 @@ fn expand_next_sequence_value<'top, D: Decoder>(
 }
 
 fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
-    environment: Environment<'top, D>,
     evaluator: &mut MacroEvaluator<'top, D>,
     iter: &mut impl Iterator<Item = IonResult<ValueExpr<'top, D>>>,
 ) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
@@ -421,7 +446,7 @@ fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
             None => return None,
             Some(Ok(ValueExpr::ValueLiteral(value))) => return Some(Ok(value)),
             Some(Ok(ValueExpr::MacroInvocation(invocation))) => {
-                evaluator.push(try_or_some_err!(invocation.expand(environment)));
+                evaluator.push(try_or_some_err!(invocation.expand()));
                 continue;
             }
             Some(Err(e)) => return Some(Err(e)),

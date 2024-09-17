@@ -32,11 +32,11 @@
 //! Leaving symbol tokens unresolved is an optimization; annotations, field names, and symbol values
 //! that are ignored by the reader do not incur the cost of symbol table resolution.
 
+use bumpalo::Bump as BumpAllocator;
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
-
-use bumpalo::Bump as BumpAllocator;
+use std::rc::Rc;
 
 use sequence::{LazyExpandedList, LazyExpandedSExp};
 
@@ -181,6 +181,26 @@ impl<'top> EncodingContextRef<'top> {
 
     pub fn macro_table(&self) -> &'top MacroTable {
         &self.context.macro_table
+    }
+
+    pub fn system_symbol_table(&self) -> &'top SymbolTable {
+        self.context.system_module.symbol_table()
+    }
+
+    pub fn system_macro_table(&self) -> &'top MacroTable {
+        self.context.system_module.macro_table()
+    }
+
+    pub(crate) fn none_macro(&self) -> Rc<Macro> {
+        self.system_macro_table()
+            .clone_macro_with_name("void")
+            .expect("`values` macro in system macro table")
+    }
+
+    pub(crate) fn values_macro(&self) -> Rc<Macro> {
+        self.system_macro_table()
+            .clone_macro_with_name("values")
+            .expect("`values` macro in system macro table")
     }
 }
 
@@ -823,7 +843,7 @@ pub struct LazyExpandedValue<'top, Encoding: Decoder> {
 
 impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.source)
+        write!(f, "{:?}", self.read_resolved()?)
     }
 }
 
@@ -971,11 +991,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         &self,
         eexp: &EExpression<'top, Encoding>,
     ) -> IonResult<ValueRef<'top, Encoding>> {
-        let new_expansion = MacroExpansion::initialize(
-            // The parent environment of an e-expression is always empty.
-            Environment::empty(),
-            MacroExpr::from_eexp(*eexp),
-        )?;
+        let new_expansion = MacroExpansion::initialize(MacroExpr::from_eexp(*eexp))?;
         new_expansion.expand_singleton()?.read_resolved()
     }
 

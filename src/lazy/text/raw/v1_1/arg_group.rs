@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::e_expression::ArgGroup;
+use crate::lazy::expanded::e_expression::EExpArgGroup;
 use crate::lazy::expanded::macro_evaluator::{
-    EExpArgGroupIterator, EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
+    EExpressionArgGroup, IsExhaustedIterator, MacroExpr, RawEExpression, ValueExpr,
 };
 use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
@@ -139,7 +139,7 @@ pub struct TextEExpArgGroupIterator<'top> {
     index: usize,
 }
 
-impl<'top> EExpArgGroupIterator<'top, TextEncoding_1_1> for TextEExpArgGroupIterator<'top> {
+impl<'top> IsExhaustedIterator<'top, TextEncoding_1_1> for TextEExpArgGroupIterator<'top> {
     fn is_exhausted(&self) -> bool {
         self.index == self.child_expr_cache.len()
     }
@@ -174,8 +174,8 @@ impl<'top> EExpressionArgGroup<'top, TextEncoding_1_1> for TextEExpArgGroup<'top
         self.parameter.encoding()
     }
 
-    fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, TextEncoding_1_1> {
-        ArgGroup::new(self, context)
+    fn resolve(self, context: EncodingContextRef<'top>) -> EExpArgGroup<'top, TextEncoding_1_1> {
+        EExpArgGroup::new(self, context)
     }
 
     fn iter(self) -> Self::Iterator {

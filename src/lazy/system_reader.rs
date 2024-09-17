@@ -180,11 +180,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         // first annotation has the text `$ion_encoding`, which may involve a lookup in the
         // encoding context. We'll promote this LazyExpandedValue to a LazyValue to enable that.
         let lazy_value = LazyValue::new(*lazy_value);
-        let first_annotation = lazy_value
-            .annotations()
-            .next()
-            .expect("already confirmed that there are annotations")?;
-        Ok(first_annotation.text() == Some("$ion_encoding"))
+        lazy_value.annotations().starts_with(["$ion_encoding"])
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
