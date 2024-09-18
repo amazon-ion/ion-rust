@@ -8,6 +8,7 @@ use num_traits::PrimInt;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
+use crate::lazy::binary::raw::v1_1::LengthType;
 use crate::lazy::binary::raw::value::EncodedBinaryValue;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
@@ -310,7 +311,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 // https://github.com/amazon-ion/ion-rust/issues/805
                 // For now, we'll populate these fields with nonsense values and ignore them.
                 ion_type_code: OpcodeType::Nop,
-                low_nibble: 0,
+                length_type: LengthType::Unknown,
+                byte: 0,
             },
 
             // FlexUInts cannot have any annotations
@@ -398,7 +400,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
         let header = &self.encoded_value.header();
         let representation = header.type_code();
-        let value = match (representation, header.low_nibble) {
+        let value = match (representation, header.low_nibble()) {
             (OpcodeType::Boolean, 0xE) => true,
             (OpcodeType::Boolean, 0xF) => false,
             _ => unreachable!("found a boolean value with an illegal length code."),
@@ -793,7 +795,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&'top self) -> IonResult<SymbolId> {
         let biases: [usize; 3] = [0, 256, 65792];
-        let length_code = self.encoded_value.header.low_nibble;
+        let length_code = self.encoded_value.header.low_nibble();
         if (1..=3).contains(&length_code) {
             let (id, _) = self
                 .value_body_buffer()

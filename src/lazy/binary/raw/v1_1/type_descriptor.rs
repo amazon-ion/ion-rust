@@ -1,4 +1,6 @@
 use crate::lazy::binary::encoded_value::EncodedHeader;
+use crate::lazy::binary::raw::v1_1::type_code::OpcodeKind;
+use crate::lazy::binary::raw::v1_1::LengthType::Unknown;
 use crate::lazy::binary::raw::v1_1::OpcodeType;
 use crate::IonType;
 
@@ -6,9 +8,15 @@ use crate::IonType;
 /// found at the beginning of each value, annotations wrapper, IVM, or NOP in a binary Ion stream.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Opcode {
+    /// The specific syntactic element that this opcode represents.
     pub opcode_type: OpcodeType,
-    pub ion_type: Option<IonType>,
-    pub low_nibble: u8,
+    /// The high-level category of syntactic elements to which the `OpcodeType` belongs.
+    /// See [`OpcodeKind`] for the list of possible categories.
+    pub kind: OpcodeKind,
+    /// Whether the syntactic element that this opcode represents/precedes has a length encoded
+    /// in the opcode itself, following the opcode, or must otherwise be inferred.
+    pub length_type: LengthType,
+    /// The raw input byte for this opcode.
     pub byte: u8,
 }
 
@@ -30,12 +38,12 @@ pub(crate) static ION_1_1_TYPED_NULL_TYPES: &[IonType; 12] = &[
     IonType::Struct,
 ];
 
-static ION_1_1_TIMESTAMP_SHORT_SIZE: [u8; 13] = [1, 2, 2, 4, 5, 6, 7, 8, 5, 5, 7, 8, 9];
+const ION_1_1_TIMESTAMP_SHORT_SIZE: [u8; 13] = [1, 2, 2, 4, 5, 6, 7, 8, 5, 5, 7, 8, 9];
 
 const DEFAULT_HEADER: Opcode = Opcode {
+    kind: OpcodeKind::Control,
     opcode_type: OpcodeType::Nop,
-    ion_type: None,
-    low_nibble: 0,
+    length_type: Unknown,
     byte: 0,
 };
 
@@ -55,56 +63,120 @@ impl Opcode {
     /// opcode + length code combination is illegal, an error will be returned.
     pub const fn from_byte(byte: u8) -> Opcode {
         let (high_nibble, low_nibble) = (byte >> 4, byte & 0x0F);
+        use crate::lazy::binary::raw::v1_1::type_code::OpcodeKind;
+        use LengthType::*;
         use OpcodeType::*;
 
-        let (opcode_type, length_code, ion_type) = match (high_nibble, low_nibble) {
-            (0x0..=0x3, _) => (EExpressionWith6BitAddress, low_nibble, None),
-            (0x4, _) => (EExpressionWith12BitAddress, low_nibble, None),
-            (0x5, _) => (EExpressionWith20BitAddress, low_nibble, None),
-            (0x6, 0x0..=0x8) => (Integer, low_nibble, Some(IonType::Int)),
-            (0x6, 0xA..=0xD) => (Float, low_nibble, Some(IonType::Float)),
-            (0x6, 0xE..=0xF) => (Boolean, low_nibble, Some(IonType::Bool)),
-            (0x7, _) => (Decimal, low_nibble, Some(IonType::Decimal)),
-            (0x8, 0x0..=0xC) => (TimestampShort, low_nibble, Some(IonType::Timestamp)),
-            (0x9, _) => (String, low_nibble, Some(IonType::String)),
-            (0xA, _) => (InlineSymbol, low_nibble, Some(IonType::Symbol)),
-            (0xB, _) => (List, low_nibble, Some(IonType::List)),
-            (0xC, _) => (SExpression, low_nibble, Some(IonType::SExp)),
-            (0xD, _) => (Struct, low_nibble, Some(IonType::Struct)),
-            (0xE, 0x0) => (IonVersionMarker, low_nibble, None),
-            (0xE, 0x1..=0x3) => (SymbolAddress, low_nibble, Some(IonType::Symbol)),
-            (0xE, 0x4..=0x6) => (AnnotationSymAddress, low_nibble, None),
-            (0xE, 0x7..=0x9) => (AnnotationFlexSym, low_nibble, None),
-            (0xE, 0xA) => (NullNull, low_nibble, Some(IonType::Null)),
-            (0xE, 0xB) => (TypedNull, low_nibble, Some(IonType::Null)),
-            (0xE, 0xC..=0xD) => (Nop, low_nibble, None),
-            (0xF, 0x0) => (DelimitedContainerClose, low_nibble, None),
-            (0xF, 0x1) => (ListDelimited, low_nibble, Some(IonType::List)),
-            (0xF, 0x2) => (SExpressionDelimited, low_nibble, Some(IonType::SExp)),
-            (0xF, 0x3) => (StructDelimited, low_nibble, Some(IonType::Struct)),
-            (0xF, 0x5) => (EExpressionWithLengthPrefix, low_nibble, None),
-            (0xF, 0x6) => (LargeInteger, low_nibble, Some(IonType::Int)),
-            (0xF, 0x7) => (Decimal, 0xFF, Some(IonType::Decimal)),
-            (0xF, 0x8) => (TimestampLong, low_nibble, Some(IonType::Timestamp)),
-            (0xF, 0x9) => (String, 0xFF, Some(IonType::String)), // 0xFF indicates >15 byte string.
-            (0xF, 0xA) => (InlineSymbol, 0xFF, Some(IonType::Symbol)),
-            (0xF, 0xB) => (List, 0xFF, Some(IonType::List)),
-            (0xF, 0xC) => (SExpression, 0xFF, Some(IonType::SExp)),
-            (0xF, 0xD) => (Struct, 0xFF, Some(IonType::Struct)),
-            (0xF, 0xE) => (Blob, low_nibble, Some(IonType::Blob)),
-            (0xF, 0xF) => (Clob, low_nibble, Some(IonType::Clob)),
-            _ => (Invalid, low_nibble, None),
+        // These are *additional* lengths beyond the opcode
+        const IVM_LENGTH: u8 = 3;
+        const UNTYPED_NULL_LENGTH: u8 = 0;
+        const TYPED_NULL_LENGTH: u8 = 1;
+
+        let (opcode_type, length_type, kind) = match (high_nibble, low_nibble) {
+            (0x0..=0x3, _) => (EExpressionWith6BitAddress, Unknown, OpcodeKind::EExp),
+            (0x4, _) => (EExpressionWith12BitAddress, Unknown, OpcodeKind::EExp),
+            (0x5, _) => (EExpressionWith20BitAddress, Unknown, OpcodeKind::EExp),
+            (0x6, length @ 0x0..=0x8) => {
+                (Integer, InOpcode(length), OpcodeKind::Value(IonType::Int))
+            }
+            (0x6, 0xA) => (Float, InOpcode(0), OpcodeKind::Value(IonType::Float)),
+            (0x6, 0xB..=0xD) => (
+                Float,
+                InOpcode(1 << (low_nibble - 0xA)),
+                OpcodeKind::Value(IonType::Float),
+            ),
+            (0x6, 0xE..=0xF) => (Boolean, InOpcode(0), OpcodeKind::Value(IonType::Bool)),
+            (0x7, length) => (
+                Decimal,
+                InOpcode(length),
+                OpcodeKind::Value(IonType::Decimal),
+            ),
+            (0x8, 0x0..=0xC) => (
+                TimestampShort,
+                InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[low_nibble as usize]),
+                OpcodeKind::Value(IonType::Timestamp),
+            ),
+            (0x9, length) => (String, InOpcode(length), OpcodeKind::Value(IonType::String)),
+            (0xA, length) => (
+                InlineSymbol,
+                InOpcode(length),
+                OpcodeKind::Value(IonType::Symbol),
+            ),
+            (0xB, length) => (List, InOpcode(length), OpcodeKind::Value(IonType::List)),
+            (0xC, length) => (SExp, InOpcode(length), OpcodeKind::Value(IonType::SExp)),
+            (0xD, length) => (Struct, InOpcode(length), OpcodeKind::Value(IonType::Struct)),
+            (0xE, 0x0) => (IonVersionMarker, InOpcode(IVM_LENGTH), OpcodeKind::Control),
+            (0xE, length @ 0x1..=0x3) => (
+                SymbolAddress,
+                InOpcode(length),
+                OpcodeKind::Value(IonType::Symbol),
+            ),
+            // Annotations sequences are self-delimiting, so their length is Unknown
+            (0xE, 0x4..=0x6) => (AnnotationSymAddress, Unknown, OpcodeKind::Annotations),
+            (0xE, 0x7..=0x9) => (AnnotationFlexSym, Unknown, OpcodeKind::Annotations),
+            (0xE, 0xA) => (
+                NullNull,
+                InOpcode(UNTYPED_NULL_LENGTH),
+                OpcodeKind::Value(IonType::Null),
+            ),
+            (0xE, 0xB) => (
+                TypedNull,
+                InOpcode(TYPED_NULL_LENGTH),
+                OpcodeKind::Value(IonType::Null),
+            ),
+            (0xE, 0xC) => (Nop, InOpcode(0), OpcodeKind::Control),
+            (0xE, 0xD) => (Nop, FlexUIntFollows, OpcodeKind::Control),
+            (0xF, 0x0) => (DelimitedContainerClose, InOpcode(0), OpcodeKind::Control),
+            (0xF, 0x1) => (ListDelimited, Unknown, OpcodeKind::Value(IonType::List)),
+            (0xF, 0x2) => (SExpDelimited, Unknown, OpcodeKind::Value(IonType::SExp)),
+            (0xF, 0x3) => (StructDelimited, Unknown, OpcodeKind::Value(IonType::Struct)),
+            (0xF, 0x5) => (
+                EExpressionWithLengthPrefix,
+                FlexUIntFollows,
+                OpcodeKind::EExp,
+            ),
+            (0xF, 0x6) => (
+                LargeInteger,
+                FlexUIntFollows,
+                OpcodeKind::Value(IonType::Int),
+            ),
+            (0xF, 0x7) => (
+                Decimal,
+                FlexUIntFollows,
+                OpcodeKind::Value(IonType::Decimal),
+            ),
+            (0xF, 0x8) => (
+                TimestampLong,
+                FlexUIntFollows,
+                OpcodeKind::Value(IonType::Timestamp),
+            ),
+            (0xF, 0x9) => (String, FlexUIntFollows, OpcodeKind::Value(IonType::String)), // 0xFF indicates >15 byte string.
+            (0xF, 0xA) => (
+                InlineSymbol,
+                FlexUIntFollows,
+                OpcodeKind::Value(IonType::Symbol),
+            ),
+            (0xF, 0xB) => (List, FlexUIntFollows, OpcodeKind::Value(IonType::List)),
+            (0xF, 0xC) => (SExp, FlexUIntFollows, OpcodeKind::Value(IonType::SExp)),
+            (0xF, 0xD) => (Struct, FlexUIntFollows, OpcodeKind::Value(IonType::Struct)),
+            (0xF, 0xE) => (Blob, FlexUIntFollows, OpcodeKind::Value(IonType::Blob)),
+            (0xF, 0xF) => (Clob, FlexUIntFollows, OpcodeKind::Value(IonType::Clob)),
+            _ => (Invalid, Unknown, OpcodeKind::Control),
         };
         Opcode {
-            ion_type,
             opcode_type,
-            low_nibble: length_code,
+            kind,
+            length_type,
             byte,
         }
     }
 
     pub fn ion_type(&self) -> Option<IonType> {
-        self.ion_type
+        if let OpcodeKind::Value(ion_type) = self.kind {
+            Some(ion_type)
+        } else {
+            None
+        }
     }
 
     pub fn is_null(&self) -> bool {
@@ -116,14 +188,7 @@ impl Opcode {
     }
 
     pub fn is_e_expression(&self) -> bool {
-        use OpcodeType::*;
-        matches!(
-            self.opcode_type,
-            EExpressionWith6BitAddress
-                | EExpressionWith12BitAddress
-                | EExpressionWith20BitAddress
-                | EExpressionWithLengthPrefix
-        )
+        matches!(self.kind, OpcodeKind::EExp)
     }
 
     pub fn is_ivm_start(&self) -> bool {
@@ -131,12 +196,11 @@ impl Opcode {
     }
 
     pub fn is_annotations_sequence(&self) -> bool {
-        use OpcodeType::*;
-        matches!(self.opcode_type, AnnotationSymAddress | AnnotationFlexSym)
+        matches!(self.kind, OpcodeKind::Annotations)
     }
 
     pub fn low_nibble(&self) -> u8 {
-        self.low_nibble
+        self.byte & 0x0F
     }
 
     pub fn is_delimited_start(&self) -> bool {
@@ -149,19 +213,25 @@ impl Opcode {
 
     #[inline]
     pub fn to_header(self) -> Option<Header> {
-        let ion_type = self.ion_type?;
         let header = Header {
-            ion_type,
+            ion_type: self.ion_type()?,
             ion_type_code: self.opcode_type,
-            low_nibble: self.low_nibble,
+            length_type: self.length_type,
+            byte: self.byte,
         };
         Some(header)
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LengthType {
+    /// The length of this construct is determined by the opcode. The `u8` indicates the number of
+    /// _following_ bytes that are part of this construct.
     InOpcode(u8),
+    /// The length of this construct is encoded as a `FlexUInt` following the opcode.
     FlexUIntFollows,
+    /// The length is delimited (e.g. containers) or requires additional information from context to
+    /// determine (e.g. e-expressions).
     Unknown,
 }
 
@@ -176,39 +246,21 @@ pub struct Header {
     // The only time the `ion_type_code` is required is to distinguish between positive
     // and negative integers.
     pub ion_type_code: OpcodeType,
-    pub low_nibble: u8,
+    pub length_type: LengthType,
+    pub byte: u8,
 }
 
 impl Header {
+    pub fn byte(&self) -> u8 {
+        self.byte
+    }
+
+    pub fn low_nibble(&self) -> u8 {
+        self.byte & 0x0F
+    }
+
     pub fn length_type(&self) -> LengthType {
-        use LengthType::*;
-        match (self.ion_type_code, self.low_nibble) {
-            (OpcodeType::Boolean, 0xE..=0xF) => InOpcode(0),
-            (OpcodeType::Float, 0xA) => InOpcode(0),
-            (OpcodeType::Float, 0xB..=0xD) => InOpcode(1 << (self.low_nibble - 0xA)),
-            (OpcodeType::Integer, n) => InOpcode(n),
-            (OpcodeType::Nop, 0xC) => InOpcode(0),
-            (OpcodeType::NullNull, 0xA) => InOpcode(0),
-            (OpcodeType::String, 0..=15) => InOpcode(self.low_nibble),
-            (OpcodeType::InlineSymbol, n) if n < 16 => InOpcode(n),
-            (OpcodeType::SymbolAddress, n) if n < 4 => InOpcode(n),
-            (OpcodeType::Decimal, 0..=15) => InOpcode(self.low_nibble),
-            (OpcodeType::List, n) if n < 16 => InOpcode(n),
-            (OpcodeType::SExpression, n) if n < 16 => InOpcode(n),
-            (OpcodeType::TimestampShort, 0..=12) => {
-                InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[self.low_nibble as usize])
-            }
-            (OpcodeType::TypedNull, _) => InOpcode(1),
-            (OpcodeType::Struct, n) if n < 16 => InOpcode(n),
-            (OpcodeType::DelimitedContainerClose, 0) => InOpcode(0),
-            (
-                OpcodeType::ListDelimited
-                | OpcodeType::SExpressionDelimited
-                | OpcodeType::StructDelimited,
-                _,
-            ) => Unknown,
-            _ => FlexUIntFollows,
-        }
+        self.length_type
     }
 }
 
@@ -224,7 +276,7 @@ impl EncodedHeader for Header {
     }
 
     fn low_nibble(&self) -> u8 {
-        self.low_nibble
+        self.low_nibble()
     }
 
     fn is_null(&self) -> bool {
