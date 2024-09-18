@@ -103,11 +103,7 @@ impl Opcode {
                 OpcodeKind::Value(IonType::Symbol),
             ),
             (0xB, length) => (List, InOpcode(length), OpcodeKind::Value(IonType::List)),
-            (0xC, length) => (
-                SExpression,
-                InOpcode(length),
-                OpcodeKind::Value(IonType::SExp),
-            ),
+            (0xC, length) => (SExp, InOpcode(length), OpcodeKind::Value(IonType::SExp)),
             (0xD, length) => (Struct, InOpcode(length), OpcodeKind::Value(IonType::Struct)),
             (0xE, 0x0) => (IonVersionMarker, InOpcode(IVM_LENGTH), OpcodeKind::Control),
             (0xE, length @ 0x1..=0x3) => (
@@ -128,14 +124,11 @@ impl Opcode {
                 InOpcode(TYPED_NULL_LENGTH),
                 OpcodeKind::Value(IonType::Null),
             ),
-            (0xE, 0xC..=0xD) => (Nop, Unknown, OpcodeKind::Control),
-            (0xF, 0x0) => (DelimitedContainerClose, InOpcode(1), OpcodeKind::Control),
+            (0xE, 0xC) => (Nop, InOpcode(0), OpcodeKind::Control),
+            (0xE, 0xD) => (Nop, FlexUIntFollows, OpcodeKind::Control),
+            (0xF, 0x0) => (DelimitedContainerClose, InOpcode(0), OpcodeKind::Control),
             (0xF, 0x1) => (ListDelimited, Unknown, OpcodeKind::Value(IonType::List)),
-            (0xF, 0x2) => (
-                SExpressionDelimited,
-                Unknown,
-                OpcodeKind::Value(IonType::SExp),
-            ),
+            (0xF, 0x2) => (SExpDelimited, Unknown, OpcodeKind::Value(IonType::SExp)),
             (0xF, 0x3) => (StructDelimited, Unknown, OpcodeKind::Value(IonType::Struct)),
             (0xF, 0x5) => (
                 EExpressionWithLengthPrefix,
@@ -164,11 +157,7 @@ impl Opcode {
                 OpcodeKind::Value(IonType::Symbol),
             ),
             (0xF, 0xB) => (List, FlexUIntFollows, OpcodeKind::Value(IonType::List)),
-            (0xF, 0xC) => (
-                SExpression,
-                FlexUIntFollows,
-                OpcodeKind::Value(IonType::SExp),
-            ),
+            (0xF, 0xC) => (SExp, FlexUIntFollows, OpcodeKind::Value(IonType::SExp)),
             (0xF, 0xD) => (Struct, FlexUIntFollows, OpcodeKind::Value(IonType::Struct)),
             (0xF, 0xE) => (Blob, FlexUIntFollows, OpcodeKind::Value(IonType::Blob)),
             (0xF, 0xF) => (Clob, FlexUIntFollows, OpcodeKind::Value(IonType::Clob)),
@@ -236,7 +225,8 @@ impl Opcode {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LengthType {
-    /// The length of this construct is determined by the opcode.
+    /// The length of this construct is determined by the opcode. The `u8` indicates the number of
+    /// _following_ bytes that are part of this construct.
     InOpcode(u8),
     /// The length of this construct is encoded as a `FlexUInt` following the opcode.
     FlexUIntFollows,
