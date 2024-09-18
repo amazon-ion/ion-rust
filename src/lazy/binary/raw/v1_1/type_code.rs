@@ -24,7 +24,7 @@ pub enum OpcodeType {
     String,                      // 0x90-0x9F -
     InlineSymbol,                // 0xA0-0xAF -
     List,                        // 0xB0-0xBF -
-    SExpression,                 // 0xC0-0xCF -
+    SExp,                        // 0xC0-0xCF -
     StructEmpty,                 // 0xD0      -
     // 0xD1 reserved
     Struct,           // 0xD2-0xDF -
@@ -40,7 +40,7 @@ pub enum OpcodeType {
     SystemMacroInvoke,           // 0xEF      -
     DelimitedContainerClose,     // 0xF0
     ListDelimited,               // 0xF1
-    SExpressionDelimited,        // 0xF2
+    SExpDelimited,               // 0xF2
     StructDelimited,             // 0xF3
     EExpressionWithLengthPrefix, // 0xF5
     LargeInteger,                // 0xF6 - Integer preceded by FlexUInt length
@@ -60,7 +60,7 @@ impl OpcodeType {
     pub fn is_delimited_start(self) -> bool {
         matches!(
             self,
-            Self::ListDelimited | Self::SExpressionDelimited | Self::StructDelimited
+            Self::ListDelimited | Self::SExpDelimited | Self::StructDelimited
         )
     }
 
