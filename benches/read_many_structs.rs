@@ -1,4 +1,5 @@
 use criterion::{criterion_group, criterion_main};
+use ion_rs::MacroTable;
 
 #[cfg(not(feature = "experimental"))]
 mod benchmark {
@@ -44,12 +45,12 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         )
     "#.to_owned();
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "abc-123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
 
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
     let mut binary_1_1_data_body: Vec<u8> = vec![
-        0x03, // Macro ID 3
+        MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
         0b10, // [NOTE: `0b`] `parameters*` arg is an arg group
         0x66, // 6-byte integer (`timestamp` param)
         0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
@@ -107,11 +108,11 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         )
     "#;
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc-123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
     let mut binary_1_1_data_body: Vec<u8> = vec![
-        0x03,
+        MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
         0b10, // [NOTE: `0b` prefix] `parameters*` arg is an arg group
         0x66, // 6-byte integer (`timestamp` param)
         0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
@@ -127,7 +128,7 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65, 0x2D, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x2D, 0x31,
         0xF9, // long-form string (`host_id` param)
         0x2B, // FlexUInt byte length 21
-        // "aws-us-east-5f-abc-123"
+        // "aws-us-east-5f-abc123"
         0x61, 0x77, 0x73, 0x2D, 0x75, 0x73,
         0x2D, 0x65, 0x61, 0x73, 0x74, 0x2D,
         0x35, 0x66, 0x2D, 0x61, 0x62, 0x63, 0x31, 0x32, 0x33,
@@ -178,12 +179,12 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
         )
     "#;
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc-123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
     let mut binary_1_1_data_body: Vec<u8> = vec![
         0xF5, // LP invocation
-        0x07, // Macro ID 3
+        ((MacroTable::FIRST_USER_MACRO_ID * 2) + 1) as u8, // Macro ID
         0xDF, // Length prefix: FlexUInt 111
         0b10, // [NOTE: `0b` prefix] `parameters*` arg is an arg group
         0x66, // 6-byte integer (`timestamp` param)
@@ -200,7 +201,7 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
         0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65, 0x2D, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x2D, 0x31,
         0xF9, // long-form string (`host_id` param)
         0x2B, // FlexUInt byte length 21
-        // "aws-us-east-5f-abc-123"
+        // "aws-us-east-5f-abc123"
         0x61, 0x77, 0x73, 0x2D, 0x75, 0x73,
         0x2D, 0x65, 0x61, 0x73, 0x74, 0x2D,
         0x35, 0x66, 0x2D, 0x61, 0x62, 0x63, 0x31, 0x32, 0x33,
@@ -302,7 +303,7 @@ mod benchmark {
             'loggerName': "com.example.organization.product.component.ClassName",
             'logLevel': INFO,
             'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
-            'parameters': ["SUCCESS","example-client-1","aws-us-east-5f-abc-123","region 4","2022-12-07T20:59:59.744000Z",],
+            'parameters': ["SUCCESS","example-client-1","aws-us-east-5f-abc123","region 4","2022-12-07T20:59:59.744000Z",],
         }"#.repeat(num_values);
         let text_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Text).unwrap();
         let binary_1_0_data = rewrite_as(&pretty_data_1_0, v1_0::Binary).unwrap();
