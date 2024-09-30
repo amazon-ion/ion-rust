@@ -35,9 +35,9 @@ use crate::lazy::decoder::{
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1,
 };
-use crate::lazy::expanded::e_expression::ArgGroup;
+use crate::lazy::expanded::e_expression::EExpArgGroup;
 use crate::lazy::expanded::macro_evaluator::{
-    EExpArgGroupIterator, EExpressionArgGroup, RawEExpression,
+    EExpressionArgGroup, IsExhaustedIterator, RawEExpression,
 };
 use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
@@ -277,6 +277,15 @@ pub enum AnyEExpArgGroupKind<'top> {
     Binary_1_1(BinaryEExpArgGroup<'top>),
 }
 
+impl<'top> AnyEExpArgGroupKind<'top> {
+    fn encoding(&self) -> &ParameterEncoding {
+        match self {
+            AnyEExpArgGroupKind::Text_1_1(g) => g.encoding(),
+            AnyEExpArgGroupKind::Binary_1_1(g) => g.encoding(),
+        }
+    }
+}
+
 impl<'top> HasRange for AnyEExpArgGroup<'top> {
     fn range(&self) -> Range<usize> {
         match self.kind {
@@ -303,7 +312,7 @@ pub struct AnyEExpArgGroupIterator<'top> {
 impl<
         'top,
         D: Decoder<Value<'top> = LazyRawAnyValue<'top>, EExp<'top> = LazyRawAnyEExpression<'top>>,
-    > EExpArgGroupIterator<'top, D> for AnyEExpArgGroupIterator<'top>
+    > IsExhaustedIterator<'top, D> for AnyEExpArgGroupIterator<'top>
 {
     fn is_exhausted(&self) -> bool {
         match self.kind {
@@ -353,15 +362,12 @@ impl<'top> Iterator for AnyEExpArgGroupIterator<'top> {
 impl<'top> EExpressionArgGroup<'top, AnyEncoding> for AnyEExpArgGroup<'top> {
     type Iterator = AnyEExpArgGroupIterator<'top>;
 
-    fn encoding(&self) -> ParameterEncoding {
-        match self.kind {
-            AnyEExpArgGroupKind::Text_1_1(g) => g.encoding(),
-            AnyEExpArgGroupKind::Binary_1_1(g) => g.encoding(),
-        }
+    fn encoding(&self) -> &ParameterEncoding {
+        self.kind.encoding()
     }
 
-    fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, AnyEncoding> {
-        ArgGroup::new(self, context)
+    fn resolve(self, context: EncodingContextRef<'top>) -> EExpArgGroup<'top, AnyEncoding> {
+        EExpArgGroup::new(self, context)
     }
 }
 

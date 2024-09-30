@@ -9,9 +9,9 @@ use crate::lazy::encoder::value_writer::{
     delegate_value_writer_to_self, AnnotatableWriter, ValueWriter,
 };
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
-use crate::lazy::expanded::e_expression::ArgGroup;
+use crate::lazy::expanded::e_expression::EExpArgGroup;
 use crate::lazy::expanded::macro_evaluator::{
-    EExpArgGroupIterator, EExpressionArgGroup, RawEExpression,
+    EExpressionArgGroup, IsExhaustedIterator, RawEExpression,
 };
 use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
@@ -155,7 +155,7 @@ impl<'top, D: Decoder> Iterator for NeverArgGroupIterator<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> EExpArgGroupIterator<'top, D> for NeverArgGroupIterator<'top, D> {
+impl<'top, D: Decoder> IsExhaustedIterator<'top, D> for NeverArgGroupIterator<'top, D> {
     fn is_exhausted(&self) -> bool {
         unreachable!("<NeverArgGroupIterator as EExpArgGroupIterator>::is_exhausted")
     }
@@ -176,11 +176,11 @@ impl<'top, D: Decoder> HasSpan<'top> for NeverArgGroup<'top, D> {
 impl<'top, D: Decoder> EExpressionArgGroup<'top, D> for NeverArgGroup<'top, D> {
     type Iterator = NeverArgGroupIterator<'top, D>;
 
-    fn encoding(&self) -> ParameterEncoding {
+    fn encoding(&self) -> &ParameterEncoding {
         unreachable!("<NeverArgGroup as EExpressionArgGroup>::encoding")
     }
 
-    fn resolve(self, _context: EncodingContextRef<'top>) -> ArgGroup<'top, D> {
+    fn resolve(self, _context: EncodingContextRef<'top>) -> EExpArgGroup<'top, D> {
         unreachable!("<NeverArgGroup as EExpressionArgGroup>::resolve")
     }
 

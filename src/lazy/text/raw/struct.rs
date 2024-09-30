@@ -11,7 +11,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::span::Span;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::matched::MatchedFieldName;
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
@@ -19,12 +19,12 @@ use crate::{IonResult, RawSymbolRef};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RawTextStructIterator_1_0<'top> {
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     has_returned_error: bool,
 }
 
 impl<'top> RawTextStructIterator_1_0<'top> {
-    pub(crate) fn new(input: TextBufferView<'top>) -> Self {
+    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
         RawTextStructIterator_1_0 {
             input,
             has_returned_error: false,

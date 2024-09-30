@@ -11,12 +11,12 @@ use crate::lazy::binary::encoded_value::EncodedValue;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryFieldName_1_0;
 use crate::lazy::binary::raw::type_descriptor::{Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS};
 use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::LazyRawFieldExpr;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
-use crate::lazy::expanded::template::ParameterEncoding;
 use crate::result::IonFailure;
 use crate::{Int, IonError, IonResult, IonType};
 
@@ -25,12 +25,12 @@ const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<i128>();
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
 ///
-/// Upon success, each parsing method on the `ImmutableBuffer` will return the value that was read
-/// and a copy of the `ImmutableBuffer` that starts _after_ the bytes that were parsed.
+/// Upon success, each parsing method on the `BinaryBuffer` will return the value that was read
+/// and a copy of the `BinaryBuffer` that starts _after_ the bytes that were parsed.
 ///
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
 #[derive(PartialEq, Clone, Copy)]
-pub struct ImmutableBuffer<'a> {
+pub struct BinaryBuffer<'a> {
     // `data` is a slice of remaining data in the larger input stream.
     // `offset` is the position in the overall input stream where that slice begins.
     //
@@ -42,9 +42,9 @@ pub struct ImmutableBuffer<'a> {
     offset: usize,
 }
 
-impl<'a> Debug for ImmutableBuffer<'a> {
+impl<'a> Debug for BinaryBuffer<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ImmutableBuffer {{")?;
+        write!(f, "BinaryBuffer {{")?;
         for byte in self.bytes().iter().take(16) {
             write!(f, "{:x?} ", *byte)?;
         }
@@ -52,17 +52,17 @@ impl<'a> Debug for ImmutableBuffer<'a> {
     }
 }
 
-pub(crate) type ParseResult<'a, T> = IonResult<(T, ImmutableBuffer<'a>)>;
+pub(crate) type ParseResult<'a, T> = IonResult<(T, BinaryBuffer<'a>)>;
 
-impl<'a> ImmutableBuffer<'a> {
-    /// Constructs a new `ImmutableBuffer` that wraps `data`.
+impl<'a> BinaryBuffer<'a> {
+    /// Constructs a new `BinaryBuffer` that wraps `data`.
     #[inline]
-    pub fn new(data: &[u8]) -> ImmutableBuffer {
+    pub fn new(data: &[u8]) -> BinaryBuffer {
         Self::new_with_offset(data, 0)
     }
 
-    pub fn new_with_offset(data: &[u8], offset: usize) -> ImmutableBuffer {
-        ImmutableBuffer { data, offset }
+    pub fn new_with_offset(data: &[u8], offset: usize) -> BinaryBuffer {
+        BinaryBuffer { data, offset }
     }
 
     /// Returns a slice containing all of the buffer's bytes.
@@ -77,17 +77,17 @@ impl<'a> ImmutableBuffer<'a> {
         &self.data[offset..offset + length]
     }
 
-    /// Like [`Self::bytes_range`] above, but returns an updated copy of the [`ImmutableBuffer`]
+    /// Like [`Self::bytes_range`] above, but returns an updated copy of the [`BinaryBuffer`]
     /// instead of a `&[u8]`.
-    pub fn slice(&self, offset: usize, length: usize) -> ImmutableBuffer<'a> {
-        ImmutableBuffer {
+    pub fn slice(&self, offset: usize, length: usize) -> BinaryBuffer<'a> {
+        BinaryBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
         }
     }
 
     /// Returns the number of bytes between the start of the original input byte array and the
-    /// subslice of that byte array that this `ImmutableBuffer` represents.
+    /// subslice of that byte array that this `BinaryBuffer` represents.
     pub fn offset(&self) -> usize {
         self.offset
     }
@@ -118,7 +118,7 @@ impl<'a> ImmutableBuffer<'a> {
         self.data.get(..n)
     }
 
-    /// Creates a copy of this `ImmutableBuffer` that begins `num_bytes_to_consume` further into the
+    /// Creates a copy of this `BinaryBuffer` that begins `num_bytes_to_consume` further into the
     /// slice.
     #[inline]
     pub fn consume(&self, num_bytes_to_consume: usize) -> Self {
@@ -151,7 +151,7 @@ impl<'a> ImmutableBuffer<'a> {
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
-                let matched = ImmutableBuffer::new_with_offset(bytes, self.offset);
+                let matched = BinaryBuffer::new_with_offset(bytes, self.offset);
                 let marker = LazyRawBinaryVersionMarker_1_0::new(matched, *major, *minor);
                 Ok((marker, self.consume(IVM.len())))
             }
@@ -617,7 +617,7 @@ impl<'a> ImmutableBuffer<'a> {
     #[cold]
     /// Consumes (field ID, NOP pad) pairs until a non-NOP value is encountered in field position or
     /// the buffer is empty. Returns a buffer starting at the field ID before the non-NOP value.
-    fn read_struct_field_nop_pad(self) -> IonResult<Option<(usize, VarUInt, ImmutableBuffer<'a>)>> {
+    fn read_struct_field_nop_pad(self) -> IonResult<Option<(usize, VarUInt, BinaryBuffer<'a>)>> {
         let mut input_before_field_id = self;
         loop {
             if input_before_field_id.is_empty() {
@@ -704,14 +704,13 @@ impl<'a> ImmutableBuffer<'a> {
         }
 
         let encoded_value = EncodedValue {
-            encoding: ParameterEncoding::Tagged,
+            encoding: BinaryValueEncoding::Tagged,
             header,
             // If applicable, these are populated by the caller: `read_annotated_value()`
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset,
-            opcode_length: 1,
             length_length,
             value_body_length: value_length,
             total_length,
@@ -776,7 +775,7 @@ mod tests {
     use super::*;
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
-        let input = ImmutableBuffer::new(input.as_ref());
+        let input = BinaryBuffer::new(input.as_ref());
         // We can peek at the first byte...
         assert_eq!(input.peek_next_byte(), Some(b'f'));
         // ...without modifying the input. Looking at the next 3 bytes still includes 'f'.
@@ -809,7 +808,7 @@ mod tests {
 
     #[test]
     fn read_var_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001]);
+        let buffer = BinaryBuffer::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001]);
         let var_uint = buffer.read_var_uint()?.0;
         assert_eq!(3, var_uint.size_in_bytes());
         assert_eq!(1_984_385, var_uint.value());
@@ -818,7 +817,7 @@ mod tests {
 
     #[test]
     fn read_var_uint_zero() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b1000_0000]);
+        let buffer = BinaryBuffer::new(&[0b1000_0000]);
         let var_uint = buffer.read_var_uint()?.0;
         assert_eq!(var_uint.size_in_bytes(), 1);
         assert_eq!(var_uint.value(), 0);
@@ -827,7 +826,7 @@ mod tests {
 
     #[test]
     fn read_var_uint_two_bytes_max_value() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1111, 0b1111_1111]);
+        let buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let var_uint = buffer.read_var_uint()?.0;
         assert_eq!(var_uint.size_in_bytes(), 2);
         assert_eq!(var_uint.value(), 16_383);
@@ -836,7 +835,7 @@ mod tests {
 
     #[test]
     fn read_incomplete_var_uint() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1001, 0b0000_1111]);
+        let buffer = BinaryBuffer::new(&[0b0111_1001, 0b0000_1111]);
         match buffer.read_var_uint() {
             Err(IonError::Incomplete { .. }) => Ok(()),
             other => panic!("expected IonError::Incomplete, but found: {other:?}"),
@@ -845,7 +844,7 @@ mod tests {
 
     #[test]
     fn read_var_uint_overflow_detection() {
-        let buffer = ImmutableBuffer::new(&[
+        let buffer = BinaryBuffer::new(&[
             0b0111_1111,
             0b0111_1111,
             0b0111_1111,
@@ -864,7 +863,7 @@ mod tests {
 
     #[test]
     fn read_var_int_zero() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b1000_0000]);
+        let buffer = BinaryBuffer::new(&[0b1000_0000]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 1);
         assert_eq!(var_int.value(), 0);
@@ -873,7 +872,7 @@ mod tests {
 
     #[test]
     fn read_negative_var_int() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001]);
+        let buffer = BinaryBuffer::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 3);
         assert_eq!(var_int.value(), -935_809);
@@ -882,7 +881,7 @@ mod tests {
 
     #[test]
     fn read_positive_var_int() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0011_1001, 0b0000_1111, 0b1000_0001]);
+        let buffer = BinaryBuffer::new(&[0b0011_1001, 0b0000_1111, 0b1000_0001]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 3);
         assert_eq!(var_int.value(), 935_809);
@@ -891,7 +890,7 @@ mod tests {
 
     #[test]
     fn read_var_int_two_byte_min() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1111, 0b1111_1111]);
+        let buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 2);
         assert_eq!(var_int.value(), -8_191);
@@ -900,7 +899,7 @@ mod tests {
 
     #[test]
     fn read_var_int_two_byte_max() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0011_1111, 0b1111_1111]);
+        let buffer = BinaryBuffer::new(&[0b0011_1111, 0b1111_1111]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 2);
         assert_eq!(var_int.value(), 8_191);
@@ -909,7 +908,7 @@ mod tests {
 
     #[test]
     fn read_var_int_overflow_detection() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[
+        let buffer = BinaryBuffer::new(&[
             0b0111_1111,
             0b0111_1111,
             0b0111_1111,
@@ -929,7 +928,7 @@ mod tests {
 
     #[test]
     fn read_int_negative_zero() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b1000_0000]); // Negative zero
+        let buffer = BinaryBuffer::new(&[0b1000_0000]); // Negative zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), &Int::from(0));
@@ -939,7 +938,7 @@ mod tests {
 
     #[test]
     fn read_int_positive_zero() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0000_0000]); // Positive zero
+        let buffer = BinaryBuffer::new(&[0b0000_0000]); // Positive zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), &Int::from(0));
@@ -949,7 +948,7 @@ mod tests {
 
     #[test]
     fn read_int_length_zero() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[]); // Negative zero
+        let buffer = BinaryBuffer::new(&[]); // Negative zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 0);
         assert_eq!(int.value(), &Int::from(0));
@@ -959,7 +958,7 @@ mod tests {
 
     #[test]
     fn read_two_byte_negative_int() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b1111_1111, 0b1111_1111]);
+        let buffer = BinaryBuffer::new(&[0b1111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 2);
         assert_eq!(int.value(), &Int::from(-32_767i64));
@@ -968,7 +967,7 @@ mod tests {
 
     #[test]
     fn read_two_byte_positive_int() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0111_1111, 0b1111_1111]);
+        let buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 2);
         assert_eq!(int.value(), &Int::from(32_767i64));
@@ -977,7 +976,7 @@ mod tests {
 
     #[test]
     fn read_three_byte_negative_int() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b1011_1100, 0b1000_0111, 0b1000_0001]);
+        let buffer = BinaryBuffer::new(&[0b1011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 3);
         assert_eq!(int.value(), &Int::from(-3_966_849i64));
@@ -986,7 +985,7 @@ mod tests {
 
     #[test]
     fn read_three_byte_positive_int() -> IonResult<()> {
-        let buffer = ImmutableBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
+        let buffer = BinaryBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 3);
         assert_eq!(int.value(), &Int::from(3_966_849i64));
@@ -996,7 +995,7 @@ mod tests {
     #[test]
     fn read_int_overflow() -> IonResult<()> {
         let data = vec![1; MAX_INT_SIZE_IN_BYTES + 1];
-        let buffer = ImmutableBuffer::new(&data); // Negative zero
+        let buffer = BinaryBuffer::new(&data); // Negative zero
         buffer
             .read_int(buffer.len())
             .expect_err("This exceeded the configured max Int size.");

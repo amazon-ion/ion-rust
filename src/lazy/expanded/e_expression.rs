@@ -9,9 +9,9 @@ use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::macro_evaluator::{
-    AnnotateExpansion, EExpArgGroupIterator, EExpressionArgGroup, MacroExpansion,
-    MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeSExpExpansion, MakeStringExpansion,
-    RawEExpression, TemplateExpansion, ValueExpr, ValuesExpansion,
+    AnnotateExpansion, EExpressionArgGroup, ExprGroupExpansion, IsExhaustedIterator,
+    MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeSExpExpansion,
+    MakeStringExpansion, RawEExpression, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::template::TemplateMacroRef;
@@ -23,31 +23,19 @@ use crate::{try_next, Environment, HasRange, HasSpan, IonResult, Span};
 /// An `ArgGroup` is a collection of expressions found in e-expression argument position.
 /// They can only appear in positions that correspond with variadic parameters.
 #[derive(Copy, Clone)]
-pub struct ArgGroup<'top, D: Decoder> {
+pub struct EExpArgGroup<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     raw_arg_group: <D::EExp<'top> as RawEExpression<'top, D>>::ArgGroup,
-    invoked_macro: MacroRef<'top>,
 }
 
-impl<'top, D: Decoder> ArgGroup<'top, D> {
+impl<'top, D: Decoder> EExpArgGroup<'top, D> {
     pub fn new(
         raw_arg_group: <D::EExp<'top> as RawEExpression<'top, D>>::ArgGroup,
         context: EncodingContextRef<'top>,
     ) -> Self {
-        // While an `ArgGroup` is a distinct syntactic entity with its own role to play in the grammar,
-        // once it has been read off the wire it behaves identically to a call to `(:values ...)`.
-        // Each expression in the group is expanded and the resulting stream is concatenated to that
-        // of the expression that proceeded it.
-        // TODO: Fully qualified, unambiguous ID
-        const VALUES_MACRO_ID: MacroIdRef<'static> = MacroIdRef::LocalAddress(1);
-        let invoked_macro = context
-            .macro_table()
-            .macro_with_id(VALUES_MACRO_ID)
-            .expect("`values` must be available");
         Self {
             context,
             raw_arg_group,
-            invoked_macro,
         }
     }
     pub fn context(&self) -> EncodingContextRef<'top> {
@@ -56,35 +44,40 @@ impl<'top, D: Decoder> ArgGroup<'top, D> {
     pub fn raw_arg_group(&self) -> <D::EExp<'top> as RawEExpression<'top, D>>::ArgGroup {
         self.raw_arg_group
     }
-    pub fn invoked_macro(&self) -> MacroRef<'top> {
-        self.invoked_macro
+    pub fn expressions(&self) -> EExpArgGroupIterator<'top, D> {
+        EExpArgGroupIterator::new(self.context, self.raw_arg_group())
     }
-    pub fn expressions(&self) -> ArgGroupIterator<'top, D> {
-        ArgGroupIterator::new(self.context, self.raw_arg_group())
-    }
-    pub fn expand(&self, environment: Environment<'top, D>) -> IonResult<MacroExpansion<'top, D>> {
+    pub fn expand(&self) -> IonResult<MacroExpansion<'top, D>> {
         let context = self.context();
-        let arguments = MacroExprArgsIterator::from_arg_group(self.expressions());
-        let expansion_kind = MacroExpansionKind::Values(ValuesExpansion::new(arguments));
-        Ok(MacroExpansion::new(context, environment, expansion_kind))
+        let arguments = MacroExprArgsIterator::from_eexp_arg_group(self.expressions());
+        let expansion_kind = MacroExpansionKind::ExprGroup(ExprGroupExpansion::new(arguments));
+        Ok(MacroExpansion::new(
+            context,
+            Environment::empty(),
+            expansion_kind,
+        ))
     }
 }
 
-impl<'top, D: Decoder> HasRange for ArgGroup<'top, D> {
+impl<'top, D: Decoder> HasRange for EExpArgGroup<'top, D> {
     fn range(&self) -> Range<usize> {
         self.raw_arg_group.range()
     }
 }
 
-impl<'top, D: Decoder> HasSpan<'top> for ArgGroup<'top, D> {
+impl<'top, D: Decoder> HasSpan<'top> for EExpArgGroup<'top, D> {
     fn span(&self) -> Span<'top> {
         self.raw_arg_group.span()
     }
 }
 
-impl<'top, D: Decoder> Debug for ArgGroup<'top, D> {
+impl<'top, D: Decoder> Debug for EExpArgGroup<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ArgGroup {:?}", self.raw_arg_group)
+        write!(f, "(: {:?}", self.raw_arg_group)?;
+        for expr in self.expressions() {
+            write!(f, " {:?}", expr)?;
+        }
+        write!(f, ")")
     }
 }
 
@@ -121,14 +114,16 @@ impl<'top, D: Decoder> EExpression<'top, D> {
         // macro.
         let expansion_kind = match invoked_macro.kind() {
             MacroKind::Void => MacroExpansionKind::Void,
-            MacroKind::Values => MacroExpansionKind::Values(ValuesExpansion::new(arguments)),
+            MacroKind::ExprGroup => {
+                MacroExpansionKind::ExprGroup(ExprGroupExpansion::new(arguments))
+            }
             MacroKind::MakeString => {
                 MacroExpansionKind::MakeString(MakeStringExpansion::new(arguments))
             }
             MacroKind::MakeSExp => MacroExpansionKind::MakeSExp(MakeSExpExpansion::new(arguments)),
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
             MacroKind::Template(template_body) => {
-                let template_ref = TemplateMacroRef::new(invoked_macro, template_body);
+                let template_ref = TemplateMacroRef::new(invoked_macro.reference(), template_body);
                 environment = self.new_evaluation_environment()?;
                 MacroExpansionKind::Template(TemplateExpansion::new(template_ref))
             }
@@ -141,11 +136,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
     }
 
     pub(crate) fn expand_to_single_value(&self) -> IonResult<LazyExpandedValue<'top, D>> {
-        let environment = self.new_evaluation_environment()?;
-        MacroExpansion::expand_singleton(MacroExpansion::initialize(
-            environment,
-            MacroExpr::from_eexp(*self),
-        )?)
+        MacroExpr::from_eexp(*self).expand()?.expand_singleton()
     }
 
     pub fn expansion_analysis(&self) -> ExpansionAnalysis {
@@ -189,7 +180,15 @@ impl<'top, D: Decoder> EExpression<'top, D> {
 
 impl<'top, D: Decoder> Debug for EExpression<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EExpression {:?}", self.raw_invocation)
+        write!(
+            f,
+            "(:{}",
+            self.invoked_macro().name().unwrap_or("<anonymous>")
+        )?;
+        for arg in self.arguments() {
+            write!(f, " {:?}", arg?)?;
+        }
+        write!(f, ")")
     }
 }
 
@@ -299,12 +298,12 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
 pub type TextEExpression_1_1<'top> = EExpression<'top, TextEncoding_1_1>;
 
 #[derive(Copy, Clone, Debug)]
-pub struct ArgGroupIterator<'top, D: Decoder> {
+pub struct EExpArgGroupIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     expressions: <<<D as Decoder>::EExp<'top> as RawEExpression<'top, D>>::ArgGroup as EExpressionArgGroup<'top, D>>::Iterator,
 }
 
-impl<'top, D: Decoder> ArgGroupIterator<'top, D> {
+impl<'top, D: Decoder> EExpArgGroupIterator<'top, D> {
     pub fn new(
         context: EncodingContextRef<'top>,
         arg_group: <<D as Decoder>::EExp<'top> as RawEExpression<'top, D>>::ArgGroup,
@@ -320,7 +319,7 @@ impl<'top, D: Decoder> ArgGroupIterator<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Iterator for ArgGroupIterator<'top, D> {
+impl<'top, D: Decoder> Iterator for EExpArgGroupIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {

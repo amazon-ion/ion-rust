@@ -1,5 +1,5 @@
 use crate::lazy::expanded::macro_table::MacroTable;
-use crate::SymbolTable;
+use crate::{IonVersion, SymbolTable};
 
 #[derive(Debug, Clone)]
 pub struct EncodingModule {
@@ -15,6 +15,13 @@ impl EncodingModule {
             macro_table,
             symbol_table,
         }
+    }
+    pub fn ion_1_1_system_module() -> Self {
+        Self::new(
+            String::from("$ion"),
+            MacroTable::with_system_macros(),
+            SymbolTable::new(IonVersion::v1_1),
+        )
     }
     pub fn name(&self) -> &str {
         &self.name

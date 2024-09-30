@@ -3,7 +3,7 @@
 use std::fmt::{Debug, Formatter};
 
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::ImmutableBuffer;
+use crate::lazy::binary::raw::v1_1::immutable_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::v1_1::value::{DelimitedContents, LazyRawBinaryValue_1_1};
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};
@@ -164,7 +164,7 @@ impl<'a> Debug for LazyRawBinarySequence_1_1<'a> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RawBinarySequenceIterator_1_1<'top> {
-    source: ImmutableBuffer<'top>,
+    source: BinaryBuffer<'top>,
     bytes_to_skip: usize,
     delimited_expr_cache: Option<&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]>,
     expr_cache_index: usize,
@@ -172,7 +172,7 @@ pub struct RawBinarySequenceIterator_1_1<'top> {
 
 impl<'top> RawBinarySequenceIterator_1_1<'top> {
     pub(crate) fn new(
-        input: ImmutableBuffer<'top>,
+        input: BinaryBuffer<'top>,
         delimited_expr_cache: Option<&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]>,
     ) -> RawBinarySequenceIterator_1_1<'top> {
         RawBinarySequenceIterator_1_1 {

@@ -10,7 +10,7 @@ use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 
-/// A binary reader that only reads each value that it visits upon request (that is: lazily).
+/// An Ion reader that only reads each value that it visits upon request (that is: lazily).
 ///
 /// Each time [`Reader::next`] is called, the reader will advance to the next top-level value
 /// in the input stream. Once positioned on a top-level value, users may visit nested values by

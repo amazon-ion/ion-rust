@@ -2,13 +2,13 @@ use std::ops::Range;
 
 use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
-use crate::lazy::expanded::e_expression::ArgGroup;
+use crate::lazy::expanded::e_expression::EExpArgGroup;
 use crate::lazy::expanded::macro_evaluator::{
-    EExpArgGroupIterator, EExpressionArgGroup, MacroExpr, RawEExpression, ValueExpr,
+    EExpressionArgGroup, IsExhaustedIterator, MacroExpr, RawEExpression, ValueExpr,
 };
 use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
 use crate::lazy::expanded::EncodingContextRef;
-use crate::lazy::text::buffer::TextBufferView;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::result::IonFailure;
 use crate::{Decoder, HasRange, HasSpan, IonResult, LazyExpandedValue, Span};
 
@@ -100,7 +100,7 @@ impl<'top, D: Decoder> HasRange for EExpArgExpr<'top, D> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct TextEExpArgGroup<'top> {
-    input: TextBufferView<'top>,
+    input: TextBuffer<'top>,
     parameter: &'top Parameter,
     // Notice that the expressions inside an arg group cannot themselves be arg groups,
     // only value literals or e-expressions.
@@ -110,7 +110,7 @@ pub struct TextEExpArgGroup<'top> {
 impl<'top> TextEExpArgGroup<'top> {
     pub fn new(
         parameter: &'top Parameter,
-        input: TextBufferView<'top>,
+        input: TextBuffer<'top>,
         child_expr_cache: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
     ) -> Self {
         Self {
@@ -139,7 +139,7 @@ pub struct TextEExpArgGroupIterator<'top> {
     index: usize,
 }
 
-impl<'top> EExpArgGroupIterator<'top, TextEncoding_1_1> for TextEExpArgGroupIterator<'top> {
+impl<'top> IsExhaustedIterator<'top, TextEncoding_1_1> for TextEExpArgGroupIterator<'top> {
     fn is_exhausted(&self) -> bool {
         self.index == self.child_expr_cache.len()
     }
@@ -170,12 +170,12 @@ impl<'top> IntoIterator for TextEExpArgGroup<'top> {
 impl<'top> EExpressionArgGroup<'top, TextEncoding_1_1> for TextEExpArgGroup<'top> {
     type Iterator = TextEExpArgGroupIterator<'top>;
 
-    fn encoding(&self) -> ParameterEncoding {
+    fn encoding(&self) -> &ParameterEncoding {
         self.parameter.encoding()
     }
 
-    fn resolve(self, context: EncodingContextRef<'top>) -> ArgGroup<'top, TextEncoding_1_1> {
-        ArgGroup::new(self, context)
+    fn resolve(self, context: EncodingContextRef<'top>) -> EExpArgGroup<'top, TextEncoding_1_1> {
+        EExpArgGroup::new(self, context)
     }
 
     fn iter(self) -> Self::Iterator {

@@ -25,9 +25,9 @@ impl Debug for Sequence {
         for element in self {
             if is_first {
                 write!(f, "{element}")?;
+                is_first = false;
             } else {
                 write!(f, ", {element}")?;
-                is_first = false;
             }
         }
         write!(f, ">")

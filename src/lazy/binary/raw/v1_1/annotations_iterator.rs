@@ -1,18 +1,18 @@
 #![allow(non_camel_case_types)]
-use crate::lazy::binary::raw::v1_1::immutable_buffer::{AnnotationsEncoding, ImmutableBuffer};
+use crate::lazy::binary::raw::v1_1::immutable_buffer::{AnnotationsEncoding, BinaryBuffer};
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSymValue;
 use crate::{IonResult, RawSymbolRef, SymbolId};
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of FlexUInt- or
 /// FlexSym-encoded symbol IDs.
 pub struct RawBinaryAnnotationsIterator_1_1<'a> {
-    buffer: ImmutableBuffer<'a>,
+    buffer: BinaryBuffer<'a>,
     encoding: AnnotationsEncoding,
 }
 
 impl<'a> RawBinaryAnnotationsIterator_1_1<'a> {
     pub(crate) fn new(
-        buffer: ImmutableBuffer<'a>,
+        buffer: BinaryBuffer<'a>,
         encoding: AnnotationsEncoding,
     ) -> RawBinaryAnnotationsIterator_1_1<'a> {
         Self { buffer, encoding }

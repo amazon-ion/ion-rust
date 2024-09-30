@@ -1,21 +1,20 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-
-use delegate::delegate;
-use rustc_hash::FxHashMap;
-
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::template::{
-    MacroSignature, Parameter, ParameterCardinality, ParameterEncoding, RestSyntaxPolicy,
-    TemplateBody, TemplateMacro, TemplateMacroRef,
+    ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
+    RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateMacro, TemplateMacroRef,
+    TemplateValue,
 };
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
-use crate::{IonResult, IonType};
+use crate::{IonResult, IonType, Symbol, TemplateBodyExpr};
+use delegate::delegate;
+use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::borrow::Cow;
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
-    name: Option<String>,
+    name: Option<Rc<str>>,
     signature: MacroSignature,
     kind: MacroKind,
     // Compile-time heuristics that allow the reader to evaluate e-expressions lazily or using fewer
@@ -39,7 +38,7 @@ pub struct Macro {
 
 impl Macro {
     pub fn named(
-        name: impl Into<String>,
+        name: impl Into<Rc<str>>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -55,8 +54,17 @@ impl Macro {
         Self::new(None, signature, kind, expansion_analysis)
     }
 
+    pub fn from_template_macro(template_macro: TemplateMacro) -> Self {
+        Macro::new(
+            template_macro.name,
+            template_macro.signature,
+            MacroKind::Template(template_macro.body),
+            template_macro.expansion_analysis,
+        )
+    }
+
     pub fn new(
-        name: Option<String>,
+        name: Option<Rc<str>>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -71,6 +79,9 @@ impl Macro {
 
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+    pub(crate) fn clone_name(&self) -> Option<Rc<str>> {
+        self.name.as_ref().map(Rc::clone)
     }
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
@@ -101,7 +112,7 @@ impl Macro {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MacroKind {
     Void,
-    Values,
+    ExprGroup,
     MakeString,
     MakeSExp,
     Annotate,
@@ -121,7 +132,7 @@ impl<'top> MacroRef<'top> {
 
     pub fn require_template(self) -> TemplateMacroRef<'top> {
         if let MacroKind::Template(body) = &self.kind() {
-            return TemplateMacroRef::new(self, body);
+            return TemplateMacroRef::new(self.reference(), body);
         }
         unreachable!(
             "caller required a template macro but found {:?}",
@@ -159,33 +170,51 @@ impl<'top> MacroRef<'top> {
 /// its validity and allowing evaluation to begin.
 #[derive(Debug, Clone)]
 pub struct MacroTable {
-    macros_by_address: Vec<Macro>,
+    // Stores `Rc` references to the macro definitions to make cloning the table's contents cheaper.
+    macros_by_address: Vec<Rc<Macro>>,
     // Maps names to an address that can be used to query the Vec above.
-    macros_by_name: FxHashMap<String, usize>,
+    macros_by_name: FxHashMap<Rc<str>, usize>,
+}
+
+thread_local! {
+    /// An instance of the Ion 1.1 system macro table is lazily instantiated once per thread,
+    /// minimizing the number of times macro compilation occurs.
+    ///
+    /// The thread-local instance holds `Rc` references to its macro names and macro definitions,
+    /// making its contents inexpensive to `clone()` and reducing the number of duplicate `String`s
+    /// being allocated over time.
+    ///
+    /// Each time the user constructs a reader, it clones the thread-local copy of the system macro
+    /// table.
+    pub static ION_1_1_SYSTEM_MACROS: MacroTable = MacroTable::construct_system_macro_table();
 }
 
 impl Default for MacroTable {
     fn default() -> Self {
-        Self::new()
+        Self::with_system_macros()
     }
 }
 
 impl MacroTable {
     pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] = &[
         MacroKind::Void,
-        MacroKind::Values,
+        MacroKind::ExprGroup,
         MacroKind::MakeString,
         MacroKind::MakeSExp,
         MacroKind::Annotate,
     ];
-    pub const NUM_SYSTEM_MACROS: usize = Self::SYSTEM_MACRO_KINDS.len();
+    pub const NUM_SYSTEM_MACROS: usize = 6;
     // When a user defines new macros, this is the first ID that will be assigned. This value
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
-    pub fn new() -> Self {
-        let macros_by_id = vec![
-            Macro::named(
+    fn compile_system_macros() -> Vec<Rc<Macro>> {
+        // We cannot compile template macros from source (text Ion) because that would require a Reader,
+        // and a Reader would require system macros. To avoid this circular dependency, we manually
+        // compile any TemplateMacros ourselves.
+
+        vec![
+            Rc::new(Macro::named(
                 "void",
                 MacroSignature::new(vec![]).unwrap(),
                 MacroKind::Void,
@@ -198,28 +227,31 @@ impl MacroTable {
                     can_be_lazily_evaluated_at_top_level: false,
                     expansion_singleton: None,
                 },
-            ),
-            Macro::named(
-                "values",
-                MacroSignature::new(vec![Parameter::new(
-                    "expr_group",
+            )),
+            //
+            // This macro is equivalent to:
+            //    (macro values (x*) x)
+            //
+            // It is effectively a user-addressable expression group.
+            Rc::new(Macro::from_template_macro(TemplateMacro {
+                name: Some("values".into()),
+                signature: MacroSignature::new(vec![Parameter::new(
+                    "$expr_group",
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
                 )])
                 .unwrap(),
-                MacroKind::Values,
-                ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: false,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: None,
+                body: TemplateBody {
+                    expressions: vec![TemplateBodyExpr::variable(0, ExprRange::new(0..1))],
+                    annotations_storage: vec![],
                 },
-            ),
-            Macro::named(
+                expansion_analysis: ExpansionAnalysis::default(),
+            })),
+            Rc::new(Macro::named(
                 "make_string",
                 MacroSignature::new(vec![Parameter::new(
-                    "expr_group",
+                    "$text_values",
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
@@ -236,11 +268,11 @@ impl MacroTable {
                         num_annotations: 0,
                     }),
                 },
-            ),
-            Macro::named(
+            )),
+            Rc::new(Macro::named(
                 "make_sexp",
                 MacroSignature::new(vec![Parameter::new(
-                    "sequences",
+                    "$sequences",
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
@@ -260,18 +292,18 @@ impl MacroTable {
                         num_annotations: 0,
                     }),
                 },
-            ),
-            Macro::named(
+            )),
+            Rc::new(Macro::named(
                 "annotate",
                 MacroSignature::new(vec![
                     Parameter::new(
-                        "annotations",
+                        "$annotations",
                         ParameterEncoding::Tagged,
                         ParameterCardinality::ZeroOrMore,
                         RestSyntaxPolicy::NotAllowed,
                     ),
                     Parameter::new(
-                        "value_to_annotate",
+                        "$value_to_annotate",
                         ParameterEncoding::Tagged,
                         ParameterCardinality::ExactlyOne,
                         RestSyntaxPolicy::NotAllowed,
@@ -285,18 +317,128 @@ impl MacroTable {
                     can_be_lazily_evaluated_at_top_level: false,
                     expansion_singleton: None,
                 },
-            ),
-        ];
-        let mut macros_by_name = HashMap::default();
+            )),
+            // This macro is equivalent to:
+            //    (macro append_macros ($macro_definitions*)
+            //        (annotate
+            //          (literal $ion_encoding)
+            //          (make_sexp [
+            //              (literal (symbol_table $ion_encoding)),
+            //              (make_sexp [
+            //                  (literal macro_table),
+            //                  (literal $ion_encoding),
+            //                  $macro_definitions
+            //              ])
+            //          ])
+            //        )
+            //    )
+            //
+            // However, because we're manually compiling it we can reduce some of the expressions.
+            // In particular, we don't need `(make_sexp ...)`, `(annotate ...)` or `(literal ...)`.
+            // We can "say what we mean" via instantiation instead.
+            Rc::new(Macro::from_template_macro(TemplateMacro {
+                name: Some("append_macros".into()),
+                signature: MacroSignature::new(vec![Parameter::new(
+                    "$macro_definitions",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                body: TemplateBody {
+                    expressions: vec![
+                        // The `$ion_encoding::(...)` s-expression
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp)
+                                // Has the first annotation in annotations storage below; `$ion_encoding`
+                                .with_annotations(0..1),
+                            // Contains expressions 0 (itself) through 8 (exclusive)
+                            ExprRange::new(0..8),
+                        ),
+                        // The `(symbol_table ...)` s-expression.
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 1 (itself) through 3 (exclusive)
+                            ExprRange::new(1..4),
+                        ),
+                        // The clause name `symbol_table`
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "symbol_table",
+                            ))),
+                            ExprRange::new(2..3),
+                        ),
+                        // The module name $ion_encoding
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(3..4),
+                        ),
+                        // The `(macro_table ...)` s-expression.
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 4 (itself) through 8 (exclusive)
+                            ExprRange::new(4..8),
+                        ),
+                        // The clause name `macro_table`
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "macro_table",
+                            ))),
+                            ExprRange::new(5..6),
+                        ),
+                        // The symbol literal `$ion_encoding`, indicating that we're appending
+                        // to the existing macro table.
+                        TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(6..7),
+                        ),
+                        // The variable at signature index 0 (`$macro_definitions`)
+                        TemplateBodyExpr::variable(0, ExprRange::new(7..8)),
+                    ],
+                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
+                },
+                expansion_analysis: ExpansionAnalysis {
+                    could_produce_system_value: true,
+                    must_produce_exactly_one_value: true,
+                    can_be_lazily_evaluated_at_top_level: false,
+                    expansion_singleton: Some(ExpansionSingleton {
+                        is_null: false,
+                        ion_type: IonType::SExp,
+                        num_annotations: 1,
+                    }),
+                },
+            })),
+        ]
+    }
+
+    pub(crate) fn construct_system_macro_table() -> Self {
+        let macros_by_id = Self::compile_system_macros();
+        let mut macros_by_name =
+            FxHashMap::with_capacity_and_hasher(macros_by_id.len(), FxBuildHasher);
         for (id, mac) in macros_by_id.iter().enumerate() {
             if let Some(name) = mac.name() {
-                macros_by_name.insert(name.to_owned(), id);
+                macros_by_name.insert(name.into(), id);
             }
             // Anonymous macros are not entered into the macros_by_name lookup table
         }
         Self {
             macros_by_address: macros_by_id,
             macros_by_name,
+        }
+    }
+
+    pub fn with_system_macros() -> Self {
+        ION_1_1_SYSTEM_MACROS.with(|system_macros| system_macros.clone())
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            macros_by_address: Vec::new(),
+            macros_by_name: FxHashMap::default(),
         }
     }
 
@@ -331,14 +473,33 @@ impl MacroTable {
         Some(MacroRef { address, reference })
     }
 
+    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Rc<Macro>> {
+        let address = *self.macros_by_name.get(name)?;
+        let reference = self.macros_by_address.get(address)?;
+        Some(Rc::clone(reference))
+    }
+
+    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Rc<Macro>> {
+        let reference = self.macros_by_address.get(address)?;
+        Some(Rc::clone(reference))
+    }
+
+    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef) -> Option<Rc<Macro>> {
+        use MacroIdRef::*;
+        match macro_id {
+            LocalName(name) => self.clone_macro_with_name(name),
+            LocalAddress(address) => self.clone_macro_with_address(address),
+        }
+    }
+
     pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
-        if let Some(name) = template.name.as_deref() {
-            if self.macros_by_name.contains_key(name) {
+        if let Some(name) = &template.name {
+            if self.macros_by_name.contains_key(name.as_ref()) {
                 return IonResult::decoding_error(format!("macro named '{name}' already exists"));
             }
-            self.macros_by_name.insert(name.to_owned(), id);
+            self.macros_by_name.insert(Rc::clone(name), id);
         }
 
         let new_macro = Macro::new(
@@ -348,7 +509,23 @@ impl MacroTable {
             template.expansion_analysis,
         );
 
-        self.macros_by_address.push(new_macro);
+        self.macros_by_address.push(Rc::new(new_macro));
         Ok(id)
+    }
+
+    pub(crate) fn append_all_macros_from(&mut self, other: &MacroTable) -> IonResult<()> {
+        for macro_ref in &other.macros_by_address {
+            let next_id = self.len();
+            if let Some(name) = macro_ref.clone_name() {
+                if self.macros_by_name.contains_key(name.as_ref()) {
+                    return IonResult::decoding_error(format!(
+                        "macro named '{name}' already exists"
+                    ));
+                }
+                self.macros_by_name.insert(name, next_id);
+            }
+            self.macros_by_address.push(Rc::clone(macro_ref))
+        }
+        Ok(())
     }
 }

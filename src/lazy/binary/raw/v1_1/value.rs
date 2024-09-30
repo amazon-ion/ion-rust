@@ -8,10 +8,10 @@ use num_traits::PrimInt;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
+use crate::lazy::binary::raw::v1_1::LengthType;
 use crate::lazy::binary::raw::value::EncodedBinaryValue;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
-use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
@@ -23,7 +23,7 @@ use crate::{
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
-                    immutable_buffer::ImmutableBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
+                    immutable_buffer::BinaryBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
                     Header, OpcodeType,
                 },
                 value::ValueParseResult,
@@ -60,11 +60,11 @@ impl ExtractBitmask for u64 {}
 pub struct LazyRawBinaryVersionMarker_1_1<'top> {
     major: u8,
     minor: u8,
-    input: ImmutableBuffer<'top>,
+    input: BinaryBuffer<'top>,
 }
 
 impl<'top> LazyRawBinaryVersionMarker_1_1<'top> {
-    pub fn new(input: ImmutableBuffer<'top>, major: u8, minor: u8) -> Self {
+    pub fn new(input: BinaryBuffer<'top>, major: u8, minor: u8) -> Self {
         Self {
             major,
             minor,
@@ -95,10 +95,26 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
     }
 }
 
+/// Encodings that can back a lazy binary value. Binary 1.0 values are always backed by
+/// the `Tagged` variant.
+///
+/// This is a subset of the encodings in the
+/// [`ParameterEncoding`](crate::lazy::expanded::template::ParameterEncoding) enum.
+/// `BinaryValueEncoding` contains only those variants that can back a binary value literal--
+/// encodings that are not macro-shaped.
+///
+/// When `LazyRawBinaryValue::read()` is called, this enum is inspected to determine how the
+/// bytes in the `BinaryBuffer` should be parsed to yield the value it represents.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BinaryValueEncoding {
+    Tagged,
+    FlexUInt,
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryValue_1_1<'top> {
     pub(crate) encoded_value: EncodedValue<Header>,
-    pub(crate) input: ImmutableBuffer<'top>,
+    pub(crate) input: BinaryBuffer<'top>,
     pub(crate) delimited_contents: DelimitedContents<'top>,
 }
 
@@ -138,7 +154,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
     }
 
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_1>> {
-        if self.encoded_value.encoding == ParameterEncoding::FlexUInt {
+        if self.encoded_value.encoding == BinaryValueEncoding::FlexUInt {
             let flex_uint = FlexUInt::read(self.input.bytes(), self.input.offset())?;
             let int: Int = flex_uint.value().into();
             return Ok(RawValueRef::Int(int));
@@ -183,7 +199,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         &self,
         context: EncodingContextRef<'top>,
     ) -> IonResult<ValueRef<'top, BinaryEncoding_1_1>> {
-        if self.encoded_value.encoding == ParameterEncoding::FlexUInt {
+        if self.encoded_value.encoding == BinaryValueEncoding::FlexUInt {
             let flex_uint = FlexUInt::read(self.input.bytes(), self.input.offset())?;
             let int: Int = flex_uint.value().into();
             return Ok(ValueRef::Int(int));
@@ -206,7 +222,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             value: &'a LazyRawBinaryValue_1_1<'a>,
             context: EncodingContextRef<'a>,
         ) -> IonResult<ValueRef<'a, BinaryEncoding_1_1>> {
-            if value.encoded_value.encoding == ParameterEncoding::FlexUInt {
+            if value.encoded_value.encoding == BinaryValueEncoding::FlexUInt {
                 let flex_uint = FlexUInt::read(value.input.bytes(), value.input.offset())?;
                 let int: Int = flex_uint.value().into();
                 return Ok(ValueRef::Int(int));
@@ -251,7 +267,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             // If there are no annotations, return an empty slice positioned at the opcode
             return Span::with_offset(self.encoded_value.header_offset, &[]);
         };
-        // Subtract the `offset()` of the ImmutableBuffer to get the local indexes for start/end
+        // Subtract the `offset()` of the BinaryBuffer to get the local indexes for start/end
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
@@ -279,9 +295,9 @@ impl<'top> DelimitedContents<'top> {
 impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Constructs a lazy raw binary value from an input buffer slice that has been found to contain
     /// a complete `FlexUInt`.
-    pub(crate) fn for_flex_uint(input: ImmutableBuffer<'top>) -> Self {
+    pub(crate) fn for_flex_uint(input: BinaryBuffer<'top>) -> Self {
         let encoded_value = EncodedValue {
-            encoding: ParameterEncoding::FlexUInt,
+            encoding: BinaryValueEncoding::FlexUInt,
             header: Header {
                 // It is an int, that's true.
                 ion_type: IonType::Int,
@@ -290,7 +306,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 // https://github.com/amazon-ion/ion-rust/issues/805
                 // For now, we'll populate these fields with nonsense values and ignore them.
                 ion_type_code: OpcodeType::Nop,
-                low_nibble: 0,
+                length_type: LengthType::Unknown,
+                byte: 0,
             },
 
             // FlexUInts cannot have any annotations
@@ -299,7 +316,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             annotations_encoding: AnnotationsEncoding::SymbolAddress,
 
             header_offset: input.offset(),
-            opcode_length: 0,
             length_length: 0,
             value_body_length: input.len(),
             total_length: input.len(),
@@ -327,9 +343,9 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         <&'top Self as LazyRawValue<'top, BinaryEncoding_1_1>>::has_annotations(&self)
     }
 
-    /// Returns an `ImmutableBuffer` that contains the bytes comprising this value's encoded
+    /// Returns an `BinaryBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
-    fn annotations_sequence(&self) -> ImmutableBuffer<'top> {
+    fn annotations_sequence(&self) -> BinaryBuffer<'top> {
         let annotations_header_length = self.encoded_value.annotations_header_length as usize;
         let sequence_length = self.encoded_value.annotations_sequence_length as usize;
         let sequence = self.input.slice(annotations_header_length, sequence_length);
@@ -374,10 +390,10 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         self.input.bytes_range(value_offset, value_body_length)
     }
 
-    /// Returns an [`ImmutableBuffer`] representing this value's data.
+    /// Returns an [`BinaryBuffer`] representing this value's data.
     /// For this raw value to have been created, lexing had to indicate that the complete value
     /// was available. Because of that invariant, this method will always succeed.
-    pub(crate) fn value_body_buffer(&self) -> ImmutableBuffer<'top> {
+    pub(crate) fn value_body_buffer(&self) -> BinaryBuffer<'top> {
         let value_total_length = self.encoded_value.total_length();
         let value_body_length = self.encoded_value.value_body_length();
         let value_offset = value_total_length - value_body_length;
@@ -389,7 +405,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Bool);
         let header = &self.encoded_value.header();
         let representation = header.type_code();
-        let value = match (representation, header.low_nibble) {
+        let value = match (representation, header.low_nibble()) {
             (OpcodeType::Boolean, 0xE) => true,
             (OpcodeType::Boolean, 0xF) => false,
             _ => unreachable!("found a boolean value with an illegal length code."),
@@ -784,7 +800,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&'top self) -> IonResult<SymbolId> {
         let biases: [usize; 3] = [0, 256, 65792];
-        let length_code = self.encoded_value.header.low_nibble;
+        let length_code = self.encoded_value.header.low_nibble();
         if (1..=3).contains(&length_code) {
             let (id, _) = self
                 .value_body_buffer()
@@ -852,7 +868,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
 impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
     fn opcode_length(&self) -> usize {
-        self.encoded_value.opcode_length as usize
+        self.encoded_value.opcode_length()
     }
 
     fn length_length(&self) -> usize {

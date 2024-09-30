@@ -309,7 +309,7 @@ macro_rules! v1_0_tooling_apis {
             binary::uint::DecodedUInt,
             binary::var_int::VarInt,
             binary::var_uint::VarUInt,
-            lazy::binary::immutable_buffer::{ImmutableBuffer, AnnotationsWrapper},
+            lazy::binary::immutable_buffer::{BinaryBuffer, AnnotationsWrapper},
             lazy::binary::raw::type_descriptor::Header,
             lazy::raw_value_ref::RawValueRef,
             lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0 as RawBinaryWriter,

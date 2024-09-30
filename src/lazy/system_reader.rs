@@ -180,11 +180,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         // first annotation has the text `$ion_encoding`, which may involve a lookup in the
         // encoding context. We'll promote this LazyExpandedValue to a LazyValue to enable that.
         let lazy_value = LazyValue::new(*lazy_value);
-        let first_annotation = lazy_value
-            .annotations()
-            .next()
-            .expect("already confirmed that there are annotations")?;
-        Ok(first_annotation.text() == Some("$ion_encoding"))
+        lazy_value.annotations().starts_with(["$ion_encoding"])
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
@@ -259,7 +255,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 let new_encoding_module = match pending_changes.take_new_active_module() {
                     None => EncodingModule::new(
                         "$ion_encoding".to_owned(),
-                        MacroTable::new(),
+                        MacroTable::with_system_macros(),
                         symbol_table,
                     ),
                     Some(mut module) => {
@@ -378,19 +374,35 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 "expected a macro table definition operation, but found: {operation:?}"
             ));
         }
-        let mut macro_table = MacroTable::new();
+        let mut macro_table = MacroTable::empty();
         for arg in args {
             let arg = arg?;
             let context = operation.expanded_sexp.context;
-            let macro_def_sexp = arg.read()?.expect_sexp().map_err(|_| {
-                IonError::decoding_error(format!(
-                    "macro_table had a non-sexp parameter: {}",
-                    arg.ion_type()
-                ))
-            })?;
-            let new_macro =
-                TemplateCompiler::compile_from_sexp(context, &macro_table, macro_def_sexp)?;
-            macro_table.add_macro(new_macro)?;
+            match arg.read()? {
+                ValueRef::SExp(macro_def_sexp) => {
+                    let new_macro =
+                        TemplateCompiler::compile_from_sexp(context, &macro_table, macro_def_sexp)?;
+                    macro_table.add_macro(new_macro)?;
+                }
+                ValueRef::Symbol(module_name) if module_name == "$ion_encoding" => {
+                    let active_mactab = operation.expanded().context.macro_table();
+                    macro_table.append_all_macros_from(active_mactab)?;
+                }
+                ValueRef::Symbol(module_name) if module_name == "$ion" => {
+                    let expanded_value = operation.expanded();
+                    let system_mactab = expanded_value.context.system_module.macro_table();
+                    macro_table.append_all_macros_from(system_mactab)?;
+                }
+                ValueRef::Symbol(_module_name) => {
+                    todo!("re-exporting macros from a module other than $ion_encoding")
+                }
+                _other => {
+                    return IonResult::decoding_error(format!(
+                        "macro_table was passed an unsupported argument type ({})",
+                        arg.ion_type()
+                    ));
+                }
+            }
         }
         Ok(macro_table)
     }
@@ -1068,6 +1080,7 @@ mod tests {
             $ion_encoding::(
                 (symbol_table ["foo", "bar", "baz"])
                 (macro_table
+                    $ion_encoding
                     (macro seventeen () 17)
                     (macro twelve () 12)))
             (:seventeen)
