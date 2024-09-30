@@ -39,7 +39,7 @@ pub(crate) struct Document {
 impl Document {
     /// Execute the test by evaluating the document's continuation.
     pub fn run(&self) -> Result<()> {
-        let ctx = Context::new(IonVersion::Unspecified, self.encoding(), &self.fragments);
+        let ctx = Context::new(IonVersion::Unspecified, self.encoding(), &self.fragments)?;
         self.continuation.evaluate(&ctx)?;
         Ok(())
     }
