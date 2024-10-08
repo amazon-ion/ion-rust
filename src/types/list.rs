@@ -54,7 +54,7 @@ impl AsRef<Sequence> for List {
 
 impl AsRef<[Element]> for List {
     fn as_ref(&self) -> &[Element] {
-        &self.0.as_ref()
+        self.0.as_ref()
     }
 }
 
