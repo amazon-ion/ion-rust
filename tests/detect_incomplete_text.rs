@@ -42,6 +42,7 @@ fn detect_incomplete_input_1_0(file_name: &str) {
     incomplete_text_detection_test(&SKIP_LIST_1_0, file_name).unwrap()
 }
 
+#[cfg(feature = "experimental-ion-1-1")]
 #[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
 fn detect_incomplete_input_1_1(file_name: &str) {
     incomplete_text_detection_test(&SKIP_LIST_1_1, file_name).unwrap()
