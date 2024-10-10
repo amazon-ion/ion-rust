@@ -31,7 +31,11 @@ experimental = [
     "experimental-reader-writer",
     "experimental-tooling-apis",
     "experimental-serde",
+    "experimental-ion-1-1",
 ]
+
+# Feature for indicating explicit opt-in to Ion 1.1
+experimental-ion-1-1 = [ "experimental-reader-writer" ]
 
 # Access to the streaming Reader and Writer types.
 # These APIs are functional and well-tested, but are not yet stable.

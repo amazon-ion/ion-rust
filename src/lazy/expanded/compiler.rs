@@ -1569,6 +1569,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn dependent_macros() -> IonResult<()> {
         let ion = r#"

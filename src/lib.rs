@@ -379,7 +379,23 @@ pub mod v1_0 {
     pub use crate::lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text};
 }
 
+#[cfg(feature = "experimental-ion-1-1")]
 pub mod v1_1 {
+    #[cfg(feature = "experimental-tooling-apis")]
+    v1_1_tooling_apis!(pub);
+
+    #[cfg(not(feature = "experimental-tooling-apis"))]
+    v1_1_tooling_apis!(pub(crate));
+
+    #[cfg(feature = "experimental-reader-writer")]
+    v1_1_reader_writer!(pub);
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    v1_1_reader_writer!(pub(crate));
+}
+
+#[cfg(not(feature = "experimental-ion-1-1"))]
+pub(crate) mod v1_1 {
     #[cfg(feature = "experimental-tooling-apis")]
     v1_1_tooling_apis!(pub);
 

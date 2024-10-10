@@ -1118,6 +1118,7 @@ pub struct EncodedAnnotations {
     pub sequence_length: u16,
 }
 
+#[cfg(feature = "experimental-ion-1-1")]
 #[cfg(test)]
 mod tests {
     use rstest::rstest;

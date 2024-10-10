@@ -1,3 +1,4 @@
+#![cfg(feature = "experimental-ion-1-1")]
 #![cfg(feature = "experimental-reader-writer")]
 mod conformance_dsl;
 use conformance_dsl::prelude::*;

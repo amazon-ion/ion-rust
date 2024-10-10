@@ -311,6 +311,7 @@ mod tests {
         test_fn(reader)
     }
 
+    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn expand_binary_template_macro() -> IonResult<()> {
         let macro_source = "(macro seventeen () 17)";
@@ -321,6 +322,7 @@ mod tests {
         })
     }
 
+    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn expand_binary_template_macro_with_one_arg() -> IonResult<()> {
         let macro_source = r#"
@@ -349,6 +351,7 @@ mod tests {
         })
     }
 
+    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn expand_binary_template_macro_with_multiple_outputs() -> IonResult<()> {
         let macro_source = r#"

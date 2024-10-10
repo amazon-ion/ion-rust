@@ -742,6 +742,7 @@ impl<S: SequenceWriter> ElementWriter for S {
     }
 }
 
+#[cfg(feature = "experimental-ion-1-1")]
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::value_writer::AnnotatableWriter;
