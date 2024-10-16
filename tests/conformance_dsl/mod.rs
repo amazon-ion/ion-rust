@@ -11,11 +11,12 @@ mod clause;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use ion_rs::{Element, IonError, IonStream, IonType};
+use ion_rs::{Element, IonError, IonStream, IonType, MapCatalog, SharedSymbolTable};
 
 use clause::*;
 use document::*;
 use fragment::*;
+use context::*;
 
 #[allow(unused)]
 pub(crate) mod prelude {
@@ -199,7 +200,6 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
 
 
 /// A collection of Tests, usually stored together in a file.
-#[derive(Debug)]
 pub(crate) struct TestCollection {
     documents: Vec<Document>,
 }
@@ -264,6 +264,32 @@ impl TestCollection {
 
 }
 
+/// Walks over all of the ion files contained in the ion-tests/catalog directory and extracts the
+/// symbol tables from each. A Vec of the resulting SharedSymbolTables is returned.
+pub(crate) fn build_ion_tests_symtables() -> Result<Vec<SharedSymbolTable>> {
+    use std::{env, fs, ffi::OsStr};
+
+    let mut catalog_dir = env::current_dir()?;
+    catalog_dir.push("ion-tests/catalog");
+
+    let mut symbol_tables = vec!();
+
+    for entry in fs::read_dir(catalog_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if Some(OsStr::new("ion")) == path.extension() {
+            let contents = fs::File::open(path)?;
+            for element in Element::iter(contents)? {
+                let element = element?;
+                symbol_tables.push(element.try_into()?);
+            }
+        }
+    }
+
+    Ok(symbol_tables)
+}
+
 /// Parses a 'bytes*' expression. A bytes expression can be either an integer (0..255) or a string
 /// containing hexadecimal digits (whitespace allowed). The `elems` provided should be all of the
 /// arguments to be included in the bytes* expression.
@@ -306,4 +332,71 @@ pub(crate) fn parse_text_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) ->
 
     let val_string = bytes.iter().map(|v| unsafe { String::from_utf8_unchecked(v.to_vec()) }).collect();
     Ok(val_string)
+}
+
+/// Parses absent symbol notation from a symbol within a Toplevel fragment, or produces
+/// Continuation. The notation is '#$<id>' for an absent symbol id, or '#$<name>#<id>' for a symbol
+/// ID from a specific symbol table named 'name'.
+pub(crate) fn parse_absent_symbol<T: AsRef<str>>(txt: T) -> (Option<String>, Option<usize>) {
+    let txt = txt.as_ref();
+    if let Some(id_txt) = txt.strip_prefix("#$") {
+        let split_txt: Vec<&str> = id_txt.split('#').collect(); // format: '#$<name>#<id>' or '#$<id>'
+        match split_txt.len() {
+            1 => (
+                None,
+                split_txt[0].parse::<usize>().map(Some).unwrap_or(None)
+            ),
+            2 => (
+                Some(split_txt[0].to_string()),
+                split_txt[1].parse::<usize>().map(Some).unwrap_or(None)
+            ),
+            _ => panic!("invalid absent symbol notation"),
+        }
+    } else {
+        (None, None)
+    }
+}
+
+/// Given a LazyValue and an Element, this function will compare the two as symbols handling
+/// parsing of the DSL's symbol notation and resolution.
+pub(crate) fn compare_symbols_eq<D: ion_rs::Decoder>(ctx: &Context, actual: &ion_rs::LazyValue<'_, D>, expected: &Element) -> InnerResult<bool> {
+    use ion_rs::ValueRef;
+
+    if expected.ion_type() != IonType::Symbol || actual.ion_type() != IonType::Symbol {
+        return Ok(false);
+    }
+
+    let expected_symbol = expected.as_symbol().unwrap(); // SAFETY: Tested above.
+    let ValueRef::Symbol(actual_symbol_ref) = actual.read()? else { // SAFETY: Tested above.
+        return Ok(false);
+    };
+
+    let (expected_symtab, expected_offset) = parse_absent_symbol(expected_symbol.text().unwrap_or(""));
+    let (actual_symtab, actual_offset) = parse_absent_symbol(actual_symbol_ref.text().unwrap_or(""));
+
+    let symbol_table = actual.symbol_table();
+
+    // Extract the symbol text for the expected value.
+    let expected_symbol_text= match (expected_symtab, expected_offset) {
+        (None, None) => expected_symbol.text().map(|t| t.to_owned()),
+        (None, Some(id)) => symbol_table.text_for(id).map(|t| t.to_owned()),
+        (Some(symtab), Some(id)) => match ctx.get_symbol_from_table(symtab, id) {
+            None => None,
+            Some(shared_symbol)  => shared_symbol.text().map(|t| t.to_owned()),
+        }
+        _ => unreachable!(), // Cannot have a symtab without an id.
+    };
+
+    // Extract the symbol text for the actual value.
+    let actual_symbol_text = match (actual_symtab, actual_offset) {
+        (None, None) => actual_symbol_ref.text().map(|t| t.to_owned()),
+        (None, Some(id)) => symbol_table.text_for(id).map(|t| t.to_owned()),
+        (Some(symtab), Some(id)) => match ctx.get_symbol_from_table(symtab, id) {
+            None => None,
+            Some(shared_symbol) => shared_symbol.text().map(|t| t.to_owned()),
+        }
+        _ => unreachable!(), // CAnnot have a symtab without an id.
+    };
+
+    Ok(expected_symbol_text == actual_symbol_text)
 }
