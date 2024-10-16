@@ -52,6 +52,12 @@ impl AsRef<Sequence> for SExp {
     }
 }
 
+impl AsRef<[Element]> for SExp {
+    fn as_ref(&self) -> &[Element] {
+        self.0.as_ref()
+    }
+}
+
 // Allows `for element in &sexp {...}` syntax
 impl<'a> IntoIterator for &'a SExp {
     type Item = &'a Element;

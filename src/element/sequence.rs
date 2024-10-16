@@ -131,6 +131,12 @@ impl AsRef<Sequence> for Sequence {
     }
 }
 
+impl AsRef<[Element]> for Sequence {
+    fn as_ref(&self) -> &[Element] {
+        self.elements.as_slice()
+    }
+}
+
 // This is more efficient than Sequence::new(), which will iterate over and convert each value to
 // an Element for better ergonomics.
 impl From<Vec<Element>> for Sequence {

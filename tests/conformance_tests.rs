@@ -1,3 +1,4 @@
+#![cfg(feature = "experimental-ion-1-1")]
 #![cfg(feature = "experimental-reader-writer")]
 #![cfg(feature = "experimental-tooling-apis")]
 mod conformance_dsl;
