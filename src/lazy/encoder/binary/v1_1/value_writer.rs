@@ -933,6 +933,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "experimental-ion-1-1")]
 mod tests {
     use num_traits::FloatConst;
     use rstest::rstest;

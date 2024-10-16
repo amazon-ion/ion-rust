@@ -1003,6 +1003,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn detect_encoding_directive_text() -> IonResult<()> {
         let text = r#"
@@ -1016,6 +1017,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn detect_encoding_directive_binary() -> IonResult<()> {
         let mut writer = LazyRawBinaryWriter_1_1::new(Vec::new())?;
@@ -1073,6 +1075,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn read_encoding_directive_new_active_module() -> IonResult<()> {
         let ion = r#"
