@@ -620,15 +620,7 @@ impl TemplateCompiler {
             ValueRef::Decimal(d) => TemplateValue::Decimal(d),
             ValueRef::Timestamp(t) => TemplateValue::Timestamp(t),
             ValueRef::String(s) => TemplateValue::String(s.to_owned()),
-            ValueRef::Symbol(s) if is_literal => TemplateValue::Symbol(s.to_owned()),
-            ValueRef::Symbol(s) => {
-                return Self::compile_variable_reference(
-                    tdl_context,
-                    definition,
-                    annotations_range,
-                    s,
-                )
-            }
+            ValueRef::Symbol(s) => TemplateValue::Symbol(s.to_owned()),
             ValueRef::Blob(b) => TemplateValue::Blob(b.to_owned()),
             ValueRef::Clob(c) => TemplateValue::Clob(c.to_owned()),
             // For the container types, compile the value's nested values/fields and take note
@@ -794,6 +786,9 @@ impl TemplateCompiler {
                 }
                 // ...add the arg expr group to the template body.
                 Self::compile_arg_expr_group(tdl_context, definition, arguments, parameter)
+            }
+            TdlSExpKind::VariableExpansion(name) => {
+                Self::compile_variable_reference(tdl_context, definition, annotations_range, name)
             }
         }
     }
@@ -1279,6 +1274,9 @@ enum TdlSExpKind<'a, D: Decoder> {
     /// * Associated `Parameter` is the parameter to which this arg expression group is being passed.
     /// * Associated iterator returns the s-expression's remaining child expressions.
     ArgExprGroup(Parameter, SExpIterator<'a, D>),
+    /// An expansion of a named variable.
+    ///     (%variable_name)
+    VariableExpansion(SymbolRef<'a>),
 }
 
 impl<'top, D: Decoder> TdlSExpKind<'top, D> {
@@ -1317,6 +1315,16 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
                 // Return the parameter this arg group is being passed to and an iterator over the
                 // remaining expressions in the sexp
                 return Ok(TdlSExpKind::ArgExprGroup(parameter.clone(), expressions));
+            }
+            // It's a variable reference.
+            ValueRef::Symbol(s) if s == "%" => {
+                let Some(variable_ref) = expressions.next().transpose()? else {
+                    return IonResult::decoding_error(
+                        "s-expression starts with a `.` but does not specify a variable name",
+                    );
+                };
+                let name = variable_ref.read()?.expect_symbol()?;
+                return Ok(TdlSExpKind::VariableExpansion(name));
             }
             // Anything else means this is a sexp quasi-literal.
             _ => {
@@ -1542,7 +1550,8 @@ mod tests {
         let resources = TestResources::new();
         let context = resources.context();
 
-        let expression = "(macro foo (x y z) [100, [200, a::b::300], x, {y: [true, false, z]}])";
+        let expression =
+            "(macro foo (x y z) [100, [200, a::b::300], (%x), {y: [true, false, (%z)]}])";
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         expect_value(&template, 0, TemplateValue::List)?;
@@ -1568,7 +1577,7 @@ mod tests {
         let resources = TestResources::new();
         let context = resources.context();
 
-        let expression = "(macro identity (x) x)";
+        let expression = "(macro identity (x) (%x))";
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "identity");
@@ -1582,7 +1591,7 @@ mod tests {
         let resources = TestResources::new();
         let context = resources.context();
 
-        let expression = "(macro identity (flex_uint::x) x)";
+        let expression = "(macro identity (flex_uint::x) (%x))";
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "identity");
@@ -1610,17 +1619,17 @@ mod tests {
                 // Outer 'values' call allows multiple expressions in the body 
                 (.values
                     // This `values` is a macro call that has a single argument: the variable `x`
-                    (.values x)
+                    (.values (%x))
                     // This `literal` call causes the inner `(values x)` to be an uninterpreted s-expression.
                     (.literal
-                        (.values x))))
+                        (.values (%x) ))))
         "#;
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 1);
         // Outer `values`
-        expect_macro(&template, 0, context.values_macro(), 7)?;
+        expect_macro(&template, 0, context.values_macro(), 9)?;
         // First argument: `(values x)`
         expect_macro(&template, 2, context.values_macro(), 1)?;
         expect_variable(&template, 3, 0)?;
@@ -1629,7 +1638,9 @@ mod tests {
         expect_value(&template, 4, TemplateValue::SExp)?;
         expect_value(&template, 5, TemplateValue::Symbol(".".into()))?;
         expect_value(&template, 6, TemplateValue::Symbol("values".into()))?;
-        expect_value(&template, 7, TemplateValue::Symbol("x".into()))?;
+        expect_value(&template, 7, TemplateValue::SExp)?;
+        expect_value(&template, 8, TemplateValue::Symbol("%".into()))?;
+        expect_value(&template, 9, TemplateValue::Symbol("x".into()))?;
 
         Ok(())
     }
@@ -1642,7 +1653,7 @@ mod tests {
             $ion_encoding::(
                 (macro_table
                     $ion_encoding
-                    (macro hello ($name) (.make_string "hello " $name))
+                    (macro hello (name) (.make_string "hello " (%name)))
                     (macro hello_world () (.hello "world")) // Depends on macro 'hello'
                 )
             )

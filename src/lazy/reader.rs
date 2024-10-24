@@ -327,7 +327,7 @@ mod tests {
     fn expand_binary_template_macro_with_one_arg() -> IonResult<()> {
         let macro_source = r#"
             (macro greet (name)
-                (.make_string "Hello, " name "!")
+                (.make_string "Hello, " (%name) "!")
             )
         "#;
         #[rustfmt::skip]
@@ -357,9 +357,9 @@ mod tests {
         let macro_source = r#"
             (macro questions (food)
                 (.values
-                    (.make_string "What color is a " food "?")
-                    (.make_string "How much potassium is in a " food "?")
-                    (.make_string "What wine should I pair with a " food "?")))
+                    (.make_string "What color is a " (%food) "?")
+                    (.make_string "How much potassium is in a " (%food) "?")
+                    (.make_string "What wine should I pair with a " (%food) "?")))
         "#;
         #[rustfmt::skip]
             let encode_macro_fn = |address| vec![

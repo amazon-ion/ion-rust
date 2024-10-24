@@ -1280,7 +1280,7 @@ mod tests {
                 $ion_encoding::(
                     (macro_table
                         $ion
-                        (macro double ($x) (.$ion::values $x $x))
+                        (macro double (x) (.$ion::values (%x) (%x)))
                     )
                 )
 
@@ -1288,13 +1288,13 @@ mod tests {
                 // macro that depends on `double`.
                 $ion_encoding::(
                     (macro_table
-                        (macro quadruple ($y)
+                        (macro quadruple (y)
                             (.$ion::values
                                 // Because `double` is in the active encoding module, we can refer
                                 // to it without qualification.
-                                (.double $y)
+                                (.double (%y))
                                 // We could also refer to it with a qualification.
-                                (.$ion_encoding::double $y)))
+                                (.$ion_encoding::double (%y))))
                     )
                 )
 
@@ -1318,20 +1318,20 @@ mod tests {
                 $ion_encoding::(
                     (macro_table
                         $ion_encoding
-                        (macro double ($x) (.values $x $x))
+                        (macro double (x) (.values (%x) (%x)))
                     )
                 )
 
                 $ion_encoding::(
                     (macro_table
                         $ion_encoding // Re-export the active encoding module's macros
-                        (macro quadruple ($y)
+                        (macro quadruple (y)
                             (.$ion::values
                                 // Because `double` has been added to the local namespace,
                                 // we can refer to it without a qualified reference.
-                                (.double $y)
+                                (.double (%y))
                                 // However, we can also refer to it using a qualified reference.
-                                (.$ion_encoding::double $y)))
+                                (.$ion_encoding::double (%y))))
                     )
                 )
 
@@ -1350,7 +1350,7 @@ mod tests {
     #[test]
     fn make_sexp() -> IonResult<()> {
         eval_template_invocation(
-            r#"(macro foo ($x) (1 $x 3 (.literal a) $x (.literal c)))"#,
+            r#"(macro foo (x) (.make_sexp [1, (%x), 3] [a, (%x), c]))"#,
             r#"
                 (:foo 5)
                 (:foo quuz)
@@ -1385,8 +1385,8 @@ mod tests {
             r#"
                 $ion_encoding::(
                     (macro_table
-                        (macro foo ($x+ $y* $z+)
-                            (.make_string (.. $x "-" $y "-" $z)))
+                        (macro foo (x+ y* z+)
+                            (.make_string (.. (%x) "-" (%y) "-" (%z))))
                         (macro letters ()
                             (.foo
                                 (.. "a" "b" "c")
@@ -1407,7 +1407,7 @@ mod tests {
         stream_eq(
             r#"
             (:append_macros
-                (macro greet ($x) (.make_string (.. "Hello, " $x)))
+                (macro greet (x) (.make_string (.. "Hello, " (%x))))
             )
             (:greet "Gary")
         "#,
@@ -1423,8 +1423,8 @@ mod tests {
             r#"
             // Define two macros that call system macros
             (:append_macros
-                (macro greet ($x) (.make_string "Hello, " $x))
-                (macro twice ($x) (.values $x $x))
+                (macro greet (x) (.make_string "Hello, " (%x) ))
+                (macro twice (x) (.values (%x) (%x)))
             )
             // Invoke them
             (:greet "Waldo")
@@ -1432,8 +1432,8 @@ mod tests {
 
             // Define a new macro
             (:append_macros
-                (macro greet_twice ($x)
-                    (.twice (.greet $x))
+                (macro greet_twice (x)
+                    (.twice (.greet (%x)))
                 )
             )
 
@@ -1468,11 +1468,11 @@ mod tests {
 
             // Define a new macro
             (:append_macros
-                (macro greet ($x)
-                    (.make_string "Hello, " $x)
+                (macro greet (x)
+                    (.make_string "Hello, " (%x))
                 )
                 (macro greet_foo()
-                    (.greet (.literal $10))
+                    (.greet $10)
                 )
             )
 
@@ -1497,17 +1497,11 @@ mod tests {
 
     #[test]
     fn produce_system_value() -> IonResult<()> {
-        // This macro produces the following system value:
-        //    $ion_encoding::(
-        //        (macro_table
-        //            ... // $macros expand here
-        //        )
-        //    )
         eval_template_invocation(
             r#"
-                (macro def_macros ($macros*)
+                (macro def_macros (macros*)
                     $ion_encoding::(
-                        ((.literal macro_table) $macros)
+                        (macro_table (%macros))
                     )
                 )"#,
             r#"
@@ -1529,7 +1523,7 @@ mod tests {
     #[test]
     fn annotate() -> IonResult<()> {
         eval_template_invocation(
-            r#"(macro foo (x) (.annotate (.values "bar" "baz" "quux") x))"#,
+            r#"(macro foo (x) (.annotate (.values "bar" "baz" "quux") (%x)))"#,
             r#"
                 (:foo 5)
                 (:foo quuz)
@@ -1555,7 +1549,7 @@ mod tests {
             #[should_panic]
             fn does_not_accept_empty_rest() {
                 eval_template_invocation(
-                    "(macro foo (x) (.make_string x x))",
+                    "(macro foo (x) (.make_string (%x) (%x)))",
                     r#"
                 (:foo)
             "#,
@@ -1570,7 +1564,7 @@ mod tests {
             #[should_panic]
             fn does_not_accept_empty_arg_group() {
                 eval_template_invocation(
-                    "(macro foo (x) (.make_string x x))",
+                    "(macro foo (x) (.make_string (%x) (%x)))",
                     r#"
                         (:foo (::))
                     "#,
@@ -1642,11 +1636,11 @@ mod tests {
             #[test]
             fn accepts_empty_or_expr() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x?) (.make_string x x))",
+                    "(macro foo (x?) (.make_string (%x) (%x)))",
                     r#"
                 (:foo)           // x is implicitly empty
-                (:foo (::))       // x is explicitly empty
-                (:foo (::   ))    // x is explicitly empty with extra whitespace
+                (:foo (::))      // x is explicitly empty
+                (:foo (::   ))   // x is explicitly empty with extra whitespace
                 (:foo "a")       // x is "a"
                 (:foo (:foo a))  // x is `(:foo a)`
             "#,
@@ -1665,7 +1659,7 @@ mod tests {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x?) (.make_string x x))
+                            (macro foo (x?) (.make_string (%x) (%x)))
                             (macro  bar () (.foo (..)))    // Explicit empty group
                             (macro  baz () (.foo)    )     // Implicit empty group
                             (macro quux () (.foo "hello")) // Single expression
@@ -1686,7 +1680,7 @@ mod tests {
             #[should_panic]
             fn does_not_accept_populated_arg_groups() {
                 eval_template_invocation(
-                    "(macro foo (x?) (.make_string x x))",
+                    "(macro foo (x?) (.make_string (%x) (%x)))",
                     r#"
                 (:foo (:: "a"))
             "#,
@@ -1703,8 +1697,8 @@ mod tests {
                 stream_eq(
                     r#"
                     (:append_macros
-                        (macro foo (x?) (make_string x x))
-                        (macro bar () (foo (; "a"))))
+                        (macro foo (x?) (make_string (%x) (%x)))
+                        (macro bar () (foo (.. "a"))))
                 (:bar)
             "#,
                     r#"
@@ -1722,7 +1716,7 @@ mod tests {
             #[test]
             fn accepts_groups() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y*) (.make_string x y))",
+                    "(macro foo (x y*) (.make_string (%x) (%y)))",
                     r#"
                 (:foo "hello" (:: " there " "friend!" ))
             "#,
@@ -1735,7 +1729,7 @@ mod tests {
             #[test]
             fn accepts_rest() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y*) (.make_string x y))",
+                    "(macro foo (x y*) (.make_string (%x) (%y)))",
                     r#"
                 //     x       y1        y2
                 (:foo "hello" " there " "friend!")
@@ -1749,7 +1743,7 @@ mod tests {
             #[test]
             fn accepts_value_literal() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y* z*) (.make_string x y z))",
+                    "(macro foo (x y* z*) (.make_string (%x) (%y) (%z)))",
                     r#"
                 //    x       y         z
                 (:foo "hello" " there " "friend!")
@@ -1763,7 +1757,7 @@ mod tests {
             #[test]
             fn omit_trailing_star() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y*) (.make_string x y))",
+                    "(macro foo (x y*) (.make_string (%x) (%y)))",
                     r#"
                 (:foo "hello") // pass one arg, `y` will be an empty stream
             "#,
@@ -1798,9 +1792,9 @@ mod tests {
             #[should_panic]
             fn does_not_accept_empty_arg_group() {
                 eval_template_invocation(
-                    "(macro foo (x+) (make_string x x))",
+                    "(macro foo (x+) (make_string (%x) (%x))",
                     r#"
-                (:foo (:))
+                (:foo (::))
             "#,
                     r#"
                 // should raise an error
@@ -1813,7 +1807,7 @@ mod tests {
             #[should_panic]
             fn does_not_accept_empty_rest() {
                 eval_template_invocation(
-                    "(macro foo (x+) (make_string x x))",
+                    "(macro foo (x+) (make_string (%x) (%x)))",
                     r#"
                 (:foo)
             "#,
@@ -1830,8 +1824,8 @@ mod tests {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x+) (make_string x x))
-                            (macro bar () (foo (;)))
+                            (macro foo (x+) (make_string (%x) (%x)))
+                            (macro bar () (foo (..)))
                         )
                         (:bar)
                     "#,
@@ -1848,7 +1842,7 @@ mod tests {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x+) (make_string x x))
+                            (macro foo (x+) (make_string (%x) (%x)))
                             (macro bar () (foo))
                         )
                         (:bar)
@@ -1866,7 +1860,7 @@ mod tests {
     #[should_panic]
     fn too_many_args() {
         eval_template_invocation(
-            "(macro foo (x y) (make_string x y))",
+            "(macro foo (x y) (make_string (%x) (%y)))",
             r#"
                 (:foo "a" "b" "c")
             "#,
@@ -1879,7 +1873,8 @@ mod tests {
 
     #[test]
     fn flex_uint_parameters() -> IonResult<()> {
-        let template_definition = "(macro int_pair (flex_uint::$x flex_uint::$y) (.values $x $y)))";
+        let template_definition =
+            "(macro int_pair (flex_uint::x flex_uint::y) (.values (%x) (%y))))";
         let macro_id = MacroTable::FIRST_USER_MACRO_ID as u8;
         let tests: &[(&[u8], (u64, u64))] = &[
             // invocation+args, expected arg values
@@ -1921,11 +1916,11 @@ mod tests {
                     1.0
                     2023T
                     "1"
-                    (.literal '1') // TODO: Only treat identifiers as variables
+                    '1'
                     {{MQ==}}
                     {{"1"}}
                     [1]
-                    (.literal (1)) // Prevent the sexp from being considered a macro invocation
+                    (1)
                     {'1':1}))"#,
             r#"
                 (:foo)
@@ -1954,7 +1949,7 @@ mod tests {
             r#"
                 (macro lst (symbols) 
                     $ion_symbol_table::{
-                        symbols: symbols
+                        symbols: (%symbols)
                     }
                 )
             "#,
@@ -1974,7 +1969,7 @@ mod tests {
                 (macro lst (symbols) 
                     (.values
                         $ion_symbol_table::{
-                            symbols: symbols
+                            symbols: (%symbols)
                         }
                     )
                 )
@@ -2004,7 +1999,7 @@ mod tests {
     #[test]
     fn swap() -> IonResult<()> {
         eval_template_invocation(
-            "(macro swap (x y) (.values y x))",
+            "(macro swap (x y) (.values (%y) (%x)))",
             r#"
                 [
                     (:swap 1 2),
@@ -2029,8 +2024,8 @@ mod tests {
                 (macro new_yorker (first last)
                     {
                         name: {
-                            first: first,
-                            last: last,
+                            first: (%first),
+                            last: (%last),
                         },
                         state: "New York",
                         country: "USA"
@@ -2082,17 +2077,17 @@ mod tests {
             r#"
                 (macro event (timestamp thread_id thread_name client_num host_id parameters) 
                     {
-                        'timestamp': timestamp,
-                        'threadId': thread_id,
-                        'threadName': (.make_string "scheduler-thread-" thread_name),
+                        'timestamp': (%timestamp),
+                        'threadId': (%thread_id),
+                        'threadName': (.make_string "scheduler-thread-" (%thread_name)),
                         'loggerName': "com.example.organization.product.component.ClassName",
-                        'logLevel': (.literal INFO),
+                        'logLevel': INFO,
                         'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
                         'parameters': [
                             "SUCCESS",
-                            (.make_string "example-client-" client_num),
-                            (.make_string "aws-us-east-5f-" host_id),
-                            parameters
+                            (.make_string "example-client-" (%client_num)),
+                            (.make_string "aws-us-east-5f-" (%host_id)),
+                            (%parameters)
                         ]
                     }
                 )

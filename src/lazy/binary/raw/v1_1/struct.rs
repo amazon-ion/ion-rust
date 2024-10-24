@@ -339,7 +339,7 @@ mod tests {
                     (symbol_table $ion_encoding)
                     (macro_table
                         $ion_encoding
-                        (macro greet (name) (.make_string "hello, " name))
+                        (macro greet (name) (.make_string "hello, " (%name)))
                     )
                 )
             "#,
