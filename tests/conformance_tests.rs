@@ -8,25 +8,23 @@ use test_generator::test_resources;
 
 use std::str::FromStr;
 
-
-
 mod implementation {
     use super::*;
 
     #[test]
     fn test_absent_symbol() {
         let tests: &[&str] = &[
-        r#"(ion_1_1
+            r#"(ion_1_1
               (toplevel '#$2' {'#$9': '#$8'})
               (text "")
               (denotes (Symbol 2) (Struct (9 (Symbol 8))))
            )"#,
-        r#"(ion_1_0
+            r#"(ion_1_0
               (text '''$ion_symbol_table::{imports:[{name:"abcs", version: 2}]}''')
               (text "$10 $11")
               (produces '#$abcs#1' '#$abcs#2')
            )"#,
-        r#"(ion_1_0
+            r#"(ion_1_0
               (text '''$ion_symbol_table::{imports:[{name:"abcs", version: 2}]}''')
               (text "$10 $11")
               (denotes (Symbol (absent "abcs" 1)) (Symbol (absent "abcs" 2)))
@@ -57,7 +55,7 @@ mod implementation {
                 .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
                 .run()
                 .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
-         }
+        }
     }
 
     #[test]
@@ -84,13 +82,13 @@ mod implementation {
             "(ion_1_1 (produces ))",
             "(document (and (produces ) (produces )))",
             "(document (text \"a\") (not (and (produces b) (produces c))))",
-            "(ion_1_1 (binary 0x60 0x61 0x01 0xEB 0x01) (produces 0 1 null.int))",
+            "(ion_1_1 (bytes 0x60 0x61 0x01 0xEB 0x01) (produces 0 1 null.int))",
             r#"(ion_1_0 (then (text "a") (produces a)))"#,
             r#"(ion_1_1 (text "a") (text "b") (text "c") (produces a b c))"#,
             r#"(ion_1_1 (text "\"Hello\" null.int false") (denotes (String "Hello") (Null int) (Bool false)))"#,
             r#"(ion_1_1 (each 
                              (text "0")
-                             (binary 0x60)
+                             (bytes 0x60)
                              (denotes (Int 0)))
                         )"#,
             r#"(document (ivm 1 2) (signals "Invalid Version"))"#,
@@ -101,8 +99,8 @@ mod implementation {
             Document::from_str(test)
                 .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
                 .run()
-                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e)); 
-            }
+                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
+        }
     }
 }
 

@@ -421,7 +421,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
 /// continue evaluating that macro.
 #[derive(Copy, Clone, Debug)]
 pub enum MacroExpansionKind<'top, D: Decoder> {
-    Void,
+    None, // `(.none)` returns the empty stream
     ExprGroup(ExprGroupExpansion<'top, D>),
     MakeString(MakeStringExpansion<'top, D>),
     MakeSExp(MakeSExpExpansion<'top, D>),
@@ -499,8 +499,8 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
             MakeSExp(make_sexp_expansion) => make_sexp_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
-            // `void` is trivial and requires no delegation
-            Void => Ok(MacroExpansionStep::FinalStep(None)),
+            // `none` is trivial and requires no delegation
+            None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
     }
 
@@ -514,7 +514,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
 impl<'top, D: Decoder> Debug for MacroExpansion<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let name = match &self.kind {
-            MacroExpansionKind::Void => "void",
+            MacroExpansionKind::None => "none",
             MacroExpansionKind::ExprGroup(_) => "[internal] expr_group",
             MacroExpansionKind::MakeString(_) => "make_string",
             MacroExpansionKind::MakeSExp(_) => "make_sexp",
@@ -647,7 +647,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
                     self.push(invocation.expand()?)
                     // This "tail eval" optimization--eagerly popping completed expansions off the
                     // stack to keep it flat--avoids allocations in many evaluations, e.g.:
-                    // (:void)
+                    // (:none)
                     // (:values)
                     // (:values 1 2 3)
                     // (:values 1 2 3 /*POP*/ (:values 1 2 3))
@@ -1262,7 +1262,7 @@ mod tests {
     #[test]
     fn multiple_top_level_values() -> IonResult<()> {
         eval_template_invocation(
-            "(macro foo () (values 1 2 3 4 5))",
+            "(macro foo () (.values 1 2 3 4 5))",
             r#"
                 (:foo)
             "#,
@@ -1280,7 +1280,7 @@ mod tests {
                 $ion_encoding::(
                     (macro_table
                         $ion
-                        (macro double ($x) ($ion::values $x $x))
+                        (macro double (x) (.$ion::values (%x) (%x)))
                     )
                 )
 
@@ -1288,13 +1288,13 @@ mod tests {
                 // macro that depends on `double`.
                 $ion_encoding::(
                     (macro_table
-                        (macro quadruple ($y)
-                            ($ion::values
+                        (macro quadruple (y)
+                            (.$ion::values
                                 // Because `double` is in the active encoding module, we can refer
                                 // to it without qualification.
-                                (double $y)
+                                (.double (%y))
                                 // We could also refer to it with a qualification.
-                                ($ion_encoding::double $y)))
+                                (.$ion_encoding::double (%y))))
                     )
                 )
 
@@ -1318,20 +1318,20 @@ mod tests {
                 $ion_encoding::(
                     (macro_table
                         $ion_encoding
-                        (macro double ($x) (values $x $x))
+                        (macro double (x) (.values (%x) (%x)))
                     )
                 )
 
                 $ion_encoding::(
                     (macro_table
                         $ion_encoding // Re-export the active encoding module's macros
-                        (macro quadruple ($y)
-                            ($ion::values
+                        (macro quadruple (y)
+                            (.$ion::values
                                 // Because `double` has been added to the local namespace,
                                 // we can refer to it without a qualified reference.
-                                (double $y)
+                                (.double (%y))
                                 // However, we can also refer to it using a qualified reference.
-                                ($ion_encoding::double $y)))
+                                (.$ion_encoding::double (%y))))
                     )
                 )
 
@@ -1350,7 +1350,7 @@ mod tests {
     #[test]
     fn make_sexp() -> IonResult<()> {
         eval_template_invocation(
-            r#"(macro foo ($x) (make_sexp [1, $x, 3] [(literal a), $x, (literal c)]))"#,
+            r#"(macro foo (x) (.make_sexp [1, (%x), 3] [a, (%x), c]))"#,
             r#"
                 (:foo 5)
                 (:foo quuz)
@@ -1369,7 +1369,7 @@ mod tests {
     #[test]
     fn tdl_arg_expr_group() -> IonResult<()> {
         eval_template_invocation(
-            r#"(macro abc () (make_string (; "a" "b" "c")))"#,
+            r#"(macro abc () (.make_string (.. "a" "b" "c")))"#,
             r#"
                 (:abc)
             "#,
@@ -1385,13 +1385,13 @@ mod tests {
             r#"
                 $ion_encoding::(
                     (macro_table
-                        (macro foo ($x+ $y* $z+)
-                            (make_string (; $x "-" $y "-" $z)))
+                        (macro foo (x+ y* z+)
+                            (.make_string (.. (%x) "-" (%y) "-" (%z))))
                         (macro letters ()
-                            (foo
-                                (; "a" "b" "c")
-                                (; "d" "e" "f")
-                                (; "g" "h" "i")))
+                            (.foo
+                                (.. "a" "b" "c")
+                                (.. "d" "e" "f")
+                                (.. "g" "h" "i")))
                     )
                 )
                 (:letters)
@@ -1407,7 +1407,7 @@ mod tests {
         stream_eq(
             r#"
             (:append_macros
-                (macro greet ($x) (make_string (; "Hello, " $x)))
+                (macro greet (x) (.make_string (.. "Hello, " (%x))))
             )
             (:greet "Gary")
         "#,
@@ -1423,8 +1423,8 @@ mod tests {
             r#"
             // Define two macros that call system macros
             (:append_macros
-                (macro greet ($x) (make_string "Hello, " $x))
-                (macro twice ($x) (values $x $x))
+                (macro greet (x) (.make_string "Hello, " (%x) ))
+                (macro twice (x) (.values (%x) (%x)))
             )
             // Invoke them
             (:greet "Waldo")
@@ -1432,8 +1432,8 @@ mod tests {
 
             // Define a new macro
             (:append_macros
-                (macro greet_twice ($x)
-                    (twice (greet $x))
+                (macro greet_twice (x)
+                    (.twice (.greet (%x)))
                 )
             )
 
@@ -1468,11 +1468,11 @@ mod tests {
 
             // Define a new macro
             (:append_macros
-                (macro greet ($x)
-                    (make_string "Hello, " $x)
+                (macro greet (x)
+                    (.make_string "Hello, " (%x))
                 )
                 (macro greet_foo()
-                    (greet (literal $10))
+                    (.greet $10)
                 )
             )
 
@@ -1497,23 +1497,11 @@ mod tests {
 
     #[test]
     fn produce_system_value() -> IonResult<()> {
-        // This macro produces the following system value:
-        //    $ion_encoding::(
-        //        (macro_table
-        //            ... // $macros expand here
-        //        )
-        //    )
         eval_template_invocation(
             r#"
-                (macro def_macros ($macros*)
-                    (annotate
-                        (literal $ion_encoding)
-                        (make_sexp [
-                            (make_sexp [
-                                (literal macro_table),
-                                $macros
-                            ])
-                        ])
+                (macro def_macros (macros*)
+                    $ion_encoding::(
+                        (macro_table (%macros))
                     )
                 )"#,
             r#"
@@ -1535,7 +1523,7 @@ mod tests {
     #[test]
     fn annotate() -> IonResult<()> {
         eval_template_invocation(
-            r#"(macro foo (x) (annotate (values "bar" "baz" "quux") x))"#,
+            r#"(macro foo (x) (.annotate (.values "bar" "baz" "quux") (%x)))"#,
             r#"
                 (:foo 5)
                 (:foo quuz)
@@ -1552,16 +1540,16 @@ mod tests {
     }
 
     mod cardinality {
-        mod bang {
+        mod exactly_one {
             use crate::lazy::expanded::macro_evaluator::tests::{
                 eval_template_invocation, stream_eq,
             };
 
             #[test]
             #[should_panic]
-            fn required_does_not_accept_empty_rest() {
+            fn does_not_accept_empty_rest() {
                 eval_template_invocation(
-                    "(macro foo (x) (make_string x x))",
+                    "(macro foo (x) (.make_string (%x) (%x)))",
                     r#"
                 (:foo)
             "#,
@@ -1574,11 +1562,11 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn required_does_not_accept_empty_arg_group() {
+            fn does_not_accept_empty_arg_group() {
                 eval_template_invocation(
-                    "(macro foo (x) (make_string x x))",
+                    "(macro foo (x) (.make_string (%x) (%x)))",
                     r#"
-                        (:foo (:))
+                        (:foo (::))
                     "#,
                     r#"
                         // should raise an error
@@ -1589,12 +1577,12 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn required_does_not_accept_empty_tdl_arg_group() {
+            fn does_not_accept_empty_tdl_arg_group() {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x) (make_string x x))
-                            (macro bar () (foo (;)))
+                            (macro foo (x) (.make_string x x))
+                            (macro bar () (.foo (..)))
                         )
                         (:bar)
                     "#,
@@ -1607,11 +1595,11 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn required_does_not_accept_populated_arg_group() {
+            fn does_not_accept_populated_arg_group() {
                 eval_template_invocation(
-                    "(macro foo (x) (make_string x x))",
+                    "(macro foo (x) (.make_string x x))",
                     r#"
-                (:foo (:))
+                (:foo (::))
             "#,
                     r#"
                 // should raise an error
@@ -1622,12 +1610,12 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn required_does_not_accept_populated_tdl_arg_group() {
+            fn does_not_accept_populated_tdl_arg_group() {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x) (make_string x x))
-                            (macro bar () (foo (; "Hi")))
+                            (macro foo (x) (.make_string x x))
+                            (macro bar () (.foo (:: "Hi")))
                         )
                         (:bar)
                     "#,
@@ -1639,20 +1627,20 @@ mod tests {
             }
         }
 
-        mod optional {
+        mod zero_or_one {
             use crate::lazy::expanded::macro_evaluator::tests::{
                 eval_template_invocation, stream_eq,
             };
             use crate::IonResult;
 
             #[test]
-            fn optional_accepts_empty_or_expr() -> IonResult<()> {
+            fn accepts_empty_or_expr() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x?) (make_string x x))",
+                    "(macro foo (x?) (.make_string (%x) (%x)))",
                     r#"
                 (:foo)           // x is implicitly empty
-                (:foo (:))       // x is explicitly empty
-                (:foo (:   ))    // x is explicitly empty with extra whitespace
+                (:foo (::))      // x is explicitly empty
+                (:foo (::   ))   // x is explicitly empty with extra whitespace
                 (:foo "a")       // x is "a"
                 (:foo (:foo a))  // x is `(:foo a)`
             "#,
@@ -1667,14 +1655,14 @@ mod tests {
             }
 
             #[test]
-            fn optional_accepts_tdl_empty_or_expr() -> IonResult<()> {
+            fn accepts_tdl_empty_or_expr() -> IonResult<()> {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x?) (make_string x x))
-                            (macro  bar () (foo (;)))     // Explicit empty group
-                            (macro  baz () (foo)    )     // Implicit empty group
-                            (macro quux () (foo "hello")) // Single expression
+                            (macro foo (x?) (.make_string (%x) (%x)))
+                            (macro  bar () (.foo (..)))    // Explicit empty group
+                            (macro  baz () (.foo)    )     // Implicit empty group
+                            (macro quux () (.foo "hello")) // Single expression
                         )
                         (:bar)
                         (:baz)
@@ -1690,11 +1678,11 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn optional_does_not_accept_populated_arg_groups() {
+            fn does_not_accept_populated_arg_groups() {
                 eval_template_invocation(
-                    "(macro foo (x?) (make_string x x))",
+                    "(macro foo (x?) (.make_string (%x) (%x)))",
                     r#"
-                (:foo (: "a"))
+                (:foo (:: "a"))
             "#,
                     r#"
                 // should raise an error
@@ -1705,12 +1693,12 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn optional_does_not_accept_populated_tdl_arg_groups() {
+            fn does_not_accept_populated_tdl_arg_groups() {
                 stream_eq(
                     r#"
                     (:append_macros
-                        (macro foo (x?) (make_string x x))
-                        (macro bar () (foo (; "a"))))
+                        (macro foo (x?) (make_string (%x) (%x)))
+                        (macro bar () (foo (.. "a"))))
                 (:bar)
             "#,
                     r#"
@@ -1721,16 +1709,16 @@ mod tests {
             }
         }
 
-        mod star {
+        mod zero_or_more {
             use crate::lazy::expanded::macro_evaluator::tests::eval_template_invocation;
             use crate::IonResult;
 
             #[test]
-            fn star_accepts_groups() -> IonResult<()> {
+            fn accepts_groups() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y*) (make_string x y))",
+                    "(macro foo (x y*) (.make_string (%x) (%y)))",
                     r#"
-                (:foo "hello" (: " there " "friend!" ))
+                (:foo "hello" (:: " there " "friend!" ))
             "#,
                     r#"
                 "hello there friend!"
@@ -1739,9 +1727,9 @@ mod tests {
             }
 
             #[test]
-            fn trailing_star_accepts_rest() -> IonResult<()> {
+            fn accepts_rest() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y*) (make_string x y))",
+                    "(macro foo (x y*) (.make_string (%x) (%y)))",
                     r#"
                 //     x       y1        y2
                 (:foo "hello" " there " "friend!")
@@ -1753,9 +1741,9 @@ mod tests {
             }
 
             #[test]
-            fn star_accepts_value_literal() -> IonResult<()> {
+            fn accepts_value_literal() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y* z*) (make_string x y z))",
+                    "(macro foo (x y* z*) (.make_string (%x) (%y) (%z)))",
                     r#"
                 //    x       y         z
                 (:foo "hello" " there " "friend!")
@@ -1769,7 +1757,7 @@ mod tests {
             #[test]
             fn omit_trailing_star() -> IonResult<()> {
                 eval_template_invocation(
-                    "(macro foo (x y*) (make_string x y))",
+                    "(macro foo (x y*) (.make_string (%x) (%y)))",
                     r#"
                 (:foo "hello") // pass one arg, `y` will be an empty stream
             "#,
@@ -1783,7 +1771,7 @@ mod tests {
             #[should_panic]
             fn omit_only_last_trailing_star() {
                 eval_template_invocation(
-                    "(macro foo (x y* z*) (make_string x y))",
+                    "(macro foo (x y* z*) (.make_string x y))",
                     r#"
                 (:foo "hello") // pass one arg, y and z cannot both be omitted
             "#,
@@ -1795,18 +1783,18 @@ mod tests {
             }
         }
 
-        mod plus {
+        mod one_or_more {
             use crate::lazy::expanded::macro_evaluator::tests::{
                 eval_template_invocation, stream_eq,
             };
 
             #[test]
             #[should_panic]
-            fn plus_does_not_accept_empty_arg_group() {
+            fn does_not_accept_empty_arg_group() {
                 eval_template_invocation(
-                    "(macro foo (x+) (make_string x x))",
+                    "(macro foo (x+) (make_string (%x) (%x))",
                     r#"
-                (:foo (:))
+                (:foo (::))
             "#,
                     r#"
                 // should raise an error
@@ -1817,9 +1805,9 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn plus_does_not_accept_empty_rest() {
+            fn does_not_accept_empty_rest() {
                 eval_template_invocation(
-                    "(macro foo (x+) (make_string x x))",
+                    "(macro foo (x+) (make_string (%x) (%x)))",
                     r#"
                 (:foo)
             "#,
@@ -1832,12 +1820,12 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn plus_does_not_accept_empty_tdl_arg_group() {
+            fn does_not_accept_empty_tdl_arg_group() {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x+) (make_string x x))
-                            (macro bar () (foo (;)))
+                            (macro foo (x+) (make_string (%x) (%x)))
+                            (macro bar () (foo (..)))
                         )
                         (:bar)
                     "#,
@@ -1850,11 +1838,11 @@ mod tests {
 
             #[test]
             #[should_panic]
-            fn plus_does_not_accept_empty_tdl_rest() {
+            fn does_not_accept_empty_tdl_rest() {
                 stream_eq(
                     r#"
                         (:append_macros
-                            (macro foo (x+) (make_string x x))
+                            (macro foo (x+) (make_string (%x) (%x)))
                             (macro bar () (foo))
                         )
                         (:bar)
@@ -1872,7 +1860,7 @@ mod tests {
     #[should_panic]
     fn too_many_args() {
         eval_template_invocation(
-            "(macro foo (x y) (make_string x y))",
+            "(macro foo (x y) (make_string (%x) (%y)))",
             r#"
                 (:foo "a" "b" "c")
             "#,
@@ -1885,7 +1873,8 @@ mod tests {
 
     #[test]
     fn flex_uint_parameters() -> IonResult<()> {
-        let template_definition = "(macro int_pair (flex_uint::$x flex_uint::$y) (values $x $y)))";
+        let template_definition =
+            "(macro int_pair (flex_uint::x flex_uint::y) (.values (%x) (%y))))";
         let macro_id = MacroTable::FIRST_USER_MACRO_ID as u8;
         let tests: &[(&[u8], (u64, u64))] = &[
             // invocation+args, expected arg values
@@ -1919,7 +1908,7 @@ mod tests {
     fn it_takes_all_kinds() -> IonResult<()> {
         eval_template_invocation(
             r#"(macro foo () 
-                (values 
+                (.values
                     null 
                     true
                     1
@@ -1927,11 +1916,11 @@ mod tests {
                     1.0
                     2023T
                     "1"
-                    (literal '1') // TODO: Only treat identifiers as variables
+                    '1'
                     {{MQ==}}
                     {{"1"}}
                     [1]
-                    (literal (1)) // Prevent the sexp from being considered a macro invocation
+                    (1)
                     {'1':1}))"#,
             r#"
                 (:foo)
@@ -1960,7 +1949,7 @@ mod tests {
             r#"
                 (macro lst (symbols) 
                     $ion_symbol_table::{
-                        symbols: symbols
+                        symbols: (%symbols)
                     }
                 )
             "#,
@@ -1978,9 +1967,9 @@ mod tests {
         eval_template_invocation(
             r#"
                 (macro lst (symbols) 
-                    (values
+                    (.values
                         $ion_symbol_table::{
-                            symbols: symbols
+                            symbols: (%symbols)
                         }
                     )
                 )
@@ -2010,7 +1999,7 @@ mod tests {
     #[test]
     fn swap() -> IonResult<()> {
         eval_template_invocation(
-            "(macro swap (x y) (values y x))",
+            "(macro swap (x y) (.values (%y) (%x)))",
             r#"
                 [
                     (:swap 1 2),
@@ -2035,8 +2024,8 @@ mod tests {
                 (macro new_yorker (first last)
                     {
                         name: {
-                            first: first,
-                            last: last,
+                            first: (%first),
+                            last: (%last),
                         },
                         state: "New York",
                         country: "USA"
@@ -2088,17 +2077,17 @@ mod tests {
             r#"
                 (macro event (timestamp thread_id thread_name client_num host_id parameters) 
                     {
-                        'timestamp': timestamp,
-                        'threadId': thread_id,
-                        'threadName': (make_string "scheduler-thread-" thread_name),
+                        'timestamp': (%timestamp),
+                        'threadId': (%thread_id),
+                        'threadName': (.make_string "scheduler-thread-" (%thread_name)),
                         'loggerName': "com.example.organization.product.component.ClassName",
-                        'logLevel': (literal INFO),
+                        'logLevel': INFO,
                         'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
                         'parameters': [
                             "SUCCESS",
-                            (make_string "example-client-" client_num),
-                            (make_string "aws-us-east-5f-" host_id),
-                            parameters
+                            (.make_string "example-client-" (%client_num)),
+                            (.make_string "aws-us-east-5f-" (%host_id)),
+                            (%parameters)
                         ]
                     }
                 )
@@ -2152,7 +2141,7 @@ mod tests {
     #[test]
     fn values_tdl_macro_invocation() -> IonResult<()> {
         eval_template_invocation(
-            r"(macro foo () (values 1 2 (values 3 4 (values 5 6) 7 8) 9 10))",
+            r"(macro foo () (.values 1 2 (.values 3 4 (.values 5 6) 7 8) 9 10))",
             "(:foo)",
             "1 2 3 4 5 6 7 8 9 10",
         )
@@ -2167,14 +2156,14 @@ mod tests {
     }
 
     #[test]
-    fn void_e_expression() -> IonResult<()> {
-        stream_eq(r"(:values (:void) (:void) (:void) )", "/* nothing */")
+    fn none_e_expression() -> IonResult<()> {
+        stream_eq(r"(:values (:none) (:none) (:none) )", "/* nothing */")
     }
 
     #[test]
-    fn void_tdl_macro_invocation() -> IonResult<()> {
+    fn none_tdl_macro_invocation() -> IonResult<()> {
         eval_template_invocation(
-            r"(macro foo () (values (void) (void) (void)))",
+            r"(macro foo () (.values (.none) (.none) (.none)))",
             "(:foo)",
             "/* nothing */",
         )
@@ -2214,9 +2203,9 @@ mod tests {
     fn make_string_tdl_macro_invocation() -> IonResult<()> {
         let invocation = r#"
         (macro foo ()
-          (values
-            (make_string "foo" '''bar''' "\x62\u0061\U0000007A")
-            (make_string 
+          (.values
+            (.make_string "foo" '''bar''' "\x62\u0061\U0000007A")
+            (.make_string
                 '''Hello'''
                 ''', '''
                 "world!"))
@@ -2239,15 +2228,15 @@ mod tests {
         eval_template_invocation(
             r#"
             (macro foo () 
-                (values [
+                (.values [
                     1,
                     2,
-                    (values 3 4),
+                    (.values 3 4),
                     5,
-                    (void),
-                    (void),
+                    (.none),
+                    (.none),
                     6,
-                    (make_string "foo" "bar" "baz"),
+                    (.make_string "foo" "bar" "baz"),
                     7
                 ])
             )
@@ -2272,15 +2261,15 @@ mod tests {
         eval_template_invocation(
             r#"
             (macro foo ()
-                (make_sexp [
+                (.make_sexp [
                     1,
                     2,
-                    (values 3 4),
+                    (.values 3 4),
                     5,
-                    (void),
-                    (void),
+                    (.none),
+                    (.none),
                     6,
-                    (make_string "foo" "bar" "baz"),
+                    (.make_string "foo" "bar" "baz"),
                     7
                 ])
             )
@@ -2307,7 +2296,7 @@ mod tests {
                 
                 // If the value-position-macro doesn't produce any values, the field will not
                 // appear in the expansion.
-                d: (:void),
+                d: (:none),
                 
                 // If a single value is produced, a single field with that value will appear in the
                 // output.
@@ -2345,28 +2334,28 @@ mod tests {
         eval_template_invocation(
             r#"
             (macro foo () 
-            (values {
+            (.values {
                 a: 1,
                 
                 // When a macro in field value position produces more than one value,
                 // a field will be emitted for each value. The same field name will be used for
                 // each one.
-                b: (values 2 3),
+                b: (.values 2 3),
                 
                 c: 4,
                 
                 // If the value-position-macro doesn't produce any values, the field will not
                 // appear in the expansion.
-                d: (void),
+                d: (.none),
                 
                 // If a single value is produced, a single field with that value will appear in the
                 // output.
-                e: (make_string "foo" "bar" "baz"),
+                e: (.make_string "foo" "bar" "baz"),
                 
                 // Nested struct to demonstrate recursive expansion
                 f: {
                     quux: 5,
-                    quuz: (values true false),
+                    quuz: (.values true false),
                 },
                 
                 g: 6

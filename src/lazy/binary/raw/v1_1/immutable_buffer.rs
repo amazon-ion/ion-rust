@@ -1280,7 +1280,7 @@ mod tests {
     fn read_eexp_with_one_arg() -> IonResult<()> {
         let macro_source = r#"
             (macro greet (name)
-                (make_string "Hello, " name "!")
+                (.make_string "Hello, " name "!")
             )
         "#;
 
@@ -1313,7 +1313,7 @@ mod tests {
     fn read_eexp_with_two_args() -> IonResult<()> {
         let macro_source = r#"
             (macro greet (name day)
-                (make_string "Hello, " name "! Have a pleasant " day ".")
+                (.make_string "Hello, " name "! Have a pleasant " day ".")
             )
         "#;
 
@@ -1451,7 +1451,7 @@ mod tests {
     #[test]
     fn read_eexp_with_star_parameter_arg_group_nested_eexp() -> IonResult<()> {
         let macro_source = r#"
-            (macro wrap_in_list (values*) ["first", values, "last"])
+            (macro wrap_in_list (values*) ["first", (%values), "last"])
         "#;
 
         let expected_text = r#"
@@ -1494,7 +1494,7 @@ mod tests {
     #[test]
     fn read_length_prefixed_eexp_with_star_parameter_arg_group_nested_eexp() -> IonResult<()> {
         let macro_source = r#"
-            (macro wrap_in_list (values*) ["first", values, "last"])
+            (macro wrap_in_list (values*) ["first", (%values), "last"])
         "#;
 
         let expected_text = r#"
@@ -1579,7 +1579,7 @@ mod tests {
     #[test]
     fn read_length_prefixed_eexp_with_star_parameter_empty() -> IonResult<()> {
         let macro_source = r#"
-            (macro wrap_in_list (values*) ["first", values, "last"])
+            (macro wrap_in_list (values*) ["first", (%values), "last"])
         "#;
 
         let expected_text = r#"

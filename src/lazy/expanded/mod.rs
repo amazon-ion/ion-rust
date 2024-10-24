@@ -193,8 +193,8 @@ impl<'top> EncodingContextRef<'top> {
 
     pub(crate) fn none_macro(&self) -> Rc<Macro> {
         self.system_macro_table()
-            .clone_macro_with_name("void")
-            .expect("`values` macro in system macro table")
+            .clone_macro_with_name("none")
+            .expect("`none` macro in system macro table")
     }
 
     pub(crate) fn values_macro(&self) -> Rc<Macro> {
@@ -553,7 +553,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         self.between_top_level_expressions();
 
         // See if the raw reader can get another expression from the input stream. It's possible
-        // to find an expression that yields no values (for example: `(:void)`), so we perform this
+        // to find an expression that yields no values (for example: `(:none)`), so we perform this
         // step in a loop until we get a value or end-of-stream.
         let context_ref = self.context();
 
@@ -635,7 +635,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         self.between_top_level_expressions();
 
         // See if the raw reader can get another expression from the input stream. It's possible
-        // to find an expression that yields no values (for example: `(:void)`), so we perform this
+        // to find an expression that yields no values (for example: `(:none)`), so we perform this
         // step in a loop until we get a value or end-of-stream.
         let context_ref = self.context();
 
@@ -693,7 +693,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                         // If we get a value, return it.
                         return self.interpret_value(value);
                     } else {
-                        // If the expression was equivalent to `(:void)`, return to the top of
+                        // If the expression was equivalent to `(:none)`, return to the top of
                         // the loop and get the next expression.
                         continue;
                     }

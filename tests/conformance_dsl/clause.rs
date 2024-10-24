@@ -26,7 +26,7 @@ pub(crate) enum ClauseType {
     Text,
     /// Provide a sequence of bytes that is interpreted as binary ion, that will be inserted into
     /// the document.
-    Binary,
+    Bytes,
     /// Provide a major and minor version that will be emitted into the document as an IVM.
     Ivm,
     /// Specify a ion data to be inserted into the document, using inline ion syntax.
@@ -72,7 +72,7 @@ impl FromStr for ClauseType {
             "produces" => Ok(Produces),
             "denotes" => Ok(Denotes),
             "text" => Ok(Text),
-            "binary" => Ok(Binary),
+            "bytes" => Ok(Bytes),
             "and" => Ok(And),
             "not" => Ok(Not),
             "then" => Ok(Then),
@@ -88,11 +88,10 @@ impl FromStr for ClauseType {
 }
 
 impl ClauseType {
-
     /// Utility function to test if the Clause is a fragment node.
     pub fn is_fragment(&self) -> bool {
         use ClauseType::*;
-        matches!(self, Text | Binary | Ivm | TopLevel | Encoding | MacTab)
+        matches!(self, Text | Bytes | Ivm | TopLevel | Encoding | MacTab)
     }
 
     /// Utility function to test if the Clause is an expectation node.
@@ -120,13 +119,14 @@ impl TryFrom<&Sequence> for Clause {
             .as_symbol()
             .ok_or(ConformanceErrorKind::ExpectedDocumentClause)?;
 
-        let tpe = ClauseType::from_str(clause_type.text().ok_or(ConformanceErrorKind::ExpectedDocumentClause)?)?;
+        let tpe = ClauseType::from_str(
+            clause_type
+                .text()
+                .ok_or(ConformanceErrorKind::ExpectedDocumentClause)?,
+        )?;
         let body: Vec<Element> = other.iter().skip(1).cloned().collect();
 
-        Ok(Clause {
-            tpe,
-            body,
-        })
+        Ok(Clause { tpe, body })
     }
 }
 
@@ -149,12 +149,13 @@ impl TryFrom<&[Element]> for Clause {
             .as_symbol()
             .ok_or(ConformanceErrorKind::ExpectedDocumentClause)?;
 
-        let tpe = ClauseType::from_str(clause_type.text().ok_or(ConformanceErrorKind::ExpectedDocumentClause)?)?;
+        let tpe = ClauseType::from_str(
+            clause_type
+                .text()
+                .ok_or(ConformanceErrorKind::ExpectedDocumentClause)?,
+        )?;
         let body: Vec<Element> = other.iter().skip(1).cloned().collect();
 
-        Ok(Clause {
-            tpe,
-            body,
-        })
+        Ok(Clause { tpe, body })
     }
 }
