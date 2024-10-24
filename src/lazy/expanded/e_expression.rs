@@ -113,7 +113,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
         // Initialize a `MacroExpansionKind` with the state necessary to evaluate the requested
         // macro.
         let expansion_kind = match invoked_macro.kind() {
-            MacroKind::Void => MacroExpansionKind::Void,
+            MacroKind::None => MacroExpansionKind::None,
             MacroKind::ExprGroup => {
                 MacroExpansionKind::ExprGroup(ExprGroupExpansion::new(arguments))
             }

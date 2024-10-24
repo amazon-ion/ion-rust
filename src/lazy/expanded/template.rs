@@ -1167,7 +1167,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
         let macro_ref = self.invoked_macro();
         let arguments = MacroExprArgsIterator::from_template_macro(self.arguments());
         let expansion_kind = match macro_ref.kind() {
-            MacroKind::Void => MacroExpansionKind::Void,
+            MacroKind::None => MacroExpansionKind::None,
             MacroKind::ExprGroup => {
                 unreachable!("cannot invoke ExprGroup from a TemplateMacroInvocation")
             },

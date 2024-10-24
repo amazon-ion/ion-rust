@@ -111,7 +111,7 @@ impl Macro {
 /// but its variants do not hold any associated state.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MacroKind {
-    Void,
+    None, // `(.none)` returns the empty stream
     ExprGroup,
     MakeString,
     MakeSExp,
@@ -197,7 +197,7 @@ impl Default for MacroTable {
 
 impl MacroTable {
     pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] = &[
-        MacroKind::Void,
+        MacroKind::None,
         MacroKind::ExprGroup,
         MacroKind::MakeString,
         MacroKind::MakeSExp,
@@ -215,9 +215,9 @@ impl MacroTable {
 
         vec![
             Rc::new(Macro::named(
-                "void",
+                "none",
                 MacroSignature::new(vec![]).unwrap(),
-                MacroKind::Void,
+                MacroKind::None,
                 ExpansionAnalysis {
                     could_produce_system_value: false,
                     must_produce_exactly_one_value: false,

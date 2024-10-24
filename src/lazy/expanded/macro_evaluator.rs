@@ -421,7 +421,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
 /// continue evaluating that macro.
 #[derive(Copy, Clone, Debug)]
 pub enum MacroExpansionKind<'top, D: Decoder> {
-    Void,
+    None, // `(.none)` returns the empty stream
     ExprGroup(ExprGroupExpansion<'top, D>),
     MakeString(MakeStringExpansion<'top, D>),
     MakeSExp(MakeSExpExpansion<'top, D>),
@@ -499,8 +499,8 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
             MakeSExp(make_sexp_expansion) => make_sexp_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
-            // `void` is trivial and requires no delegation
-            Void => Ok(MacroExpansionStep::FinalStep(None)),
+            // `none` is trivial and requires no delegation
+            None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
     }
 
@@ -514,7 +514,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
 impl<'top, D: Decoder> Debug for MacroExpansion<'top, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let name = match &self.kind {
-            MacroExpansionKind::Void => "void",
+            MacroExpansionKind::None => "none",
             MacroExpansionKind::ExprGroup(_) => "[internal] expr_group",
             MacroExpansionKind::MakeString(_) => "make_string",
             MacroExpansionKind::MakeSExp(_) => "make_sexp",
@@ -647,7 +647,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
                     self.push(invocation.expand()?)
                     // This "tail eval" optimization--eagerly popping completed expansions off the
                     // stack to keep it flat--avoids allocations in many evaluations, e.g.:
-                    // (:void)
+                    // (:none)
                     // (:values)
                     // (:values 1 2 3)
                     // (:values 1 2 3 /*POP*/ (:values 1 2 3))
@@ -2156,14 +2156,14 @@ mod tests {
     }
 
     #[test]
-    fn void_e_expression() -> IonResult<()> {
-        stream_eq(r"(:values (:void) (:void) (:void) )", "/* nothing */")
+    fn none_e_expression() -> IonResult<()> {
+        stream_eq(r"(:values (:none) (:none) (:none) )", "/* nothing */")
     }
 
     #[test]
-    fn void_tdl_macro_invocation() -> IonResult<()> {
+    fn none_tdl_macro_invocation() -> IonResult<()> {
         eval_template_invocation(
-            r"(macro foo () (.values (.void) (.void) (.void)))",
+            r"(macro foo () (.values (.none) (.none) (.none)))",
             "(:foo)",
             "/* nothing */",
         )
@@ -2233,8 +2233,8 @@ mod tests {
                     2,
                     (.values 3 4),
                     5,
-                    (.void),
-                    (.void),
+                    (.none),
+                    (.none),
                     6,
                     (.make_string "foo" "bar" "baz"),
                     7
@@ -2266,8 +2266,8 @@ mod tests {
                     2,
                     (.values 3 4),
                     5,
-                    (.void),
-                    (.void),
+                    (.none),
+                    (.none),
                     6,
                     (.make_string "foo" "bar" "baz"),
                     7
@@ -2296,7 +2296,7 @@ mod tests {
                 
                 // If the value-position-macro doesn't produce any values, the field will not
                 // appear in the expansion.
-                d: (:void),
+                d: (:none),
                 
                 // If a single value is produced, a single field with that value will appear in the
                 // output.
@@ -2346,7 +2346,7 @@ mod tests {
                 
                 // If the value-position-macro doesn't produce any values, the field will not
                 // appear in the expansion.
-                d: (.void),
+                d: (.none),
                 
                 // If a single value is produced, a single field with that value will appear in the
                 // output.

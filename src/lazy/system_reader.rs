@@ -1126,8 +1126,7 @@ mod tests {
 
         // === Make sure it has the expected macro definitions ====
         let new_macro_table = pending_changes.macro_table();
-        // There are currently 3 supported system macros: void, values, and make_string.
-        // This directive defines two more.
+        // This directive defines two new macros in addition to the existing system macros.
         assert_eq!(new_macro_table.len(), 2 + MacroTable::NUM_SYSTEM_MACROS);
         assert_eq!(
             new_macro_table.macro_with_id(MacroTable::FIRST_USER_MACRO_ID),

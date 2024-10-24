@@ -35,10 +35,10 @@ impl ElementApi for LazyReaderElementApi {
             // TODO: https://github.com/amazon-ion/ion-rust/issues/653
             "ion-tests/iontestdata_1_1/good/equivs/macros/make_string.ion",
             "ion-tests/iontestdata_1_1/good/equivs/macros/values.ion",
-            "ion-tests/iontestdata_1_1/good/equivs/macros/void.ion",
-            "ion-tests/iontestdata_1_1/good/macros/void_invoked_deeply_nested.ion",
-            "ion-tests/iontestdata_1_1/good/macros/void_invoked_in_struct.ion",
-            "ion-tests/iontestdata_1_1/good/macros/void_invoked_in_struct_field.ion",
+            "ion-tests/iontestdata_1_1/good/equivs/macros/none.ion",
+            "ion-tests/iontestdata_1_1/good/macros/none_invoked_deeply_nested.ion",
+            "ion-tests/iontestdata_1_1/good/macros/none_invoked_in_struct.ion",
+            "ion-tests/iontestdata_1_1/good/macros/none_invoked_in_struct_field.ion",
             // Ints outside the i128 range
             "ion-tests/iontestdata_1_1/good/intBigSize16.10n",
             "ion-tests/iontestdata_1_1/good/intBigSize256.ion",
