@@ -1117,11 +1117,11 @@ impl<'top> TextBuffer<'top> {
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         let (group_body, group_head) = alt((
             // A trivially empty arg group: `(:)`
-            terminated(tag("(:"), peek(tag(")"))),
+            terminated(tag("(::"), peek(tag(")"))),
             // An arg group that is not trivially empty, though it may only contain whitespace:
-            //   (: )
-            //   (: 1 2 3)
-            recognize(pair(tag("(:"), Self::match_whitespace)),
+            //   (:: )
+            //   (:: 1 2 3)
+            recognize(pair(tag("(::"), Self::match_optional_whitespace)),
         ))(self)?;
 
         // The rest of the group uses s-expression syntax. Scan ahead to find the end of this
@@ -1302,14 +1302,22 @@ impl<'top> TextBuffer<'top> {
         self,
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, EExpArg<'top, TextEncoding_1_1>> {
-        let (remaining, maybe_expr) = whitespace_and_then(
-            Self::match_sexp_value_1_1.map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from)),
-        )
-        .parse(self)?;
+        let (after_ws, _ws) = self.match_optional_comments_and_whitespace()?;
+        // This check exists to offer a more human-friendly error message; without it,
+        // the user simply sees a parsing failure.
+        if after_ws.bytes().starts_with(b"(::") {
+            return fatal_parse_error(
+                self,
+                format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name())
+            );
+        }
+        let (remaining, maybe_expr) = Self::match_sexp_value_1_1
+            .map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from))
+            .parse(after_ws)?;
         match maybe_expr {
             Some(expr) => Ok((remaining, EExpArg::new(parameter, expr))),
             None => fatal_parse_error(
-                self,
+                after_ws,
                 format!(
                     "expected argument for required parameter '{}'",
                     parameter.name()
@@ -1322,7 +1330,7 @@ impl<'top> TextBuffer<'top> {
         self,
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, EExpArg<'top, TextEncoding_1_1>> {
-        recognize(pair(tag("(:"), whitespace_and_then(tag(")"))))
+        recognize(pair(tag("(::"), whitespace_and_then(tag(")"))))
             .map(|matched_expr| {
                 let arg_group = TextEExpArgGroup::new(parameter, matched_expr, &[]);
                 EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group))
@@ -3282,9 +3290,9 @@ mod tests {
             "(:foo 1 2 3)",
             "(:foo 1 2 3 4)",
             "(:foo 1 2 3 4 5 6)", // implicit rest
-            "(:foo 1 2 3 (:))",   // explicit empty stream
-            "(:foo 1 2 (:) 4)",
-            "(:foo 1 2 (:) (:))",
+            "(:foo 1 2 3 (::))",   // explicit empty stream
+            "(:foo 1 2 (::) 4)",
+            "(:foo 1 2 (::) (::))",
         ],
         expect_mismatch: [
             "(:foo 1)",
@@ -3293,13 +3301,13 @@ mod tests {
     }
 
     #[rstest]
-    #[case::empty("(:)")]
-    #[case::empty_with_extra_spacing("(: )")]
-    #[case::single_value("(: 1)")]
-    #[case::multiple_values("(: 1 2 3)")]
-    #[case::eexp("(: foo 1 2 3)")]
-    #[case::eexp_with_sexp("(: (foo 1 2 3))")]
-    #[case::eexp_with_mixed_values("(: 1 2 3 {quux: [1, 2, 3]} 4 bar::5 baz::6)")]
+    #[case::empty("(::)")]
+    #[case::empty_with_extra_spacing("(:: )")]
+    #[case::single_value("(:: 1)")]
+    #[case::multiple_values("(:: 1 2 3)")]
+    #[case::eexp("(::foo 1 2 3)")]
+    #[case::eexp_with_sexp("(::(foo 1 2 3))")]
+    #[case::eexp_with_mixed_values("(:: 1 2 3 {quux: [1, 2, 3]} 4 bar::5 baz::6)")]
     fn match_eexp_arg_group(#[case] input: &str) {
         let parameter = Parameter::new(
             "x",

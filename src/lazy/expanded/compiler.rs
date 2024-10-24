@@ -705,6 +705,35 @@ impl TemplateCompiler {
         Ok(())
     }
 
+    fn compile_quasi_literal_sexp<D: Decoder>(
+        tdl_context: TdlContext,
+        definition: &mut TemplateBody,
+        annotations_range: Range<usize>,
+        expressions: SExpIterator<D>,
+    ) -> IonResult<()> {
+        let sexp_element_index = definition.expressions.len();
+        let sexp_element = TemplateBodyElement::with_value(TemplateValue::SExp);
+        // Use an empty range for now. When we finish reading the sexp, we'll overwrite the empty
+        // range with the correct one.
+        definition.push_element(sexp_element, ExprRange::empty());
+        // Each expression is a sexp child element and so is by definition not a macro argument.
+        const TARGET_PARAMETER: Option<&Parameter> = None;
+        // This method only deals with quasi-literals, so `is_literal` is always false.
+        const IS_LITERAL: bool = false;
+        for expr_result in expressions {
+            let expr = expr_result?;
+            Self::compile_value(tdl_context, definition, IS_LITERAL, TARGET_PARAMETER, expr)?;
+        }
+        let sexp_children_end = definition.expressions.len();
+        // Update the sexp entry to reflect the number of child expressions it contains
+        let sexp_element = TemplateBodyElement::with_value(TemplateValue::SExp)
+            .with_annotations(annotations_range);
+        let sexp_expr_range = ExprRange::new(sexp_element_index..sexp_children_end);
+        definition.expressions[sexp_element_index] =
+            TemplateBodyExpr::element(sexp_element, sexp_expr_range);
+        Ok(())
+    }
+
     /// Helper method for visiting all of the child expressions in a sexp.
     ///
     /// If this sexp appears in macro argument position, `target_parameter` will be a reference to
@@ -719,10 +748,6 @@ impl TemplateCompiler {
         annotations_range: Range<usize>,
         lazy_sexp: LazySExp<D>,
     ) -> IonResult<()> {
-        // First, verify that it doesn't have annotations.
-        if !annotations_range.is_empty() {
-            return IonResult::decoding_error("found annotations on a macro invocation");
-        }
         // See if we should interpret this s-expression or leave it as-is.
         if is_literal {
             // If `is_literal` is true, this s-expression is nested somewhere inside a `(literal ...)`
@@ -744,13 +769,29 @@ impl TemplateCompiler {
                 // ...then we set `is_quoted` to true and compile all of its child expressions.
                 Self::compile_literal_elements(tdl_context, definition, arguments)
             }
+            TdlSExpKind::QuasiLiteral(arguments) => Self::compile_quasi_literal_sexp(
+                tdl_context,
+                definition,
+                annotations_range,
+                arguments,
+            ),
             // If it's a macro ID...
             TdlSExpKind::MacroInvocation(macro_ref, arguments) => {
+                // ...verify that it doesn't have annotations...
+                if !annotations_range.is_empty() {
+                    return IonResult::decoding_error("found annotations on a macro invocation");
+                }
                 // ...add the macro invocation to the template body.
                 Self::compile_macro(tdl_context, definition, macro_ref, arguments)
             }
-            // If it's a semicolon (`;`)...
+            // If it's an argument expr group (`..`)...
             TdlSExpKind::ArgExprGroup(parameter, arguments) => {
+                // ...verify that it doesn't have annotations...
+                if !annotations_range.is_empty() {
+                    return IonResult::decoding_error(
+                        "found annotations on an arg expression group",
+                    );
+                }
                 // ...add the arg expr group to the template body.
                 Self::compile_arg_expr_group(tdl_context, definition, arguments, parameter)
             }
@@ -1223,66 +1264,89 @@ impl TemplateCompiler {
 /// Possible meanings of an S-expression in the template definition language (TDL).
 enum TdlSExpKind<'a, D: Decoder> {
     /// The `literal` operation, which (in this implementation) exists only at compile time.
-    ///     (literal ...)
+    ///     (literal /*...*/)
     /// * Associated iterator returns the s-expression's remaining child expressions.
     Literal(SExpIterator<'a, D>),
+    /// A quasi-literal s-expression; its child expressions will still be interpreted as TDL.
+    QuasiLiteral(SExpIterator<'a, D>),
     /// A macro invocation in the template body.
-    ///     (macro_id ...)
+    ///     (macro_id /*...*/)
     /// * Associated `Rc<Macro>` is a reference to the macro definition to which the `macro_id` referred.
     /// * Associated iterator returns the s-expression's remaining child expressions.
     MacroInvocation(Rc<Macro>, SExpIterator<'a, D>),
     /// An expression group being passed as an argument to a macro invocation.
-    ///     (; ...)
+    ///     (.. /*...*/)
     /// * Associated `Parameter` is the parameter to which this arg expression group is being passed.
     /// * Associated iterator returns the s-expression's remaining child expressions.
     ArgExprGroup(Parameter, SExpIterator<'a, D>),
 }
 
 impl<'top, D: Decoder> TdlSExpKind<'top, D> {
-    /// Inspects the contents of `sexp` to determine whether it is a special form (e.g. `literal`),
-    /// macro invocation (e.g. `make_string`), or arg expression group (e.g. `(;)`).
+    /// Inspects the contents of `sexp` to determine whether it is a:
+    /// * quasi-literal (e.g. `(1 2 (%var_name))`)
+    /// * literal (e.g. `(.literal 1 2 (%var_name))`)
+    /// * macro invocation (e.g. `(.make_string foo bar baz)`)
+    /// * arg expression group (e.g. `(.. foo bar baz)`).
     pub fn of(
         tdl_context: TdlContext,
         sexp: LazySExp<'top, D>,
         target_parameter: Option<&Parameter>,
     ) -> IonResult<Self> {
-        let mut values = sexp.iter();
-        let Some(first_value) = values.next().transpose()? else {
-            return IonResult::decoding_error(
-                "found an empty s-expression instead of a macro invocation or arg group",
-            );
+        let mut expressions = sexp.iter();
+        let Some(first_expr) = expressions.next().transpose()? else {
+            // An empty s-exp is a quasi-literal.
+            return Ok(TdlSExpKind::QuasiLiteral(expressions));
         };
-        let symbol = first_value.read()?.expect_symbol()?.expect_text()?;
-        // `values` now yields all of the arguments that follow the first value, whatever that may be.
-        // This creates a new binding that reflects that.
-        let arguments = values;
 
-        // If this is an argument expression group...
-        if symbol == ";" {
-            let Some(parameter) = target_parameter else {
-                return IonResult::decoding_error("argument expression groups `(; ...)` are only valid in macro argument position");
-            };
-            return Ok(TdlSExpKind::ArgExprGroup(parameter.clone(), arguments));
-        }
+        // There's at least one expression.
+        let operation = match first_expr.read()? {
+            // It's a macro invocation.
+            ValueRef::Symbol(s) if s == "." => {
+                // The next expression is the operation name.
+                expressions.next().transpose()?.ok_or_else(|| {
+                    IonError::decoding_error(
+                        "s-expression starts with a `.` but does not specify an operation name",
+                    )
+                })?
+            }
+            // It's an expression group.
+            ValueRef::Symbol(s) if s == ".." => {
+                let Some(parameter) = target_parameter else {
+                    return IonResult::decoding_error("argument expression groups `(.. /* expressions */)` are only valid in macro argument position");
+                };
+                // Return the parameter this arg group is being passed to and an iterator over the
+                // remaining expressions in the sexp
+                return Ok(TdlSExpKind::ArgExprGroup(parameter.clone(), expressions));
+            }
+            // Anything else means this is a sexp quasi-literal.
+            _ => {
+                // Note that we return a fresh iterator because we consumed the first expression
+                // from the original.
+                return Ok(TdlSExpKind::QuasiLiteral(sexp.iter()));
+            }
+        };
 
-        // If the operation name is `literal`, we need to see if it's the special form or a user-defined macro.
-        if symbol == "literal" {
-            // If it's `$ion::literal`, it's the special form.
-            if first_value.annotations().are(["$ion"])?
-                // Otherwise, if it has no annotations...
-                || (!first_value.has_annotations()
-                // ...and has not been shadowed by a user-defined macro name...
+        // See if it's the special form `literal`.
+        if let ValueRef::Symbol(s) = operation.read()? {
+            if s == "literal" {
+                // If it's `$ion::literal`, it's the special form.
+                if operation.annotations().are(["$ion"])?
+                    // Otherwise, if it has no annotations...
+                    || (!first_expr.has_annotations()
+                    // ...and has not been shadowed by a user-defined macro name...
                     && tdl_context.pending_macros.macro_with_name("literal").is_none()
                     && tdl_context.context.macro_table.macro_with_name("literal").is_none())
-            {
-                // ...then it's the special form.
-                return Ok(TdlSExpKind::Literal(arguments));
+                {
+                    // ...then it's the special form.
+                    return Ok(TdlSExpKind::Literal(expressions));
+                }
             }
         }
 
-        // Otherwise, the symbol is a macro ID to resolve.
-        let macro_ref = TemplateCompiler::resolve_macro_id_expr(tdl_context, first_value)?;
-        Ok(TdlSExpKind::MacroInvocation(macro_ref, arguments))
+        // At this point, we know the sexp must be a macro invocation.
+        // Resolve the macro name or address to the macro it represents.
+        let macro_ref = TemplateCompiler::resolve_macro_id_expr(tdl_context, operation)?;
+        Ok(TdlSExpKind::MacroInvocation(macro_ref, expressions))
     }
 }
 
@@ -1456,7 +1520,7 @@ mod tests {
         let resources = TestResources::new();
         let context = resources.context();
 
-        let expression = r#"(macro foo () (values 42 "hello" false))"#;
+        let expression = r#"(macro foo () (.values 42 "hello" false))"#;
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
@@ -1544,27 +1608,28 @@ mod tests {
         let expression = r#"
             (macro foo (x)
                 // Outer 'values' call allows multiple expressions in the body 
-                (values
+                (.values
                     // This `values` is a macro call that has a single argument: the variable `x`
-                    (values x)
+                    (.values x)
                     // This `literal` call causes the inner `(values x)` to be an uninterpreted s-expression.
-                    (literal
-                        (values x))))
+                    (.literal
+                        (.values x))))
         "#;
 
         let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 1);
         // Outer `values`
-        expect_macro(&template, 0, context.values_macro(), 6)?;
+        expect_macro(&template, 0, context.values_macro(), 7)?;
         // First argument: `(values x)`
         expect_macro(&template, 2, context.values_macro(), 1)?;
         expect_variable(&template, 3, 0)?;
         // Second argument: `(literal (values x))`
         // Notice that the `literal` is not part of the compiled output, only its arguments
         expect_value(&template, 4, TemplateValue::SExp)?;
-        expect_value(&template, 5, TemplateValue::Symbol("values".into()))?;
-        expect_value(&template, 6, TemplateValue::Symbol("x".into()))?;
+        expect_value(&template, 5, TemplateValue::Symbol(".".into()))?;
+        expect_value(&template, 6, TemplateValue::Symbol("values".into()))?;
+        expect_value(&template, 7, TemplateValue::Symbol("x".into()))?;
 
         Ok(())
     }
@@ -1577,8 +1642,8 @@ mod tests {
             $ion_encoding::(
                 (macro_table
                     $ion_encoding
-                    (macro hello ($name) (make_string "hello " $name))
-                    (macro hello_world () (hello "world")) // Depends on macro 'hello'
+                    (macro hello ($name) (.make_string "hello " $name))
+                    (macro hello_world () (.hello "world")) // Depends on macro 'hello'
                 )
             )
             (:hello_world)

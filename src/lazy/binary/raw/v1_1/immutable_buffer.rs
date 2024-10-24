@@ -1280,7 +1280,7 @@ mod tests {
     fn read_eexp_with_one_arg() -> IonResult<()> {
         let macro_source = r#"
             (macro greet (name)
-                (make_string "Hello, " name "!")
+                (.make_string "Hello, " name "!")
             )
         "#;
 
@@ -1313,7 +1313,7 @@ mod tests {
     fn read_eexp_with_two_args() -> IonResult<()> {
         let macro_source = r#"
             (macro greet (name day)
-                (make_string "Hello, " name "! Have a pleasant " day ".")
+                (.make_string "Hello, " name "! Have a pleasant " day ".")
             )
         "#;
 
