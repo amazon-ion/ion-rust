@@ -51,15 +51,14 @@ impl SymbolTable {
         //           IonVersion::v1_0 => &v1_0::SYSTEM_SYMBOLS[1..],
         //           IonVersion::v1_1 => &[],
         //       };
-        let remaining_system_symbols = &v1_0::SYSTEM_SYMBOLS[1..];
+        let system_symbols = match self.ion_version {
+            IonVersion::v1_0 => v1_0::SYSTEM_SYMBOLS,
+            IonVersion::v1_1 => v1_0::SYSTEM_SYMBOLS,
+        };
 
-        remaining_system_symbols
-            .iter()
-            .copied()
-            .map(Option::unwrap)
-            .for_each(|text| {
-                let _sid = self.add_symbol_for_text(text);
-            });
+        system_symbols.iter().copied().for_each(|text| {
+            let _sid = self.add_symbol_for_text(text);
+        });
     }
 
     pub(crate) fn reset(&mut self) {
