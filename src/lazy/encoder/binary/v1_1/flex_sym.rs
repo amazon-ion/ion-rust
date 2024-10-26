@@ -7,8 +7,8 @@ use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
 use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::IonResult;
 use crate::RawSymbolRef::{self, SymbolId, Text};
+use crate::{constants, IonResult};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FlexSymValue<'top> {
@@ -85,10 +85,27 @@ impl<'top> FlexSym<'top> {
                 let symbol_ref = Text(text);
                 (FlexSymValue::SymbolRef(symbol_ref), flex_int_len + len)
             }
-            Ordering::Equal => (
-                FlexSymValue::Opcode(ION_1_1_OPCODES[input[value.size_in_bytes()] as usize]),
-                value.size_in_bytes() + 1,
-            ),
+            Ordering::Equal => {
+                // Get the first byte following the leading FlexInt
+                let flex_int_len = value.size_in_bytes();
+                if input.len() < flex_int_len {
+                    return IonResult::incomplete("reading a FlexSym", offset);
+                }
+                let byte = input[flex_int_len];
+                let flex_sym_value = match byte {
+                    0x60 => FlexSymValue::SymbolRef(SymbolId(0)), // $0, unknown text
+                    0x61..0xE0 => FlexSymValue::SymbolRef(Text(
+                        constants::v1_1::SYSTEM_SYMBOLS[(byte as usize) - 0x60 - 1],
+                    )),
+                    0xF0 => FlexSymValue::Opcode(ION_1_1_OPCODES[byte as usize]),
+                    other => {
+                        // This branch covers both e-expression encodings (not yet implemented)
+                        // and detection of illegal escape codes.
+                        todo!("FlexSym escape with byte {other:#X?}")
+                    }
+                };
+                (flex_sym_value, flex_int_len + 1)
+            }
         };
 
         Ok(Self {

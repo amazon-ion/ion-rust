@@ -2,7 +2,9 @@
 //! [Ion Data Model](https://amazon-ion.github.io/ion-docs/docs/spec.html#the-ion-data-model)
 //! section of the Ion 1.0 spec.
 
+// TODO: Consolidate on "symbol address" naming.
 pub type SymbolId = usize;
+pub type SymbolAddress = usize;
 
 mod bytes;
 pub mod decimal;

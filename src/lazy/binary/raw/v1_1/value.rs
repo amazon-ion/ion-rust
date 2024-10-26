@@ -15,8 +15,10 @@ use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
+use crate::types::SymbolAddress;
 use crate::v1_1::FlexUInt;
 use crate::{
+    constants,
     lazy::{
         binary::{
             encoded_value::{EncodedHeader, EncodedValue},
@@ -180,7 +182,6 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             IonType::Struct => Ok(RawValueRef::Struct(self.read_struct()?)),
         }
     }
-
 
     /// This is a fast path for reading values that we know need to be resolved.
     ///
@@ -799,33 +800,54 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&'top self) -> IonResult<SymbolId> {
-        let biases: [usize; 3] = [0, 256, 65792];
+        const BIASES: [usize; 3] = [0, 256, 65792];
         let length_code = self.encoded_value.header.low_nibble();
         if (1..=3).contains(&length_code) {
             let (id, _) = self
                 .value_body_buffer()
                 .read_fixed_uint(length_code.into())?;
             let id = usize::try_from(id.value())?;
-            Ok(id + biases[(length_code - 1) as usize])
+            Ok(id + BIASES[(length_code - 1) as usize])
         } else {
             unreachable!("invalid length code for symbol ID");
         }
+    }
+
+    /// Helper method called by [`Self::read_symbol`]. Reads the next byte as a `FixedUInt`
+    /// and returns it as a symbol address.
+    fn read_system_symbol_address(&self) -> IonResult<SymbolAddress> {
+        let fixed_uint = self.value_body_buffer().read_fixed_uint(1)?;
+        fixed_uint.0.value().expect_usize()
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a symbol.
     fn read_symbol(&'top self) -> IonResult<RawSymbolRef<'top>> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Symbol);
         let type_code = self.encoded_value.header.ion_type_code;
-        if type_code == OpcodeType::InlineSymbol {
-            let raw_bytes = self.value_body();
-            let text = std::str::from_utf8(raw_bytes)
-                .map_err(|_| IonError::decoding_error("found symbol with invalid UTF-8 data"))?;
-            Ok(RawSymbolRef::from(text))
-        } else if type_code == OpcodeType::SymbolAddress {
-            let symbol_id = self.read_symbol_id()?;
-            Ok(RawSymbolRef::SymbolId(symbol_id))
-        } else {
-            unreachable!("invalid Opcode type found for symbol");
+        match type_code {
+            OpcodeType::InlineSymbol => {
+                let raw_bytes = self.value_body();
+                let text = std::str::from_utf8(raw_bytes).map_err(|_| {
+                    IonError::decoding_error("found symbol with invalid UTF-8 data")
+                })?;
+                Ok(RawSymbolRef::from(text))
+            }
+            OpcodeType::SymbolAddress => {
+                let symbol_id = self.read_symbol_id()?;
+                Ok(RawSymbolRef::SymbolId(symbol_id))
+            }
+            OpcodeType::SystemSymbolAddress => {
+                // In order to minimize the changes needed to introduce a second address space
+                // for symbols in Ion 1.1, system symbol IDs are resolved eagerly and returned
+                // as `Text`.
+                // Read the next byte after the opcode as a 1-byte FixedUInt address.
+                let symbol_address = self.read_system_symbol_address()?;
+                // SYSTEM_SYMBOLS does not contain $0...
+                let text = constants::v1_1::SYSTEM_SYMBOLS[symbol_address - 1];
+                // ...so all of its indexes are shifted by one.  ^^^^^^^^^^^^^^^^^^
+                Ok(RawSymbolRef::Text(text))
+            }
+            other => unreachable!("invalid Opcode type found for symbol: {:?}", other),
         }
     }
 

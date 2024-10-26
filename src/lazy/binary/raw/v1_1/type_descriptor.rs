@@ -126,6 +126,11 @@ impl Opcode {
             ),
             (0xE, 0xC) => (Nop, InOpcode(0), OpcodeKind::Control),
             (0xE, 0xD) => (Nop, FlexUIntFollows, OpcodeKind::Control),
+            (0xE, 0xE) => (
+                SystemSymbolAddress,
+                InOpcode(1),
+                OpcodeKind::Value(IonType::Symbol),
+            ),
             (0xF, 0x0) => (DelimitedContainerClose, InOpcode(0), OpcodeKind::Control),
             (0xF, 0x1) => (ListDelimited, Unknown, OpcodeKind::Value(IonType::List)),
             (0xF, 0x2) => (SExpDelimited, Unknown, OpcodeKind::Value(IonType::SExp)),

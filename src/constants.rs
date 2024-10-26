@@ -99,6 +99,10 @@ pub(crate) mod v1_1 {
         "make_field",               // $65
     ];
 
+    mod system_symbol_ids {
+        const ADD_SYMBOLS: usize = 45;
+        const ADD_MACROS: usize = 47;
+    }
     pub(crate) static SYSTEM_SYMBOL_TEXT_TO_ID: phf::Map<&str, usize> = phf_map! {
         "$ion"                     =>  1,
         "$ion_1_0"                 =>  2,

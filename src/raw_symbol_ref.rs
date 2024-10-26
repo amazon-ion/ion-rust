@@ -2,9 +2,21 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult, Symbol, SymbolId, SymbolRef};
 
-/// Like RawSymbolToken, but the Text variant holds a borrowed reference instead of a String.
+/// A raw symbol token found in the input stream.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RawSymbolRef<'a> {
+    // Ion 1.0 has a consolidated symbol table with both user and system symbols.
+    // Ion 1.1 has a user table (that may optionally contain system symbols) and a system table
+    // (which is always available and only contains system symbols).
+    //
+    // In Ion 1.0, all symbol ID tokens are represented using the `SymbolId` variant.
+    // In Ion 1.1, all user symbol ID tokens are represented using the `SymbolId` variant,
+    // while system symbol ID tokens are resolved to text in the system table and returned
+    // as a `Text` variant.
+    //
+    // This was done to minimize the changes needed to add a second address space.
+    // If there is call for it in the future, we could add a `SystemSymbolId` variant
+    // and modify Ion 1.0 to return that for SIDs < $10.
     SymbolId(SymbolId),
     Text(&'a str),
 }
