@@ -53,6 +53,12 @@ impl HasRange for Range<usize> {
 // extend 'static, Sized, Debug, Clone and Copy means that those types can #[derive(...)]
 // those traits themselves without boilerplate `where` clauses.
 pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
+    /// The Ion encoding that this decoder expects to read at the outset of the stream.
+    /// This determines how the encoding context is initialized.
+    /// The version may change if an Ion version marker is encountered.
+    /// Decoders may or may not support multiple Ion versions.
+    const INITIAL_ENCODING_EXPECTED: IonEncoding;
+
     /// A lazy reader that yields [`Self::Value`]s representing the top level values in its input.
     type Reader<'data>: LazyRawReader<'data, Self>;
     /// A value (at any depth) in the input. This can be further inspected to access either its

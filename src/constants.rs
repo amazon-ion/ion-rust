@@ -1,4 +1,6 @@
 pub(crate) mod v1_0 {
+    use phf::phf_map;
+
     // The indexes in this slice are off by one relative to the corresponding Ion symbol ID.
     // This is because it does not contain symbol ID `0`-the symbol with unknown text.
     pub static SYSTEM_SYMBOLS: &[&str] = &[
@@ -25,9 +27,25 @@ pub(crate) mod v1_0 {
         pub const MAX_ID: usize = 8;
         pub const ION_SHARED_SYMBOL_TABLE: usize = 9;
     }
+
+    /// A static, read-only map of text to Ion v1.0 system symbol addresses.
+    /// Because the set of string keys is known at compile time, this map is able to use a
+    /// perfect hashing function (PHF) to optimize lookup operations for those keys.
+    pub(crate) static SYSTEM_SYMBOL_TEXT_TO_ID: phf::Map<&str, usize> = phf_map! {
+        "$ion"                     => 1,
+        "$ion_1_0"                 => 2,
+        "$ion_symbol_table"        => 3,
+        "name"                     => 4,
+        "version"                  => 5,
+        "imports"                  => 6,
+        "symbols"                  => 7,
+        "max_id"                   => 8,
+        "$ion_shared_symbol_table" => 9,
+    };
 }
 
 pub(crate) mod v1_1 {
+    use crate::types::SymbolAddress;
     use phf::phf_map;
 
     pub static SYSTEM_SYMBOLS: &[&str] = &[
@@ -99,10 +117,18 @@ pub(crate) mod v1_1 {
         "make_field",               // $65
     ];
 
-    mod system_symbol_ids {
-        const ADD_SYMBOLS: usize = 45;
-        const ADD_MACROS: usize = 47;
+    pub mod system_symbol_ids {
+        use crate::raw_symbol_ref::SystemSymbol_1_1;
+
+        pub const ION_ENCODING: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(10);
+        pub const SYMBOL_TABLE: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(15);
+        pub const ADD_SYMBOLS: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(45);
+        pub const ADD_MACROS: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(47);
     }
+
+    /// A static, read-only map of text to Ion v1.1 system symbol addresses.
+    /// Because the set of string keys is known at compile time, this map is able to use a
+    /// perfect hashing function (PHF) to optimize lookup operations for those keys.
     pub(crate) static SYSTEM_SYMBOL_TEXT_TO_ID: phf::Map<&str, usize> = phf_map! {
         "$ion"                     =>  1,
         "$ion_1_0"                 =>  2,
@@ -171,7 +197,11 @@ pub(crate) mod v1_1 {
         "make_field"               => 65,
     };
 
-    fn id_for_text(text: &str) -> Option<usize> {
+    pub fn address_for_text(text: &str) -> Option<usize> {
         SYSTEM_SYMBOL_TEXT_TO_ID.get(text).copied()
+    }
+
+    pub fn symbol_text_for_address(address: SymbolAddress) -> Option<&'static str> {
+        SYSTEM_SYMBOLS.get(address - 1).copied()
     }
 }

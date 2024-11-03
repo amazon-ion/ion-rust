@@ -52,8 +52,11 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
         let iterator = annotations.into_iter();
         let mut symbol_ids = BumpVec::with_capacity_in(iterator.size_hint().0, self.allocator);
         for annotation in iterator {
-            match annotation.as_raw_symbol_token_ref() {
-                RawSymbolRef::SymbolId(symbol_id) => symbol_ids.push(symbol_id),
+            let symbol_address = match annotation.as_raw_symbol_token_ref() {
+                RawSymbolRef::SymbolId(symbol_id) => symbol_id,
+                RawSymbolRef::SystemSymbol_1_1(_system_symbol) => {
+                    unreachable!("Ion 1.1 symbol in Ion 1.0 writer")
+                }
                 RawSymbolRef::Text(text) => {
                     return cold_path! {
                         IonResult::encoding_error(
@@ -61,7 +64,8 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
                         )
                     };
                 }
-            }
+            };
+            symbol_ids.push(symbol_address);
         }
         self.annotations = Some(symbol_ids);
         Ok(self)
@@ -314,6 +318,9 @@ impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_0<'value, 'top> {
                 return Err(IonError::Encoding(EncodingError::new(format!(
                     "tried to write a text literal using the v1.0 raw binary writer: '{text}'"
                 ))));
+            }
+            RawSymbolRef::SystemSymbol_1_1(_) => {
+                unreachable!("Ion 1.1 token in 1.0 struct field name")
             }
         };
         VarUInt::write_u64(&mut self.container_writer.child_values_buffer, sid as u64)?;

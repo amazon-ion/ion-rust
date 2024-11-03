@@ -6,9 +6,9 @@ use ice_code::ice as cold_path;
 use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
 use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
-use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::RawSymbolRef::{self, SymbolId, Text};
-use crate::{constants, IonResult};
+use crate::raw_symbol_ref::{AsRawSymbolRef, SystemSymbol, SystemSymbol_1_1};
+use crate::IonResult;
+use crate::RawSymbolRef;
 
 #[derive(Debug, Clone, Copy)]
 pub enum FlexSymValue<'top> {
@@ -31,6 +31,7 @@ impl<'top> FlexSym<'top> {
     pub fn encode_symbol(output: &mut BumpVec<u8>, symbol: impl AsRawSymbolRef) {
         let symbol_token = symbol.as_raw_symbol_token_ref();
         // Write the field name
+        use RawSymbolRef::*;
         match symbol_token {
             SymbolId(sid) if sid != 0 => {
                 FlexInt::encode_i64(output, sid as i64);
@@ -49,9 +50,13 @@ impl<'top> FlexSym<'top> {
     /// Encodes the empty string or symbol ID zero as a FlexSym. The caller is responsible for
     /// confirming that `symbol` is one of those two cases before calling.
     fn encode_special_case(output: &mut BumpVec<u8>, symbol: RawSymbolRef) {
+        use RawSymbolRef::*;
         let encoding: &[u8] = match symbol {
-            SymbolId(_) => &[FlexSym::ZERO, 0xE1, 0x00],
-            Text(_) => &[FlexSym::ZERO, 0x90],
+            SymbolId(_) => &[FlexSym::ZERO, 0x60],
+            SystemSymbol_1_1(system_symbol) => {
+                &[FlexSym::ZERO, 0x60 + system_symbol.address() as u8]
+            }
+            Text(_) => &[FlexSym::ZERO, 0x75],
         };
         output.extend_from_slice_copy(encoding);
     }
@@ -68,7 +73,7 @@ impl<'top> FlexSym<'top> {
         let sym_value = value.value();
         let (flex_sym_value, size_in_bytes) = match sym_value.cmp(&0) {
             Ordering::Greater => (
-                FlexSymValue::SymbolRef(SymbolId(sym_value as usize)),
+                FlexSymValue::SymbolRef(RawSymbolRef::SymbolId(sym_value as usize)),
                 value.size_in_bytes(),
             ),
             Ordering::Less => {
@@ -82,7 +87,7 @@ impl<'top> FlexSym<'top> {
                     std::str::from_utf8(&input[flex_int_len..flex_sym_end]).map_err(|_| {
                         IonError::decoding_error("found FlexSym with invalid UTF-8 data")
                     })?;
-                let symbol_ref = Text(text);
+                let symbol_ref = RawSymbolRef::Text(text);
                 (FlexSymValue::SymbolRef(symbol_ref), flex_int_len + len)
             }
             Ordering::Equal => {
@@ -93,9 +98,11 @@ impl<'top> FlexSym<'top> {
                 }
                 let byte = input[flex_int_len];
                 let flex_sym_value = match byte {
-                    0x60 => FlexSymValue::SymbolRef(SymbolId(0)), // $0, unknown text
-                    0x61..0xE0 => FlexSymValue::SymbolRef(Text(
-                        constants::v1_1::SYSTEM_SYMBOLS[(byte as usize) - 0x60 - 1],
+                    0x60 => FlexSymValue::SymbolRef(RawSymbolRef::SymbolId(0)), // $0, unknown text
+                    0x61..0xE0 => FlexSymValue::SymbolRef(RawSymbolRef::SystemSymbol_1_1(
+                        // ^^^ We just range checked this address in the `match` arm,
+                        // so we can use the `new_unchecked` constructor safely.
+                        SystemSymbol_1_1::new_unchecked((byte as usize) - 0x60),
                     )),
                     0xF0 => FlexSymValue::Opcode(ION_1_1_OPCODES[byte as usize]),
                     other => {

@@ -278,11 +278,11 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
                                             == Element::try_from(*other)
                                                 .expect("unable to convert LazyValue into Element")
                                     }
-                                    (None, Some(id)) => actual_field.matches_sid_or_text(id, ""),
+                                    (None, Some(id)) => actual_field.is_symbol_id(id),
                                     (Some(symtab), Some(id)) => {
                                         let symbol_table = other.symbol_table();
                                         match self.1.get_symbol_from_table(symtab, id) {
-                                            None => actual_field.matches_sid_or_text(0, ""),
+                                            None => actual_field.is_unknown_text(),
                                             Some(shared_symbol) => {
                                                 let shared_symbol_txt =
                                                     shared_symbol.text().unwrap_or("");

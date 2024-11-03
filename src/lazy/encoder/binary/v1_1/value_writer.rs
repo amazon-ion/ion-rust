@@ -19,7 +19,7 @@ use crate::lazy::encoder::value_writer_config::{
     ValueWriterConfig,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_ref::AsRawSymbolRef;
+use crate::raw_symbol_ref::{AsRawSymbolRef, SystemSymbol};
 use crate::result::IonFailure;
 use crate::types::float::{FloatRepr, SmallestFloatRepr};
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
@@ -554,6 +554,10 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         const SYMBOL_FLEX_UINT_LEN_OPCODE: u8 = 0xFA;
         match value.as_raw_symbol_token_ref() {
             RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
+            RawSymbolRef::SystemSymbol_1_1(system_symbol) => {
+                self.push_bytes(&[0xEE, system_symbol.address() as u8]);
+                Ok(())
+            }
             RawSymbolRef::Text(text) => {
                 self.write_text(SYMBOL_OPCODE, SYMBOL_FLEX_UINT_LEN_OPCODE, text.as_ref());
                 Ok(())
@@ -823,13 +827,14 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 
     #[cold]
     fn write_length_prefixed_flex_sym_annotation_sequence(&mut self) {
-        // A FlexUInt follows with the byte length of the FlexSym sequence that follows
+        // Create a temporary buffer and encode all of the annotations into it
         let mut annotations_buffer = BumpVec::new_in(self.allocator);
         for annotation in &self.annotations {
             FlexSym::encode_symbol(&mut annotations_buffer, annotation);
         }
-        // A FlexUInt follows that represents the length of a sequence of FlexSym-encoded annotations
+        // Write the opcode for a length-prefixed FlexSym annotations sequence
         self.buffer.push(0xE9);
+        // A FlexUInt follows that represents the length of a sequence of FlexSym-encoded annotations
         FlexUInt::write(self.buffer, annotations_buffer.len()).unwrap();
         self.buffer
             .extend_from_slice_copy(annotations_buffer.as_slice());
@@ -2873,11 +2878,10 @@ mod tests {
             0.annotated_with([RawSymbolRef::Text(""), RawSymbolRef::SymbolId(0)]),
             &[
                 0xE8, // Two FlexSym annotations follow
-                0x01, // Opcode follows
-                0x90, // String of length 0
-                0x01, // Opcode follows
-                0xE1, // 1-byte FixedUInt symbol ID follows
-                0x00, // Symbol ID 0
+                0x01, // FlexSymOpcode follows
+                0x75, // String of length 0
+                0x01, // FlexSymOpcode follows
+                0x60, // FlexSymOpcode: $0
                 0x60, // Integer 0
             ],
         )?;

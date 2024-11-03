@@ -13,8 +13,7 @@ use crate::lazy::expanded::{
     LazyExpandedValue,
 };
 use crate::result::IonFailure;
-use crate::symbol_ref::AsSymbolRef;
-use crate::{try_or_some_err, IonError, IonResult, RawSymbolRef, SymbolRef};
+use crate::{try_or_some_err, IonResult, RawSymbolRef, SymbolRef};
 
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
@@ -85,18 +84,9 @@ pub enum LazyExpandedFieldName<'top, D: Decoder> {
 impl<'top, D: Decoder> LazyExpandedFieldName<'top, D> {
     pub(crate) fn read(&self) -> IonResult<SymbolRef<'top>> {
         match self {
-            LazyExpandedFieldName::RawName(context, name) => match name.read()? {
-                RawSymbolRef::Text(text) => Ok(text.into()),
-                RawSymbolRef::SymbolId(sid) => context
-                    .symbol_table()
-                    .symbol_for(sid)
-                    .map(AsSymbolRef::as_symbol_ref)
-                    .ok_or_else(|| {
-                        IonError::decoding_error(format!(
-                            "field name with sid ${sid} has unknown text"
-                        ))
-                    }),
-            },
+            LazyExpandedFieldName::RawName(context, name) => {
+                name.read()?.resolve("a field name", *context)
+            }
             LazyExpandedFieldName::TemplateName(_template_ref, symbol_ref) => Ok(*symbol_ref),
         }
     }

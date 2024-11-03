@@ -1,4 +1,4 @@
-use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
+use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef, SystemSymbol};
 use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
 use crate::{Decimal, Int, Struct, Timestamp};
@@ -278,25 +278,23 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
     }
 
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
-        match token.as_raw_symbol_token_ref() {
-            RawSymbolRef::SymbolId(sid) => write!(self.output, "${sid}")?,
-            RawSymbolRef::Text(text)
-                if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
-            {
-                // Write the symbol text in single quotes
-                write!(self.output, "'{text}'")?;
-            }
-            RawSymbolRef::Text(text) if Self::token_is_identifier(text) => {
-                // Write the symbol text without quotes
-                write!(self.output, "{text}")?
-            }
-            RawSymbolRef::Text(text) => {
-                // Write the symbol text using quotes and escaping any characters that require it.
-                write!(self.output, "\'")?;
-                self.format_escaped_text_body(text)?;
-                write!(self.output, "\'")?;
-            }
+        let text = match token.as_raw_symbol_token_ref() {
+            RawSymbolRef::SymbolId(sid) => return Ok(write!(self.output, "${sid}")?),
+            RawSymbolRef::SystemSymbol_1_1(system_symbol) => system_symbol.text(),
+            RawSymbolRef::Text(text) => text,
         };
+        if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) {
+            // Write the symbol text in single quotes
+            write!(self.output, "'{text}'")?;
+        } else if Self::token_is_identifier(text) {
+            // Write the symbol text without quotes
+            write!(self.output, "{text}")?
+        } else {
+            // Write the symbol text using quotes and escaping any characters that require it.
+            write!(self.output, "\'")?;
+            self.format_escaped_text_body(text)?;
+            write!(self.output, "\'")?;
+        }
         Ok(())
     }
 

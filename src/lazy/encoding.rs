@@ -257,6 +257,7 @@ pub trait EncodingWithMacroSupport {}
 impl EncodingWithMacroSupport for TextEncoding_1_1 {}
 
 impl Decoder for BinaryEncoding_1_0 {
+    const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_0;
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
     type Value<'top> = LazyRawBinaryValue_1_0<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_0<'top>;
@@ -270,6 +271,7 @@ impl Decoder for BinaryEncoding_1_0 {
 }
 
 impl Decoder for TextEncoding_1_0 {
+    const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_0;
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
     type Value<'top> = LazyRawTextValue_1_0<'top>;
     type SExp<'top> = LazyRawTextSExp_1_0<'top>;
@@ -283,6 +285,7 @@ impl Decoder for TextEncoding_1_0 {
 }
 
 impl Decoder for TextEncoding_1_1 {
+    const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_1;
     type Reader<'data> = LazyRawTextReader_1_1<'data>;
     type Value<'top> = LazyRawTextValue_1_1<'top>;
     type SExp<'top> = LazyRawTextSExp_1_1<'top>;
@@ -295,6 +298,7 @@ impl Decoder for TextEncoding_1_1 {
 }
 
 impl Decoder for BinaryEncoding_1_1 {
+    const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_1;
     type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
     type Value<'top> = &'top LazyRawBinaryValue_1_1<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_1<'top>;

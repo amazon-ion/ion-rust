@@ -64,6 +64,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
+use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0, SYSTEM_SYMBOLS_1_1};
 use crate::{try_next, Encoding, IonResult, IonType, RawStreamItem, RawSymbolRef};
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
@@ -74,6 +75,10 @@ pub struct AnyEncoding;
 // within each type. Trait methods are implemented by forwarding the call to the appropriate
 // underlying type.
 impl Decoder for AnyEncoding {
+    // Before a reader using `AnyEncoding` begins reading, it expects text Ion v1.0.
+    // At the outset of the stream, it inspects the first bytes to see if the stream is binary or text.
+    // If it encounters a version marker, the expected version will change.
+    const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_0;
     type Reader<'data> = LazyRawAnyReader<'data>;
     type Value<'top> = LazyRawAnyValue<'top>;
     type SExp<'top> = LazyRawAnySExp<'top>;
@@ -538,7 +543,7 @@ impl IonEncoding {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum IonVersion {
     #[default]
     v1_0,
@@ -551,6 +556,14 @@ impl IonVersion {
         match self {
             v1_0 => (1, 0),
             v1_1 => (1, 1),
+        }
+    }
+
+    /// Returns the system symbol table associated with this Ion version.
+    pub fn system_symbol_table(&self) -> &'static SystemSymbolTable {
+        match self {
+            IonVersion::v1_0 => SYSTEM_SYMBOLS_1_0,
+            IonVersion::v1_1 => SYSTEM_SYMBOLS_1_1,
         }
     }
 }
@@ -1861,8 +1874,10 @@ mod tests {
         expect_int(context_ref, &mut reader, IonEncoding::Text_1_0, 2)?;
 
         if cfg!(not(feature = "experimental-ion-1-1")) {
-            reader.next(context_ref).expect_err("Ion 1.1 IVM should return an error.");
-            return Ok(())
+            reader
+                .next(context_ref)
+                .expect_err("Ion 1.1 IVM should return an error.");
+            return Ok(());
         }
 
         // This IVM changes the encoding from 1.0 text to 1.1 text
@@ -1928,8 +1943,10 @@ mod tests {
         expect_int(context_ref, &mut reader, IonEncoding::Binary_1_0, 2)?;
 
         if cfg!(not(feature = "experimental-ion-1-1")) {
-            reader.next(context_ref).expect_err("Ion 1.1 IVM should return an error.");
-            return Ok(())
+            reader
+                .next(context_ref)
+                .expect_err("Ion 1.1 IVM should return an error.");
+            return Ok(());
         }
 
         // This IVM changes the encoding from 1.0 binary to 1.1 binary

@@ -77,8 +77,8 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     pub fn new(_encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
             decoder: PhantomData,
-            // This will be overwritten when reading begins
-            detected_encoding: IonEncoding::default(),
+            // This value will be overwritten if/when the reader detects a new version.
+            detected_encoding: Encoding::INITIAL_ENCODING_EXPECTED,
             input: input.into_data_source().into(),
             stream_position: 0,
         }

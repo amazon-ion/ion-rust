@@ -135,6 +135,9 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
                     write!(output, "::")
                 }
                 RawSymbolRef::SymbolId(sid) => write!(output, "${sid}::"),
+                RawSymbolRef::SystemSymbol_1_1(_) => {
+                    unreachable!("Ion 1.1 token in 1.0 annotations sequence")
+                }
             }?;
         }
 

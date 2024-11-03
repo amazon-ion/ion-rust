@@ -124,7 +124,7 @@ impl EncodingContext {
     pub fn empty() -> Self {
         Self::new(
             MacroTable::with_system_macros(),
-            SymbolTable::new(IonVersion::default()),
+            SymbolTable::empty(IonVersion::default()),
             BumpAllocator::new(),
         )
     }
@@ -276,10 +276,11 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         raw_reader: StreamingRawReader<Encoding, Input>,
         catalog: Box<dyn Catalog>,
     ) -> Self {
+        let encoding = raw_reader.encoding();
         Self {
             raw_reader: raw_reader.into(),
             evaluator_ptr: None.into(),
-            encoding_context: EncodingContext::empty().into(),
+            encoding_context: EncodingContext::for_ion_version(encoding.version()).into(),
             pending_context_changes: PendingContextChanges::new().into(),
             catalog,
         }
@@ -391,7 +392,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // Otherwise, we need to clear the existing table before appending the new symbols.
         if !pending_changes.is_lst_append {
             // We're setting the symbols list, not appending to it.
-            symbol_table.reset();
+            symbol_table.reset_to_prefix_only();
         }
         // `drain()` empties the pending `imported_symbols` and `symbols` lists
         for symbol in pending_changes.imported_symbols.drain(..) {

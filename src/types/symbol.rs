@@ -10,13 +10,15 @@ use std::sync::Arc;
 /// Stores or points to the text of a given [Symbol].
 #[derive(Debug, Eq)]
 pub(crate) enum SymbolText {
-    // This Symbol refers to a string in the symbol table
+    // This Symbol refers to a string in the active symbol table
     Shared(Arc<str>),
     // This Symbol owns its own text
     // TODO: Turn this into a Box<str>.
     //       Symbols are read-only, so there's no chance we'll add data to the `String`. Using
     //       a `Box<str>` shrinks this value from 24 bytes to 8 bytes.
     Owned(String),
+    // This symbol has text that is statically defined (e.g. system symbol table text)
+    Static(&'static str),
     // This Symbol is equivalent to SID zero (`$0`)
     Unknown,
 }
@@ -26,6 +28,7 @@ impl SymbolText {
         let text = match self {
             SymbolText::Shared(s) => s.as_ref(),
             SymbolText::Owned(s) => s.as_str(),
+            SymbolText::Static(s) => s,
             SymbolText::Unknown => return None,
         };
         Some(text)
@@ -34,11 +37,8 @@ impl SymbolText {
 
 impl Hash for SymbolText {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            SymbolText::Shared(text) => text.hash(state),
-            SymbolText::Owned(text) => text.hash(state),
-            SymbolText::Unknown => "".hash(state),
-        }
+        let text = self.text().unwrap_or("");
+        text.hash(state)
     }
 }
 
@@ -47,6 +47,7 @@ impl Clone for SymbolText {
         match self {
             SymbolText::Owned(text) => SymbolText::Owned(text.to_owned()),
             SymbolText::Shared(text) => SymbolText::Shared(Arc::clone(text)),
+            SymbolText::Static(text) => SymbolText::Static(text),
             SymbolText::Unknown => SymbolText::Unknown,
         }
     }
@@ -98,6 +99,12 @@ impl Symbol {
         }
     }
 
+    pub fn system(text: &'static str) -> Symbol {
+        Symbol {
+            text: SymbolText::Static(text),
+        }
+    }
+
     pub fn unknown_text() -> Symbol {
         Symbol {
             text: SymbolText::Unknown,
@@ -109,6 +116,7 @@ impl Symbol {
         match self.text {
             SymbolText::Shared(text) => Symbol::shared(text),
             SymbolText::Owned(text) => Symbol::shared(text.into()),
+            SymbolText::Static(text) => Symbol::shared(text.into()),
             SymbolText::Unknown => Symbol::unknown_text(),
         }
     }

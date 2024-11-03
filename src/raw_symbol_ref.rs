@@ -1,24 +1,46 @@
+#![allow(non_camel_case_types)]
+
 use crate::lazy::expanded::EncodingContextRef;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, Symbol, SymbolId, SymbolRef};
+use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0, SYSTEM_SYMBOLS_1_1};
+use crate::types::SymbolAddress;
+use crate::{IonError, IonResult, IonVersion, Symbol, SymbolId, SymbolRef};
+use ice_code::ice;
 
 /// A raw symbol token found in the input stream.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Eq)]
 pub enum RawSymbolRef<'a> {
-    // Ion 1.0 has a consolidated symbol table with both user and system symbols.
-    // Ion 1.1 has a user table (that may optionally contain system symbols) and a system table
-    // (which is always available and only contains system symbols).
-    //
-    // In Ion 1.0, all symbol ID tokens are represented using the `SymbolId` variant.
-    // In Ion 1.1, all user symbol ID tokens are represented using the `SymbolId` variant,
-    // while system symbol ID tokens are resolved to text in the system table and returned
-    // as a `Text` variant.
-    //
-    // This was done to minimize the changes needed to add a second address space.
-    // If there is call for it in the future, we could add a `SystemSymbolId` variant
-    // and modify Ion 1.0 to return that for SIDs < $10.
+    /// A symbol address in the active symbol table.
     SymbolId(SymbolId),
+    /// An Ion 1.1 system symbol.
+    ///
+    /// In Ion 1.0, the system symbol table is a permanent prefix to the active symbol table.
+    /// Ion 1.0 system symbols are encoded using an address in the active symbol table just like
+    /// application symbols, they just have an address lower than `$10`.
+    ///
+    /// In Ion 1.1, system symbols have their own address space. This variant represents a symbol
+    /// in that address space, indicating that its corresponding text should be resolved in the
+    /// system symbol table rather than the active symbol table.
+    SystemSymbol_1_1(SystemSymbol_1_1),
+    /// A text literal. In Ion 1.1, this can also represent text from the system symbol table.
     Text(&'a str),
+}
+
+impl PartialEq for RawSymbolRef<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        use RawSymbolRef::*;
+        match (self, other) {
+            (SymbolId(sid1), SymbolId(sid2)) => sid1 == sid2,
+            (Text(text1), Text(text2)) => text1 == text2,
+            (SystemSymbol_1_1(address1), SystemSymbol_1_1(address2)) => address1 == address2,
+            // SystemSymbol_1_1 instances are guaranteed to have associated text, so we can compare them to
+            // text literals for equality.
+            (SystemSymbol_1_1(symbol), Text(text)) | (Text(text), SystemSymbol_1_1(symbol)) => {
+                symbol.text() == *text
+            }
+            _ => false,
+        }
+    }
 }
 
 impl<'a> RawSymbolRef<'a> {
@@ -29,10 +51,25 @@ impl<'a> RawSymbolRef<'a> {
         match self {
             RawSymbolRef::SymbolId(sid) => symbol_id == *sid,
             RawSymbolRef::Text(text) => symbol_text == *text,
+            // XXX: This method doesn't make much sense now that Ion 1.1 system symbols have their
+            //      own address space.
+            RawSymbolRef::SystemSymbol_1_1(system_symbol) => symbol_text == system_symbol.text(),
         }
     }
 
-    pub fn resolve(self, context: EncodingContextRef<'a>) -> IonResult<SymbolRef<'a>> {
+    pub fn is_unknown_text(&self) -> bool {
+        self.is_symbol_id(0)
+    }
+
+    pub fn is_symbol_id(&self, symbol_id: SymbolId) -> bool {
+        matches!(self, RawSymbolRef::SymbolId(s) if *s == symbol_id)
+    }
+
+    pub fn resolve(
+        self,
+        label: &'static str,
+        context: EncodingContextRef<'a>,
+    ) -> IonResult<SymbolRef<'a>> {
         let symbol = match self {
             RawSymbolRef::SymbolId(sid) => context
                 .symbol_table()
@@ -41,12 +78,14 @@ impl<'a> RawSymbolRef<'a> {
                     #[inline(never)]
                     || {
                         IonError::decoding_error(format!(
-                            "found a symbol ID (${}) that was not in the symbol table",
-                            sid
+                            "found {label} symbol ID (${}) that was not in the symbol table\n{:?}",
+                            sid,
+                            context.symbol_table()
                         ))
                     },
                 )?
                 .into(),
+            RawSymbolRef::SystemSymbol_1_1(symbol) => symbol.text().into(),
             RawSymbolRef::Text(text) => text.into(),
         };
         Ok(symbol)
@@ -136,5 +175,114 @@ impl<'a> From<SymbolRef<'a>> for RawSymbolRef<'a> {
 impl<'a> From<&'a Symbol> for RawSymbolRef<'a> {
     fn from(value: &'a Symbol) -> Self {
         value.as_raw_symbol_token_ref()
+    }
+}
+
+pub(crate) trait SystemSymbol: Sized {
+    /// Creates a new instance of this type **without range checking the address.**
+    /// It should only be used when the address passed in has already been confirmed to be in range.
+    fn new_unchecked(symbol_address: SymbolAddress) -> Self;
+
+    /// Creates a new system symbol if the provided address is non-zero and in range for the
+    /// corresponding system symbol table.
+    fn new(symbol_address: SymbolAddress) -> Option<Self> {
+        match symbol_address {
+            0 => None,
+            address if address >= Self::system_symbol_table().len() => None,
+            address => Some(Self::new_unchecked(address)),
+        }
+    }
+
+    /// Constructs a system symbol from the provided address, returning `Ok(symbol)`.
+    /// If the provided address is zero or out of bounds, returns an `Err`.
+    #[inline]
+    fn try_new(symbol_address: SymbolAddress) -> IonResult<Self> {
+        Self::new(symbol_address).ok_or_else(|| {
+            ice!(IonError::decoding_error(format!(
+                "system symbol address {symbol_address} is out of bounds"
+            )))
+        })
+    }
+
+    /// Returns a reference to the system symbol table used by this symbol's corresponding
+    /// Ion version.
+    fn system_symbol_table() -> &'static SystemSymbolTable;
+
+    /// The address in the system table where this symbol's text can be found.
+    fn address(&self) -> SymbolAddress;
+
+    fn text(&self) -> &'static str {
+        // TODO: `NonZeroUsize` might offer minor optimization opportunities around system
+        //       symbol representation/resolution.
+        //
+        // https://doc.rust-lang.org/std/num/type.NonZeroUsize.html
+
+        // The address has been confirmed to be non-zero and in bounds
+        Self::system_symbol_table().symbols_by_address()[self.address() - 1]
+    }
+
+    fn ion_version(&self) -> IonVersion {
+        Self::system_symbol_table().ion_version()
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct SystemSymbol_1_1(SymbolAddress);
+
+impl SystemSymbol_1_1 {
+    pub const fn new_unchecked(symbol_address: SymbolAddress) -> Self {
+        Self(symbol_address)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SystemSymbol_1_0(SymbolAddress);
+
+impl SystemSymbol for SystemSymbol_1_0 {
+    #[inline]
+    fn new_unchecked(symbol_address: SymbolAddress) -> Self {
+        Self(symbol_address)
+    }
+
+    #[inline]
+    fn system_symbol_table() -> &'static SystemSymbolTable {
+        SYSTEM_SYMBOLS_1_0
+    }
+
+    #[inline]
+    fn address(&self) -> SymbolAddress {
+        self.0
+    }
+}
+
+impl AsRawSymbolRef for SystemSymbol_1_0 {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+        // In Ion 1.0, system symbols are encoded just like application symbols,
+        // as an address in the active symbol table.
+        RawSymbolRef::SymbolId(self.0)
+    }
+}
+
+impl SystemSymbol for SystemSymbol_1_1 {
+    #[inline]
+    fn new_unchecked(symbol_address: SymbolAddress) -> Self {
+        Self(symbol_address)
+    }
+
+    #[inline]
+    fn system_symbol_table() -> &'static SystemSymbolTable {
+        SYSTEM_SYMBOLS_1_1
+    }
+
+    #[inline]
+    fn address(&self) -> SymbolAddress {
+        self.0
+    }
+}
+
+impl AsRawSymbolRef for SystemSymbol_1_1 {
+    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+        // In Ion 1.1, system symbols have their own address space.
+        RawSymbolRef::SystemSymbol_1_1(*self)
     }
 }

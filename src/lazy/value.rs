@@ -1,12 +1,12 @@
 use crate::lazy::decoder::Decoder;
 use crate::lazy::encoding::BinaryEncoding_1_0;
-use crate::lazy::expanded::{ExpandedAnnotationsIterator, LazyExpandedValue};
+use crate::lazy::expanded::{EncodingContextRef, ExpandedAnnotationsIterator, LazyExpandedValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError, IonResult, IonType,
-    RawSymbolRef, SymbolRef, SymbolTable, Value,
+    try_or_some_err, Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError,
+    IonResult, IonType, SymbolRef, SymbolTable, Value,
 };
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -219,7 +219,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
             expanded_annotations: self.expanded_value.annotations(),
-            symbol_table: self.expanded_value.context.symbol_table(),
+            context: self.expanded_value.context,
         }
     }
 
@@ -280,7 +280,7 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
 /// using the format described by generic type parameter `D`.
 pub struct AnnotationsIterator<'top, D: Decoder> {
     pub(crate) expanded_annotations: ExpandedAnnotationsIterator<'top, D>,
-    pub(crate) symbol_table: &'top SymbolTable,
+    pub(crate) context: EncodingContextRef<'top>,
 }
 
 impl<'top, D: Decoder> AnnotationsIterator<'top, D> {
@@ -416,17 +416,10 @@ impl<'top, D: Decoder> Iterator for AnnotationsIterator<'top, D> {
     type Item = IonResult<SymbolRef<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let raw_annotation = self.expanded_annotations.next()?;
-        match raw_annotation {
-            Ok(RawSymbolRef::SymbolId(sid)) => match self.symbol_table.symbol_for(sid) {
-                None => Some(IonResult::decoding_error(
-                    "found a symbol ID that was not in the symbol table",
-                )),
-                Some(symbol) => Some(Ok(symbol.into())),
-            },
-            Ok(RawSymbolRef::Text(text)) => Some(Ok(text.into())),
-            Err(e) => Some(Err(e)),
-        }
+        let raw_annotation = try_or_some_err!(self.expanded_annotations.next()?);
+        Some(Ok(try_or_some_err!(
+            raw_annotation.resolve("an annotation", self.context)
+        )))
     }
 }
 

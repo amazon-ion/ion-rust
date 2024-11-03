@@ -271,7 +271,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     None => EncodingModule::new(
                         "$ion_encoding".to_owned(),
                         macro_table,
-                        SymbolTable::new(IonVersion::v1_1),
+                        SymbolTable::empty(IonVersion::v1_1),
                     ),
                     Some(mut module) => {
                         module.set_macro_table(macro_table);
@@ -328,7 +328,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 "expected a symbol table definition operation, but found: {operation:?}"
             ));
         }
-        let mut symbol_table = SymbolTable::new(IonVersion::v1_1);
+        // If we're processing a `(symbol_table ...)`, the stream must be Ion v1.1.
+        let mut symbol_table = SymbolTable::empty(IonVersion::v1_1);
         for arg in args {
             match arg?.read()? {
                 ValueRef::Symbol(symbol) if symbol == "$ion_encoding" => {
