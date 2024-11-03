@@ -52,7 +52,7 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
         let iterator = annotations.into_iter();
         let mut symbol_ids = BumpVec::with_capacity_in(iterator.size_hint().0, self.allocator);
         for annotation in iterator {
-            let symbol_address = match annotation.as_raw_symbol_token_ref() {
+            let symbol_address = match annotation.as_raw_symbol_ref() {
                 RawSymbolRef::SymbolId(symbol_id) => symbol_id,
                 RawSymbolRef::SystemSymbol_1_1(_system_symbol) => {
                     unreachable!("Ion 1.1 symbol in Ion 1.0 writer")
@@ -312,7 +312,7 @@ impl<'value, 'top> BinaryStructWriter_1_0<'value, 'top> {
 impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_0<'value, 'top> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Write the field name
-        let sid = match name.as_raw_symbol_token_ref() {
+        let sid = match name.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => sid,
             RawSymbolRef::Text(text) => {
                 return Err(IonError::Encoding(EncodingError::new(format!(

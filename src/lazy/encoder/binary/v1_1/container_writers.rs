@@ -353,7 +353,7 @@ impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         use crate::raw_symbol_ref::RawSymbolRef::*;
 
-        let name_ref = name.as_raw_symbol_token_ref();
+        let name_ref = name.as_raw_symbol_ref();
         match (self.flex_uint_encoding, name_ref) {
             // We're in FlexUInt encoding mode and can write this field without switching modes
             (true, SymbolId(sid)) if sid > 0 => {

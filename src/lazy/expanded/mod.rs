@@ -1093,8 +1093,8 @@ impl<'top, Encoding: Decoder> Iterator for ExpandedAnnotationsIterator<'top, Enc
             ValueLiteral(value_annotations_iter) => value_annotations_iter.next(),
             Template(element_annotations_iter) => element_annotations_iter
                 .next()
-                .map(|symbol| Ok(symbol.as_raw_symbol_token_ref())),
-            Constructed(iter) => Some(Ok(iter.next()?.as_raw_symbol_token_ref())),
+                .map(|symbol| Ok(symbol.as_raw_symbol_ref())),
+            Constructed(iter) => Some(Ok(iter.next()?.as_raw_symbol_ref())),
         }
     }
 }
@@ -1317,7 +1317,7 @@ impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
             Decimal(d) => ExpandedValueRef::Decimal(*d),
             Timestamp(t) => ExpandedValueRef::Timestamp(*t),
             String(s) => ExpandedValueRef::String(StrRef::from(s.text())),
-            Symbol(s) => ExpandedValueRef::Symbol(s.as_raw_symbol_token_ref()),
+            Symbol(s) => ExpandedValueRef::Symbol(s.as_raw_symbol_ref()),
             Blob(b) => ExpandedValueRef::Blob(BytesRef::from(b.as_ref())),
             Clob(c) => ExpandedValueRef::Clob(BytesRef::from(c.as_ref())),
             List => ExpandedValueRef::List(LazyExpandedList::from_template(

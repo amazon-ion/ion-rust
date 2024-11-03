@@ -29,7 +29,7 @@ impl<'top> FlexSym<'top> {
 
     /// Encode the provided `symbol` as a FlexSym and write it to the provided [`BumpVec`].
     pub fn encode_symbol(output: &mut BumpVec<u8>, symbol: impl AsRawSymbolRef) {
-        let symbol_token = symbol.as_raw_symbol_token_ref();
+        let symbol_token = symbol.as_raw_symbol_ref();
         // Write the field name
         use RawSymbolRef::*;
         match symbol_token {

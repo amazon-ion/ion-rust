@@ -634,15 +634,12 @@ mod tests {
         assert_eq!(
             annotations,
             vec![
-                "foo".as_raw_symbol_token_ref(),
-                "bar".as_raw_symbol_token_ref(),
-                "baz".as_raw_symbol_token_ref(),
+                "foo".as_raw_symbol_ref(),
+                "bar".as_raw_symbol_ref(),
+                "baz".as_raw_symbol_ref(),
             ]
         );
-        assert_eq!(
-            value.read()?.expect_symbol()?,
-            "quux".as_raw_symbol_token_ref()
-        );
+        assert_eq!(value.read()?.expect_symbol()?, "quux".as_raw_symbol_ref());
 
         Ok(())
     }

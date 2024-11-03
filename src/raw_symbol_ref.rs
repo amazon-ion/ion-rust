@@ -94,29 +94,29 @@ impl<'a> RawSymbolRef<'a> {
 
 /// Implemented by types that can be viewed as a [RawSymbolRef] without allocations.
 pub trait AsRawSymbolRef {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef;
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef;
 }
 
 impl<'a> AsRawSymbolRef for RawSymbolRef<'a> {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
         *self
     }
 }
 
 impl AsRawSymbolRef for SymbolId {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
         RawSymbolRef::SymbolId(*self)
     }
 }
 
 impl AsRawSymbolRef for &str {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
         RawSymbolRef::Text(self)
     }
 }
 
 impl AsRawSymbolRef for Symbol {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
         match self.text() {
             Some(text) => RawSymbolRef::Text(text),
             None => RawSymbolRef::SymbolId(0),
@@ -128,8 +128,8 @@ impl<T> AsRawSymbolRef for &T
 where
     T: AsRawSymbolRef,
 {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
-        (*self).as_raw_symbol_token_ref()
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
+        (*self).as_raw_symbol_ref()
     }
 }
 
@@ -174,7 +174,7 @@ impl<'a> From<SymbolRef<'a>> for RawSymbolRef<'a> {
 
 impl<'a> From<&'a Symbol> for RawSymbolRef<'a> {
     fn from(value: &'a Symbol) -> Self {
-        value.as_raw_symbol_token_ref()
+        value.as_raw_symbol_ref()
     }
 }
 
@@ -256,7 +256,7 @@ impl SystemSymbol for SystemSymbol_1_0 {
 }
 
 impl AsRawSymbolRef for SystemSymbol_1_0 {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
         // In Ion 1.0, system symbols are encoded just like application symbols,
         // as an address in the active symbol table.
         RawSymbolRef::SymbolId(self.0)
@@ -281,7 +281,7 @@ impl SystemSymbol for SystemSymbol_1_1 {
 }
 
 impl AsRawSymbolRef for SystemSymbol_1_1 {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
         // In Ion 1.1, system symbols have their own address space.
         RawSymbolRef::SystemSymbol_1_1(*self)
     }

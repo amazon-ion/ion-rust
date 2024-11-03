@@ -302,7 +302,7 @@ impl<'value, V: ValueWriter> ApplicationValueWriter<'value, V> {
         Self: 'a,
     {
         for annotation in annotations {
-            match annotation.as_raw_symbol_token_ref() {
+            match annotation.as_raw_symbol_ref() {
                 // The token is already a symbol ID.
                 RawSymbolRef::SymbolId(sid) => {
                     if !self.symbol_table().sid_is_valid(sid) {
@@ -343,7 +343,7 @@ impl<'value, V: ValueWriter> ApplicationValueWriter<'value, V> {
         Self: 'a,
     {
         for annotation in annotations {
-            if let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_token_ref() {
+            if let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_ref() {
                 if !self.symbol_table().sid_is_valid(sid) {
                     return IonResult::encoding_error(format!(
                         "annotation symbol ID {sid} is not in the symbol table"
@@ -365,7 +365,7 @@ impl<'value, V: ValueWriter> ApplicationValueWriter<'value, V> {
         Self: 'a,
     {
         for annotation in annotations {
-            match annotation.as_raw_symbol_token_ref() {
+            match annotation.as_raw_symbol_ref() {
                 // The token is already a symbol ID.
                 RawSymbolRef::SymbolId(sid) => {
                     if !self.symbol_table().sid_is_valid(sid) {
@@ -429,7 +429,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
 
         // Depending on the symbol value encoding config option, map the provided symbol reference
         // from text to SID or vice versa, performing any validation needed.
-        let symbol_ref = match value.as_raw_symbol_token_ref() {
+        let symbol_ref = match value.as_raw_symbol_ref() {
             SymbolId(symbol_id) => {
                 // We can write the symbol ID as-is. Make sure it's in the symbol table.
                 if !encoding.symbol_table.sid_is_valid(symbol_id) {
@@ -547,7 +547,7 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'value,
 
 impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
-        let text = match name.as_raw_symbol_token_ref() {
+        let text = match name.as_raw_symbol_ref() {
             // This is an application-level struct writer. It is expected that method calls will
             // almost always be provided text; if the user passes in a symbol ID, it means they have
             // special knowledge of the encoding environment and are bypassing the 'managed' layer.
@@ -788,7 +788,7 @@ mod tests {
             );
             println!(
                 "{:?} {:02X?} == {:02X?}",
-                symbol.as_raw_symbol_token_ref(),
+                symbol.as_raw_symbol_ref(),
                 actual_bytes,
                 expected_bytes
             )

@@ -278,7 +278,7 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
     }
 
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
-        let text = match token.as_raw_symbol_token_ref() {
+        let text = match token.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => return Ok(write!(self.output, "${sid}")?),
             RawSymbolRef::SystemSymbol_1_1(system_symbol) => system_symbol.text(),
             RawSymbolRef::Text(text) => text,
@@ -458,7 +458,7 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
         write!(self.output, "{{")?;
         let mut peekable_itr = value.fields().peekable();
         while let Some((field_name, field_value)) = peekable_itr.next() {
-            self.format_symbol(field_name.as_raw_symbol_token_ref())?;
+            self.format_symbol(field_name.as_raw_symbol_ref())?;
             write!(self.output, ": {field_value}")?;
             if peekable_itr.peek().is_some() {
                 write!(self.output, ", ")?;

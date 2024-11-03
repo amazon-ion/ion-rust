@@ -552,7 +552,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     pub fn write_symbol<A: AsRawSymbolRef>(mut self, value: A) -> IonResult<()> {
         const SYMBOL_OPCODE: u8 = 0xA0;
         const SYMBOL_FLEX_UINT_LEN_OPCODE: u8 = 0xFA;
-        match value.as_raw_symbol_token_ref() {
+        match value.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
             RawSymbolRef::SystemSymbol_1_1(system_symbol) => {
                 self.push_bytes(&[0xEE, system_symbol.address() as u8]);
@@ -1172,7 +1172,7 @@ mod tests {
         for (value, expected_encoding) in test_cases {
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
-                    writer.write(value.as_raw_symbol_token_ref())?;
+                    writer.write(value.as_raw_symbol_ref())?;
                     Ok(())
                 },
                 expected_encoding,
@@ -1194,7 +1194,7 @@ mod tests {
         for (value, expected_encoding) in test_cases {
             encoding_test(
                 |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
-                    writer.write(value.as_raw_symbol_token_ref())?;
+                    writer.write(value.as_raw_symbol_ref())?;
                     Ok(())
                 },
                 expected_encoding,

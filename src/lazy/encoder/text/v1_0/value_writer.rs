@@ -129,7 +129,7 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
         self.value_writer.has_annotations = !self.annotations.is_empty();
         let output = &mut self.value_writer.writer.output;
         for annotation in self.annotations {
-            match annotation.as_raw_symbol_token_ref() {
+            match annotation.as_raw_symbol_ref() {
                 RawSymbolRef::Text(token) => {
                     write_symbol_token(output, token)?;
                     write!(output, "::")
