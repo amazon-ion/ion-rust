@@ -157,7 +157,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
             // If we ran out of data before we could get a result...
-            if matches!(result, Err(IonError::Incomplete(_))) {
+            if matches!(result, Err(IonError::Incomplete(_)) | Ok(LazyRawStreamItem::<Encoding>::EndOfStream(_))) {
                 // ...try to pull more data from the data source. It's ok to modify the buffer in
                 // this case because `result` (which holds a reference to the buffer) will be
                 // discarded.
