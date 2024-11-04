@@ -6,7 +6,7 @@ use ice_code::ice as cold_path;
 use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
 use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
-use crate::raw_symbol_ref::{AsRawSymbolRef, SystemSymbol, SystemSymbol_1_1};
+use crate::raw_symbol_ref::{AsRawSymbolRef, SystemSymbol_1_1};
 use crate::IonResult;
 use crate::RawSymbolRef;
 

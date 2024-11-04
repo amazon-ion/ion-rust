@@ -48,13 +48,13 @@ impl SystemSymbolTable {
     }
 }
 
-pub static SYSTEM_SYMBOLS_1_0: &'static SystemSymbolTable = &SystemSymbolTable {
+pub static SYSTEM_SYMBOLS_1_0: &SystemSymbolTable = &SystemSymbolTable {
     ion_version: IonVersion::v1_0,
     symbols_by_address: v1_0::SYSTEM_SYMBOLS,
     symbols_by_text: &v1_0::SYSTEM_SYMBOL_TEXT_TO_ID,
 };
 
-pub static SYSTEM_SYMBOLS_1_1: &'static SystemSymbolTable = &SystemSymbolTable {
+pub static SYSTEM_SYMBOLS_1_1: &SystemSymbolTable = &SystemSymbolTable {
     ion_version: IonVersion::v1_1,
     symbols_by_address: v1_1::SYSTEM_SYMBOLS,
     symbols_by_text: &v1_1::SYSTEM_SYMBOL_TEXT_TO_ID,

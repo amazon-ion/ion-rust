@@ -19,7 +19,7 @@ use crate::lazy::encoder::value_writer_config::{
     ValueWriterConfig,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::raw_symbol_ref::{AsRawSymbolRef, SystemSymbol};
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::float::{FloatRepr, SmallestFloatRepr};
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
