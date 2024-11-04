@@ -233,6 +233,10 @@ impl SystemSymbol_1_1 {
     pub const fn new_unchecked(symbol_address: SymbolAddress) -> Self {
         Self(symbol_address)
     }
+
+    pub const fn address(&self) -> SymbolAddress {
+        self.0
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
