@@ -16,7 +16,7 @@ exclude = [
     "**/ion-tests/iontestdata/**",
     "*.pdf"
 ]
-version = "1.0.0-rc.8"
+version = "1.0.0-rc.9"
 edition = "2021"
 rust-version = "1.80"
 
