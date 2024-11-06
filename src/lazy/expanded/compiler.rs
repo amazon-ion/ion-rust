@@ -1381,9 +1381,7 @@ mod tests {
         ExprRange, ParameterEncoding, TemplateBodyExpr, TemplateMacro, TemplateValue,
     };
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
-    use crate::{
-        AnyEncoding, Element, ElementReader, Int, IntoAnnotations, IonResult, Macro, Reader, Symbol,
-    };
+    use crate::{Int, IntoAnnotations, IonResult, Macro, Symbol};
 
     // XXX: The tests in this module compile inputs and expect a specific output. There is no "correct"
     // output, only correct behavior. As such, these tests are fragile; it is possible that optimizing
@@ -1648,6 +1646,8 @@ mod tests {
     #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn dependent_macros() -> IonResult<()> {
+        use crate::{AnyEncoding, Element, ElementReader, Reader};
+
         let ion = r#"
             $ion_1_1
             $ion_encoding::(

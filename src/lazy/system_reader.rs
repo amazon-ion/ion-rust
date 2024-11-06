@@ -746,7 +746,6 @@ mod tests {
 
     // === Shared Symbol Tables ===
 
-    use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
     use crate::lazy::encoder::value_writer::AnnotatableWriter;
     use crate::{MapCatalog, SharedSymbolTable};
 
@@ -1021,6 +1020,7 @@ mod tests {
     #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn detect_encoding_directive_binary() -> IonResult<()> {
+        use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
         let mut writer = LazyRawBinaryWriter_1_1::new(Vec::new())?;
         let mut directive = writer
             .value_writer()
