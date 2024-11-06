@@ -47,16 +47,18 @@ impl<'top> FlexSym<'top> {
         };
     }
 
-    /// Encodes the empty string or symbol ID zero as a FlexSym. The caller is responsible for
-    /// confirming that `symbol` is one of those two cases before calling.
+    /// Encodes the empty string, symbol ID zero, or a system symbol as a FlexSym. The caller is
+    /// responsible for confirming that `symbol` is one of these three cases before calling.
     fn encode_special_case(output: &mut BumpVec<u8>, symbol: RawSymbolRef) {
         use RawSymbolRef::*;
         let encoding: &[u8] = match symbol {
-            SymbolId(_) => &[FlexSym::ZERO, 0x60],
+            // Per this method's preconditions, this branch must be SymbolId zero.
+            SymbolId(_zero) => &[FlexSym::ZERO, 0x60],
             SystemSymbol_1_1(system_symbol) => {
                 &[FlexSym::ZERO, 0x60 + system_symbol.address() as u8]
             }
-            Text(_) => &[FlexSym::ZERO, 0x75],
+            // Per this method's preconditions, this branch's text must be the empty string.
+            Text(_empty_string) => &[FlexSym::ZERO, 0x75],
         };
         output.extend_from_slice_copy(encoding);
     }

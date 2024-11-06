@@ -117,11 +117,12 @@ pub(crate) mod v1_1 {
         "make_field",               // $65
     ];
 
-    pub mod system_symbol_ids {
+    pub mod system_symbols {
         use crate::raw_symbol_ref::SystemSymbol_1_1;
 
         pub const ION_ENCODING: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(10);
         pub const SYMBOL_TABLE: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(15);
+        pub const EMPTY_TEXT: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(21);
         pub const ADD_SYMBOLS: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(45);
         pub const ADD_MACROS: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(47);
     }

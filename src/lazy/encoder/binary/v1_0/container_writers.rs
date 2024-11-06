@@ -54,15 +54,12 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
         for annotation in iterator {
             let symbol_address = match annotation.as_raw_symbol_ref() {
                 RawSymbolRef::SymbolId(symbol_id) => symbol_id,
-                RawSymbolRef::SystemSymbol_1_1(_system_symbol) => {
-                    unreachable!("Ion 1.1 symbol in Ion 1.0 writer")
-                }
-                RawSymbolRef::Text(text) => {
+                other_token => {
                     return cold_path! {
                         IonResult::encoding_error(
-                            format!("binary Ion 1.0 does not support text annotation literals (received '{}')", text)
+                            format!("binary Ion 1.0 only supports symbol ID annotations (received '{other_token:?}')")
                         )
-                    };
+                    }
                 }
             };
             symbol_ids.push(symbol_address);

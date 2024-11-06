@@ -36,7 +36,7 @@ impl SystemSymbolTable {
     }
 
     pub fn symbol_for_address(&self, address: SymbolAddress) -> Option<Symbol> {
-        self.text_for_address(address).map(Symbol::system)
+        self.text_for_address(address).map(Symbol::static_text)
     }
 
     pub(crate) fn symbols_by_text(&self) -> &'static phf::Map<&'static str, usize> {
@@ -251,8 +251,8 @@ impl SymbolTable {
     /// system symbols may be removed from the table.
     pub fn permanent_system_prefix_count(&self) -> usize {
         match self.ion_version {
-            IonVersion::v1_0 => 10,
-            IonVersion::v1_1 => 1,
+            IonVersion::v1_0 => Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_0,
+            IonVersion::v1_1 => Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_1,
         }
     }
 

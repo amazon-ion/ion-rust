@@ -99,7 +99,7 @@ impl Symbol {
         }
     }
 
-    pub fn system(text: &'static str) -> Symbol {
+    pub fn static_text(text: &'static str) -> Symbol {
         Symbol {
             text: SymbolText::Static(text),
         }

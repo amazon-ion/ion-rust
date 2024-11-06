@@ -78,9 +78,9 @@ impl<'a> RawSymbolRef<'a> {
                     #[inline(never)]
                     || {
                         IonError::decoding_error(format!(
-                            "found {label} symbol ID (${}) that was not in the symbol table\n{:?}",
+                            "found {label} symbol ID (${}) that was not in the symbol table (len={})",
                             sid,
-                            context.symbol_table()
+                            context.symbol_table().len()
                         ))
                     },
                 )?
@@ -182,7 +182,7 @@ impl<'a> From<&'a Symbol> for RawSymbolRef<'a> {
 pub struct SystemSymbol_1_1(SymbolAddress);
 
 impl SystemSymbol_1_1 {
-    /// Creates a new instance of this type **without range checking the address.**
+    /// Creates a new instance of this type **without range-checking the address.**
     /// It should only be used when the address passed in has already been confirmed to be in range.
     pub const fn new_unchecked(symbol_address: SymbolAddress) -> Self {
         Self(symbol_address)

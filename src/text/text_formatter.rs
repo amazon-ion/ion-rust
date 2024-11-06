@@ -1,3 +1,4 @@
+use crate::constants::v1_1;
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
@@ -278,24 +279,29 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
     }
 
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
-        let text = match token.as_raw_symbol_ref() {
-            RawSymbolRef::SymbolId(sid) => return Ok(write!(self.output, "${sid}")?),
-            RawSymbolRef::SystemSymbol_1_1(system_symbol) => system_symbol.text(),
-            RawSymbolRef::Text(text) => text,
+        use RawSymbolRef::*;
+        let write_result = match token.as_raw_symbol_ref() {
+            SymbolId(sid) => write!(self.output, "${sid}"),
+            // '' is the only system symbol that requires quoting; the rest are identifiers.
+            SystemSymbol_1_1(v1_1::system_symbols::EMPTY_TEXT) => write!(self.output, "\'\'"),
+            // Any other system symbol is an identifier and doesn't require quoting.
+            SystemSymbol_1_1(symbol) => return Ok(write!(self.output, "{}", symbol.text())?),
+            // If the text could be mistaken for a keyword or symbol ID, wrap it in single quotes.
+            Text(text) if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) => {
+                write!(self.output, "'{text}'")
+            }
+            // If the text is an identifier, it doesn't require quotes.
+            Text(text) if Self::token_is_identifier(text) => write!(self.output, "{text}"),
+            // Any other text has its escape sequences substituted and is wrapped in quotes.
+            Text(text) => {
+                // Write the symbol text using quotes and escaping any characters that require it.
+                write!(self.output, "\'")?;
+                self.format_escaped_text_body(text)?;
+                write!(self.output, "\'")
+            }
         };
-        if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) {
-            // Write the symbol text in single quotes
-            write!(self.output, "'{text}'")?;
-        } else if Self::token_is_identifier(text) {
-            // Write the symbol text without quotes
-            write!(self.output, "{text}")?
-        } else {
-            // Write the symbol text using quotes and escaping any characters that require it.
-            write!(self.output, "\'")?;
-            self.format_escaped_text_body(text)?;
-            write!(self.output, "\'")?;
-        }
-        Ok(())
+        // Convert the fmt::Result into an IonResult
+        Ok(write_result?)
     }
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
