@@ -285,7 +285,7 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
             // '' is the only system symbol that requires quoting; the rest are identifiers.
             SystemSymbol_1_1(v1_1::system_symbols::EMPTY_TEXT) => write!(self.output, "\'\'"),
             // Any other system symbol is an identifier and doesn't require quoting.
-            SystemSymbol_1_1(symbol) => return Ok(write!(self.output, "{}", symbol.text())?),
+            SystemSymbol_1_1(symbol) => write!(self.output, "{}", symbol.text()),
             // If the text could be mistaken for a keyword or symbol ID, wrap it in single quotes.
             Text(text) if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) => {
                 write!(self.output, "'{text}'")
