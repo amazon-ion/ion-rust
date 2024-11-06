@@ -1,4 +1,4 @@
-use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef, SystemSymbol};
+use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
 use crate::{Decimal, Int, Struct, Timestamp};

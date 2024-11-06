@@ -52,7 +52,6 @@ use crate::{
 use crate::lazy::expanded::macro_table::Macro;
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
-use crate::raw_symbol_ref::SystemSymbol;
 use bumpalo::collections::Vec as BumpVec;
 
 impl<'a> Debug for TextBuffer<'a> {

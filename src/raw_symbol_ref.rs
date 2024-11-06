@@ -2,9 +2,9 @@
 
 use crate::lazy::expanded::EncodingContextRef;
 use crate::result::IonFailure;
-use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0, SYSTEM_SYMBOLS_1_1};
+use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_1};
 use crate::types::SymbolAddress;
-use crate::{IonError, IonResult, IonVersion, Symbol, SymbolId, SymbolRef};
+use crate::{IonError, IonResult, Symbol, SymbolId, SymbolRef};
 use ice_code::ice;
 
 /// A raw symbol token found in the input stream.
@@ -178,10 +178,15 @@ impl<'a> From<&'a Symbol> for RawSymbolRef<'a> {
     }
 }
 
-pub(crate) trait SystemSymbol: Sized {
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct SystemSymbol_1_1(SymbolAddress);
+
+impl SystemSymbol_1_1 {
     /// Creates a new instance of this type **without range checking the address.**
     /// It should only be used when the address passed in has already been confirmed to be in range.
-    fn new_unchecked(symbol_address: SymbolAddress) -> Self;
+    pub const fn new_unchecked(symbol_address: SymbolAddress) -> Self {
+        Self(symbol_address)
+    }
 
     /// Creates a new system symbol if the provided address is non-zero and in range for the
     /// corresponding system symbol table.
@@ -204,14 +209,16 @@ pub(crate) trait SystemSymbol: Sized {
         })
     }
 
-    /// Returns a reference to the system symbol table used by this symbol's corresponding
-    /// Ion version.
-    fn system_symbol_table() -> &'static SystemSymbolTable;
+    #[inline]
+    pub fn system_symbol_table() -> &'static SystemSymbolTable {
+        SYSTEM_SYMBOLS_1_1
+    }
 
-    /// The address in the system table where this symbol's text can be found.
-    fn address(&self) -> SymbolAddress;
+    pub const fn address(&self) -> SymbolAddress {
+        self.0
+    }
 
-    fn text(&self) -> &'static str {
+    pub fn text(&self) -> &'static str {
         // TODO: `NonZeroUsize` might offer minor optimization opportunities around system
         //       symbol representation/resolution.
         //
@@ -219,68 +226,6 @@ pub(crate) trait SystemSymbol: Sized {
 
         // The address has been confirmed to be non-zero and in bounds
         Self::system_symbol_table().symbols_by_address()[self.address() - 1]
-    }
-
-    fn ion_version(&self) -> IonVersion {
-        Self::system_symbol_table().ion_version()
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct SystemSymbol_1_1(SymbolAddress);
-
-impl SystemSymbol_1_1 {
-    pub const fn new_unchecked(symbol_address: SymbolAddress) -> Self {
-        Self(symbol_address)
-    }
-
-    pub const fn address(&self) -> SymbolAddress {
-        self.0
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SystemSymbol_1_0(SymbolAddress);
-
-impl SystemSymbol for SystemSymbol_1_0 {
-    #[inline]
-    fn new_unchecked(symbol_address: SymbolAddress) -> Self {
-        Self(symbol_address)
-    }
-
-    #[inline]
-    fn system_symbol_table() -> &'static SystemSymbolTable {
-        SYSTEM_SYMBOLS_1_0
-    }
-
-    #[inline]
-    fn address(&self) -> SymbolAddress {
-        self.0
-    }
-}
-
-impl AsRawSymbolRef for SystemSymbol_1_0 {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
-        // In Ion 1.0, system symbols are encoded just like application symbols,
-        // as an address in the active symbol table.
-        RawSymbolRef::SymbolId(self.0)
-    }
-}
-
-impl SystemSymbol for SystemSymbol_1_1 {
-    #[inline]
-    fn new_unchecked(symbol_address: SymbolAddress) -> Self {
-        Self(symbol_address)
-    }
-
-    #[inline]
-    fn system_symbol_table() -> &'static SystemSymbolTable {
-        SYSTEM_SYMBOLS_1_1
-    }
-
-    #[inline]
-    fn address(&self) -> SymbolAddress {
-        self.0
     }
 }
 
