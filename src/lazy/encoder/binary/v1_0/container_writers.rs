@@ -311,13 +311,10 @@ impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_0<'value, 'top> {
         // Write the field name
         let sid = match name.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => sid,
-            RawSymbolRef::Text(text) => {
+            other => {
                 return Err(IonError::Encoding(EncodingError::new(format!(
-                    "tried to write a text literal using the v1.0 raw binary writer: '{text}'"
+                    "the v1.0 raw binary writer only supports symbol ID struct field names, received {other:?}"
                 ))));
-            }
-            RawSymbolRef::SystemSymbol_1_1(_) => {
-                unreachable!("Ion 1.1 token in 1.0 struct field name")
             }
         };
         VarUInt::write_u64(&mut self.container_writer.child_values_buffer, sid as u64)?;

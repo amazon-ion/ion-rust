@@ -135,8 +135,10 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
                     write!(output, "::")
                 }
                 RawSymbolRef::SymbolId(sid) => write!(output, "${sid}::"),
-                RawSymbolRef::SystemSymbol_1_1(_) => {
-                    unreachable!("Ion 1.1 token in 1.0 annotations sequence")
+                RawSymbolRef::SystemSymbol_1_1(_symbol) => {
+                    return IonResult::encoding_error(
+                        "the Ion 1.0 text writer does not support encoding Ion 1.1 system symbols",
+                    )
                 }
             }?;
         }

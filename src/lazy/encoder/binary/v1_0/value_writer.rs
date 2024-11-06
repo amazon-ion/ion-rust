@@ -222,12 +222,9 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     pub fn write_symbol<A: AsRawSymbolRef>(self, value: A) -> IonResult<()> {
         match value.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
-            RawSymbolRef::Text(text) => IonResult::illegal_operation(format!(
-                "the Ion 1.0 raw binary writer cannot write text symbols (here: '{text}')"
+            other => IonResult::illegal_operation(format!(
+                "the Ion 1.0 raw binary writer only supports symbol ID values; received: {other:?})"
             )),
-            RawSymbolRef::SystemSymbol_1_1(_) => {
-                unreachable!("Ion 1.1 token in 1.0 value writer")
-            }
         }
     }
 
