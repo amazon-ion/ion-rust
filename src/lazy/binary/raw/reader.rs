@@ -260,7 +260,7 @@ mod tests {
         let lazy_struct = value.read()?.expect_struct()?;
         let mut fields = lazy_struct.iter();
         let (name, _value) = fields.next().expect("field 1")?.expect_name_value()?;
-        assert_eq!(name.read()?, 4.as_raw_symbol_token_ref()); // 'name'
+        assert_eq!(name.read()?, 4.as_raw_symbol_ref()); // 'name'
         Ok(())
     }
 
@@ -349,7 +349,7 @@ mod tests {
             .annotations()
             .collect::<IonResult<Vec<RawSymbolRef<'_>>>>()?;
         assert_eq!(annotations.len(), 1);
-        assert_eq!(annotations[0], 3.as_raw_symbol_token_ref());
+        assert_eq!(annotations[0], 3.as_raw_symbol_ref());
 
         // Read annotations from foo::bar::baz::7
         let int = reader.next()?.expect_value()?;
@@ -358,9 +358,9 @@ mod tests {
             .annotations()
             .collect::<IonResult<Vec<RawSymbolRef<'_>>>>()?;
         assert_eq!(annotations.len(), 3);
-        assert_eq!(annotations[0], 10.as_raw_symbol_token_ref());
-        assert_eq!(annotations[1], 11.as_raw_symbol_token_ref());
-        assert_eq!(annotations[2], 12.as_raw_symbol_token_ref());
+        assert_eq!(annotations[0], 10.as_raw_symbol_ref());
+        assert_eq!(annotations[1], 11.as_raw_symbol_ref());
+        assert_eq!(annotations[2], 12.as_raw_symbol_ref());
         Ok(())
     }
 

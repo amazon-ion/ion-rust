@@ -445,17 +445,17 @@ mod tests {
         let mut fields = strukt.iter();
         sum += {
             let (name, value) = fields.next().unwrap()?.expect_name_value()?;
-            assert_eq!(name.read()?, "foo".as_raw_symbol_token_ref());
+            assert_eq!(name.read()?, "foo".as_raw_symbol_ref());
             value.read()?.expect_i64()?
         };
         sum += {
             let (name, value) = fields.next().unwrap()?.expect_name_value()?;
-            assert_eq!(name.read()?, "bar".as_raw_symbol_token_ref());
+            assert_eq!(name.read()?, "bar".as_raw_symbol_ref());
             value.read()?.expect_i64()?
         };
         sum += {
             let (name, value) = fields.next().unwrap()?.expect_name_value()?;
-            assert_eq!(name.read()?, "baz".as_raw_symbol_token_ref());
+            assert_eq!(name.read()?, "baz".as_raw_symbol_ref());
             value.read()?.expect_i64()?
         };
         assert_eq!(sum, 600);

@@ -52,16 +52,17 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
         let iterator = annotations.into_iter();
         let mut symbol_ids = BumpVec::with_capacity_in(iterator.size_hint().0, self.allocator);
         for annotation in iterator {
-            match annotation.as_raw_symbol_token_ref() {
-                RawSymbolRef::SymbolId(symbol_id) => symbol_ids.push(symbol_id),
-                RawSymbolRef::Text(text) => {
+            let symbol_address = match annotation.as_raw_symbol_ref() {
+                RawSymbolRef::SymbolId(symbol_id) => symbol_id,
+                other_token => {
                     return cold_path! {
                         IonResult::encoding_error(
-                            format!("binary Ion 1.0 does not support text annotation literals (received '{}')", text)
+                            format!("binary Ion 1.0 only supports symbol ID annotations (received '{other_token:?}')")
                         )
-                    };
+                    }
                 }
-            }
+            };
+            symbol_ids.push(symbol_address);
         }
         self.annotations = Some(symbol_ids);
         Ok(self)
@@ -308,11 +309,11 @@ impl<'value, 'top> BinaryStructWriter_1_0<'value, 'top> {
 impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_0<'value, 'top> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Write the field name
-        let sid = match name.as_raw_symbol_token_ref() {
+        let sid = match name.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => sid,
-            RawSymbolRef::Text(text) => {
+            other => {
                 return Err(IonError::Encoding(EncodingError::new(format!(
-                    "tried to write a text literal using the v1.0 raw binary writer: '{text}'"
+                    "the v1.0 raw binary writer only supports symbol ID struct field names, received {other:?}"
                 ))));
             }
         };

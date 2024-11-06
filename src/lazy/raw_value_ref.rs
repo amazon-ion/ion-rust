@@ -84,7 +84,7 @@ impl<'top, D: Decoder> RawValueRef<'top, D> {
             RawValueRef::Decimal(d) => ValueRef::Decimal(d),
             RawValueRef::Timestamp(t) => ValueRef::Timestamp(t),
             RawValueRef::String(s) => ValueRef::String(s),
-            RawValueRef::Symbol(s) => ValueRef::Symbol(s.resolve(context)?),
+            RawValueRef::Symbol(s) => ValueRef::Symbol(s.resolve("a value", context)?),
             RawValueRef::Blob(b) => ValueRef::Blob(b),
             RawValueRef::Clob(c) => ValueRef::Clob(c),
             RawValueRef::SExp(s) => {

@@ -1160,14 +1160,15 @@ impl<'top> TextBuffer<'top> {
     pub fn match_e_expression_name(self) -> IonParseResult<'top, MacroIdRef<'top>> {
         let (exp_body_after_id, (macro_id_bytes, matched_symbol)) =
             consumed(Self::match_identifier)(self)?;
-        let id = match matched_symbol
+        let name = match matched_symbol
             .read(self.context.allocator(), macro_id_bytes)
             .expect("matched identifier but failed to read its bytes")
         {
             RawSymbolRef::SymbolId(_) => unreachable!("matched a text identifier, returned a SID"),
-            RawSymbolRef::Text(text) => MacroIdRef::LocalName(text),
+            RawSymbolRef::Text(text) => text,
+            RawSymbolRef::SystemSymbol_1_1(system_symbol) => system_symbol.text(),
         };
-        Ok((exp_body_after_id, id))
+        Ok((exp_body_after_id, MacroIdRef::LocalName(name)))
     }
 
     pub fn match_e_expression_address(self) -> IonParseResult<'top, MacroIdRef<'top>> {

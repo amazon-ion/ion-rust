@@ -125,7 +125,7 @@ impl AsSymbolRef for &Symbol {
 }
 
 impl<'a> AsRawSymbolRef for SymbolRef<'a> {
-    fn as_raw_symbol_token_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
         match &self.text {
             None => RawSymbolRef::SymbolId(0),
             Some(text) => RawSymbolRef::Text(text),

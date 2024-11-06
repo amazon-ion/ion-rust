@@ -77,8 +77,8 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     pub fn new(_encoding: Encoding, input: Input) -> StreamingRawReader<Encoding, Input> {
         StreamingRawReader {
             decoder: PhantomData,
-            // This will be overwritten when reading begins
-            detected_encoding: IonEncoding::default(),
+            // This value will be overwritten if/when the reader detects a new version.
+            detected_encoding: Encoding::INITIAL_ENCODING_EXPECTED,
             input: input.into_data_source().into(),
             stream_position: 0,
         }
@@ -634,15 +634,12 @@ mod tests {
         assert_eq!(
             annotations,
             vec![
-                "foo".as_raw_symbol_token_ref(),
-                "bar".as_raw_symbol_token_ref(),
-                "baz".as_raw_symbol_token_ref(),
+                "foo".as_raw_symbol_ref(),
+                "bar".as_raw_symbol_ref(),
+                "baz".as_raw_symbol_ref(),
             ]
         );
-        assert_eq!(
-            value.read()?.expect_symbol()?,
-            "quux".as_raw_symbol_token_ref()
-        );
+        assert_eq!(value.read()?.expect_symbol()?, "quux".as_raw_symbol_ref());
 
         Ok(())
     }

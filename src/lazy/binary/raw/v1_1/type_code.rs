@@ -30,13 +30,13 @@ pub enum OpcodeType {
     Struct,           // 0xD2-0xDF -
     IonVersionMarker, // 0xE0      -
 
-    SymbolAddress,        // 0xE1-0xE3 -
-    AnnotationSymAddress, // 0xE4-0xE6 -
-    AnnotationFlexSym,    // 0xE7-0xE9 -
-    NullNull,             // 0xEA      -
-    TypedNull,            // 0xEB      -
-    Nop,                  // 0xEC-0xED -
-    // Reserved
+    SymbolAddress,               // 0xE1-0xE3 -
+    AnnotationSymAddress,        // 0xE4-0xE6 -
+    AnnotationFlexSym,           // 0xE7-0xE9 -
+    NullNull,                    // 0xEA      -
+    TypedNull,                   // 0xEB      -
+    Nop,                         // 0xEC-0xED -
+    SystemSymbolAddress,         // 0xEE
     SystemMacroInvoke,           // 0xEF      -
     DelimitedContainerClose,     // 0xF0
     ListDelimited,               // 0xF1

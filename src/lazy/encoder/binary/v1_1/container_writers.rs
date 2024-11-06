@@ -353,20 +353,22 @@ impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         use crate::raw_symbol_ref::RawSymbolRef::*;
 
-        match (self.flex_uint_encoding, name.as_raw_symbol_token_ref()) {
-            // We're already in FlexSym encoding mode
-            (false, _) => FlexSym::encode_symbol(self.fields_buffer(), name),
+        let name_ref = name.as_raw_symbol_ref();
+        match (self.flex_uint_encoding, name_ref) {
+            // We're in FlexUInt encoding mode and can write this field without switching modes
+            (true, SymbolId(sid)) if sid > 0 => {
+                return FlexUInt::write(self.fields_buffer(), sid).map(|_| ());
+            }
             // We're still in FlexUInt encoding mode, but this value requires FlexSym encoding
-            (_, Text(_)) | (_, SymbolId(0)) => {
+            (true, _) => {
+                // Write the mode switch byte (FlexUInt 0 == 0x01)
                 self.fields_buffer().push(0x01);
                 self.flex_uint_encoding = false;
-                FlexSym::encode_symbol(self.fields_buffer(), name)
             }
-            // We're in FlexUInt encoding mode and can write this field without switching modes
-            (_, SymbolId(sid)) => {
-                FlexUInt::write(self.fields_buffer(), sid)?;
-            }
-        };
+            _ => {}
+        }
+        // At this point, we're in FlexSym encoding mode.
+        FlexSym::encode_symbol(self.fields_buffer(), name_ref);
         Ok(())
     }
 }

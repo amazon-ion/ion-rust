@@ -1,3 +1,4 @@
+use crate::constants::v1_1;
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
@@ -278,26 +279,29 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
     }
 
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
-        match token.as_raw_symbol_token_ref() {
-            RawSymbolRef::SymbolId(sid) => write!(self.output, "${sid}")?,
-            RawSymbolRef::Text(text)
-                if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) =>
-            {
-                // Write the symbol text in single quotes
-                write!(self.output, "'{text}'")?;
+        use RawSymbolRef::*;
+        let write_result = match token.as_raw_symbol_ref() {
+            SymbolId(sid) => write!(self.output, "${sid}"),
+            // '' is the only system symbol that requires quoting; the rest are identifiers.
+            SystemSymbol_1_1(v1_1::system_symbols::EMPTY_TEXT) => write!(self.output, "\'\'"),
+            // Any other system symbol is an identifier and doesn't require quoting.
+            SystemSymbol_1_1(symbol) => write!(self.output, "{}", symbol.text()),
+            // If the text could be mistaken for a keyword or symbol ID, wrap it in single quotes.
+            Text(text) if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) => {
+                write!(self.output, "'{text}'")
             }
-            RawSymbolRef::Text(text) if Self::token_is_identifier(text) => {
-                // Write the symbol text without quotes
-                write!(self.output, "{text}")?
-            }
-            RawSymbolRef::Text(text) => {
+            // If the text is an identifier, it doesn't require quotes.
+            Text(text) if Self::token_is_identifier(text) => write!(self.output, "{text}"),
+            // Any other text has its escape sequences substituted and is wrapped in quotes.
+            Text(text) => {
                 // Write the symbol text using quotes and escaping any characters that require it.
                 write!(self.output, "\'")?;
                 self.format_escaped_text_body(text)?;
-                write!(self.output, "\'")?;
+                write!(self.output, "\'")
             }
         };
-        Ok(())
+        // Convert the fmt::Result into an IonResult
+        Ok(write_result?)
     }
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
@@ -460,7 +464,7 @@ impl<'a, W: std::fmt::Write> FmtValueFormatter<'a, W> {
         write!(self.output, "{{")?;
         let mut peekable_itr = value.fields().peekable();
         while let Some((field_name, field_value)) = peekable_itr.next() {
-            self.format_symbol(field_name.as_raw_symbol_token_ref())?;
+            self.format_symbol(field_name.as_raw_symbol_ref())?;
             write!(self.output, ": {field_value}")?;
             if peekable_itr.peek().is_some() {
                 write!(self.output, ", ")?;

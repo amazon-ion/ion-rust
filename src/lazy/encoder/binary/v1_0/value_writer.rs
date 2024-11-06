@@ -220,10 +220,10 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     }
 
     pub fn write_symbol<A: AsRawSymbolRef>(self, value: A) -> IonResult<()> {
-        match value.as_raw_symbol_token_ref() {
+        match value.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
-            RawSymbolRef::Text(text) => IonResult::illegal_operation(format!(
-                "the Ion 1.0 raw binary writer cannot write text symbols (here: '{text}')"
+            other => IonResult::illegal_operation(format!(
+                "the Ion 1.0 raw binary writer only supports symbol ID values; received: {other:?})"
             )),
         }
     }
@@ -373,7 +373,7 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
 
     fn encode_annotations_sequence(&self, buffer: &'_ mut BumpVec<'_, u8>) -> IonResult<()> {
         for annotation in &self.annotations {
-            let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_token_ref() else {
+            let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_ref() else {
                 return Err(IonError::Encoding(EncodingError::new(
                     "binary Ion 1.0 cannot encode text literal annotations",
                 )));
@@ -640,7 +640,7 @@ mod tests {
                 .write(false.annotated_with([5]))?
                 .write(3f32.annotated_with([6, 7]))?
                 .write("foo".annotated_with([8, 5]))?
-                .write(4usize.as_raw_symbol_token_ref().annotated_with(1))?
+                .write(4usize.as_raw_symbol_ref().annotated_with(1))?
                 .write(Timestamp::with_ymd(2023, 11, 9).build()?.annotated_with(3))?
                 .write((&[0xE0u8, 0x01, 0x00, 0xEA][..]).annotated_with(2))?;
             Ok(())

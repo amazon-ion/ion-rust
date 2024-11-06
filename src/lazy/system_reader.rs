@@ -271,7 +271,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     None => EncodingModule::new(
                         "$ion_encoding".to_owned(),
                         macro_table,
-                        SymbolTable::new(IonVersion::v1_1),
+                        SymbolTable::empty(IonVersion::v1_1),
                     ),
                     Some(mut module) => {
                         module.set_macro_table(macro_table);
@@ -328,7 +328,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 "expected a symbol table definition operation, but found: {operation:?}"
             ));
         }
-        let mut symbol_table = SymbolTable::new(IonVersion::v1_1);
+        // If we're processing a `(symbol_table ...)`, the stream must be Ion v1.1.
+        let mut symbol_table = SymbolTable::empty(IonVersion::v1_1);
         for arg in args {
             match arg?.read()? {
                 ValueRef::Symbol(symbol) if symbol == "$ion_encoding" => {
@@ -745,7 +746,6 @@ mod tests {
 
     // === Shared Symbol Tables ===
 
-    use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
     use crate::lazy::encoder::value_writer::AnnotatableWriter;
     use crate::{MapCatalog, SharedSymbolTable};
 
@@ -1020,6 +1020,7 @@ mod tests {
     #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn detect_encoding_directive_binary() -> IonResult<()> {
+        use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
         let mut writer = LazyRawBinaryWriter_1_1::new(Vec::new())?;
         let mut directive = writer
             .value_writer()

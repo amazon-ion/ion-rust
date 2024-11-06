@@ -124,7 +124,7 @@ impl EncodingContext {
     pub fn empty() -> Self {
         Self::new(
             MacroTable::with_system_macros(),
-            SymbolTable::new(IonVersion::default()),
+            SymbolTable::empty(IonVersion::default()),
             BumpAllocator::new(),
         )
     }
@@ -276,10 +276,11 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         raw_reader: StreamingRawReader<Encoding, Input>,
         catalog: Box<dyn Catalog>,
     ) -> Self {
+        let encoding = raw_reader.encoding();
         Self {
             raw_reader: raw_reader.into(),
             evaluator_ptr: None.into(),
-            encoding_context: EncodingContext::empty().into(),
+            encoding_context: EncodingContext::for_ion_version(encoding.version()).into(),
             pending_context_changes: PendingContextChanges::new().into(),
             catalog,
         }
@@ -391,7 +392,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // Otherwise, we need to clear the existing table before appending the new symbols.
         if !pending_changes.is_lst_append {
             // We're setting the symbols list, not appending to it.
-            symbol_table.reset();
+            symbol_table.reset_to_prefix_only();
         }
         // `drain()` empties the pending `imported_symbols` and `symbols` lists
         for symbol in pending_changes.imported_symbols.drain(..) {
@@ -1092,8 +1093,8 @@ impl<'top, Encoding: Decoder> Iterator for ExpandedAnnotationsIterator<'top, Enc
             ValueLiteral(value_annotations_iter) => value_annotations_iter.next(),
             Template(element_annotations_iter) => element_annotations_iter
                 .next()
-                .map(|symbol| Ok(symbol.as_raw_symbol_token_ref())),
-            Constructed(iter) => Some(Ok(iter.next()?.as_raw_symbol_token_ref())),
+                .map(|symbol| Ok(symbol.as_raw_symbol_ref())),
+            Constructed(iter) => Some(Ok(iter.next()?.as_raw_symbol_ref())),
         }
     }
 }
@@ -1316,7 +1317,7 @@ impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
             Decimal(d) => ExpandedValueRef::Decimal(*d),
             Timestamp(t) => ExpandedValueRef::Timestamp(*t),
             String(s) => ExpandedValueRef::String(StrRef::from(s.text())),
-            Symbol(s) => ExpandedValueRef::Symbol(s.as_raw_symbol_token_ref()),
+            Symbol(s) => ExpandedValueRef::Symbol(s.as_raw_symbol_ref()),
             Blob(b) => ExpandedValueRef::Blob(BytesRef::from(b.as_ref())),
             Clob(c) => ExpandedValueRef::Clob(BytesRef::from(c.as_ref())),
             List => ExpandedValueRef::List(LazyExpandedList::from_template(

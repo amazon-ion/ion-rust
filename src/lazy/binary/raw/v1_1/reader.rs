@@ -345,65 +345,41 @@ mod tests {
 
             // Symbol ID: 65,793
             0xE3, 0x01, 0x00, 0x00,
+
+            // System symbols
+            0xEE, 0x0A, // $ion_encoding
+            0xEE, 0x0E, // macro_table
+            0xEE, 0x15, // empty text
+            0xEE, 0x41, // make_field
         ];
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
-        assert_eq!(
-            reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_symbol()?,
-            "".into()
-        );
+        let expected_symbols: &[RawSymbolRef] = &[
+            RawSymbolRef::Text(""),
+            RawSymbolRef::Text("fourteen bytes"),
+            RawSymbolRef::Text("variable length encoding"),
+            RawSymbolRef::SymbolId(1),
+            RawSymbolRef::SymbolId(257),
+            RawSymbolRef::SymbolId(65_793),
+            RawSymbolRef::Text("$ion_encoding"),
+            RawSymbolRef::Text("macro_table"),
+            RawSymbolRef::Text(""),
+            RawSymbolRef::Text("make_field"),
+        ];
 
-        assert_eq!(
-            reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_symbol()?,
-            "fourteen bytes".into()
-        );
-
-        assert_eq!(
-            reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_symbol()?,
-            "variable length encoding".into()
-        );
-
-        assert_eq!(
-            reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_symbol()?,
-            RawSymbolRef::SymbolId(1)
-        );
-
-        assert_eq!(
-            reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_symbol()?,
-            RawSymbolRef::SymbolId(257)
-        );
-
-        assert_eq!(
-            reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_symbol()?,
-            RawSymbolRef::SymbolId(65793)
-        );
+        for expected_symbol in expected_symbols {
+            assert_eq!(
+                reader
+                    .next(context)?
+                    .expect_value()?
+                    .read()?
+                    .expect_symbol()?,
+                expected_symbol.clone()
+            );
+        }
 
         Ok(())
     }

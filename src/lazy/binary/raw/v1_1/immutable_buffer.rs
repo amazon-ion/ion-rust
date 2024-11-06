@@ -1123,18 +1123,19 @@ pub struct EncodedAnnotations {
 mod tests {
     use rstest::rstest;
 
+    use super::*;
     use crate::ion_data::IonEq;
     use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpArgsIterator_1_1;
+    use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator_1_1;
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::macro_evaluator::{EExpressionArgGroup, RawEExpression};
     use crate::lazy::expanded::macro_table::MacroTable;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
     use crate::v1_0::RawValueRef;
+    use crate::RawSymbolRef;
     use crate::{AnyEncoding, Element, ElementReader, Reader, SequenceWriter, Writer};
-
-    use super::*;
 
     #[rstest]
     #[case::no_args(0, &[0b00u8], &[])]
@@ -1212,16 +1213,48 @@ mod tests {
     }
 
     #[rstest]
-    #[case::single_address(&[0xE4, 0x07], 1, 1)]
-    #[case::two_addresses(&[0xE5, 0x07, 0x09], 1, 2)]
-    #[case::three_addresses(&[0xE6, 0x07, 0x07, 0x09, 0x0B], 2, 3)]
-    #[case::single_flex_sym(&[0xE7, 0x07], 1, 1)]
-    #[case::two_flex_syms(&[0xE8, 0x07, 0x09], 1, 2)]
-    #[case::three_flex_syms(&[0xE9, 0x07, 0x07, 0x09, 0x0B], 2, 3)]
+    #[case::single_address(AnnotationsEncoding::SymbolAddress, &[0xE4, 0x07], 1, 1, &[
+        RawSymbolRef::SymbolId(3)
+    ])]
+    #[case::two_addresses(AnnotationsEncoding::SymbolAddress, &[0xE5, 0x07, 0x09], 1, 2, &[
+        RawSymbolRef::SymbolId(3),
+        RawSymbolRef::SymbolId(4)
+    ])]
+    #[case::three_addresses(AnnotationsEncoding::SymbolAddress, &[0xE6, 0x07, 0x07, 0x09, 0x0B], 2, 3, &[
+        RawSymbolRef::SymbolId(3),
+        RawSymbolRef::SymbolId(4),
+        RawSymbolRef::SymbolId(5)
+    ])]
+    #[case::single_flex_sym(AnnotationsEncoding::FlexSym, &[0xE7, 0x07], 1, 1, &[
+        RawSymbolRef::SymbolId(3)
+    ])]
+    #[case::two_flex_syms(AnnotationsEncoding::FlexSym, &[0xE8, 0x07, 0x09], 1, 2, &[
+        RawSymbolRef::SymbolId(3),
+        RawSymbolRef::SymbolId(4),
+    ])]
+    #[case::three_flex_syms(AnnotationsEncoding::FlexSym, &[0xE9, 0x07, 0x07, 0x09, 0x0B], 2, 3, &[
+        RawSymbolRef::SymbolId(3),
+        RawSymbolRef::SymbolId(4),
+        RawSymbolRef::SymbolId(5)
+    ])]
+    #[case::one_flex_syms_with_system_symbol(AnnotationsEncoding::FlexSym, &[0xE7, 0x01, 0x6A], 1, 2, &[
+        RawSymbolRef::Text("$ion_encoding"),
+    ])]
+    #[case::two_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE8, 0x01, 0x60, 0x01, 0x6A], 1, 4, &[
+        RawSymbolRef::SymbolId(0),
+        RawSymbolRef::Text("$ion_encoding"),
+    ])]
+    #[case::three_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE9, 0x0D, 0x01, 0x60, 0x01, 0x6A, 0x01, 0xA1], 2, 6, &[
+        RawSymbolRef::SymbolId(0),
+        RawSymbolRef::Text("$ion_encoding"),
+        RawSymbolRef::Text("make_field"),
+    ])]
     fn read_annotations_sequence(
+        #[case] encoding: AnnotationsEncoding,
         #[case] input: &[u8],
         #[case] expected_header_length: usize,
         #[case] expected_sequence_length: usize,
+        #[case] expected_annotations: &[RawSymbolRef],
     ) -> IonResult<()> {
         let context = EncodingContext::empty();
         let buffer = BinaryBuffer::new(context.get_ref(), input);
@@ -1237,6 +1270,13 @@ mod tests {
             "sequence length actual {} != expected {}",
             sequence.sequence_length as usize, expected_sequence_length
         );
+        // Read the actual sequence
+        let annotations_iter = RawBinaryAnnotationsIterator_1_1::new(
+            buffer.consume(sequence.header_length as usize),
+            encoding,
+        );
+        let actual_annotations = annotations_iter.collect::<IonResult<Vec<_>>>()?;
+        assert_eq!(actual_annotations, expected_annotations);
         assert!(remaining.is_empty(), "remaining input was not empty");
         Ok(())
     }

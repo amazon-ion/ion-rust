@@ -1,7 +1,9 @@
 #![cfg(feature = "experimental-reader-writer")]
 
-use crate::ion_tests::{DataStraw, ELEMENT_GLOBAL_SKIP_LIST, SkipList};
-use ion_rs::{AnyEncoding, Element, ElementReader, IonData, IonError, IonResult, IonStream, Reader};
+use crate::ion_tests::{DataStraw, SkipList, ELEMENT_GLOBAL_SKIP_LIST};
+use ion_rs::{
+    AnyEncoding, Element, ElementReader, IonData, IonError, IonResult, IonStream, Reader,
+};
 use std::collections::HashSet;
 use std::fs;
 use std::io::BufReader;
@@ -47,6 +49,7 @@ static CANONICAL_FILE_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
 static SKIP_LIST_1_0: LazyLock<HashSet<String>> =
     LazyLock::new(|| CANONICAL_FILE_NAMES.iter().cloned().collect());
 
+#[cfg(feature = "experimental-ion-1-1")]
 static SKIP_LIST_1_1: LazyLock<HashSet<String>> = LazyLock::new(|| {
     CANONICAL_FILE_NAMES
         .iter()
@@ -81,7 +84,10 @@ fn incomplete_text_detection_test(skip_list: &HashSet<String>, file_name: &str) 
     // Manually destructure to allow for pretty-printing of errors
     match reader.read_all_elements() {
         Ok(elements) => {
-            assert_eq!(IonData::from(elements), IonData::from(Element::read_all(fs::read(&file_name)?)?))
+            assert_eq!(
+                IonData::from(elements),
+                IonData::from(Element::read_all(fs::read(&file_name)?)?)
+            )
         }
         Err(IonError::Decoding(e)) => {
             panic!("{:?}: {}", e.position(), e);

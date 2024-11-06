@@ -35,7 +35,7 @@ experimental = [
 ]
 
 # Feature for indicating explicit opt-in to Ion 1.1
-experimental-ion-1-1 = [ "experimental-reader-writer" ]
+experimental-ion-1-1 = ["experimental-reader-writer"]
 
 # Access to the streaming Reader and Writer types.
 # These APIs are functional and well-tested, but are not yet stable.
@@ -65,6 +65,7 @@ bumpalo = { version = "3.15.3", features = ["collections", "std"] }
 digest = { version = "0.9", optional = true }
 ice_code = "0.1.4"
 rustc-hash = "2.0.0"
+phf = { version = "0.11.2", features = ["macros"] }
 sha2 = { version = "0.9", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_with = { version = "3.7.0", optional = true }

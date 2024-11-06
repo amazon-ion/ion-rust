@@ -1460,11 +1460,11 @@ mod tests {
         stream_eq(
             r#"
             $ion_encoding::(
-                (symbol_table ["foo", "bar", "baz"]) // $10, $11, $12
+                (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
             )
-            $10
-            $11
-            $12
+            $1
+            $2
+            $3
 
             // Define a new macro
             (:append_macros
@@ -1472,15 +1472,15 @@ mod tests {
                     (.make_string "Hello, " (%x))
                 )
                 (macro greet_foo()
-                    (.greet $10)
+                    (.greet $1)
                 )
             )
 
             (:greet "Gary")
             (:greet_foo)
-            $10
-            $11
-            $12
+            $1
+            $2
+            $3
         "#,
             r#"
             foo
@@ -1954,7 +1954,7 @@ mod tests {
                 )
             "#,
             r#"
-                (:lst ["foo", "bar", "baz"]) $10 $11 $12
+                (:lst ["foo", "bar", "baz"]) $1 $2 $3
             "#,
             r#"
                 foo bar baz
@@ -1978,17 +1978,17 @@ mod tests {
                 $ion_symbol_table::{
                     symbols: ["foo", "bar"]
                 }
-                
+
                 // These symbols refer to the symtab defined above
-                $10
-                $11
+                $1
+                $2
                 
                 // The $10 and $11 here _also_ refer to the symtab above because the
                 // new LST won't be applied until after this top-level expression.
-                (:values (:lst ["baz", "quux"]) $10 $11)
+                (:values (:lst ["baz", "quux"]) $1 $2)
                 
                 // These refer to the new LST
-                $10 $11
+                $1 $2
             "#,
             r#"
                 foo bar foo bar baz quux
