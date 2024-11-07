@@ -1,6 +1,6 @@
 name: Code Coverage
 
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 jobs:
   build:
@@ -11,7 +11,7 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ ubuntu-latest ]
 
     steps:
       - name: Git Checkout
@@ -38,9 +38,10 @@ jobs:
           command: llvm-cov
           args: --verbose --workspace --all-features --no-fail-fast --codecov --output-path codecov.json
       - name: Codecov Upload
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: codecov.json
           fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
