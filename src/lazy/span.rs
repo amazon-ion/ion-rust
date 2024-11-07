@@ -1,3 +1,5 @@
+use crate::lazy::binary::raw::v1_1::immutable_buffer::BinaryBuffer;
+use crate::lazy::text::buffer::TextBuffer;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
 use std::ops::Range;
@@ -60,5 +62,23 @@ impl<'a> Span<'a> {
 
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
+    }
+}
+
+impl<'a> From<BinaryBuffer<'a>> for Span<'a> {
+    fn from(value: BinaryBuffer<'a>) -> Self {
+        Span {
+            bytes: value.bytes(),
+            offset: value.offset(),
+        }
+    }
+}
+
+impl<'a> From<TextBuffer<'a>> for Span<'a> {
+    fn from(value: TextBuffer<'a>) -> Self {
+        Span {
+            bytes: value.bytes(),
+            offset: value.offset(),
+        }
     }
 }

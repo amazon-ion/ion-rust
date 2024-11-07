@@ -963,6 +963,9 @@ impl<'a> BinaryBuffer<'a> {
                     MacroRef::new(macro_address, macro_ref),
                     bitmap_bits,
                     matched_eexp_bytes,
+                    // There is no length prefix, so we re-use the bitmap_offset as the first position
+                    // beyond the opcode and address subfields.
+                    bitmap_offset as u8,
                     bitmap_offset as u8,
                     args_offset as u8,
                 )
@@ -996,6 +999,7 @@ impl<'a> BinaryBuffer<'a> {
             })?
             .reference();
         // Offset from `self`, not offset from the beginning of the stream.
+        let length_offset = (input_after_address.offset() - self.offset()) as u8;
         let bitmap_offset = (input_after_length.offset() - self.offset()) as u8;
         let (bitmap_bits, _input_after_bitmap) =
             input_after_length.read_eexp_bitmap(macro_ref.signature().bitmap_size_in_bytes())?;
@@ -1006,6 +1010,7 @@ impl<'a> BinaryBuffer<'a> {
                 MacroRef::new(macro_address, macro_ref),
                 bitmap_bits,
                 matched_bytes,
+                length_offset,
                 bitmap_offset,
                 args_offset,
             ),
