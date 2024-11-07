@@ -319,7 +319,7 @@ impl MacroTable {
                 },
             )),
             // This macro is equivalent to:
-            //    (macro append_macros ($macro_definitions*)
+            //    (macro add_macros ($macro_definitions*)
             //        (annotate
             //          (literal $ion_encoding)
             //          (make_sexp [
@@ -337,7 +337,7 @@ impl MacroTable {
             // In particular, we don't need `(make_sexp ...)`, `(annotate ...)` or `(literal ...)`.
             // We can "say what we mean" via instantiation instead.
             Rc::new(Macro::from_template_macro(TemplateMacro {
-                name: Some("append_macros".into()),
+                name: Some("add_macros".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
                     "$macro_definitions",
                     ParameterEncoding::Tagged,

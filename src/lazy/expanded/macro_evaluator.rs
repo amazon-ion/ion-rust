@@ -1406,7 +1406,7 @@ mod tests {
     fn explicit_expr_group_arg() -> IonResult<()> {
         stream_eq(
             r#"
-            (:append_macros
+            (:add_macros
                 (macro greet (x) (.make_string (.. "Hello, " (%x))))
             )
             (:greet "Gary")
@@ -1418,11 +1418,11 @@ mod tests {
     }
 
     #[test]
-    fn built_in_append_macros() -> IonResult<()> {
+    fn built_in_add_macros() -> IonResult<()> {
         stream_eq(
             r#"
             // Define two macros that call system macros
-            (:append_macros
+            (:add_macros
                 (macro greet (x) (.make_string "Hello, " (%x) ))
                 (macro twice (x) (.values (%x) (%x)))
             )
@@ -1431,7 +1431,7 @@ mod tests {
             (:twice "foo")
 
             // Define a new macro
-            (:append_macros
+            (:add_macros
                 (macro greet_twice (x)
                     (.twice (.greet (%x)))
                 )
@@ -1455,7 +1455,7 @@ mod tests {
     }
 
     #[test]
-    fn append_macros_preserves_symbols() -> IonResult<()> {
+    fn add_macros_preserves_symbols() -> IonResult<()> {
         // TODO: update symbol IDs when reading and writing system symbols are implemented
         stream_eq(
             r#"
@@ -1467,7 +1467,7 @@ mod tests {
             $3
 
             // Define a new macro
-            (:append_macros
+            (:add_macros
                 (macro greet (x)
                     (.make_string "Hello, " (%x))
                 )
@@ -1580,7 +1580,7 @@ mod tests {
             fn does_not_accept_empty_tdl_arg_group() {
                 stream_eq(
                     r#"
-                        (:append_macros
+                        (:add_macros
                             (macro foo (x) (.make_string x x))
                             (macro bar () (.foo (..)))
                         )
@@ -1613,7 +1613,7 @@ mod tests {
             fn does_not_accept_populated_tdl_arg_group() {
                 stream_eq(
                     r#"
-                        (:append_macros
+                        (:add_macros
                             (macro foo (x) (.make_string x x))
                             (macro bar () (.foo (:: "Hi")))
                         )
@@ -1658,7 +1658,7 @@ mod tests {
             fn accepts_tdl_empty_or_expr() -> IonResult<()> {
                 stream_eq(
                     r#"
-                        (:append_macros
+                        (:add_macros
                             (macro foo (x?) (.make_string (%x) (%x)))
                             (macro  bar () (.foo (..)))    // Explicit empty group
                             (macro  baz () (.foo)    )     // Implicit empty group
@@ -1696,7 +1696,7 @@ mod tests {
             fn does_not_accept_populated_tdl_arg_groups() {
                 stream_eq(
                     r#"
-                    (:append_macros
+                    (:add_macros
                         (macro foo (x?) (make_string (%x) (%x)))
                         (macro bar () (foo (.. "a"))))
                 (:bar)
@@ -1823,7 +1823,7 @@ mod tests {
             fn does_not_accept_empty_tdl_arg_group() {
                 stream_eq(
                     r#"
-                        (:append_macros
+                        (:add_macros
                             (macro foo (x+) (make_string (%x) (%x)))
                             (macro bar () (foo (..)))
                         )
@@ -1841,7 +1841,7 @@ mod tests {
             fn does_not_accept_empty_tdl_rest() {
                 stream_eq(
                     r#"
-                        (:append_macros
+                        (:add_macros
                             (macro foo (x+) (make_string (%x) (%x)))
                             (macro bar () (foo))
                         )
