@@ -202,6 +202,10 @@ pub enum LazyRawAnyEExpressionKind<'top> {
 }
 
 impl<'top> LazyRawAnyEExpression<'top> {
+    pub fn kind(&self) -> LazyRawAnyEExpressionKind<'top> {
+        self.encoding
+    }
+
     pub fn encoding(&self) -> IonEncoding {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {

@@ -18,32 +18,6 @@ use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::{try_or_some_err, v1_1, Environment, HasRange, HasSpan, IonResult, Span};
 
-#[derive(Copy, Clone)]
-pub struct BinaryEExpHeader {
-    // The number of bytes that were used to encode the e-expression's opcode and address.
-    opcode_and_address_length: u8,
-    // The number of bytes that were used to encode the e-expression's arg grouping bitmap, if any.
-    bitmap_length: u8,
-}
-
-impl BinaryEExpHeader {
-    pub fn new(opcode_length: u8, bitmap_length: u8) -> Self {
-        Self {
-            opcode_and_address_length: opcode_length,
-            bitmap_length,
-        }
-    }
-    pub fn address_and_opcode_length(&self) -> usize {
-        self.opcode_and_address_length as usize
-    }
-    pub fn bitmap_length(&self) -> usize {
-        self.bitmap_length as usize
-    }
-    pub fn header_length(&self) -> usize {
-        self.address_and_opcode_length() + self.bitmap_length()
-    }
-}
-
 /// An e-expression which has been parsed from a binary Ion 1.1 stream.
 #[derive(Copy, Clone)]
 pub struct BinaryEExpression_1_1<'top> {
@@ -64,11 +38,14 @@ pub struct BinaryEExpression_1_1<'top> {
     cache: Option<&'top [ValueExpr<'top, BinaryEncoding_1_1>]>,
     macro_ref: MacroRef<'top>,
     bitmap_bits: u64,
-    // The index of `input` at which the bitmap can be found. If there is no bitmap, this index
-    // will be the beginning of the encoded arguments.
+    // This index is the first position after the opcode and address.
+    // If the e-expression has a length prefix, it will begin at this position in `input`.
+    length_offset: u8,
+    // This index is the first position after the opcode, address, and length prefix.
+    // If the e-expression has a bitmap, it will begin at this position in `input`.
     bitmap_offset: u8,
-    // The index at which the arguments to the e-expression begin within `input`. This index is
-    // the first position after the opcode, address, length, and bitmap.
+    // This index is the first position after the opcode, address, length, and bitmap.
+    // If the e-expression has arguments, they will begin at this position in `input`.
     args_offset: u8,
 
     pub(crate) input: BinaryBuffer<'top>,
@@ -79,6 +56,7 @@ impl<'top> BinaryEExpression_1_1<'top> {
         macro_ref: MacroRef<'top>,
         bitmap_bits: u64,
         input: BinaryBuffer<'top>,
+        length_offset: u8,
         bitmap_offset: u8,
         args_offset: u8,
     ) -> Self {
@@ -86,18 +64,57 @@ impl<'top> BinaryEExpression_1_1<'top> {
             bitmap_bits,
             input,
             macro_ref,
+            length_offset,
             bitmap_offset,
             args_offset,
             cache: None,
         }
     }
 
-    pub fn with_arg_expr_cache(
+    pub(crate) fn with_arg_expr_cache(
         mut self,
         cache: &'top [ValueExpr<'top, BinaryEncoding_1_1>],
     ) -> Self {
         self.cache = Some(cache);
         self
+    }
+
+    /// Returns a span of bytes representing the opcode and macro address.
+    /// Depending on the encoding, these may be distinct (for example, the span: `0xF4 0x01`,
+    /// where the `0xF4` is the opcode and the `0x01` is the `FlexUInt` address) or combined
+    /// (for example: `0x00` is both an opcode and a macro address).
+    pub fn opcode_and_address_span(&self) -> Span<'top> {
+        self.input.slice(0, self.length_offset as usize).into()
+    }
+
+    /// Returns `true` if this binary e-expression includes a length prefix.
+    pub fn has_length_prefix(&self) -> bool {
+        // If these offsets are equal, there are no bytes representing the length.
+        self.length_offset == self.bitmap_offset
+    }
+
+    /// Returns a span of bytes representing the length prefix. If there is no length prefix,
+    /// the returned span will be empty.
+    pub fn length_prefix_span(&self) -> Span<'top> {
+        let num_bytes = (self.bitmap_offset - self.length_offset) as usize;
+        self.input
+            .slice(self.length_offset as usize, num_bytes)
+            .into()
+    }
+
+    /// Returns `true` if this binary e-expression includes an argument encoding bitmap.
+    pub fn has_bitmap(&self) -> bool {
+        // If these offsets are equal, there are no bytes representing the length.
+        self.bitmap_offset == self.args_offset
+    }
+
+    /// Returns a span of bytes representing the e-expression's argument encoding bitmap.
+    /// If there is no argument encoding bitmap, the returned span will be empty.
+    pub fn bitmap_span(&self) -> Span<'top> {
+        let num_bytes = (self.args_offset - self.bitmap_offset) as usize;
+        self.input
+            .slice(self.bitmap_offset as usize, num_bytes)
+            .into()
     }
 }
 
