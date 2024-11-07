@@ -90,7 +90,7 @@ impl<'top> BinaryEExpression_1_1<'top> {
     /// Returns `true` if this binary e-expression includes a length prefix.
     pub fn has_length_prefix(&self) -> bool {
         // If these offsets are equal, there are no bytes representing the length.
-        self.length_offset == self.bitmap_offset
+        self.length_offset != self.bitmap_offset
     }
 
     /// Returns a span of bytes representing the length prefix. If there is no length prefix,
@@ -104,8 +104,8 @@ impl<'top> BinaryEExpression_1_1<'top> {
 
     /// Returns `true` if this binary e-expression includes an argument encoding bitmap.
     pub fn has_bitmap(&self) -> bool {
-        // If these offsets are equal, there are no bytes representing the length.
-        self.bitmap_offset == self.args_offset
+        // If these offsets are equal, there are no bytes representing the bitmap.
+        self.bitmap_offset != self.args_offset
     }
 
     /// Returns a span of bytes representing the e-expression's argument encoding bitmap.
