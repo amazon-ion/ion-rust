@@ -15,32 +15,21 @@ jobs:
 
     steps:
       - name: Git Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Rust Toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           # We need this component to generate source coverage in stable
           components: llvm-tools-preview
-          override: true
       # Wrapper for running coverage with -C instrument-coverage
       - name: Cargo Install Coverage Wrapper
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
       - name: Cargo Test w/ Coverage
-        uses: actions-rs/cargo@v1
-        with:
-          command: llvm-cov
-          args: --verbose --workspace --all-features --no-fail-fast --codecov --output-path codecov.json
+        run: cargo llvm-cov --verbose --workspace --all-features --no-fail-fast --codecov --output-path codecov.json
       - name: Codecov Upload
         uses: codecov/codecov-action@v4
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: codecov.json
           fail_ci_if_error: true
