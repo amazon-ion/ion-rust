@@ -14,21 +14,20 @@ jobs:
         os: [ ubuntu-latest ]
 
     steps:
-      - name: Git Checkout
+      - name: Git checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Rust Toolchain
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           # We need this component to generate source coverage in stable
           components: llvm-tools-preview
-      # Wrapper for running coverage with -C instrument-coverage
-      - name: Cargo Install Coverage Wrapper
+      - name: Install `cargo-llvm-cov`
         run: cargo install cargo-llvm-cov
-      - name: Cargo Test w/ Coverage
+      - name: Cargo test w/code coverage
         run: cargo llvm-cov --verbose --workspace --all-features --no-fail-fast --codecov --output-path codecov.json
-      - name: Codecov Upload
+      - name: Codecov upload
         uses: codecov/codecov-action@v4
         with:
           files: codecov.json
