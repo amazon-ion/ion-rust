@@ -140,7 +140,7 @@ impl<'top, D: Decoder> TryFrom<LazyList<'top, D>> for Sequence {
     fn try_from(lazy_sequence: LazyList<'top, D>) -> Result<Self, Self::Error> {
         let sequence: Sequence = lazy_sequence
             .iter()
-            .map(|v| Element::try_from(v?))
+            .map(|result| result.and_then(Element::try_from))
             .collect::<IonResult<Vec<_>>>()?
             .into();
         Ok(sequence)

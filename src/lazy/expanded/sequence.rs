@@ -1,5 +1,5 @@
 use crate::element::iterators::SymbolsIterator;
-use crate::lazy::decoder::{Decoder, LazyRawSequence, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::{Decoder, LazyRawSequence, LazyRawValueExpr};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExprArgsIterator, RawEExpression, ValueExpr,
 };
@@ -396,34 +396,9 @@ fn expand_next_sequence_value<'top, D: Decoder>(
     evaluator: &mut MacroEvaluator<'top, D>,
     iter: &mut impl Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>,
 ) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
-    loop {
-        // If the evaluator's stack is not empty, it's still expanding a macro.
-        if !evaluator.is_empty() {
-            let value = evaluator.next().transpose();
-            if value.is_some() {
-                // The `Some` may contain a value or an error; either way, that's the next return value.
-                return value;
-            }
-            // It's possible for a macro to produce zero values. If that happens, we continue on to
-            // pull another expression from the list iterator.
-        }
-
-        match iter.next() {
-            None => return None,
-            Some(Ok(RawValueExpr::ValueLiteral(value))) => {
-                return Some(Ok(LazyExpandedValue::from_literal(context, value)))
-            }
-            Some(Ok(RawValueExpr::EExp(invocation))) => {
-                let resolved_invocation = match invocation.resolve(context) {
-                    Ok(resolved) => resolved,
-                    Err(e) => return Some(Err(e)),
-                };
-                evaluator.push(try_or_some_err!(resolved_invocation.expand()));
-                continue;
-            }
-            Some(Err(e)) => return Some(Err(e)),
-        }
-    }
+    let mut resolving_iter =
+        iter.map(|result| result.and_then(|raw_expr| raw_expr.resolve(context)));
+    expand_next_sequence_value_from_resolved(evaluator, &mut resolving_iter)
 }
 
 fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
