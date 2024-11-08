@@ -18,7 +18,7 @@ use crate::lazy::expanded::template::TemplateMacroRef;
 use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
-use crate::{try_next, Environment, HasRange, HasSpan, IonResult, Span};
+use crate::{try_next, try_or_some_err, Environment, HasRange, HasSpan, IonResult, Span};
 
 /// An `ArgGroup` is a collection of expressions found in e-expression argument position.
 /// They can only appear in positions that correspond with variadic parameters.
@@ -323,20 +323,8 @@ impl<'top, D: Decoder> Iterator for EExpArgGroupIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let expr = try_next!(self.expressions.next());
-        match expr {
-            RawValueExpr::ValueLiteral(v) => Some(Ok(ValueExpr::ValueLiteral(
-                LazyExpandedValue::from_literal(self.context, v),
-            ))),
-            RawValueExpr::EExp(e) => {
-                let resolved_eexp = match e.resolve(self.context) {
-                    Ok(eexp) => eexp,
-                    Err(e) => return Some(Err(e)),
-                };
-                Some(Ok(ValueExpr::MacroInvocation(MacroExpr::from_eexp(
-                    resolved_eexp,
-                ))))
-            }
-        }
+        let raw_expr: RawValueExpr<_, _> = try_next!(self.expressions.next());
+        let expr = try_or_some_err!(raw_expr.resolve(self.context));
+        Some(Ok(expr))
     }
 }

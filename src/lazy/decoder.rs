@@ -18,8 +18,8 @@ use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    v1_0, v1_1, Catalog, Encoding, IonResult, IonType, LazyExpandedFieldName, LazyRawWriter,
-    RawSymbolRef, ValueRef,
+    v1_0, v1_1, Catalog, Encoding, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
+    LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr, ValueRef,
 };
 
 pub trait HasSpan<'top>: HasRange {
@@ -202,6 +202,28 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
             )),
             RawValueExpr::EExp(m) => Ok(m),
         }
+    }
+}
+
+impl<V, M> RawValueExpr<V, M> {
+    pub fn resolve<'top, D>(
+        self,
+        context: EncodingContextRef<'top>,
+    ) -> IonResult<ValueExpr<'top, D>>
+    where
+        V: LazyRawValue<'top, D>,
+        M: RawEExpression<'top, D>,
+        D: Decoder<Value<'top> = V, EExp<'top> = M>,
+    {
+        let expr = match self {
+            RawValueExpr::ValueLiteral(value) => {
+                ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(context, value))
+            }
+            RawValueExpr::EExp(invocation) => {
+                ValueExpr::MacroInvocation(MacroExpr::from_eexp(invocation.resolve(context)?))
+            }
+        };
+        Ok(expr)
     }
 }
 
