@@ -203,7 +203,7 @@ impl MacroTable {
         MacroKind::MakeSExp,
         MacroKind::Annotate,
     ];
-    pub const NUM_SYSTEM_MACROS: usize = 6;
+    pub const NUM_SYSTEM_MACROS: usize = 9;
     // When a user defines new macros, this is the first ID that will be assigned. This value
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
@@ -236,7 +236,7 @@ impl MacroTable {
             Rc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("values".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
-                    "$expr_group",
+                    "expr_group",
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
@@ -251,7 +251,7 @@ impl MacroTable {
             Rc::new(Macro::named(
                 "make_string",
                 MacroSignature::new(vec![Parameter::new(
-                    "$text_values",
+                    "text_values",
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
@@ -272,7 +272,7 @@ impl MacroTable {
             Rc::new(Macro::named(
                 "make_sexp",
                 MacroSignature::new(vec![Parameter::new(
-                    "$sequences",
+                    "sequences",
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
@@ -297,13 +297,13 @@ impl MacroTable {
                 "annotate",
                 MacroSignature::new(vec![
                     Parameter::new(
-                        "$annotations",
+                        "annotations",
                         ParameterEncoding::Tagged,
                         ParameterCardinality::ZeroOrMore,
                         RestSyntaxPolicy::NotAllowed,
                     ),
                     Parameter::new(
-                        "$value_to_annotate",
+                        "value_to_annotate",
                         ParameterEncoding::Tagged,
                         ParameterCardinality::ExactlyOne,
                         RestSyntaxPolicy::NotAllowed,
@@ -319,85 +319,83 @@ impl MacroTable {
                 },
             )),
             // This macro is equivalent to:
-            //    (macro add_macros ($macro_definitions*)
+            //    (macro set_symbols (symbols*)
             //        (annotate
-            //          (literal $ion_encoding)
+            //          $ion_encoding
             //          (make_sexp [
-            //              (literal (symbol_table $ion_encoding)),
-            //              (make_sexp [
-            //                  (literal macro_table),
-            //                  (literal $ion_encoding),
-            //                  $macro_definitions
-            //              ])
+            //              // Set a new symbol table
+            //              (make_sexp [ symbol_table, [(%symbols)] ])
+            //              // Include the active encoding module macros
+            //              (make_sexp [ macro_table, $ion_encoding ])
             //          ])
             //        )
             //    )
             //
             // However, because we're manually compiling it we can reduce some of the expressions.
-            // In particular, we don't need `(make_sexp ...)`, `(annotate ...)` or `(literal ...)`.
+            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
             // We can "say what we mean" via instantiation instead.
             Rc::new(Macro::from_template_macro(TemplateMacro {
-                name: Some("add_macros".into()),
+                name: Some("set_symbols".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
-                    "$macro_definitions",
+                    "symbols",
                     ParameterEncoding::Tagged,
                     ParameterCardinality::ZeroOrMore,
                     RestSyntaxPolicy::Allowed,
                 )])
-                .unwrap(),
+                    .unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
-                        TemplateBodyExpr::element(
+                /* 0 */ TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::SExp)
                                 // Has the first annotation in annotations storage below; `$ion_encoding`
                                 .with_annotations(0..1),
-                            // Contains expressions 0 (itself) through 8 (exclusive)
+                            // Contains expressions 0 (itself) through 7 (exclusive)
                             ExprRange::new(0..8),
                         ),
                         // The `(symbol_table ...)` s-expression.
-                        TemplateBodyExpr::element(
+                /* 1 */ TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 1 (itself) through 3 (exclusive)
-                            ExprRange::new(1..4),
+                            ExprRange::new(1..5),
                         ),
                         // The clause name `symbol_table`
-                        TemplateBodyExpr::element(
+                /* 2 */ TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
                                 "symbol_table",
                             ))),
                             ExprRange::new(2..3),
                         ),
-                        // The module name $ion_encoding
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "$ion_encoding",
-                            ))),
-                            ExprRange::new(3..4),
-                        ),
+
+                        // The list which will contain the expanded variable `symbols`
+                /* 3 */ TemplateBodyExpr::element(TemplateBodyElement::with_value(TemplateValue::List),
+                        ExprRange::new(3..5)),
+
+                        // We do not include the symbol literal `$ion_encoding`, indicating that
+                        // we're replacing the existing symbol table.
+
+                        // The variable at signature index 0 (`symbols`)
+                /* 4 */ TemplateBodyExpr::variable(0, ExprRange::new(4..5)),
+
                         // The `(macro_table ...)` s-expression.
-                        TemplateBodyExpr::element(
+                /* 5 */ TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::SExp),
                             // Contains expression 4 (itself) through 8 (exclusive)
-                            ExprRange::new(4..8),
+                            ExprRange::new(5..8),
                         ),
                         // The clause name `macro_table`
-                        TemplateBodyExpr::element(
+                /* 6 */ TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
                                 "macro_table",
                             ))),
-                            ExprRange::new(5..6),
+                            ExprRange::new(6..7),
                         ),
-                        // The symbol literal `$ion_encoding`, indicating that we're appending
-                        // to the existing macro table.
-                        TemplateBodyExpr::element(
+                        // The module name $ion_encoding
+                /* 7 */ TemplateBodyExpr::element(
                             TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
                                 "$ion_encoding",
                             ))),
-                            ExprRange::new(6..7),
+                            ExprRange::new(7..8),
                         ),
-                        // The variable at signature index 0 (`$macro_definitions`)
-                        TemplateBodyExpr::variable(0, ExprRange::new(7..8)),
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
@@ -412,6 +410,285 @@ impl MacroTable {
                     }),
                 },
             })),
+            // This macro is equivalent to:
+            //    (macro add_symbols (symbols*)
+            //        (annotate
+            //          $ion_encoding
+            //          (make_sexp [
+            //              // Include the active encoding module symbols, and add more
+            //              (make_sexp [ symbol_table, $ion_encoding, [(%symbols)] ])
+            //              // Include the active encoding module macros
+            //              (make_sexp [ macro_table, $ion_encoding ])
+            //          ])
+            //        )
+            //    )
+            //
+            // However, because we're manually compiling it we can reduce some of the expressions.
+            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
+            // We can "say what we mean" via instantiation instead.
+            Rc::new(Macro::from_template_macro(TemplateMacro {
+                name: Some("add_symbols".into()),
+                signature: MacroSignature::new(vec![Parameter::new(
+                    "symbols",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                    .unwrap(),
+                body: TemplateBody {
+                    expressions: vec![
+                        // The `$ion_encoding::(...)` s-expression
+                /* 0 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp)
+                                // Has the first annotation in annotations storage below; `$ion_encoding`
+                                .with_annotations(0..1),
+                            // Contains expressions 0 (itself) through 8 (exclusive)
+                            ExprRange::new(0..9),
+                        ),
+                        // The `(symbol_table ...)` s-expression.
+                /* 1 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 1 (itself) through 5 (exclusive)
+                            ExprRange::new(1..6),
+                        ),
+                        // The clause name `symbol_table`
+                /* 2 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "symbol_table",
+                            ))),
+                            ExprRange::new(2..3),
+                        ),
+
+                        // The module name $ion_encoding
+                /* 3 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(3..4),
+                        ),
+
+                        // The list which will contain the expanded variable `symbols`
+                /* 4 */ TemplateBodyExpr::element(TemplateBodyElement::with_value(TemplateValue::List),
+                                                          ExprRange::new(4..6)),
+
+                        // The variable at signature index 0 (`symbols`)
+                /* 5 */ TemplateBodyExpr::variable(0, ExprRange::new(5..6)),
+
+                        // The `(macro_table ...)` s-expression.
+                /* 6 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 6 (itself) through 9 (exclusive)
+                            ExprRange::new(6..9),
+                        ),
+                        // The clause name `macro_table`
+                /* 7 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "macro_table",
+                            ))),
+                            ExprRange::new(7..8),
+                        ),
+                        // The module name $ion_encoding
+                /* 8 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(8..9),
+                        ),
+                    ],
+                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
+                },
+                expansion_analysis: ExpansionAnalysis {
+                    could_produce_system_value: true,
+                    must_produce_exactly_one_value: true,
+                    can_be_lazily_evaluated_at_top_level: false,
+                    expansion_singleton: Some(ExpansionSingleton {
+                        is_null: false,
+                        ion_type: IonType::SExp,
+                        num_annotations: 1,
+                    }),
+                },
+            })),
+            // This macro is equivalent to:
+            //    (macro set_macros (macro_definitions*)
+            //        (annotate
+            //          $ion_encoding
+            //          (make_sexp [
+            //              // Include the active encoding module symbols
+            //              (make_sexp [ symbol_table, $ion_encoding, ])
+            //              // Set a new macro table
+            //              (make_sexp [ macro_table, (%macro_definitions) ])
+            //          ])
+            //        )
+            //    )
+            //
+            // However, because we're manually compiling it we can reduce some of the expressions.
+            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
+            // We can "say what we mean" via instantiation instead.
+            Rc::new(Macro::from_template_macro(TemplateMacro {
+                name: Some("set_macros".into()),
+                signature: MacroSignature::new(vec![Parameter::new(
+                    "macro_definitions",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                    .unwrap(),
+                body: TemplateBody {
+                    expressions: vec![
+                        // The `$ion_encoding::(...)` s-expression
+                /* 0 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp)
+                                // Has the first annotation in annotations storage below; `$ion_encoding`
+                                .with_annotations(0..1),
+                            // Contains expressions 0 (itself) through 7 (exclusive)
+                            ExprRange::new(0..7),
+                        ),
+                        // The `(symbol_table ...)` s-expression.
+                /* 1 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 1 (itself) through 4 (exclusive)
+                            ExprRange::new(1..4),
+                        ),
+                        // The clause name `symbol_table`
+                /* 2 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "symbol_table",
+                            ))),
+                            ExprRange::new(2..3),
+                        ),
+                        // The module name $ion_encoding
+                /* 3 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(3..4),
+                        ),
+                        // The `(macro_table ...)` s-expression.
+                /* 4 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 4 (itself) through 7 (exclusive)
+                            ExprRange::new(4..7),
+                        ),
+                        // The clause name `macro_table`
+                /* 5 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "macro_table",
+                            ))),
+                            ExprRange::new(5..6),
+                        ),
+
+                        // We do not include the symbol literal `$ion_encoding`, indicating that
+                        // we're replacing the existing macro table.
+
+                        // The variable at signature index 0 (`macro_definitions`)
+                /* 6 */ TemplateBodyExpr::variable(0, ExprRange::new(6..7)),
+                    ],
+                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
+                },
+                expansion_analysis: ExpansionAnalysis {
+                    could_produce_system_value: true,
+                    must_produce_exactly_one_value: true,
+                    can_be_lazily_evaluated_at_top_level: false,
+                    expansion_singleton: Some(ExpansionSingleton {
+                        is_null: false,
+                        ion_type: IonType::SExp,
+                        num_annotations: 1,
+                    }),
+                },
+            })),
+            // This macro is equivalent to:
+            //    (macro add_macros (macro_definitions*)
+            //        (annotate
+            //          $ion_encoding
+            //          (make_sexp [
+            //              // Include the active encoding module symbols
+            //              (make_sexp [ symbol_table, $ion_encoding, ])
+            //              // Include the active encoding module macros, and add more
+            //              (make_sexp [ macro_table, $ion_encoding, (%macro_definitions) ])
+            //          ])
+            //        )
+            //    )
+            //
+            // However, because we're manually compiling it we can reduce some of the expressions.
+            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
+            // We can "say what we mean" via instantiation instead.
+            Rc::new(Macro::from_template_macro(TemplateMacro {
+                name: Some("add_macros".into()),
+                signature: MacroSignature::new(vec![Parameter::new(
+                    "macro_definitions",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                    .unwrap(),
+                body: TemplateBody {
+                    expressions: vec![
+                        // The `$ion_encoding::(...)` s-expression
+                /* 0 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp)
+                                // Has the first annotation in annotations storage below; `$ion_encoding`
+                                .with_annotations(0..1),
+                            // Contains expressions 0 (itself) through 8 (exclusive)
+                            ExprRange::new(0..8),
+                        ),
+                        // The `(symbol_table ...)` s-expression.
+                /* 1 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 1 (itself) through 4 (exclusive)
+                            ExprRange::new(1..4),
+                        ),
+                        // The clause name `symbol_table`
+                /* 2 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "symbol_table",
+                            ))),
+                            ExprRange::new(2..3),
+                        ),
+                        // The module name $ion_encoding
+                /* 3 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(3..4),
+                        ),
+                        // The `(macro_table ...)` s-expression.
+                /* 4 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::SExp),
+                            // Contains expression 4 (itself) through 8 (exclusive)
+                            ExprRange::new(4..8),
+                        ),
+                        // The clause name `macro_table`
+                /* 5 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "macro_table",
+                            ))),
+                            ExprRange::new(5..6),
+                        ),
+                        // The symbol literal `$ion_encoding`, indicating that we're appending
+                        // to the existing macro table.
+                /* 6 */ TemplateBodyExpr::element(
+                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
+                                "$ion_encoding",
+                            ))),
+                            ExprRange::new(6..7),
+                        ),
+                        // The variable at signature index 0 (`macro_definitions`)
+                /* 7 */ TemplateBodyExpr::variable(0, ExprRange::new(7..8)),
+                    ],
+                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
+                },
+                expansion_analysis: ExpansionAnalysis {
+                    could_produce_system_value: true,
+                    must_produce_exactly_one_value: true,
+                    can_be_lazily_evaluated_at_top_level: false,
+                    expansion_singleton: Some(ExpansionSingleton {
+                        is_null: false,
+                        ion_type: IonType::SExp,
+                        num_annotations: 1,
+                    }),
+                },
+            })),
+            // Adding a new system macro? Make sure you update FIRST_USER_MACRO_ID
         ]
     }
 

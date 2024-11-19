@@ -1418,6 +1418,156 @@ mod tests {
     }
 
     #[test]
+    fn built_in_set_symbols() -> IonResult<()> {
+        stream_eq(
+            r#"
+            // Define some symbols
+            (:set_symbols foo bar) // $1, $2
+
+            // Use them
+            $1
+            $2
+        "#,
+            r#"
+            foo
+            bar
+        "#,
+        )
+    }
+
+    #[test]
+    fn set_symbols_drops_prior_definitions() -> IonResult<()> {
+        stream_eq(
+            r#"
+            // Define some symbols
+            (:set_symbols foo bar) // $1, $2
+
+            // Use them
+            $1
+            $2
+
+            // Define new symbols
+            (:set_symbols baz qux) // $1, $2
+
+            // Use them
+            $1
+            $2
+        "#,
+            r#"
+            foo
+            bar
+            baz
+            qux
+        "#,
+        )
+    }
+
+    #[test]
+    fn built_in_add_symbols() -> IonResult<()> {
+        stream_eq(
+            r#"
+            // Define some symbols
+            $ion_encoding::(
+                (symbol_table ["foo", "bar"]) // $1, $2
+            )
+            // Use them
+            $1
+            $2
+
+            // Define new symbols
+            (:add_symbols baz quux) // $3, $4
+            $3
+            $4
+        "#,
+            r#"
+            foo
+            bar
+            baz
+            quux
+        "#,
+        )
+    }
+
+    #[test]
+    fn built_in_set_macros() -> IonResult<()> {
+        stream_eq(
+            r#"
+            // Define a macro which calls a system macros
+            (:set_macros
+                (macro greet (x) (.make_string "Hello, " (%x) ))
+            )
+            // Invoke it
+            (:greet "Waldo")
+        "#,
+            r#"
+            "Hello, Waldo"
+        "#,
+        )
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_macros_drops_previous_macros() -> () {
+        stream_eq(
+            r#"
+            // Define a macro which calls a system macros
+            (:set_macros
+                (macro greet (x) (.make_string "Hello, " (%x) ))
+            )
+            // Invoke it
+            (:greet "Waldo")
+
+            (:make_string "Hello, " "Waldo")
+        "#,
+            r#"
+            "Hello, Waldo"
+            // should raise an error
+        "#,
+        ).unwrap()
+    }
+
+    #[test]
+    fn set_macros_preserves_symbols() -> IonResult<()> {
+        // TODO: update symbol IDs when reading and writing system symbols are implemented
+        stream_eq(
+            r#"
+            $ion_encoding::(
+                (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
+            )
+            $1
+            $2
+            $3
+
+            // Define a new macro
+            (:set_macros
+                (macro greet (x)
+                    (.make_string "Hello, " (%x))
+                )
+                (macro greet_foo()
+                    (.greet $1)
+                )
+            )
+
+            (:greet "Gary")
+            (:greet_foo)
+            $1
+            $2
+            $3
+        "#,
+            r#"
+            foo
+            bar
+            baz
+            "Hello, Gary"
+            "Hello, foo"
+            foo
+            bar
+            baz
+        "#,
+        )
+    }
+
+    #[test]
     fn built_in_add_macros() -> IonResult<()> {
         stream_eq(
             r#"
