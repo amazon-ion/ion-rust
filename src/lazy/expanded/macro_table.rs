@@ -212,7 +212,6 @@ impl MacroTable {
         // We cannot compile template macros from source (text Ion) because that would require a Reader,
         // and a Reader would require system macros. To avoid this circular dependency, we manually
         // compile any TemplateMacros ourselves.
-
         vec![
             Rc::new(Macro::named(
                 "none",
@@ -320,20 +319,13 @@ impl MacroTable {
             )),
             // This macro is equivalent to:
             //    (macro set_symbols (symbols*)
-            //        (annotate
-            //          $ion_encoding
-            //          (make_sexp [
-            //              // Set a new symbol table
-            //              (make_sexp [ symbol_table, [(%symbols)] ])
-            //              // Include the active encoding module macros
-            //              (make_sexp [ macro_table, $ion_encoding ])
-            //          ])
-            //        )
+            //      $ion_encoding::(
+            //        // Set a new symbol table
+            //        (symbol_table [(%symbols)])
+            //        // Include the active encoding module macros
+            //        (macro_table $ion_encoding)
+            //      )
             //    )
-            //
-            // However, because we're manually compiling it we can reduce some of the expressions.
-            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
-            // We can "say what we mean" via instantiation instead.
             Rc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_symbols".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
@@ -412,20 +404,13 @@ impl MacroTable {
             })),
             // This macro is equivalent to:
             //    (macro add_symbols (symbols*)
-            //        (annotate
-            //          $ion_encoding
-            //          (make_sexp [
-            //              // Include the active encoding module symbols, and add more
-            //              (make_sexp [ symbol_table, $ion_encoding, [(%symbols)] ])
-            //              // Include the active encoding module macros
-            //              (make_sexp [ macro_table, $ion_encoding ])
-            //          ])
-            //        )
+            //      $ion_encoding::(
+            //        // Include the active encoding module symbols, and add more
+            //        (symbol_table $ion_encoding [(%symbols)])
+            //        // Include the active encoding module macros
+            //        (macro_table $ion_encoding)
+            //      )
             //    )
-            //
-            // However, because we're manually compiling it we can reduce some of the expressions.
-            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
-            // We can "say what we mean" via instantiation instead.
             Rc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_symbols".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
@@ -510,20 +495,13 @@ impl MacroTable {
             })),
             // This macro is equivalent to:
             //    (macro set_macros (macro_definitions*)
-            //        (annotate
-            //          $ion_encoding
-            //          (make_sexp [
-            //              // Include the active encoding module symbols
-            //              (make_sexp [ symbol_table, $ion_encoding, ])
-            //              // Set a new macro table
-            //              (make_sexp [ macro_table, (%macro_definitions) ])
-            //          ])
-            //        )
+            //      $ion_encoding::(
+            //        // Include the active encoding module symbols
+            //        (symbol_table $ion_encoding)
+            //        // Set a new macro table
+            //        (macro_table (%macro_definitions))
+            //      )
             //    )
-            //
-            // However, because we're manually compiling it we can reduce some of the expressions.
-            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
-            // We can "say what we mean" via instantiation instead.
             Rc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_macros".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
@@ -598,20 +576,13 @@ impl MacroTable {
             })),
             // This macro is equivalent to:
             //    (macro add_macros (macro_definitions*)
-            //        (annotate
-            //          $ion_encoding
-            //          (make_sexp [
-            //              // Include the active encoding module symbols
-            //              (make_sexp [ symbol_table, $ion_encoding, ])
-            //              // Include the active encoding module macros, and add more
-            //              (make_sexp [ macro_table, $ion_encoding, (%macro_definitions) ])
-            //          ])
-            //        )
+            //      $ion_encoding::(
+            //        // Include the active encoding module symbols
+            //        (symbol_table $ion_encoding)
+            //        // Include the active encoding module macros and add more
+            //        (macro_table $ion_encoding (%macro_definitions))
+            //      )
             //    )
-            //
-            // However, because we're manually compiling it we can reduce some of the expressions.
-            // In particular, we don't need `(make_sexp ...)` or `(annotate ...)`.
-            // We can "say what we mean" via instantiation instead.
             Rc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_macros".into()),
                 signature: MacroSignature::new(vec![Parameter::new(

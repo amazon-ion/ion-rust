@@ -1406,14 +1406,14 @@ mod tests {
     fn explicit_expr_group_arg() -> IonResult<()> {
         stream_eq(
             r#"
-            (:add_macros
-                (macro greet (x) (.make_string (.. "Hello, " (%x))))
-            )
-            (:greet "Gary")
-        "#,
+                (:add_macros
+                    (macro greet (x) (.make_string (.. "Hello, " (%x))))
+                )
+                (:greet "Gary")
+            "#,
             r#"
-            "Hello, Gary"
-        "#,
+                "Hello, Gary"
+            "#,
         )
     }
 
@@ -1421,17 +1421,17 @@ mod tests {
     fn built_in_set_symbols() -> IonResult<()> {
         stream_eq(
             r#"
-            // Define some symbols
-            (:set_symbols foo bar) // $1, $2
+                // Define some symbols
+                (:set_symbols foo bar) // $1, $2
 
-            // Use them
-            $1
-            $2
-        "#,
+                // Use them
+                $1
+                $2
+            "#,
             r#"
-            foo
-            bar
-        "#,
+                foo
+                bar
+            "#,
         )
     }
 
@@ -1439,26 +1439,26 @@ mod tests {
     fn set_symbols_drops_prior_definitions() -> IonResult<()> {
         stream_eq(
             r#"
-            // Define some symbols
-            (:set_symbols foo bar) // $1, $2
+                // Define some symbols
+                (:set_symbols foo bar) // $1, $2
 
-            // Use them
-            $1
-            $2
+                // Use them
+                $1
+                $2
 
-            // Define new symbols
-            (:set_symbols baz qux) // $1, $2
+                // Define new symbols
+                (:set_symbols baz qux) // $1, $2
 
-            // Use them
-            $1
-            $2
-        "#,
+                // Use them
+                $1
+                $2
+            "#,
             r#"
-            foo
-            bar
-            baz
-            qux
-        "#,
+                foo
+                bar
+                baz
+                qux
+            "#,
         )
     }
 
@@ -1466,25 +1466,25 @@ mod tests {
     fn built_in_add_symbols() -> IonResult<()> {
         stream_eq(
             r#"
-            // Define some symbols
-            $ion_encoding::(
-                (symbol_table ["foo", "bar"]) // $1, $2
-            )
-            // Use them
-            $1
-            $2
+                // Define some symbols
+                $ion_encoding::(
+                    (symbol_table ["foo", "bar"]) // $1, $2
+                )
+                // Use them
+                $1
+                $2
 
-            // Define new symbols
-            (:add_symbols baz quux) // $3, $4
-            $3
-            $4
-        "#,
+                // Define new symbols
+                (:add_symbols baz quux) // $3, $4
+                $3
+                $4
+            "#,
             r#"
-            foo
-            bar
-            baz
-            quux
-        "#,
+                foo
+                bar
+                baz
+                quux
+            "#,
         )
     }
 
@@ -1492,16 +1492,16 @@ mod tests {
     fn built_in_set_macros() -> IonResult<()> {
         stream_eq(
             r#"
-            // Define a macro which calls a system macros
-            (:set_macros
-                (macro greet (x) (.make_string "Hello, " (%x) ))
-            )
-            // Invoke it
-            (:greet "Waldo")
-        "#,
-            r#"
-            "Hello, Waldo"
-        "#,
+                // Define a macro which calls a system macro
+                (:set_macros
+                    (macro greet (x) (.make_string "Hello, " (%x) ))
+                )
+                // Invoke it
+                (:greet "Waldo")
+            "#,
+                r#"
+                "Hello, Waldo"
+            "#,
         )
     }
 
@@ -1510,19 +1510,22 @@ mod tests {
     fn set_macros_drops_previous_macros() -> () {
         stream_eq(
             r#"
-            // Define a macro which calls a system macros
-            (:set_macros
-                (macro greet (x) (.make_string "Hello, " (%x) ))
-            )
-            // Invoke it
-            (:greet "Waldo")
+                // Define a macro which calls a system macro
+                (:set_macros
+                    (macro greet (x) (.make_string "Hello, " (%x) ))
+                )
+                // Invoke it
+                (:greet "Waldo")
 
-            (:make_string "Hello, " "Waldo")
-        "#,
+                // Drop our user-defined macros
+                (:set_macros)
+                // This invocation should error
+                (:greet "Waldo")
+            "#,
             r#"
-            "Hello, Waldo"
-            // should raise an error
-        "#,
+                "Hello, Waldo"
+                // should raise an error
+            "#,
         ).unwrap()
     }
 
@@ -1531,39 +1534,39 @@ mod tests {
         // TODO: update symbol IDs when reading and writing system symbols are implemented
         stream_eq(
             r#"
-            $ion_encoding::(
-                (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
-            )
-            $1
-            $2
-            $3
-
-            // Define a new macro
-            (:set_macros
-                (macro greet (x)
-                    (.make_string "Hello, " (%x))
+                $ion_encoding::(
+                    (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
                 )
-                (macro greet_foo()
-                    (.greet $1)
-                )
-            )
+                $1
+                $2
+                $3
 
-            (:greet "Gary")
-            (:greet_foo)
-            $1
-            $2
-            $3
-        "#,
+                // Define a new macro
+                (:set_macros
+                    (macro greet (x)
+                        (.make_string "Hello, " (%x))
+                    )
+                    (macro greet_foo()
+                        (.greet $1)
+                    )
+                )
+
+                (:greet "Gary")
+                (:greet_foo)
+                $1
+                $2
+                $3
+            "#,
             r#"
-            foo
-            bar
-            baz
-            "Hello, Gary"
-            "Hello, foo"
-            foo
-            bar
-            baz
-        "#,
+                foo
+                bar
+                baz
+                "Hello, Gary"
+                "Hello, foo"
+                foo
+                bar
+                baz
+            "#,
         )
     }
 
@@ -1571,36 +1574,36 @@ mod tests {
     fn built_in_add_macros() -> IonResult<()> {
         stream_eq(
             r#"
-            // Define two macros that call system macros
-            (:add_macros
-                (macro greet (x) (.make_string "Hello, " (%x) ))
-                (macro twice (x) (.values (%x) (%x)))
-            )
-            // Invoke them
-            (:greet "Waldo")
-            (:twice "foo")
-
-            // Define a new macro
-            (:add_macros
-                (macro greet_twice (x)
-                    (.twice (.greet (%x)))
+                // Define two macros that call system macros
+                (:add_macros
+                    (macro greet (x) (.make_string "Hello, " (%x) ))
+                    (macro twice (x) (.values (%x) (%x)))
                 )
-            )
+                // Invoke them
+                (:greet "Waldo")
+                (:twice "foo")
 
-            // // The original macros are still available
-            (:greet "Sally")
-            (:twice "bar")
-            //
-            // // And so is the new one
-            (:greet_twice "Gary")
-        "#,
+                // Define a new macro
+                (:add_macros
+                    (macro greet_twice (x)
+                        (.twice (.greet (%x)))
+                    )
+                )
+
+                // // The original macros are still available
+                (:greet "Sally")
+                (:twice "bar")
+                //
+                // // And so is the new one
+                (:greet_twice "Gary")
+            "#,
             r#"
-            "Hello, Waldo"
-            "foo" "foo"
-            "Hello, Sally"
-            "bar" "bar"
-            "Hello, Gary" "Hello, Gary"
-        "#,
+                "Hello, Waldo"
+                "foo" "foo"
+                "Hello, Sally"
+                "bar" "bar"
+                "Hello, Gary" "Hello, Gary"
+            "#,
         )
     }
 
@@ -1609,39 +1612,39 @@ mod tests {
         // TODO: update symbol IDs when reading and writing system symbols are implemented
         stream_eq(
             r#"
-            $ion_encoding::(
-                (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
-            )
-            $1
-            $2
-            $3
-
-            // Define a new macro
-            (:add_macros
-                (macro greet (x)
-                    (.make_string "Hello, " (%x))
+                $ion_encoding::(
+                    (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
                 )
-                (macro greet_foo()
-                    (.greet $1)
-                )
-            )
+                $1
+                $2
+                $3
 
-            (:greet "Gary")
-            (:greet_foo)
-            $1
-            $2
-            $3
-        "#,
+                // Define a new macro
+                (:add_macros
+                    (macro greet (x)
+                        (.make_string "Hello, " (%x))
+                    )
+                    (macro greet_foo()
+                        (.greet $1)
+                    )
+                )
+
+                (:greet "Gary")
+                (:greet_foo)
+                $1
+                $2
+                $3
+            "#,
             r#"
-            foo
-            bar
-            baz
-            "Hello, Gary"
-            "Hello, foo"
-            foo
-            bar
-            baz
-        "#,
+                foo
+                bar
+                baz
+                "Hello, Gary"
+                "Hello, foo"
+                foo
+                bar
+                baz
+            "#,
         )
     }
 
