@@ -1507,7 +1507,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn set_macros_drops_previous_macros() -> () {
+    fn set_macros_drops_previous_macros() {
         stream_eq(
             r#"
                 // Define a macro which calls a system macro
