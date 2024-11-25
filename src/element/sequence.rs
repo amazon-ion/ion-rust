@@ -6,6 +6,7 @@ use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
 use crate::IonResult;
 use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::io;
 
@@ -166,8 +167,7 @@ impl IntoIterator for Sequence {
 
     fn into_iter(self) -> Self::IntoIter {
         OwnedSequenceIterator {
-            current: 0,
-            sequence: self,
+            elements: VecDeque::from(self.elements),
         }
     }
 }
@@ -191,19 +191,27 @@ impl IonOrd for Sequence {
 }
 
 pub struct OwnedSequenceIterator {
-    current: usize,
-    sequence: Sequence,
+    elements: VecDeque<Element>,
 }
 
 impl Iterator for OwnedSequenceIterator {
     type Item = Element;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(element) = self.sequence.get(self.current) {
-            self.current += 1;
-            Some(element.clone())
-        } else {
-            None
-        }
+        self.elements.pop_front()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.elements.len();
+        (len, Some(len))
+    }
+}
+
+
+impl std::fmt::Debug for OwnedSequenceIterator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("OwnedSequenceIterator")
+            .field(&self.elements)
+            .finish()
     }
 }
