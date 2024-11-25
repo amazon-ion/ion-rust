@@ -12,12 +12,12 @@
 //! [simd-json-value]: https://docs.rs/simd-json/latest/simd_json/value/index.html
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
+pub use annotations::{Annotations, IntoAnnotations};
+pub use sequence::{OwnedSequenceIterator, Sequence};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
-
-pub use annotations::{Annotations, IntoAnnotations};
-pub use sequence::Sequence;
+use std::ops::ControlFlow;
 
 use crate::{ion_data, Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
 use crate::{Blob, Bytes, Clob, List, SExp, Struct};
@@ -31,6 +31,7 @@ use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
 use crate::result::IonFailure;
 use crate::text::text_formatter::FmtValueFormatter;
+use crate::types::symbol::SymbolText;
 use crate::write_config::WriteConfig;
 
 mod annotations;
@@ -348,6 +349,50 @@ impl std::fmt::Debug for Element {
     }
 }
 
+impl TryFrom<Element> for Sequence {
+    type Error = IonError;
+
+    fn try_from(element: Element) -> Result<Sequence, Self::Error> {
+        match element.try_into_sequence() {
+            ControlFlow::Continue(sequence) => Ok(sequence),
+            ControlFlow::Break(element) => Err(element.expected("sequence value")),
+        }
+    }
+}
+
+impl TryFrom<Element> for Struct {
+    type Error = IonError;
+
+    fn try_from(element: Element) -> Result<Struct, Self::Error> {
+        match element.try_into_struct() {
+            ControlFlow::Continue(structure) => Ok(structure),
+            ControlFlow::Break(element) => Err(element.expected(IonType::Struct)),
+        }
+    }
+}
+
+impl TryFrom<Element> for Bytes {
+    type Error = IonError;
+
+    fn try_from(element: Element) -> Result<Bytes, Self::Error> {
+        match element.try_into_lob() {
+            ControlFlow::Continue(bytes) => Ok(bytes),
+            ControlFlow::Break(element) => Err(element.expected("lob value")),
+        }
+    }
+}
+
+impl TryFrom<Element> for String {
+    type Error = IonError;
+
+    fn try_from(element: Element) -> Result<String, Self::Error> {
+        match element.try_into_text() {
+            ControlFlow::Continue(text) => Ok(text),
+            ControlFlow::Break(element) => Err(element.expected("text value")),
+        }
+    }
+}
+
 impl Element {
     pub(crate) fn new(annotations: Annotations, value: impl Into<Value>) -> Self {
         Self {
@@ -356,10 +401,10 @@ impl Element {
         }
     }
 
-    fn expected(&self, expected: IonType) -> IonError {
+    fn expected(&self, expectation: impl ToString) -> IonError {
         IonError::decoding_error(format!(
             "expected a(n) {}, found a(n) {}",
-            expected,
+            expectation.to_string(),
             self.ion_type()
         ))
     }
@@ -459,6 +504,13 @@ impl Element {
         self.as_int().ok_or_else(|| self.expected(IonType::Int))
     }
 
+    pub fn try_into_int(self) -> ControlFlow<Element, Int> {
+        match self.value {
+            Value::Int(i) => ControlFlow::Continue(i),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_i64(&self) -> Option<i64> {
         match &self.value {
             Value::Int(i) => i.as_i64(),
@@ -473,6 +525,13 @@ impl Element {
         }
     }
 
+    pub fn try_into_i64(self) -> ControlFlow<Element, i64> {
+        match self.value {
+            Value::Int(i) if i.as_i64().is_some() => ControlFlow::Continue(i.as_i64().unwrap()),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_float(&self) -> Option<f64> {
         match &self.value {
             Value::Float(f) => Some(*f),
@@ -482,6 +541,13 @@ impl Element {
 
     pub fn expect_float(&self) -> IonResult<f64> {
         self.as_float().ok_or_else(|| self.expected(IonType::Float))
+    }
+
+    pub fn try_into_float(self) -> ControlFlow<Element, f64> {
+        match self.value {
+            Value::Float(f) => ControlFlow::Continue(f),
+            _ => ControlFlow::Break(self),
+        }
     }
 
     pub fn as_decimal(&self) -> Option<Decimal> {
@@ -496,6 +562,13 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::Decimal))
     }
 
+    pub fn try_into_decimal(self) -> ControlFlow<Element, Decimal> {
+        match self.value {
+            Value::Decimal(d) => ControlFlow::Continue(d),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_timestamp(&self) -> Option<Timestamp> {
         match &self.value {
             Value::Timestamp(t) => Some(*t),
@@ -508,6 +581,13 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::Timestamp))
     }
 
+    pub fn try_into_timestamp(self) -> ControlFlow<Element, Timestamp> {
+        match self.value {
+            Value::Timestamp(t) => ControlFlow::Continue(t),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_text(&self) -> Option<&str> {
         match &self.value {
             Value::String(text) => Some(text.as_ref()),
@@ -517,12 +597,24 @@ impl Element {
     }
 
     pub fn expect_text(&self) -> IonResult<&str> {
-        self.as_text().ok_or_else(|| {
-            IonError::decoding_error(format!(
-                "expected a text value, found a(n) {}",
-                self.ion_type()
-            ))
-        })
+        self.as_text().ok_or_else(|| self.expected("text value"))
+    }
+
+    pub fn try_into_text(self) -> ControlFlow<Element, String> {
+        let Self { value, annotations } = self;
+        match value {
+            Value::String(text) => ControlFlow::Continue(text.to_string()),
+            Value::Symbol(sym) => match sym.text {
+                SymbolText::Shared(shared) => ControlFlow::Continue((*shared).to_string()),
+                SymbolText::Owned(owned) => ControlFlow::Continue(owned),
+                SymbolText::Unknown => ControlFlow::Break(Self {
+                    value: Value::Symbol(Symbol::unknown_text()),
+                    annotations,
+                }),
+                SymbolText::Static(static_str) => ControlFlow::Continue((*static_str).to_string()),
+            },
+            _ => ControlFlow::Break(Self { value, annotations }),
+        }
     }
 
     pub fn as_string(&self) -> Option<&str> {
@@ -537,6 +629,13 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::String))
     }
 
+    pub fn try_into_string(self) -> ControlFlow<Element, Str> {
+        match self.value {
+            Value::String(text) => ControlFlow::Continue(text),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_symbol(&self) -> Option<&Symbol> {
         match &self.value {
             Value::Symbol(sym) => Some(sym),
@@ -547,6 +646,13 @@ impl Element {
     pub fn expect_symbol(&self) -> IonResult<&Symbol> {
         self.as_symbol()
             .ok_or_else(|| self.expected(IonType::Symbol))
+    }
+
+    pub fn try_into_symbol(self) -> ControlFlow<Element, Symbol> {
+        match self.value {
+            Value::Symbol(sym) => ControlFlow::Continue(sym),
+            _ => ControlFlow::Break(self),
+        }
     }
 
     pub fn as_bool(&self) -> Option<bool> {
@@ -560,6 +666,13 @@ impl Element {
         self.as_bool().ok_or_else(|| self.expected(IonType::Bool))
     }
 
+    pub fn try_into_bool(self) -> ControlFlow<Element, bool> {
+        match self.value {
+            Value::Bool(b) => ControlFlow::Continue(b),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_lob(&self) -> Option<&[u8]> {
         match &self.value {
             Value::Blob(bytes) | Value::Clob(bytes) => Some(bytes.as_ref()),
@@ -568,12 +681,14 @@ impl Element {
     }
 
     pub fn expect_lob(&self) -> IonResult<&[u8]> {
-        self.as_lob().ok_or_else(|| {
-            IonError::decoding_error(format!(
-                "expected a lob value, found a(n) {}",
-                self.ion_type()
-            ))
-        })
+        self.as_lob().ok_or_else(|| self.expected("lob value"))
+    }
+
+    pub fn try_into_lob(self) -> ControlFlow<Element, Bytes> {
+        match self.value {
+            Value::Blob(bytes) | Value::Clob(bytes) => ControlFlow::Continue(bytes),
+            _ => ControlFlow::Break(self),
+        }
     }
 
     pub fn as_blob(&self) -> Option<&[u8]> {
@@ -587,6 +702,13 @@ impl Element {
         self.as_blob().ok_or_else(|| self.expected(IonType::Blob))
     }
 
+    pub fn try_into_blob(self) -> ControlFlow<Element, Bytes> {
+        match self.value {
+            Value::Blob(bytes) => ControlFlow::Continue(bytes),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_clob(&self) -> Option<&[u8]> {
         match &self.value {
             Value::Clob(bytes) => Some(bytes.as_ref()),
@@ -598,6 +720,13 @@ impl Element {
         self.as_clob().ok_or_else(|| self.expected(IonType::Clob))
     }
 
+    pub fn try_into_clob(self) -> ControlFlow<Element, Bytes> {
+        match self.value {
+            Value::Clob(bytes) => ControlFlow::Continue(bytes),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_sequence(&self) -> Option<&Sequence> {
         match &self.value {
             Value::SExp(s) | Value::List(s) => Some(s),
@@ -606,12 +735,15 @@ impl Element {
     }
 
     pub fn expect_sequence(&self) -> IonResult<&Sequence> {
-        self.as_sequence().ok_or_else(|| {
-            IonError::decoding_error(format!(
-                "expected a sequence value, found a(n) {}",
-                self.ion_type()
-            ))
-        })
+        self.as_sequence()
+            .ok_or_else(|| self.expected("sequence value"))
+    }
+
+    pub fn try_into_sequence(self) -> ControlFlow<Element, Sequence> {
+        match self.value {
+            Value::SExp(s) | Value::List(s) => ControlFlow::Continue(s),
+            _ => ControlFlow::Break(self),
+        }
     }
 
     pub fn as_list(&self) -> Option<&Sequence> {
@@ -625,6 +757,13 @@ impl Element {
         self.as_list().ok_or_else(|| self.expected(IonType::List))
     }
 
+    pub fn try_into_list(self) -> ControlFlow<Element, Sequence> {
+        match self.value {
+            Value::List(s) => ControlFlow::Continue(s),
+            _ => ControlFlow::Break(self),
+        }
+    }
+
     pub fn as_sexp(&self) -> Option<&Sequence> {
         match &self.value {
             Value::SExp(s) => Some(s),
@@ -634,6 +773,13 @@ impl Element {
 
     pub fn expect_sexp(&self) -> IonResult<&Sequence> {
         self.as_sexp().ok_or_else(|| self.expected(IonType::SExp))
+    }
+
+    pub fn try_into_sexp(self) -> ControlFlow<Element, Sequence> {
+        match self.value {
+            Value::SExp(s) => ControlFlow::Continue(s),
+            _ => ControlFlow::Break(self),
+        }
     }
 
     pub fn as_struct(&self) -> Option<&Struct> {
@@ -646,6 +792,13 @@ impl Element {
     pub fn expect_struct(&self) -> IonResult<&Struct> {
         self.as_struct()
             .ok_or_else(|| self.expected(IonType::Struct))
+    }
+
+    pub fn try_into_struct(self) -> ControlFlow<Element, Struct> {
+        match self.value {
+            Value::Struct(structure) => ControlFlow::Continue(structure),
+            _ => ControlFlow::Break(self),
+        }
     }
 
     /// Reads a single Ion [`Element`] from the provided data source.
@@ -790,11 +943,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::iter::{once, Once};
-
     use chrono::*;
     use rstest::*;
+    use std::collections::HashSet;
+    use std::iter::{once, Once};
 
     use ElemOp::*;
 
@@ -1034,6 +1186,22 @@ mod tests {
         AsBytes,
         AsSequence,
         AsStruct,
+        TryIntoInt,
+        TryIntoI64,
+        TryIntoF64,
+        TryIntoDecimal,
+        TryIntoTimestamp,
+        TryIntoText,
+        TryIntoString,
+        TryIntoSymbol,
+        TryIntoBool,
+        TryIntoLob,
+        TryIntoBlob,
+        TryIntoClob,
+        TryIntoSequence,
+        TryIntoList,
+        TryIntoSexp,
+        TryIntoStruct,
     }
 
     impl IntoIterator for ElemOp {
@@ -1046,12 +1214,26 @@ mod tests {
     }
 
     type ElemAssertFn = Box<dyn FnOnce(&Element)>;
+    type OwnedElemAssertFn = Box<dyn FnOnce(Element)>;
+
+    macro_rules! assert_pass_try_into {
+        ($f:ident) => {
+            Box::new(|e: Element| assert!(e.$f().is_continue()))
+        };
+    }
+
+    macro_rules! assert_fail_try_into {
+        ($f:ident) => {
+            Box::new(|e: Element| assert!(e.$f().is_break()))
+        };
+    }
 
     struct Case {
         elem: Element,
         ion_type: IonType,
         ops: Vec<ElemOp>,
         op_assert: ElemAssertFn,
+        owned_asserts: Vec<OwnedElemAssertFn>,
     }
 
     fn null_case() -> Case {
@@ -1060,6 +1242,7 @@ mod tests {
             ion_type: IonType::Null,
             ops: vec![IsNull],
             op_assert: Box::new(|e: &Element| assert!(e.is_null())),
+            owned_asserts: vec![],
         }
     }
 
@@ -1067,12 +1250,15 @@ mod tests {
         Case {
             elem: true.into(),
             ion_type: IonType::Bool,
-            ops: vec![AsBool],
+            ops: vec![AsBool, TryIntoBool],
             op_assert: Box::new(|e: &Element| {
                 let expected = Element::from(true);
                 assert_eq!(Some(true), e.as_bool());
                 assert_eq!(&expected, e);
             }),
+            owned_asserts: vec![Box::new(|e: Element| {
+                assert!(e.try_into_bool().is_continue())
+            })],
         }
     }
 
@@ -1080,26 +1266,31 @@ mod tests {
         Case {
             elem: 100.into(),
             ion_type: IonType::Int,
-            ops: vec![AsAnyInt],
+            ops: vec![AsAnyInt, TryIntoInt, TryIntoI64],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = 100i64.into();
                 assert_eq!(Some(&Int::from(100i64)), e.as_int());
                 assert_eq!(Some(100), e.as_i64());
                 assert_eq!(&expected, e);
             }),
+            owned_asserts: vec![
+                assert_pass_try_into!(try_into_i64),
+                assert_pass_try_into!(try_into_int),
+            ],
         }
     }
 
     fn big_int_case() -> Case {
         Case {
-            elem: 100i128.into(),
+            elem: ((i64::MAX as i128) + 1).into(),
             ion_type: IonType::Int,
-            ops: vec![AsAnyInt],
+            ops: vec![AsAnyInt, TryIntoInt],
             op_assert: Box::new(|e: &Element| {
-                let expected: Element = 100i128.into();
-                assert_eq!(Some(&Int::from(100i128)), e.as_int());
+                let expected: Element = 9223372036854775808i128.into();
+                assert_eq!(Some(&Int::from(9223372036854775808i128)), e.as_int());
                 assert_eq!(&expected, e);
             }),
+            owned_asserts: vec![assert_pass_try_into!(try_into_int)],
         }
     }
 
@@ -1107,12 +1298,13 @@ mod tests {
         Case {
             elem: 16.0.into(),
             ion_type: IonType::Float,
-            ops: vec![AsF64],
+            ops: vec![AsF64, TryIntoF64],
             op_assert: Box::new(|e: &Element| {
                 let expected = Element::from(16.0f64);
                 assert_eq!(Some(16.0), e.as_float());
                 assert_eq!(&expected, e);
             }),
+            owned_asserts: vec![assert_pass_try_into!(try_into_float)],
         }
     }
 
@@ -1120,7 +1312,7 @@ mod tests {
         Case {
             elem: make_timestamp("2014-10-16T12:01:00-00:00").into(),
             ion_type: IonType::Timestamp,
-            ops: vec![AsTimestamp],
+            ops: vec![AsTimestamp, TryIntoTimestamp],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = make_timestamp("2014-10-16T12:01:00+00:00").into();
                 assert_eq!(
@@ -1129,6 +1321,7 @@ mod tests {
                 );
                 assert_eq!(&expected, e);
             }),
+            owned_asserts: vec![assert_pass_try_into!(try_into_timestamp)],
         }
     }
 
@@ -1136,12 +1329,13 @@ mod tests {
         Case {
             elem: Decimal::new(8, 3).into(),
             ion_type: IonType::Decimal,
-            ops: vec![AsDecimal],
+            ops: vec![AsDecimal, TryIntoDecimal],
             op_assert: Box::new(|e: &Element| {
                 let expected: Element = Decimal::new(8, 3).into();
                 assert_eq!(Some(Decimal::new(80, 2)), e.as_decimal());
                 assert_eq!(&expected, e);
             }),
+            owned_asserts: vec![assert_pass_try_into!(try_into_decimal)],
         }
     }
 
@@ -1149,8 +1343,12 @@ mod tests {
         Case {
             elem: "hello".into(),
             ion_type: IonType::String,
-            ops: vec![AsStr],
+            ops: vec![AsStr, TryIntoText, TryIntoString],
             op_assert: Box::new(|e: &Element| assert_eq!(Some("hello"), e.as_text())),
+            owned_asserts: vec![
+                assert_pass_try_into!(try_into_text),
+                assert_pass_try_into!(try_into_string),
+            ],
         }
     }
 
@@ -1158,11 +1356,12 @@ mod tests {
         Case {
             elem: Symbol::owned("foo").into(),
             ion_type: IonType::Symbol,
-            ops: vec![AsSym, AsStr],
+            ops: vec![AsSym, AsStr, TryIntoText, TryIntoSymbol],
             op_assert: Box::new(|e: &Element| {
                 assert_eq!(Some("foo"), e.as_symbol().unwrap().text());
                 assert_eq!(Some("foo"), e.as_text());
             }),
+            owned_asserts: vec![assert_pass_try_into!(try_into_symbol)],
         }
     }
 
@@ -1170,8 +1369,12 @@ mod tests {
         Case {
             elem: Element::blob(b"hello"),
             ion_type: IonType::Blob,
-            ops: vec![AsBytes],
+            ops: vec![AsBytes, TryIntoLob, TryIntoBlob],
             op_assert: Box::new(|e: &Element| assert_eq!(Some("hello".as_bytes()), e.as_lob())),
+            owned_asserts: vec![
+                assert_pass_try_into!(try_into_lob),
+                assert_pass_try_into!(try_into_blob),
+            ],
         }
     }
 
@@ -1179,8 +1382,12 @@ mod tests {
         Case {
             elem: Element::clob(b"goodbye"),
             ion_type: IonType::Clob,
-            ops: vec![AsBytes],
+            ops: vec![AsBytes, TryIntoLob, TryIntoClob],
             op_assert: Box::new(|e: &Element| assert_eq!(Some("goodbye".as_bytes()), e.as_lob())),
+            owned_asserts: vec![
+                assert_pass_try_into!(try_into_lob),
+                assert_pass_try_into!(try_into_clob),
+            ],
         }
     }
 
@@ -1188,7 +1395,7 @@ mod tests {
         Case {
             elem: ion_list![true, false].into(),
             ion_type: IonType::List,
-            ops: vec![AsSequence],
+            ops: vec![AsSequence, TryIntoList, TryIntoSequence],
             op_assert: Box::new(|e: &Element| {
                 let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
@@ -1200,6 +1407,10 @@ mod tests {
                 }
                 assert!(!actual.is_empty());
             }),
+            owned_asserts: vec![
+                assert_pass_try_into!(try_into_list),
+                assert_pass_try_into!(try_into_sequence),
+            ],
         }
     }
 
@@ -1207,7 +1418,7 @@ mod tests {
         Case {
             elem: ion_sexp!(true false).into(),
             ion_type: IonType::SExp,
-            ops: vec![AsSequence],
+            ops: vec![AsSequence, TryIntoSexp, TryIntoSequence],
             op_assert: Box::new(|e: &Element| {
                 let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
@@ -1218,6 +1429,10 @@ mod tests {
                     assert_eq!(&expected[i], actual_item);
                 }
             }),
+            owned_asserts: vec![
+                assert_pass_try_into!(try_into_sexp),
+                assert_pass_try_into!(try_into_sequence),
+            ],
         }
     }
 
@@ -1225,7 +1440,7 @@ mod tests {
         Case {
             elem: ion_struct! {"greetings": "hello", "name": "ion"}.into(),
             ion_type: IonType::Struct,
-            ops: vec![AsStruct],
+            ops: vec![AsStruct, TryIntoStruct],
             op_assert: Box::new(|e: &Element| {
                 let actual: &Struct = e.as_struct().unwrap();
 
@@ -1237,6 +1452,7 @@ mod tests {
 
                 assert_eq!(actual.get("greetings"), Some(&"hello".into()));
             }),
+            owned_asserts: vec![assert_pass_try_into!(try_into_struct)],
         }
     }
     // TODO add more tests to remove the separate Owned/Borrowed tests and only keep generic tests
@@ -1281,15 +1497,41 @@ mod tests {
             (AsStruct, Box::new(|e| assert_eq!(None, e.as_struct()))),
         ];
 
+        let owned_neg_table: Vec<(ElemOp, OwnedElemAssertFn)> = vec![
+            (TryIntoInt, assert_fail_try_into!(try_into_int)),
+            (TryIntoI64, assert_fail_try_into!(try_into_i64)),
+            (TryIntoF64, assert_fail_try_into!(try_into_float)),
+            (TryIntoDecimal, assert_fail_try_into!(try_into_decimal)),
+            (TryIntoTimestamp, assert_fail_try_into!(try_into_timestamp)),
+            (TryIntoText, assert_fail_try_into!(try_into_text)),
+            (TryIntoString, assert_fail_try_into!(try_into_string)),
+            (TryIntoSymbol, assert_fail_try_into!(try_into_symbol)),
+            (TryIntoBool, assert_fail_try_into!(try_into_bool)),
+            (TryIntoLob, assert_fail_try_into!(try_into_lob)),
+            (TryIntoBlob, assert_fail_try_into!(try_into_blob)),
+            (TryIntoClob, assert_fail_try_into!(try_into_clob)),
+            (TryIntoSequence, assert_fail_try_into!(try_into_sequence)),
+            (TryIntoList, assert_fail_try_into!(try_into_list)),
+            (TryIntoSexp, assert_fail_try_into!(try_into_sexp)),
+            (TryIntoStruct, assert_fail_try_into!(try_into_struct)),
+        ];
+
         // produce the table of assertions to operate on, replacing the one specified by
         // the test case
         let valid_ops: HashSet<ElemOp> = input_case.ops.into_iter().collect();
-        let op_assertions: Vec<ElemAssertFn> = neg_table
+        let borrowed_pos = once(input_case.op_assert);
+        let owned_pos = input_case.owned_asserts.into_iter();
+        let borrowed_neg = neg_table
             .into_iter()
-            .filter(|(op, _)| !valid_ops.contains(op))
-            .map(|(_, neg_assert)| neg_assert)
-            .chain(once(input_case.op_assert))
-            .collect();
+            .filter_map(|(op, f)| (!valid_ops.contains(&op)).then_some(f));
+        let owned_neg = owned_neg_table
+            .into_iter()
+            .filter_map(|(op, f)| (!valid_ops.contains(&op)).then_some(f));
+        let borrowed = borrowed_pos.chain(borrowed_neg);
+        let owned = owned_pos
+            .chain(owned_neg)
+            .map(|owned_fn| Box::new(|e: &Element| owned_fn(e.clone())) as ElemAssertFn);
+        let op_assertions: Vec<ElemAssertFn> = borrowed.chain(owned).collect();
 
         // construct an element to test
         assert_eq!(input_case.ion_type, input_case.elem.ion_type());
