@@ -1252,7 +1252,7 @@ mod tests {
             ion_type: IonType::Bool,
             ops: vec![AsBool, TryIntoBool],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_bool().expect("expected bool");
+                let _ = e.expect_bool().expect("expected bool");
                 let expected = Element::from(true);
                 assert_eq!(Some(true), e.as_bool());
                 assert_eq!(&expected, e);
@@ -1269,8 +1269,8 @@ mod tests {
             ion_type: IonType::Int,
             ops: vec![AsAnyInt, TryIntoInt, TryIntoI64],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_i64().expect("expected i64");
-                let expected = e.expect_int().expect("expected int");
+                let _ = e.expect_i64().expect("expected i64");
+                let _ = e.expect_int().expect("expected int");
                 let expected: Element = 100i64.into();
                 assert_eq!(Some(&Int::from(100i64)), e.as_int());
                 assert_eq!(Some(100), e.as_i64());
@@ -1289,7 +1289,7 @@ mod tests {
             ion_type: IonType::Int,
             ops: vec![AsAnyInt, TryIntoInt],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_int().expect("expected int");
+                let _ = e.expect_int().expect("expected int");
                 let expected: Element = 9223372036854775808i128.into();
                 assert_eq!(Some(&Int::from(9223372036854775808i128)), e.as_int());
                 assert_eq!(&expected, e);
@@ -1304,7 +1304,7 @@ mod tests {
             ion_type: IonType::Float,
             ops: vec![AsF64, TryIntoF64],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_float().expect("expected float");
+                let _ = e.expect_float().expect("expected float");
                 let expected = Element::from(16.0f64);
                 assert_eq!(Some(16.0), e.as_float());
                 assert_eq!(&expected, e);
@@ -1319,7 +1319,7 @@ mod tests {
             ion_type: IonType::Timestamp,
             ops: vec![AsTimestamp, TryIntoTimestamp],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_timestamp().expect("expected timestamp");
+                let _ = e.expect_timestamp().expect("expected timestamp");
                 let expected: Element = make_timestamp("2014-10-16T12:01:00+00:00").into();
                 assert_eq!(
                     Some(make_timestamp("2014-10-16T12:01:00+00:00")),
@@ -1337,7 +1337,7 @@ mod tests {
             ion_type: IonType::Decimal,
             ops: vec![AsDecimal, TryIntoDecimal],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_decimal().expect("expected decimal");
+                let _ = e.expect_decimal().expect("expected decimal");
                 let expected: Element = Decimal::new(8, 3).into();
                 assert_eq!(Some(Decimal::new(80, 2)), e.as_decimal());
                 assert_eq!(&expected, e);
@@ -1352,8 +1352,8 @@ mod tests {
             ion_type: IonType::String,
             ops: vec![AsStr, TryIntoText, TryIntoString],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_text().expect("expected text");
-                let expected = e.expect_string().expect("expected string");
+                let _ = e.expect_text().expect("expected text");
+                let _ = e.expect_string().expect("expected string");
                 assert_eq!(Some("hello"), e.as_text())
             }),
             owned_asserts: vec![
@@ -1369,8 +1369,8 @@ mod tests {
             ion_type: IonType::Symbol,
             ops: vec![AsSym, AsStr, TryIntoText, TryIntoSymbol],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_text().expect("expected text");
-                let expected = e.expect_symbol().expect("expected symbol");
+                let _ = e.expect_text().expect("expected text");
+                let _ = e.expect_symbol().expect("expected symbol");
                 assert_eq!(Some("foo"), e.as_symbol().unwrap().text());
                 assert_eq!(Some("foo"), e.as_text());
             }),
@@ -1384,8 +1384,8 @@ mod tests {
             ion_type: IonType::Blob,
             ops: vec![AsBytes, TryIntoLob, TryIntoBlob],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_lob().expect("expected lob");
-                let expected = e.expect_blob().expect("expected blob");
+                let _ = e.expect_lob().expect("expected lob");
+                let _ = e.expect_blob().expect("expected blob");
                 assert_eq!(Some("hello".as_bytes()), e.as_lob())
             }),
             owned_asserts: vec![
@@ -1401,8 +1401,8 @@ mod tests {
             ion_type: IonType::Clob,
             ops: vec![AsBytes, TryIntoLob, TryIntoClob],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_lob().expect("expected lob");
-                let expected = e.expect_clob().expect("expected clob");
+                let _ = e.expect_lob().expect("expected lob");
+                let _ = e.expect_clob().expect("expected clob");
                 assert_eq!(Some("goodbye".as_bytes()), e.as_lob())
             }),
             owned_asserts: vec![
@@ -1418,8 +1418,8 @@ mod tests {
             ion_type: IonType::List,
             ops: vec![AsSequence, TryIntoList, TryIntoSequence],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_list().expect("expected list");
-                let expected = e.expect_sequence().expect("expected sequence");
+                let _ = e.expect_list().expect("expected list");
+                let _ = e.expect_sequence().expect("expected sequence");
                 let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of list
@@ -1443,8 +1443,8 @@ mod tests {
             ion_type: IonType::SExp,
             ops: vec![AsSequence, TryIntoSexp, TryIntoSequence],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_sexp().expect("expected sexp");
-                let expected = e.expect_sequence().expect("expected sequence");
+                let _ = e.expect_sexp().expect("expected sexp");
+                let _ = e.expect_sequence().expect("expected sequence");
                 let actual = e.as_sequence().unwrap();
                 let expected: Vec<Element> = ion_vec([true, false]);
                 // assert the length of s-expression
@@ -1467,7 +1467,7 @@ mod tests {
             ion_type: IonType::Struct,
             ops: vec![AsStruct, TryIntoStruct],
             op_assert: Box::new(|e: &Element| {
-                let expected = e.expect_struct().expect("expected struct");
+                let _ = e.expect_struct().expect("expected struct");
                 let actual: &Struct = e.as_struct().unwrap();
 
                 // verify that the field order is maintained when creating Struct
