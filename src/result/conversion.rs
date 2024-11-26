@@ -38,7 +38,7 @@ where
     FromType: ValueTypeExpectation,
     ToType: TypeExpectation,
 {
-    input_value: Box<FromType>,
+    input_value: FromType,
     output_type: PhantomData<ToType>,
 }
 
@@ -49,7 +49,7 @@ where
 {
     pub fn new(input_value: FromType) -> Self {
         Self {
-            input_value: Box::new(input_value),
+            input_value,
             output_type: PhantomData,
         }
     }

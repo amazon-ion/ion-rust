@@ -1,5 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
+// Disabled for this file because `Element`'s `try_into_<x>` methods return
+// `ConversionOperationError<Element, <X>>` which embeds an `Element`. `Element` itself is 128 bytes.
+// This trips `clippy::result_large_err`. However, most usages of this type are expected to be
+// converted or destructured immediately.
+//
+// Cf. https://rust-lang.github.io/rust-clippy/master/index.html#result_large_err
+#![allow(clippy::result_large_err)]
+
 //! Provides a dynamically typed, materialized representation of an Ion value.
 //!
 //! An [Element] represents an `(annotations, value)` pair, where a `value` is
