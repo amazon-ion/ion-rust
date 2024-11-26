@@ -886,13 +886,13 @@ impl Element {
 
 impl IonTypeExpectation for Element {
     fn ion_type(&self) -> IonType {
-        self.ion_type()
+        Element::ion_type(self)
     }
 }
 
 impl IonTypeExpectation for &Element {
     fn ion_type(&self) -> IonType {
-        self.ion_type()
+        Element::ion_type(self)
     }
 }
 
