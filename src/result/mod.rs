@@ -10,12 +10,17 @@ use thiserror::Error;
 #[cfg(feature = "experimental-serde")]
 use serde::{de, ser};
 
+mod conversion;
 mod decoding_error;
 mod encoding_error;
 mod illegal_operation;
 mod incomplete;
 mod io_error;
 
+pub use conversion::ConversionOperationError;
+pub use conversion::ConversionOperationResult;
+pub use conversion::IonTypeExpectation;
+pub use conversion::TypeExpectation;
 pub use decoding_error::DecodingError;
 pub use encoding_error::EncodingError;
 pub use illegal_operation::IllegalOperation;
@@ -23,6 +28,7 @@ pub use incomplete::IncompleteError;
 pub use io_error::IoError;
 
 use crate::position::Position;
+use crate::result::conversion::{ConversionError, ValueTypeExpectation};
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
@@ -53,6 +59,11 @@ pub enum IonError {
     /// on the cursor at the top level.)
     #[error("{0}")]
     IllegalOperation(#[from] IllegalOperation),
+
+    /// Returned when the user has attempted to convert a value to a type for which that value is
+    /// not trivially convertable.
+    #[error("{0}")]
+    Conversion(#[from] ConversionError),
 }
 
 impl From<io::Error> for IonError {
@@ -81,6 +92,16 @@ impl From<IonError> for fmt::Error {
         // This no-op transformation allows `?` to be used in `Debug` implementations wherever
         // an IonError could surface.
         fmt::Error
+    }
+}
+
+impl<FromType, ToType> From<ConversionOperationError<FromType, ToType>> for IonError
+where
+    FromType: ValueTypeExpectation,
+    ToType: TypeExpectation,
+{
+    fn from(err: ConversionOperationError<FromType, ToType>) -> Self {
+        ConversionError::from(err).into()
     }
 }
 

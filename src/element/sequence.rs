@@ -6,6 +6,7 @@ use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
 use crate::IonResult;
 use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::io;
 
@@ -166,8 +167,7 @@ impl IntoIterator for Sequence {
 
     fn into_iter(self) -> Self::IntoIter {
         OwnedSequenceIterator {
-            current: 0,
-            sequence: self,
+            elements: VecDeque::from(self.elements),
         }
     }
 }
@@ -191,19 +191,52 @@ impl IonOrd for Sequence {
 }
 
 pub struct OwnedSequenceIterator {
-    current: usize,
-    sequence: Sequence,
+    elements: VecDeque<Element>,
 }
 
 impl Iterator for OwnedSequenceIterator {
     type Item = Element;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(element) = self.sequence.get(self.current) {
-            self.current += 1;
-            Some(element.clone())
-        } else {
-            None
-        }
+        self.elements.pop_front()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.elements.len();
+        (len, Some(len))
+    }
+}
+
+impl std::fmt::Debug for OwnedSequenceIterator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("OwnedSequenceIterator")
+            .field(&self.elements)
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{ion_list, Element};
+
+    #[test]
+    fn owned_sequence() {
+        let list: Element = ion_list![true, false, "hello"].into();
+        let seq = list.try_into_sequence().unwrap();
+        let mut it = seq.into_iter();
+
+        assert_eq!(
+            format!("{:?}", it),
+            "OwnedSequenceIterator([true, false, \"hello\"])"
+        );
+
+        assert_eq!(it.size_hint(), (3, Some(3)));
+        assert_eq!(it.next(), Some(true.into()));
+        assert_eq!(it.size_hint(), (2, Some(2)));
+        assert_eq!(it.next(), Some(false.into()));
+        assert_eq!(it.size_hint(), (1, Some(1)));
+        assert_eq!(it.next(), Some("hello".into()));
+        assert_eq!(it.size_hint(), (0, Some(0)));
+        assert_eq!(it.next(), None);
     }
 }
