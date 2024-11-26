@@ -17,9 +17,8 @@ pub use sequence::{OwnedSequenceIterator, Sequence};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::ops::ControlFlow;
 
-use crate::{ion_data, Decimal, Int, IonError, IonResult, IonType, Str, Symbol, Timestamp};
+use crate::{ion_data, Decimal, Int, IonResult, IonType, Str, Symbol, Timestamp};
 use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::element::builders::{SequenceBuilder, StructBuilder};
@@ -30,8 +29,7 @@ use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
 use crate::result::{
-    Conversion, ConversionError, ConversionExpectation, ConversionResult, IonFailure,
-    IonTypeExpectation, TypeExpectation, ValueTypeExpectation,
+    Conversion, ConversionError, ConversionExpectation, IonTypeExpectation, TypeExpectation,
 };
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::types::symbol::SymbolText;

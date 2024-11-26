@@ -143,7 +143,7 @@ pub use catalog::{Catalog, EmptyCatalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
 pub use element::{
     element_writer::ElementWriter, reader::ElementReader, Annotations, Element,
-    IntoAnnotatedElement, IntoAnnotations, Sequence, Value, OwnedSequenceIterator
+    IntoAnnotatedElement, IntoAnnotations, OwnedSequenceIterator, Sequence, Value,
 };
 pub use ion_data::IonData;
 
