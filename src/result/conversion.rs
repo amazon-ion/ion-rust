@@ -42,6 +42,7 @@ pub(crate) trait ValueTypeExpectation {
 pub(crate) trait TypeExpectation {
     fn expected_type_name() -> String;
 }
+
 macro_rules! impl_type_expectation {
     ($ty:ty, $e:expr) => {
         impl TypeExpectation for $ty {
@@ -52,20 +53,27 @@ macro_rules! impl_type_expectation {
     };
 }
 
-impl_type_expectation!(Int, IonType::Int);
+macro_rules! impl_type_and_ref_expectation {
+    ($ty:ty, $e:expr) => {
+        impl_type_expectation!($ty, $e);
+        impl_type_expectation!(&$ty, $e);
+    };
+}
+
+impl_type_and_ref_expectation!(Int, IonType::Int);
 impl_type_expectation!(i64, "i64 value");
 impl_type_expectation!(f64, IonType::Float);
-impl_type_expectation!(Decimal, IonType::Decimal);
-impl_type_expectation!(Timestamp, IonType::Timestamp);
-impl_type_expectation!(String, "text value");
+impl_type_and_ref_expectation!(Decimal, IonType::Decimal);
+impl_type_and_ref_expectation!(Timestamp, IonType::Timestamp);
+impl_type_and_ref_expectation!(String, "text value");
 impl_type_expectation!(&str, "text value");
-impl_type_expectation!(Str, IonType::String);
-impl_type_expectation!(Symbol, IonType::Symbol);
+impl_type_and_ref_expectation!(Str, IonType::String);
+impl_type_and_ref_expectation!(Symbol, IonType::Symbol);
 impl_type_expectation!(bool, IonType::Bool);
-impl_type_expectation!(Bytes, "lob value");
+impl_type_and_ref_expectation!(Bytes, "lob value");
 impl_type_expectation!(&[u8], "lob value");
-impl_type_expectation!(Sequence, "sequence value");
-impl_type_expectation!(Struct, IonType::Struct);
+impl_type_and_ref_expectation!(Sequence, "sequence value");
+impl_type_and_ref_expectation!(Struct, IonType::Struct);
 
 impl<T> ValueTypeExpectation for T
 where

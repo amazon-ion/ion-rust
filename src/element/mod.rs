@@ -389,12 +389,11 @@ impl Element {
         }
     }
 
-    fn expected(&self, expectation: impl ToString) -> IonError {
-        IonError::decoding_error(format!(
-            "expected a(n) {}, found a(n) {}",
-            expectation.to_string(),
-            self.ion_type()
-        ))
+    fn expected<ToType>(&self, maybe: Option<ToType>) -> IonResult<ToType>
+    where
+        ToType: TypeExpectation,
+    {
+        Ok(maybe.expect_convert(self)?)
     }
 
     /// Returns a reference to this [Element]'s [Value].
@@ -489,7 +488,7 @@ impl Element {
     }
 
     pub fn expect_int(&self) -> IonResult<&Int> {
-        self.as_int().ok_or_else(|| self.expected(IonType::Int))
+        self.expected(self.as_int())
     }
 
     pub fn try_into_int(self) -> Conversion<Element, Int> {
@@ -507,10 +506,7 @@ impl Element {
     }
 
     pub fn expect_i64(&self) -> IonResult<i64> {
-        match &self.value {
-            Value::Int(i) => i.expect_i64(),
-            _ => Err(self.expected(IonType::Int)),
-        }
+        self.expected(self.as_i64())
     }
 
     pub fn try_into_i64(self) -> Conversion<Element, i64> {
@@ -528,7 +524,7 @@ impl Element {
     }
 
     pub fn expect_float(&self) -> IonResult<f64> {
-        self.as_float().ok_or_else(|| self.expected(IonType::Float))
+        self.expected(self.as_float())
     }
 
     pub fn try_into_float(self) -> Conversion<Element, f64> {
@@ -546,8 +542,7 @@ impl Element {
     }
 
     pub fn expect_decimal(&self) -> IonResult<Decimal> {
-        self.as_decimal()
-            .ok_or_else(|| self.expected(IonType::Decimal))
+        self.expected(self.as_decimal())
     }
 
     pub fn try_into_decimal(self) -> Conversion<Element, Decimal> {
@@ -565,8 +560,7 @@ impl Element {
     }
 
     pub fn expect_timestamp(&self) -> IonResult<Timestamp> {
-        self.as_timestamp()
-            .ok_or_else(|| self.expected(IonType::Timestamp))
+        self.expected(self.as_timestamp())
     }
 
     pub fn try_into_timestamp(self) -> Conversion<Element, Timestamp> {
@@ -585,7 +579,7 @@ impl Element {
     }
 
     pub fn expect_text(&self) -> IonResult<&str> {
-        self.as_text().ok_or_else(|| self.expected("text value"))
+        self.expected(self.as_text())
     }
 
     pub fn try_into_text(self) -> Conversion<Element, String> {
@@ -613,8 +607,7 @@ impl Element {
     }
 
     pub fn expect_string(&self) -> IonResult<&str> {
-        self.as_string()
-            .ok_or_else(|| self.expected(IonType::String))
+        self.expected(self.as_string())
     }
 
     pub fn try_into_string(self) -> Conversion<Element, Str> {
@@ -632,8 +625,7 @@ impl Element {
     }
 
     pub fn expect_symbol(&self) -> IonResult<&Symbol> {
-        self.as_symbol()
-            .ok_or_else(|| self.expected(IonType::Symbol))
+        self.expected(self.as_symbol())
     }
 
     pub fn try_into_symbol(self) -> Conversion<Element, Symbol> {
@@ -651,7 +643,7 @@ impl Element {
     }
 
     pub fn expect_bool(&self) -> IonResult<bool> {
-        self.as_bool().ok_or_else(|| self.expected(IonType::Bool))
+        self.expected(self.as_bool())
     }
 
     pub fn try_into_bool(self) -> Conversion<Element, bool> {
@@ -669,7 +661,7 @@ impl Element {
     }
 
     pub fn expect_lob(&self) -> IonResult<&[u8]> {
-        self.as_lob().ok_or_else(|| self.expected("lob value"))
+        self.expected(self.as_lob())
     }
 
     pub fn try_into_lob(self) -> Conversion<Element, Bytes> {
@@ -687,7 +679,7 @@ impl Element {
     }
 
     pub fn expect_blob(&self) -> IonResult<&[u8]> {
-        self.as_blob().ok_or_else(|| self.expected(IonType::Blob))
+        self.expected(self.as_blob())
     }
 
     pub fn try_into_blob(self) -> Conversion<Element, Bytes> {
@@ -705,7 +697,7 @@ impl Element {
     }
 
     pub fn expect_clob(&self) -> IonResult<&[u8]> {
-        self.as_clob().ok_or_else(|| self.expected(IonType::Clob))
+        self.expected(self.as_clob())
     }
 
     pub fn try_into_clob(self) -> Conversion<Element, Bytes> {
@@ -723,8 +715,7 @@ impl Element {
     }
 
     pub fn expect_sequence(&self) -> IonResult<&Sequence> {
-        self.as_sequence()
-            .ok_or_else(|| self.expected("sequence value"))
+        self.expected(self.as_sequence())
     }
 
     pub fn try_into_sequence(self) -> Conversion<Element, Sequence> {
@@ -742,7 +733,7 @@ impl Element {
     }
 
     pub fn expect_list(&self) -> IonResult<&Sequence> {
-        self.as_list().ok_or_else(|| self.expected(IonType::List))
+        self.expected(self.as_list())
     }
 
     pub fn try_into_list(self) -> Conversion<Element, Sequence> {
@@ -760,7 +751,7 @@ impl Element {
     }
 
     pub fn expect_sexp(&self) -> IonResult<&Sequence> {
-        self.as_sexp().ok_or_else(|| self.expected(IonType::SExp))
+        self.expected(self.as_sexp())
     }
 
     pub fn try_into_sexp(self) -> Conversion<Element, Sequence> {
@@ -778,8 +769,7 @@ impl Element {
     }
 
     pub fn expect_struct(&self) -> IonResult<&Struct> {
-        self.as_struct()
-            .ok_or_else(|| self.expected(IonType::Struct))
+        self.expected(self.as_struct())
     }
 
     pub fn try_into_struct(self) -> Conversion<Element, Struct> {
