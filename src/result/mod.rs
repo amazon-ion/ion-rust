@@ -10,12 +10,20 @@ use thiserror::Error;
 #[cfg(feature = "experimental-serde")]
 use serde::{de, ser};
 
+mod conversion;
 mod decoding_error;
 mod encoding_error;
 mod illegal_operation;
 mod incomplete;
 mod io_error;
 
+pub use conversion::Conversion;
+pub use conversion::ConversionError;
+pub(crate) use conversion::ConversionExpectation;
+pub use conversion::ConversionResult;
+pub(crate) use conversion::IonTypeExpectation;
+pub(crate) use conversion::TypeExpectation;
+pub(crate) use conversion::ValueTypeExpectation;
 pub use decoding_error::DecodingError;
 pub use encoding_error::EncodingError;
 pub use illegal_operation::IllegalOperation;
@@ -53,6 +61,11 @@ pub enum IonError {
     /// on the cursor at the top level.)
     #[error("{0}")]
     IllegalOperation(#[from] IllegalOperation),
+
+    /// Returned when the user has attempted to convert a value to a type for which that value is
+    /// not trivially convertable.
+    #[error("{0}")]
+    Conversion(#[from] ConversionError),
 }
 
 impl From<io::Error> for IonError {

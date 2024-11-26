@@ -29,7 +29,10 @@ use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
-use crate::result::IonFailure;
+use crate::result::{
+    Conversion, ConversionError, ConversionExpectation, ConversionResult, IonFailure,
+    IonTypeExpectation, TypeExpectation, ValueTypeExpectation,
+};
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::types::symbol::SymbolText;
 use crate::write_config::WriteConfig;
@@ -145,6 +148,12 @@ impl Value {
             SExp(_) => IonType::SExp,
             Struct(_) => IonType::Struct,
         }
+    }
+}
+
+impl IonTypeExpectation for Value {
+    fn ion_type(&self) -> IonType {
+        self.ion_type()
     }
 }
 
@@ -349,49 +358,28 @@ impl std::fmt::Debug for Element {
     }
 }
 
-impl TryFrom<Element> for Sequence {
-    type Error = IonError;
+macro_rules! impl_try_from_element {
+    ($to_type:ident, $to_fn:ident) => {
+        impl TryFrom<Element> for $to_type {
+            type Error = ConversionError;
 
-    fn try_from(element: Element) -> Result<Sequence, Self::Error> {
-        match element.try_into_sequence() {
-            ControlFlow::Continue(sequence) => Ok(sequence),
-            ControlFlow::Break(element) => Err(element.expected("sequence value")),
+            fn try_from(element: Element) -> Result<$to_type, Self::Error> {
+                element.$to_fn().into()
+            }
         }
-    }
+    };
 }
 
-impl TryFrom<Element> for Struct {
-    type Error = IonError;
-
-    fn try_from(element: Element) -> Result<Struct, Self::Error> {
-        match element.try_into_struct() {
-            ControlFlow::Continue(structure) => Ok(structure),
-            ControlFlow::Break(element) => Err(element.expected(IonType::Struct)),
-        }
-    }
-}
-
-impl TryFrom<Element> for Bytes {
-    type Error = IonError;
-
-    fn try_from(element: Element) -> Result<Bytes, Self::Error> {
-        match element.try_into_lob() {
-            ControlFlow::Continue(bytes) => Ok(bytes),
-            ControlFlow::Break(element) => Err(element.expected("lob value")),
-        }
-    }
-}
-
-impl TryFrom<Element> for String {
-    type Error = IonError;
-
-    fn try_from(element: Element) -> Result<String, Self::Error> {
-        match element.try_into_text() {
-            ControlFlow::Continue(text) => Ok(text),
-            ControlFlow::Break(element) => Err(element.expected("text value")),
-        }
-    }
-}
+impl_try_from_element!(f64, try_into_float);
+impl_try_from_element!(Decimal, try_into_decimal);
+impl_try_from_element!(Timestamp, try_into_timestamp);
+impl_try_from_element!(String, try_into_text);
+impl_try_from_element!(Str, try_into_string);
+impl_try_from_element!(Symbol, try_into_symbol);
+impl_try_from_element!(bool, try_into_bool);
+impl_try_from_element!(Bytes, try_into_lob);
+impl_try_from_element!(Sequence, try_into_sequence);
+impl_try_from_element!(Struct, try_into_struct);
 
 impl Element {
     pub(crate) fn new(annotations: Annotations, value: impl Into<Value>) -> Self {
@@ -504,10 +492,10 @@ impl Element {
         self.as_int().ok_or_else(|| self.expected(IonType::Int))
     }
 
-    pub fn try_into_int(self) -> ControlFlow<Element, Int> {
+    pub fn try_into_int(self) -> Conversion<Element, Int> {
         match self.value {
-            Value::Int(i) => ControlFlow::Continue(i),
-            _ => ControlFlow::Break(self),
+            Value::Int(i) => Conversion::Success(i),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -525,10 +513,10 @@ impl Element {
         }
     }
 
-    pub fn try_into_i64(self) -> ControlFlow<Element, i64> {
+    pub fn try_into_i64(self) -> Conversion<Element, i64> {
         match self.value {
-            Value::Int(i) if i.as_i64().is_some() => ControlFlow::Continue(i.as_i64().unwrap()),
-            _ => ControlFlow::Break(self),
+            Value::Int(i) if i.as_i64().is_some() => Conversion::Success(i.as_i64().unwrap()),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -543,10 +531,10 @@ impl Element {
         self.as_float().ok_or_else(|| self.expected(IonType::Float))
     }
 
-    pub fn try_into_float(self) -> ControlFlow<Element, f64> {
+    pub fn try_into_float(self) -> Conversion<Element, f64> {
         match self.value {
-            Value::Float(f) => ControlFlow::Continue(f),
-            _ => ControlFlow::Break(self),
+            Value::Float(f) => Conversion::Success(f),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -562,10 +550,10 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::Decimal))
     }
 
-    pub fn try_into_decimal(self) -> ControlFlow<Element, Decimal> {
+    pub fn try_into_decimal(self) -> Conversion<Element, Decimal> {
         match self.value {
-            Value::Decimal(d) => ControlFlow::Continue(d),
-            _ => ControlFlow::Break(self),
+            Value::Decimal(d) => Conversion::Success(d),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -581,10 +569,10 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::Timestamp))
     }
 
-    pub fn try_into_timestamp(self) -> ControlFlow<Element, Timestamp> {
+    pub fn try_into_timestamp(self) -> Conversion<Element, Timestamp> {
         match self.value {
-            Value::Timestamp(t) => ControlFlow::Continue(t),
-            _ => ControlFlow::Break(self),
+            Value::Timestamp(t) => Conversion::Success(t),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -600,20 +588,20 @@ impl Element {
         self.as_text().ok_or_else(|| self.expected("text value"))
     }
 
-    pub fn try_into_text(self) -> ControlFlow<Element, String> {
+    pub fn try_into_text(self) -> Conversion<Element, String> {
         let Self { value, annotations } = self;
         match value {
-            Value::String(text) => ControlFlow::Continue(text.to_string()),
+            Value::String(text) => Conversion::Success(text.to_string()),
             Value::Symbol(sym) => match sym.text {
-                SymbolText::Shared(shared) => ControlFlow::Continue((*shared).to_string()),
-                SymbolText::Owned(owned) => ControlFlow::Continue(owned),
-                SymbolText::Unknown => ControlFlow::Break(Self {
+                SymbolText::Shared(shared) => Conversion::Success((*shared).to_string()),
+                SymbolText::Owned(owned) => Conversion::Success(owned),
+                SymbolText::Unknown => Conversion::Fail(Self {
                     value: Value::Symbol(Symbol::unknown_text()),
                     annotations,
                 }),
-                SymbolText::Static(static_str) => ControlFlow::Continue((*static_str).to_string()),
+                SymbolText::Static(static_str) => Conversion::Success((*static_str).to_string()),
             },
-            _ => ControlFlow::Break(Self { value, annotations }),
+            _ => Conversion::Fail(Self { value, annotations }),
         }
     }
 
@@ -629,10 +617,10 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::String))
     }
 
-    pub fn try_into_string(self) -> ControlFlow<Element, Str> {
+    pub fn try_into_string(self) -> Conversion<Element, Str> {
         match self.value {
-            Value::String(text) => ControlFlow::Continue(text),
-            _ => ControlFlow::Break(self),
+            Value::String(text) => Conversion::Success(text),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -648,10 +636,10 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::Symbol))
     }
 
-    pub fn try_into_symbol(self) -> ControlFlow<Element, Symbol> {
+    pub fn try_into_symbol(self) -> Conversion<Element, Symbol> {
         match self.value {
-            Value::Symbol(sym) => ControlFlow::Continue(sym),
-            _ => ControlFlow::Break(self),
+            Value::Symbol(sym) => Conversion::Success(sym),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -666,10 +654,10 @@ impl Element {
         self.as_bool().ok_or_else(|| self.expected(IonType::Bool))
     }
 
-    pub fn try_into_bool(self) -> ControlFlow<Element, bool> {
+    pub fn try_into_bool(self) -> Conversion<Element, bool> {
         match self.value {
-            Value::Bool(b) => ControlFlow::Continue(b),
-            _ => ControlFlow::Break(self),
+            Value::Bool(b) => Conversion::Success(b),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -684,10 +672,10 @@ impl Element {
         self.as_lob().ok_or_else(|| self.expected("lob value"))
     }
 
-    pub fn try_into_lob(self) -> ControlFlow<Element, Bytes> {
+    pub fn try_into_lob(self) -> Conversion<Element, Bytes> {
         match self.value {
-            Value::Blob(bytes) | Value::Clob(bytes) => ControlFlow::Continue(bytes),
-            _ => ControlFlow::Break(self),
+            Value::Blob(bytes) | Value::Clob(bytes) => Conversion::Success(bytes),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -702,10 +690,10 @@ impl Element {
         self.as_blob().ok_or_else(|| self.expected(IonType::Blob))
     }
 
-    pub fn try_into_blob(self) -> ControlFlow<Element, Bytes> {
+    pub fn try_into_blob(self) -> Conversion<Element, Bytes> {
         match self.value {
-            Value::Blob(bytes) => ControlFlow::Continue(bytes),
-            _ => ControlFlow::Break(self),
+            Value::Blob(bytes) => Conversion::Success(bytes),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -720,10 +708,10 @@ impl Element {
         self.as_clob().ok_or_else(|| self.expected(IonType::Clob))
     }
 
-    pub fn try_into_clob(self) -> ControlFlow<Element, Bytes> {
+    pub fn try_into_clob(self) -> Conversion<Element, Bytes> {
         match self.value {
-            Value::Clob(bytes) => ControlFlow::Continue(bytes),
-            _ => ControlFlow::Break(self),
+            Value::Clob(bytes) => Conversion::Success(bytes),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -739,10 +727,10 @@ impl Element {
             .ok_or_else(|| self.expected("sequence value"))
     }
 
-    pub fn try_into_sequence(self) -> ControlFlow<Element, Sequence> {
+    pub fn try_into_sequence(self) -> Conversion<Element, Sequence> {
         match self.value {
-            Value::SExp(s) | Value::List(s) => ControlFlow::Continue(s),
-            _ => ControlFlow::Break(self),
+            Value::SExp(s) | Value::List(s) => Conversion::Success(s),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -757,10 +745,10 @@ impl Element {
         self.as_list().ok_or_else(|| self.expected(IonType::List))
     }
 
-    pub fn try_into_list(self) -> ControlFlow<Element, Sequence> {
+    pub fn try_into_list(self) -> Conversion<Element, Sequence> {
         match self.value {
-            Value::List(s) => ControlFlow::Continue(s),
-            _ => ControlFlow::Break(self),
+            Value::List(s) => Conversion::Success(s),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -775,10 +763,10 @@ impl Element {
         self.as_sexp().ok_or_else(|| self.expected(IonType::SExp))
     }
 
-    pub fn try_into_sexp(self) -> ControlFlow<Element, Sequence> {
+    pub fn try_into_sexp(self) -> Conversion<Element, Sequence> {
         match self.value {
-            Value::SExp(s) => ControlFlow::Continue(s),
-            _ => ControlFlow::Break(self),
+            Value::SExp(s) => Conversion::Success(s),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -794,10 +782,10 @@ impl Element {
             .ok_or_else(|| self.expected(IonType::Struct))
     }
 
-    pub fn try_into_struct(self) -> ControlFlow<Element, Struct> {
+    pub fn try_into_struct(self) -> Conversion<Element, Struct> {
         match self.value {
-            Value::Struct(structure) => ControlFlow::Continue(structure),
-            _ => ControlFlow::Break(self),
+            Value::Struct(structure) => Conversion::Success(structure),
+            _ => Conversion::Fail(self),
         }
     }
 
@@ -899,6 +887,12 @@ impl Element {
         config: C,
     ) -> IonResult<W> {
         config.into().encode_to(self, output)
+    }
+}
+
+impl IonTypeExpectation for Element {
+    fn ion_type(&self) -> IonType {
+        self.ion_type()
     }
 }
 
@@ -1218,13 +1212,13 @@ mod tests {
 
     macro_rules! assert_pass_try_into {
         ($f:ident) => {
-            Box::new(|e: Element| assert!(e.$f().is_continue()))
+            Box::new(|e: Element| assert!(e.$f().is_success()))
         };
     }
 
     macro_rules! assert_fail_try_into {
         ($f:ident) => {
-            Box::new(|e: Element| assert!(e.$f().is_break()))
+            Box::new(|e: Element| assert!(e.$f().is_failure()))
         };
     }
 
@@ -1258,7 +1252,7 @@ mod tests {
                 assert_eq!(&expected, e);
             }),
             owned_asserts: vec![Box::new(|e: Element| {
-                assert!(e.try_into_bool().is_continue())
+                assert!(e.try_into_bool().is_success())
             })],
         }
     }
