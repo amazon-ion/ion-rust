@@ -214,3 +214,29 @@ impl std::fmt::Debug for OwnedSequenceIterator {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{ion_list, Element, Value};
+
+    #[test]
+    fn owned_sequence() {
+        let list: Element = ion_list![true, false, "hello"].into();
+        let seq = list.try_into_sequence().unwrap();
+        let mut it = seq.into_iter();
+
+        assert_eq!(
+            format!("{:?}", it),
+            "OwnedSequenceIterator([true, false, \"hello\"])"
+        );
+
+        assert_eq!(it.size_hint(), (3, Some(3)));
+        assert_eq!(it.next(), Some(true.into()));
+        assert_eq!(it.size_hint(), (2, Some(2)));
+        assert_eq!(it.next(), Some(false.into()));
+        assert_eq!(it.size_hint(), (1, Some(1)));
+        assert_eq!(it.next(), Some("hello".into()));
+        assert_eq!(it.size_hint(), (0, Some(0)));
+        assert_eq!(it.next(), None);
+    }
+}

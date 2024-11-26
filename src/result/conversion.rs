@@ -29,6 +29,15 @@ impl<FromType, ToType> Conversion<FromType, ToType> {
     pub fn is_failure(&self) -> bool {
         matches!(self, Conversion::Fail(_))
     }
+
+    pub fn unwrap(self) -> ToType
+    where
+        ToType: TypeExpectation,
+        FromType: ValueTypeExpectation,
+    {
+        let result: ConversionResult<ToType> = self.into();
+        result.unwrap()
+    }
 }
 
 pub(crate) trait IonTypeExpectation {
@@ -92,7 +101,7 @@ where
     fn from(conversion: Conversion<FromType, ToType>) -> Self {
         match conversion {
             Conversion::Success(to) => Some(to),
-            Conversion::Fail(from) => None,
+            Conversion::Fail(_) => None,
         }
     }
 }
