@@ -29,26 +29,28 @@ impl<FromType, ToType> Conversion<FromType, ToType> {
     pub fn is_failure(&self) -> bool {
         matches!(self, Conversion::Fail(_))
     }
+}
 
-    pub fn unwrap(self) -> ToType
-    where
-        ToType: TypeExpectation,
-        FromType: ValueTypeExpectation,
-    {
+impl<FromType, ToType> Conversion<FromType, ToType>
+where
+    ToType: TypeExpectation,
+    FromType: ValueTypeExpectation,
+{
+    pub fn unwrap(self) -> ToType {
         let result: ConversionResult<ToType> = self.into();
         result.unwrap()
     }
 }
 
-pub(crate) trait IonTypeExpectation {
+pub trait IonTypeExpectation {
     fn ion_type(&self) -> IonType;
 }
 
-pub(crate) trait ValueTypeExpectation {
+pub trait ValueTypeExpectation {
     fn expected_type_name(&self) -> String;
 }
 
-pub(crate) trait TypeExpectation {
+pub trait TypeExpectation {
     fn expected_type_name() -> String;
 }
 
@@ -122,7 +124,7 @@ where
     }
 }
 
-pub(crate) trait ConversionExpectation<ToType> {
+pub trait ConversionExpectation<ToType> {
     fn expect_convert(self, input_type: &impl ValueTypeExpectation) -> ConversionResult<ToType>;
 }
 

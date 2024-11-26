@@ -29,7 +29,8 @@ use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
 use crate::result::{
-    Conversion, ConversionError, ConversionExpectation, IonTypeExpectation, TypeExpectation,
+    Conversion, ConversionError, ConversionExpectation, ConversionResult, IonTypeExpectation,
+    TypeExpectation,
 };
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::types::symbol::SymbolText;
@@ -361,7 +362,7 @@ macro_rules! impl_try_from_element {
         impl TryFrom<Element> for $to_type {
             type Error = ConversionError;
 
-            fn try_from(element: Element) -> Result<$to_type, Self::Error> {
+            fn try_from(element: Element) -> ConversionResult<$to_type> {
                 element.$to_fn().into()
             }
         }

@@ -217,7 +217,7 @@ impl std::fmt::Debug for OwnedSequenceIterator {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ion_list, Element, Value};
+    use crate::{ion_list, Element};
 
     #[test]
     fn owned_sequence() {

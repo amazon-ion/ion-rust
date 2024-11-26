@@ -19,11 +19,11 @@ mod io_error;
 
 pub use conversion::Conversion;
 pub use conversion::ConversionError;
-pub(crate) use conversion::ConversionExpectation;
+pub use conversion::ConversionExpectation;
 pub use conversion::ConversionResult;
-pub(crate) use conversion::IonTypeExpectation;
-pub(crate) use conversion::TypeExpectation;
-pub(crate) use conversion::ValueTypeExpectation;
+pub use conversion::IonTypeExpectation;
+pub use conversion::TypeExpectation;
+pub use conversion::ValueTypeExpectation;
 pub use decoding_error::DecodingError;
 pub use encoding_error::EncodingError;
 pub use illegal_operation::IllegalOperation;
