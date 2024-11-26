@@ -23,7 +23,6 @@ pub use conversion::ConversionExpectation;
 pub use conversion::ConversionResult;
 pub use conversion::IonTypeExpectation;
 pub use conversion::TypeExpectation;
-pub use conversion::ValueTypeExpectation;
 pub use decoding_error::DecodingError;
 pub use encoding_error::EncodingError;
 pub use illegal_operation::IllegalOperation;
