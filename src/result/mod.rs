@@ -17,10 +17,8 @@ mod illegal_operation;
 mod incomplete;
 mod io_error;
 
-pub use conversion::Conversion;
-pub use conversion::ConversionError;
-pub use conversion::ConversionExpectation;
-pub use conversion::ConversionResult;
+pub use conversion::ConversionOperationError;
+pub use conversion::ConversionOperationResult;
 pub use conversion::IonTypeExpectation;
 pub use conversion::TypeExpectation;
 pub use decoding_error::DecodingError;
@@ -30,6 +28,7 @@ pub use incomplete::IncompleteError;
 pub use io_error::IoError;
 
 use crate::position::Position;
+use crate::result::conversion::{ConversionError, ValueTypeExpectation};
 
 /// A unified Result type representing the outcome of method calls that may fail.
 pub type IonResult<T> = Result<T, IonError>;
@@ -93,6 +92,16 @@ impl From<IonError> for fmt::Error {
         // This no-op transformation allows `?` to be used in `Debug` implementations wherever
         // an IonError could surface.
         fmt::Error
+    }
+}
+
+impl<FromType, ToType> From<ConversionOperationError<FromType, ToType>> for IonError
+where
+    FromType: ValueTypeExpectation,
+    ToType: TypeExpectation,
+{
+    fn from(err: ConversionOperationError<FromType, ToType>) -> Self {
+        ConversionError::from(err).into()
     }
 }
 

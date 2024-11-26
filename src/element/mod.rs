@@ -29,8 +29,7 @@ use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
 use crate::result::{
-    Conversion, ConversionError, ConversionExpectation, ConversionResult, IonTypeExpectation,
-    TypeExpectation,
+    ConversionOperationError, ConversionOperationResult, IonTypeExpectation, TypeExpectation,
 };
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::types::symbol::SymbolText;
@@ -294,7 +293,7 @@ impl From<Struct> for Value {
 /// ```
 /// use ion_rs::{Element, IntoAnnotatedElement, Value};
 ///
-/// // Explicit conversion of a Rust bool (`true`) into a `Value`...
+/// // Explicit ConversionResult of a Rust bool (`true`) into a `Value`...
 /// let boolean_value: Value = true.into();
 /// // and then into an `Element`...
 /// let mut boolean_element: Element = boolean_value.into();
@@ -360,9 +359,9 @@ impl std::fmt::Debug for Element {
 macro_rules! impl_try_from_element {
     ($to_type:ident, $to_fn:ident) => {
         impl TryFrom<Element> for $to_type {
-            type Error = ConversionError;
+            type Error = ConversionOperationError<Element, $to_type>;
 
-            fn try_from(element: Element) -> ConversionResult<$to_type> {
+            fn try_from(element: Element) -> ConversionOperationResult<Element, $to_type> {
                 element.$to_fn().into()
             }
         }
@@ -392,7 +391,7 @@ impl Element {
     where
         ToType: TypeExpectation,
     {
-        Ok(maybe.expect_convert(self)?)
+        Ok(maybe.ok_or_else(|| ConversionOperationError::<&Element, ToType>::new(self))?)
     }
 
     /// Returns a reference to this [Element]'s [Value].
@@ -490,10 +489,10 @@ impl Element {
         self.expected(self.as_int())
     }
 
-    pub fn try_into_int(self) -> Conversion<Element, Int> {
+    pub fn try_into_int(self) -> ConversionOperationResult<Element, Int> {
         match self.value {
-            Value::Int(i) => Conversion::Success(i),
-            _ => Conversion::Fail(self),
+            Value::Int(i) => Ok(i),
+            _ => Err(self.into()),
         }
     }
 
@@ -508,10 +507,10 @@ impl Element {
         self.expected(self.as_i64())
     }
 
-    pub fn try_into_i64(self) -> Conversion<Element, i64> {
+    pub fn try_into_i64(self) -> ConversionOperationResult<Element, i64> {
         match self.value {
-            Value::Int(i) if i.as_i64().is_some() => Conversion::Success(i.as_i64().unwrap()),
-            _ => Conversion::Fail(self),
+            Value::Int(i) if i.as_i64().is_some() => Ok(i.as_i64().unwrap()),
+            _ => Err(self.into()),
         }
     }
 
@@ -526,10 +525,10 @@ impl Element {
         self.expected(self.as_float())
     }
 
-    pub fn try_into_float(self) -> Conversion<Element, f64> {
+    pub fn try_into_float(self) -> ConversionOperationResult<Element, f64> {
         match self.value {
-            Value::Float(f) => Conversion::Success(f),
-            _ => Conversion::Fail(self),
+            Value::Float(f) => Ok(f),
+            _ => Err(self.into()),
         }
     }
 
@@ -544,10 +543,10 @@ impl Element {
         self.expected(self.as_decimal())
     }
 
-    pub fn try_into_decimal(self) -> Conversion<Element, Decimal> {
+    pub fn try_into_decimal(self) -> ConversionOperationResult<Element, Decimal> {
         match self.value {
-            Value::Decimal(d) => Conversion::Success(d),
-            _ => Conversion::Fail(self),
+            Value::Decimal(d) => Ok(d),
+            _ => Err(self.into()),
         }
     }
 
@@ -562,10 +561,10 @@ impl Element {
         self.expected(self.as_timestamp())
     }
 
-    pub fn try_into_timestamp(self) -> Conversion<Element, Timestamp> {
+    pub fn try_into_timestamp(self) -> ConversionOperationResult<Element, Timestamp> {
         match self.value {
-            Value::Timestamp(t) => Conversion::Success(t),
-            _ => Conversion::Fail(self),
+            Value::Timestamp(t) => Ok(t),
+            _ => Err(self.into()),
         }
     }
 
@@ -581,20 +580,26 @@ impl Element {
         self.expected(self.as_text())
     }
 
-    pub fn try_into_text(self) -> Conversion<Element, String> {
+    pub fn try_into_text(self) -> ConversionOperationResult<Element, String> {
         let Self { value, annotations } = self;
         match value {
-            Value::String(text) => Conversion::Success(text.to_string()),
+            Value::String(text) => Ok(text.to_string()),
             Value::Symbol(sym) => match sym.text {
-                SymbolText::Shared(shared) => Conversion::Success((*shared).to_string()),
-                SymbolText::Owned(owned) => Conversion::Success(owned),
-                SymbolText::Unknown => Conversion::Fail(Self {
-                    value: Value::Symbol(Symbol::unknown_text()),
-                    annotations,
-                }),
-                SymbolText::Static(static_str) => Conversion::Success((*static_str).to_string()),
+                SymbolText::Shared(shared) => Ok((*shared).to_string()),
+                SymbolText::Owned(owned) => Ok(owned),
+                SymbolText::Unknown => {
+                    let sym = Self {
+                        value: Value::Symbol(Symbol::unknown_text()),
+                        annotations,
+                    };
+                    Err(ConversionOperationError::new(sym))
+                }
+                SymbolText::Static(static_str) => Ok((*static_str).to_string()),
             },
-            _ => Conversion::Fail(Self { value, annotations }),
+            _ => {
+                let sym = Self { value, annotations };
+                Err(ConversionOperationError::new(sym))
+            }
         }
     }
 
@@ -609,10 +614,10 @@ impl Element {
         self.expected(self.as_string())
     }
 
-    pub fn try_into_string(self) -> Conversion<Element, Str> {
+    pub fn try_into_string(self) -> ConversionOperationResult<Element, Str> {
         match self.value {
-            Value::String(text) => Conversion::Success(text),
-            _ => Conversion::Fail(self),
+            Value::String(text) => Ok(text),
+            _ => Err(self.into()),
         }
     }
 
@@ -627,10 +632,10 @@ impl Element {
         self.expected(self.as_symbol())
     }
 
-    pub fn try_into_symbol(self) -> Conversion<Element, Symbol> {
+    pub fn try_into_symbol(self) -> ConversionOperationResult<Element, Symbol> {
         match self.value {
-            Value::Symbol(sym) => Conversion::Success(sym),
-            _ => Conversion::Fail(self),
+            Value::Symbol(sym) => Ok(sym),
+            _ => Err(self.into()),
         }
     }
 
@@ -645,10 +650,10 @@ impl Element {
         self.expected(self.as_bool())
     }
 
-    pub fn try_into_bool(self) -> Conversion<Element, bool> {
+    pub fn try_into_bool(self) -> ConversionOperationResult<Element, bool> {
         match self.value {
-            Value::Bool(b) => Conversion::Success(b),
-            _ => Conversion::Fail(self),
+            Value::Bool(b) => Ok(b),
+            _ => Err(self.into()),
         }
     }
 
@@ -663,10 +668,10 @@ impl Element {
         self.expected(self.as_lob())
     }
 
-    pub fn try_into_lob(self) -> Conversion<Element, Bytes> {
+    pub fn try_into_lob(self) -> ConversionOperationResult<Element, Bytes> {
         match self.value {
-            Value::Blob(bytes) | Value::Clob(bytes) => Conversion::Success(bytes),
-            _ => Conversion::Fail(self),
+            Value::Blob(bytes) | Value::Clob(bytes) => Ok(bytes),
+            _ => Err(self.into()),
         }
     }
 
@@ -681,10 +686,10 @@ impl Element {
         self.expected(self.as_blob())
     }
 
-    pub fn try_into_blob(self) -> Conversion<Element, Bytes> {
+    pub fn try_into_blob(self) -> ConversionOperationResult<Element, Bytes> {
         match self.value {
-            Value::Blob(bytes) => Conversion::Success(bytes),
-            _ => Conversion::Fail(self),
+            Value::Blob(bytes) => Ok(bytes),
+            _ => Err(self.into()),
         }
     }
 
@@ -699,10 +704,10 @@ impl Element {
         self.expected(self.as_clob())
     }
 
-    pub fn try_into_clob(self) -> Conversion<Element, Bytes> {
+    pub fn try_into_clob(self) -> ConversionOperationResult<Element, Bytes> {
         match self.value {
-            Value::Clob(bytes) => Conversion::Success(bytes),
-            _ => Conversion::Fail(self),
+            Value::Clob(bytes) => Ok(bytes),
+            _ => Err(self.into()),
         }
     }
 
@@ -717,10 +722,10 @@ impl Element {
         self.expected(self.as_sequence())
     }
 
-    pub fn try_into_sequence(self) -> Conversion<Element, Sequence> {
+    pub fn try_into_sequence(self) -> ConversionOperationResult<Element, Sequence> {
         match self.value {
-            Value::SExp(s) | Value::List(s) => Conversion::Success(s),
-            _ => Conversion::Fail(self),
+            Value::SExp(s) | Value::List(s) => Ok(s),
+            _ => Err(self.into()),
         }
     }
 
@@ -735,10 +740,10 @@ impl Element {
         self.expected(self.as_list())
     }
 
-    pub fn try_into_list(self) -> Conversion<Element, Sequence> {
+    pub fn try_into_list(self) -> ConversionOperationResult<Element, Sequence> {
         match self.value {
-            Value::List(s) => Conversion::Success(s),
-            _ => Conversion::Fail(self),
+            Value::List(s) => Ok(s),
+            _ => Err(self.into()),
         }
     }
 
@@ -753,10 +758,10 @@ impl Element {
         self.expected(self.as_sexp())
     }
 
-    pub fn try_into_sexp(self) -> Conversion<Element, Sequence> {
+    pub fn try_into_sexp(self) -> ConversionOperationResult<Element, Sequence> {
         match self.value {
-            Value::SExp(s) => Conversion::Success(s),
-            _ => Conversion::Fail(self),
+            Value::SExp(s) => Ok(s),
+            _ => Err(self.into()),
         }
     }
 
@@ -771,10 +776,10 @@ impl Element {
         self.expected(self.as_struct())
     }
 
-    pub fn try_into_struct(self) -> Conversion<Element, Struct> {
+    pub fn try_into_struct(self) -> ConversionOperationResult<Element, Struct> {
         match self.value {
-            Value::Struct(structure) => Conversion::Success(structure),
-            _ => Conversion::Fail(self),
+            Value::Struct(structure) => Ok(structure),
+            _ => Err(self.into()),
         }
     }
 
@@ -880,6 +885,12 @@ impl Element {
 }
 
 impl IonTypeExpectation for Element {
+    fn ion_type(&self) -> IonType {
+        self.ion_type()
+    }
+}
+
+impl IonTypeExpectation for &Element {
     fn ion_type(&self) -> IonType {
         self.ion_type()
     }
@@ -1201,13 +1212,13 @@ mod tests {
 
     macro_rules! assert_pass_try_into {
         ($f:ident) => {
-            Box::new(|e: Element| assert!(e.$f().is_success()))
+            Box::new(|e: Element| assert!(e.$f().is_ok()))
         };
     }
 
     macro_rules! assert_fail_try_into {
         ($f:ident) => {
-            Box::new(|e: Element| assert!(e.$f().is_failure()))
+            Box::new(|e: Element| assert!(e.$f().is_err()))
         };
     }
 
@@ -1240,9 +1251,7 @@ mod tests {
                 assert_eq!(Some(true), e.as_bool());
                 assert_eq!(&expected, e);
             }),
-            owned_asserts: vec![Box::new(|e: Element| {
-                assert!(e.try_into_bool().is_success())
-            })],
+            owned_asserts: vec![Box::new(|e: Element| assert!(e.try_into_bool().is_ok()))],
         }
     }
 
