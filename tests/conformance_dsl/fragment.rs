@@ -97,7 +97,7 @@ impl Fragment {
             }
             Fragment::Binary(_) => unreachable!(),
             Fragment::Ivm(maj, min) => {
-                return Ok(format!("$ion_{}_{}", maj, min).as_bytes().to_owned())
+                Ok(format!("$ion_{}_{}", maj, min).as_bytes().to_owned())
             }
         }
     }
@@ -193,7 +193,7 @@ impl TryFrom<Sequence> for Fragment {
 // special absent symbol sauce.
 pub(crate) struct ProxyElement<'a>(pub &'a Element, pub &'a Context<'a>);
 
-impl<'a> ProxyElement<'a> {
+impl ProxyElement<'_> {
     fn write_struct<V: ValueWriter>(&self, val: &Struct, writer: V) -> ion_rs::IonResult<()> {
         let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
         let annot_writer = writer.with_annotations(annotations)?;
@@ -342,7 +342,7 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
     }
 }
 
-impl<'a> WriteAsIon for ProxyElement<'a> {
+impl WriteAsIon for ProxyElement<'_> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> ion_rs::IonResult<()> {
         match self.0.ion_type() {
             IonType::Symbol => self.write_symbol(writer),

@@ -179,13 +179,13 @@ mod example {
     // field name/value pair. In the case of recurring strings, we take the liberty of writing
     // out symbol IDs instead of the full text; this silent type coercion from string to symbol
     // is technically data loss, but results in a much more compact encoding.
-    impl<'a, 'b> WriteAsIon for SerializeWithoutMacros<'a, 'b> {
+    impl WriteAsIon for SerializeWithoutMacros<'_, '_> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             let event = self.0;
             let mut struct_ = writer.struct_writer()?;
             struct_
                 //            v--- Each field name is a symbol ID
-                .write(10, &event.timestamp)?
+                .write(10, event.timestamp)?
                 .write(11, event.thread_id)?
                 .write(12, &event.thread_name)?
                 //                 v--- The fixed strings from the log statement are also SIDs
@@ -202,7 +202,7 @@ mod example {
     // behavior for the thread name.
     struct ThreadName<'a>(&'a str);
 
-    impl<'a> WriteAsIon for ThreadName<'a> {
+    impl WriteAsIon for ThreadName<'_> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             // ID 12 chosen arbitrarily, but aligns with Ion 1.0 encoding above
             let mut eexp = writer.eexp_writer(12)?;
@@ -213,11 +213,11 @@ mod example {
         }
     }
 
-    impl<'a, 'b> WriteAsIon for SerializeWithMacros<'a, 'b> {
+    impl WriteAsIon for SerializeWithMacros<'_, '_> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             let event = self.0;
             let mut eexp = writer.eexp_writer(event.statement.index)?;
-            eexp.write(&event.timestamp)?
+            eexp.write(event.timestamp)?
                 .write(event.thread_id)?
                 // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
                 .write(ThreadName(&event.thread_name))?
@@ -246,28 +246,28 @@ mod example {
                 "Foo",
                 "DEBUG",
                 "Database heartbeat received after {} ms",
-                &[Int]
+                [Int]
             ),
             LogStatement::new(
                 1,
                 "Bar",
                 "INFO",
                 "Retrieved {} results from the '{}' table in {} ms",
-                &[Int, String, Int],
+                [Int, String, Int],
             ),
             LogStatement::new(
                 2,
                 "Baz",
                 "WARN",
                 "Query to the '{}' table took {} ms to execute, which is higher than the configured threshold",
-                &[String, Int],
+                [String, Int],
             ),
             LogStatement::new(
                 3,
                 "Quux",
                 "ERROR",
                 "Connection to database lost",
-                &[]
+                []
             ),
         ]
     }
@@ -287,8 +287,8 @@ mod example {
             .collect()
     }
 
-    fn generate_event<'rng, 'statements>(
-        rng: &'rng mut StdRng,
+    fn generate_event<'statements>(
+        rng: &mut StdRng,
         log_statements: &'statements [LogStatement],
         event_index: usize,
     ) -> LogEvent<'statements> {
