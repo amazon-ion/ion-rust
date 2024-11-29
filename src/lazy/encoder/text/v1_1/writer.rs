@@ -29,7 +29,8 @@ impl<W: Write> SequenceWriter for LazyRawTextWriter_1_1<W> {
 }
 
 impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_1<W> {
-    type ValueWriter<'a> = TextValueWriter_1_1<'a, W>
+    type ValueWriter<'a>
+        = TextValueWriter_1_1<'a, W>
     where
         Self: 'a;
 
@@ -117,11 +118,13 @@ mod tests {
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
     use crate::lazy::expanded::EncodingContext;
-    use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
+    use crate::lazy::text::raw::v1_1::reader::{
+        system_macro_addresses, LazyRawTextReader_1_1, MacroIdRef,
+    };
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
         v1_1, Annotatable, Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef,
-        Reader, Timestamp,
+        Reader, Timestamp, Writer,
     };
 
     #[test]
@@ -353,6 +356,23 @@ mod tests {
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
+        Ok(())
+    }
+
+    #[test]
+    fn test_system_eexp() -> IonResult<()> {
+        let mut writer = Writer::new(v1_1::Text, vec![])?;
+        let mut macro_args = writer.eexp_writer(system_macro_addresses::MAKE_STRING)?;
+        macro_args
+            .write("foo")?
+            .write("bar")?
+            .write("baz")?
+            .write_symbol("+++")?;
+        macro_args.close()?;
+        let encoded_bytes = writer.close()?;
+        let mut reader = Reader::new(v1_1::Text, encoded_bytes)?;
+        let element = reader.read_next_element()?;
+        assert_eq!("foobarbaz+++", element.unwrap().as_string().unwrap());
         Ok(())
     }
 }

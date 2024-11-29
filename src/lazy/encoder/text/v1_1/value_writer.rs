@@ -25,7 +25,10 @@ pub struct TextAnnotatedValueWriter_1_1<'value, W: Write> {
 }
 
 impl<'value, W: Write + 'value> AnnotatableWriter for TextValueWriter_1_1<'value, W> {
-    type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_1<'a, W> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = TextAnnotatedValueWriter_1_1<'a, W>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -83,6 +86,14 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
     }
 
     fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+        let id = macro_id.into();
+        let opening_text = match id {
+            MacroIdRef::LocalName(name) => format!("(:{}", name),
+            MacroIdRef::LocalAddress(address) => format!("(:{}", address),
+            MacroIdRef::SystemAddress(system_address) => {
+                format!("(:$ion::{}", system_address.as_usize())
+            }
+        };
         TextEExpWriter_1_1::new(
             self.value_writer_1_0.writer,
             self.value_writer_1_0.depth,
@@ -90,7 +101,7 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
             // Pretend we're in a sexp for syntax purposes
             ContainerType::SExp,
             // TODO: Reusable buffer
-            format!("(:{}", macro_id.into()).as_str(),
+            opening_text.as_str(),
             " ",
             match self.value_writer_1_0.parent_type {
                 ParentType::Struct | ParentType::List => ",",
@@ -101,7 +112,10 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
 }
 
 impl<'value, W: Write + 'value> AnnotatableWriter for TextAnnotatedValueWriter_1_1<'value, W> {
-    type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_1<'a, W> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = TextAnnotatedValueWriter_1_1<'a, W>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -167,7 +181,10 @@ pub struct TextListWriter_1_1<'value, W: Write> {
 }
 
 impl<W: Write> MakeValueWriter for TextListWriter_1_1<'_, W> {
-    type ValueWriter<'a> = TextValueWriter_1_1<'a, W> where Self: 'a;
+    type ValueWriter<'a>
+        = TextValueWriter_1_1<'a, W>
+    where
+        Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         TextValueWriter_1_1 {
@@ -189,7 +206,10 @@ pub struct TextSExpWriter_1_1<'value, W: Write> {
 }
 
 impl<W: Write> MakeValueWriter for TextSExpWriter_1_1<'_, W> {
-    type ValueWriter<'a> = TextValueWriter_1_1<'a, W> where Self: 'a;
+    type ValueWriter<'a>
+        = TextValueWriter_1_1<'a, W>
+    where
+        Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         TextValueWriter_1_1 {
@@ -217,7 +237,10 @@ impl<W: Write> FieldEncoder for TextStructWriter_1_1<'_, W> {
 }
 
 impl<W: Write> MakeValueWriter for TextStructWriter_1_1<'_, W> {
-    type ValueWriter<'a> = TextValueWriter_1_1<'a, W> where Self: 'a;
+    type ValueWriter<'a>
+        = TextValueWriter_1_1<'a, W>
+    where
+        Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         TextValueWriter_1_1 {
@@ -274,9 +297,10 @@ impl<'value, W: Write + 'value> SequenceWriter for TextEExpWriter_1_1<'value, W>
 }
 
 impl<'value, W: Write + 'value> MakeValueWriter for TextEExpWriter_1_1<'value, W> {
-    type ValueWriter<'a> = TextValueWriter_1_1<'a, W>
+    type ValueWriter<'a>
+        = TextValueWriter_1_1<'a, W>
     where
-        Self: 'a,;
+        Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         TextValueWriter_1_1 {

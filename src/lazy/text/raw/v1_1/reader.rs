@@ -139,6 +139,16 @@ impl SystemMacroAddress {
     }
 }
 
+pub(crate) mod system_macro_addresses {
+    use crate::lazy::text::raw::v1_1::reader::SystemMacroAddress;
+
+    pub const NONE: SystemMacroAddress = SystemMacroAddress(0x00);
+    pub const VALUES: SystemMacroAddress = SystemMacroAddress(0x01);
+    pub const ANNOTATE: SystemMacroAddress = SystemMacroAddress(0x02);
+    // TODO: Fix these
+    pub const MAKE_STRING: SystemMacroAddress = SystemMacroAddress(0x02);
+}
+
 /// The index at which a value expression can be found within a template's body.
 pub type TemplateBodyExprAddress = usize;
 
@@ -171,6 +181,12 @@ impl From<usize> for MacroIdRef<'_> {
 impl<'data> From<&'data str> for MacroIdRef<'data> {
     fn from(name: &'data str) -> Self {
         MacroIdRef::LocalName(name)
+    }
+}
+
+impl From<SystemMacroAddress> for MacroIdRef<'_> {
+    fn from(system_macro_address: SystemMacroAddress) -> Self {
+        MacroIdRef::SystemAddress(system_macro_address)
     }
 }
 
