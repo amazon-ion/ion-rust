@@ -321,7 +321,7 @@ impl<'a, D: Decoder> WriteAsIon for RawValueRef<'a, D> {
             Struct(s) => {
                 let mut struct_writer = value_writer.struct_writer()?;
                 for field_result in s.iter() {
-                    let field: LazyRawFieldExpr<D> = field_result?;
+                    let field: LazyRawFieldExpr<'_, D> = field_result?;
                     match field {
                         LazyRawFieldExpr::NameValue(name, value) => {
                             struct_writer.write(name.read()?, WriteableRawValue::new(value))?;

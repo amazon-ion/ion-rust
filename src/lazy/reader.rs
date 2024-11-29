@@ -104,12 +104,12 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     /// be attempted when you have control over the format of the data being read.
     #[allow(clippy::should_implement_trait)]
     // ^-- Clippy objects that the method name `next` will be confused for `Iterator::next()`
-    pub fn next(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
+    pub fn next(&mut self) -> IonResult<Option<LazyValue<'_, Encoding>>> {
         self.system_reader.next_value()
     }
 
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
-    pub fn expect_next(&mut self) -> IonResult<LazyValue<Encoding>> {
+    pub fn expect_next(&mut self) -> IonResult<LazyValue<'_, Encoding>> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }

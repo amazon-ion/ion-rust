@@ -478,7 +478,7 @@ impl<'data> RawReaderKind<'data> {
         data: &'data [u8],
         stream_offset: usize,
         encoding_hint: IonEncoding,
-    ) -> RawReaderKind {
+    ) -> RawReaderKind<'data> {
         use IonEncoding::*;
         match encoding_hint {
             Text_1_0 => RawReaderKind::Text_1_0(LazyRawTextReader_1_0::resume_at_offset(
@@ -659,7 +659,7 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         }
 
         use RawReaderKind::*;
-        let item: LazyRawStreamItem<AnyEncoding> = match &mut self.encoding_reader {
+        let item: LazyRawStreamItem<'_, AnyEncoding> = match &mut self.encoding_reader {
             Text_1_0(r) => r.next(context)?.into(),
             Binary_1_0(r) => r.next()?.into(),
             Text_1_1(r) => r.next(context)?.into(),
@@ -1817,8 +1817,8 @@ mod tests {
     }
 
     fn expect_version_change(
-        context_ref: EncodingContextRef,
-        reader: &mut LazyRawAnyReader,
+        context_ref: EncodingContextRef<'_>,
+        reader: &mut LazyRawAnyReader<'_>,
         encoding_before: IonEncoding,
         encoding_after: IonEncoding,
     ) -> IonResult<()> {
@@ -1835,8 +1835,8 @@ mod tests {
     }
 
     fn expect_int(
-        context_ref: EncodingContextRef,
-        reader: &mut LazyRawAnyReader,
+        context_ref: EncodingContextRef<'_>,
+        reader: &mut LazyRawAnyReader<'_>,
         expected_encoding: IonEncoding,
         expected_int: i64,
     ) -> IonResult<()> {

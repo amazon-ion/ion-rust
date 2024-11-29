@@ -65,7 +65,7 @@ impl Fields {
     }
 
     /// Iterates over all of the values associated with the given field name.
-    fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator {
+    fn get_all<A: AsSymbolRef>(&self, field_name: A) -> FieldValuesIterator<'_> {
         let indexes = self.get_indexes(field_name);
         FieldValuesIterator {
             current: 0,

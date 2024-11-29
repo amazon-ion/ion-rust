@@ -38,7 +38,7 @@ impl Annotations {
 
     /// Returns an [`Iterator`] that yields each of the [`Symbol`]s in this annotations
     /// sequence in order.
-    pub fn iter(&self) -> SymbolsIterator {
+    pub fn iter(&self) -> SymbolsIterator<'_> {
         SymbolsIterator::new(self.symbols.as_slice())
     }
 

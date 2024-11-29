@@ -1046,7 +1046,7 @@ impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
         let value_ref: &'top ValueRef<'top, _> = context
             .allocator()
             .alloc_with(|| ValueRef::String(StrRef::from(constructed_text)));
-        static EMPTY_ANNOTATIONS: &[SymbolRef] = &[];
+        static EMPTY_ANNOTATIONS: &[SymbolRef<'_>] = &[];
 
         Ok(MacroExpansionStep::FinalStep(Some(
             ValueExpr::ValueLiteral(LazyExpandedValue::from_constructed(
@@ -1499,7 +1499,7 @@ mod tests {
                 // Invoke it
                 (:greet "Waldo")
             "#,
-                r#"
+            r#"
                 "Hello, Waldo"
             "#,
         )
@@ -1526,7 +1526,8 @@ mod tests {
                 "Hello, Waldo"
                 // should raise an error
             "#,
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]

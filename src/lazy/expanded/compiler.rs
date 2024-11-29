@@ -152,7 +152,7 @@ impl TemplateCompiler {
     /// to the template without interpretation. `(literal ...)` does not appear in the compiled
     /// template as there is nothing more for it to do at expansion time.
     pub fn compile_from_text(
-        context: EncodingContextRef,
+        context: EncodingContextRef<'_>,
         expression: &str,
     ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that surfaces terse errors.
@@ -286,9 +286,9 @@ impl TemplateCompiler {
 
     /// Interprets the annotations on the parameter name to determine its encoding.
     fn encoding_for<Encoding: Decoder>(
-        context: EncodingContextRef,
+        context: EncodingContextRef<'_>,
         pending_macros: &MacroTable,
-        parameter: LazyValue<Encoding>,
+        parameter: LazyValue<'_, Encoding>,
     ) -> IonResult<ParameterEncoding> {
         // * If the parameter has no annotations, it uses the default encoding.
         //   For example:
@@ -376,7 +376,7 @@ impl TemplateCompiler {
     }
 
     pub fn resolve_unqualified_macro_id<'a>(
-        context: EncodingContextRef,
+        context: EncodingContextRef<'_>,
         pending_macros: &'a MacroTable,
         macro_id: impl Into<MacroIdRef<'a>>,
     ) -> Option<Rc<Macro>> {
@@ -390,7 +390,7 @@ impl TemplateCompiler {
     }
 
     pub fn resolve_qualified_macro_id<'a>(
-        context: EncodingContextRef,
+        context: EncodingContextRef<'_>,
         module_name: &'a str,
         macro_id: impl Into<MacroIdRef<'a>>,
     ) -> Option<Rc<Macro>> {
@@ -527,7 +527,7 @@ impl TemplateCompiler {
     }
 
     /// The entry point for static analysis of a template body expression.
-    fn analyze_body_expr<D: Decoder>(body_expr: LazyValue<D>) -> IonResult<ExpansionAnalysis> {
+    fn analyze_body_expr<D: Decoder>(body_expr: LazyValue<'_, D>) -> IonResult<ExpansionAnalysis> {
         let could_produce_system_value = Self::body_expr_could_produce_system_values(body_expr);
         let must_produce_exactly_one_value =
             Self::body_expr_must_produce_exactly_one_value(body_expr);
@@ -559,7 +559,7 @@ impl TemplateCompiler {
     /// If the expression *could* produce one, returns `true`.
     ///
     /// For the time being, this is a simple, lightweight heuristic.
-    fn body_expr_could_produce_system_values<D: Decoder>(body_expr: LazyValue<D>) -> bool {
+    fn body_expr_could_produce_system_values<D: Decoder>(body_expr: LazyValue<'_, D>) -> bool {
         use IonType::*;
         match body_expr.ion_type() {
             // If the expression is an s-expression, it could expand to anything. If desired, we could
@@ -581,7 +581,7 @@ impl TemplateCompiler {
     /// If the expression will always produce a single value, returns `true`.
     /// If the expression could potentially produce an empty stream or a stream with multiple
     /// values, returns `false`.
-    fn body_expr_must_produce_exactly_one_value<D: Decoder>(body_expr: LazyValue<D>) -> bool {
+    fn body_expr_must_produce_exactly_one_value<D: Decoder>(body_expr: LazyValue<'_, D>) -> bool {
         body_expr.ion_type() != IonType::SExp
     }
 
@@ -593,11 +593,11 @@ impl TemplateCompiler {
     /// If this value is being passed to a macro as an argument, `target_parameter` will be the
     /// parameter to which the argument corresponds.
     fn compile_value<D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         is_literal: bool,
         target_parameter: Option<&Parameter>,
-        lazy_value: LazyValue<D>,
+        lazy_value: LazyValue<'_, D>,
     ) -> IonResult<()> {
         // Add the value's annotations to the annotations storage vec and take note of the
         // vec range that belongs to this value.
@@ -666,11 +666,11 @@ impl TemplateCompiler {
 
     /// Helper method for visiting all of the child expressions in a list.
     fn compile_list<D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         is_literal: bool,
         annotations_range: Range<usize>,
-        lazy_list: LazyList<D>,
+        lazy_list: LazyList<'_, D>,
     ) -> IonResult<()> {
         let list_element_index = definition.expressions.len();
         let list_element = TemplateBodyElement::with_value(TemplateValue::List);
@@ -698,10 +698,10 @@ impl TemplateCompiler {
     }
 
     fn compile_quasi_literal_sexp<D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
-        expressions: SExpIterator<D>,
+        expressions: SExpIterator<'_, D>,
     ) -> IonResult<()> {
         let sexp_element_index = definition.expressions.len();
         let sexp_element = TemplateBodyElement::with_value(TemplateValue::SExp);
@@ -733,12 +733,12 @@ impl TemplateCompiler {
     /// arg expression group, the `Parameter` will be consulted to make sure that variadics
     /// are legal.
     fn compile_sexp<D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         is_literal: bool,
         target_parameter: Option<&Parameter>,
         annotations_range: Range<usize>,
-        lazy_sexp: LazySExp<D>,
+        lazy_sexp: LazySExp<'_, D>,
     ) -> IonResult<()> {
         // See if we should interpret this s-expression or leave it as-is.
         if is_literal {
@@ -796,7 +796,7 @@ impl TemplateCompiler {
     /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
     /// TemplateBody.
     fn compile_macro<'top, D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         macro_ref: Rc<Macro>,
         mut arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>>,
@@ -871,7 +871,7 @@ impl TemplateCompiler {
     /// If `arguments` contains more than one expression, this method will construct an expression
     /// group.
     fn compile_trailing_args<'top, D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         invoked_macro_name: Option<&str>,
         arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>> + Sized,
@@ -941,7 +941,7 @@ impl TemplateCompiler {
     /// argument expression. If any of the remaining parameters are required (`!` or `+`), raises an
     /// error.
     fn insert_placeholder_none_invocations<D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         macro_ref: &Rc<Macro>,
         index: usize,
@@ -971,7 +971,7 @@ impl TemplateCompiler {
     /// Adds a `lazy_sexp` that has been determined to represent an expression group to the
     /// TemplateBody.
     fn compile_arg_expr_group<'a, D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         expressions: impl Iterator<Item = IonResult<LazyValue<'a, D>>>,
         parameter: Parameter,
@@ -1021,8 +1021,8 @@ impl TemplateCompiler {
     }
 
     fn resolve_maybe_macro_id_expr<D: Decoder>(
-        tdl_context: TdlContext,
-        id_expr: Option<IonResult<LazyValue<D>>>,
+        tdl_context: TdlContext<'_>,
+        id_expr: Option<IonResult<LazyValue<'_, D>>>,
     ) -> IonResult<Rc<Macro>> {
         // Get the name or address from the `Option<IonResult<LazyValue<_>>>` if possible, or
         // surface an appropriate error message.
@@ -1041,8 +1041,8 @@ impl TemplateCompiler {
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro reference.
     fn resolve_macro_id_expr<D: Decoder>(
-        tdl_context: TdlContext,
-        id_expr: LazyValue<D>,
+        tdl_context: TdlContext<'_>,
+        id_expr: LazyValue<'_, D>,
     ) -> IonResult<Rc<Macro>> {
         let macro_id = match id_expr.read()? {
             ValueRef::Symbol(s) => {
@@ -1092,7 +1092,7 @@ impl TemplateCompiler {
     /// Visits all of the arguments to a `(literal ...)` operation, adding them to the `TemplateBody`
     /// without interpretation.
     fn compile_literal_elements<'top, D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<()> {
@@ -1138,10 +1138,10 @@ impl TemplateCompiler {
 
     /// Adds `lazy_sexp` to the template body without interpretation.
     fn compile_quoted_sexp<D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
-        lazy_sexp: LazySExp<D>,
+        lazy_sexp: LazySExp<'_, D>,
     ) -> IonResult<()> {
         let sexp_element_index = definition.expressions.len();
         let sexp_element = TemplateBodyElement::with_value(TemplateValue::SExp);
@@ -1169,11 +1169,11 @@ impl TemplateCompiler {
 
     /// Recursively adds all of the expressions in `lazy_struct` to the `TemplateBody`.
     fn compile_struct<D: Decoder>(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         is_literal: bool,
         annotations_range: Range<usize>,
-        lazy_struct: LazyStruct<D>,
+        lazy_struct: LazyStruct<'_, D>,
     ) -> IonResult<()> {
         let struct_element_index = definition.expressions.len();
         let struct_element = TemplateBodyElement::with_value(TemplateValue::Struct(
@@ -1227,10 +1227,10 @@ impl TemplateCompiler {
     /// Resolves `variable` to a parameter in the macro signature and adds a corresponding
     /// `TemplateExpansionStep` to the `TemplateBody`.
     fn compile_variable_reference(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         annotations_range: Range<usize>,
-        variable: SymbolRef,
+        variable: SymbolRef<'_>,
     ) -> IonResult<()> {
         let name = variable.text().ok_or_else(|| {
             IonError::decoding_error("found variable whose name is unknown text ($0)")
@@ -1286,7 +1286,7 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
     /// * macro invocation (e.g. `(.make_string foo bar baz)`)
     /// * arg expression group (e.g. `(.. foo bar baz)`).
     pub fn of(
-        tdl_context: TdlContext,
+        tdl_context: TdlContext<'_>,
         sexp: LazySExp<'top, D>,
         target_parameter: Option<&Parameter>,
     ) -> IonResult<Self> {
@@ -1485,7 +1485,7 @@ mod tests {
             }
         }
 
-        fn context(&self) -> EncodingContextRef {
+        fn context(&self) -> EncodingContextRef<'_> {
             self.context.get_ref()
         }
     }

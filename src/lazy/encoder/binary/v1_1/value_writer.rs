@@ -739,7 +739,9 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
 impl<'value, 'top> Sealed for BinaryValueWriter_1_1<'value, 'top> {}
 
 impl<'value, 'top> AnnotatableWriter for BinaryValueWriter_1_1<'value, 'top> {
-    type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_1<'a, 'top> where
+    type AnnotatedValueWriter<'a>
+        = BinaryAnnotatedValueWriter_1_1<'a, 'top>
+    where
         Self: 'a;
 
     fn with_annotations<'a>(
@@ -850,7 +852,10 @@ impl<'value, 'top> Sealed for BinaryAnnotatedValueWriter_1_1<'value, 'top> {
 }
 
 impl<'value, 'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> {
-    type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_1<'a, 'top> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = BinaryAnnotatedValueWriter_1_1<'a, 'top>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -2474,7 +2479,7 @@ mod tests {
     #[test]
     fn write_length_prefixed_structs() -> IonResult<()> {
         #[rustfmt::skip]
-        let test_cases: &[(TestStruct, &[u8])] = &[
+        let test_cases: &[(TestStruct<'_>, &[u8])] = &[
             // Empty struct
             (&[], &[0xD0]),
             // Struct with a single FlexUInt field name
@@ -2598,7 +2603,7 @@ mod tests {
     #[test]
     fn write_delimited_structs() -> IonResult<()> {
         #[rustfmt::skip]
-            let test_cases: &[(TestStruct, &[u8])] = &[
+            let test_cases: &[(TestStruct<'_>, &[u8])] = &[
             // Empty struct
             (&[], &[0xF3, 0x01, 0xF0]),
             // Struct with a single symbol ID field name

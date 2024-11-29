@@ -357,7 +357,7 @@ mod tests {
         let mut reader = LazyRawBinaryReader_1_1::new(&data);
         let _ivm = reader.next(context)?.expect_ivm()?;
 
-        let expected_symbols: &[RawSymbolRef] = &[
+        let expected_symbols: &[RawSymbolRef<'_>] = &[
             RawSymbolRef::Text(""),
             RawSymbolRef::Text("fourteen bytes"),
             RawSymbolRef::Text("variable length encoding"),
@@ -985,7 +985,7 @@ mod tests {
 
         #[rustfmt::skip]
         #[allow(clippy::type_complexity)]
-        let tests: &[(&[u8], &[(RawSymbolRef, IonType)])] = &[
+        let tests: &[(&[u8], &[(RawSymbolRef<'_>, IonType)])] = &[
             // Symbol Address
             (
                 // {}

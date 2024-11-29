@@ -246,7 +246,7 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
             }
             ExpandedSExpSource::Constructed(_environment, _args) => {
                 // `make_sexp` always produces an unannotated s-expression
-                const EMPTY_ANNOTATIONS: &[SymbolRef] = &[];
+                const EMPTY_ANNOTATIONS: &[SymbolRef<'_>] = &[];
                 ExpandedAnnotationsIterator {
                     source: ExpandedAnnotationsSource::Constructed(EMPTY_ANNOTATIONS.iter()),
                 }

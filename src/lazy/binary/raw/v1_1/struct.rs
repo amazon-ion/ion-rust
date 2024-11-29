@@ -251,7 +251,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     fn peek_field(
         input: BinaryBuffer<'top>,
         mut mode: StructMode,
-    ) -> ParseResult<Option<(LazyRawFieldExpr<'top, BinaryEncoding_1_1>, StructMode)>> {
+    ) -> ParseResult<'top, Option<(LazyRawFieldExpr<'top, BinaryEncoding_1_1>, StructMode)>> {
         let mut buffer = input;
         loop {
             // Peek at our field name.

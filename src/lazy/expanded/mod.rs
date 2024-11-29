@@ -129,7 +129,7 @@ impl EncodingContext {
         )
     }
 
-    pub fn get_ref(&self) -> EncodingContextRef {
+    pub fn get_ref(&self) -> EncodingContextRef<'_> {
         EncodingContextRef { context: self }
     }
 
@@ -506,7 +506,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     ///
     /// This method will consume and process as many system-level values as possible until it
     /// encounters an application-level value or the end of the stream.
-    pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
+    pub fn next_value(&mut self) -> IonResult<Option<LazyValue<'_, Encoding>>> {
         use SystemStreamItem::*;
         loop {
             match self.next_system_item() {

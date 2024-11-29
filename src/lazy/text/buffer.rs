@@ -2005,7 +2005,7 @@ impl<'top> TextBuffer<'top> {
         self,
     ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
         is_a("!#%&*+-./;<=>?@^`|~")
-            .map(|text: TextBuffer| LazyRawTextValue {
+            .map(|text: TextBuffer<'_>| LazyRawTextValue {
                 input: text,
                 encoded_value: EncodedTextValue::new(MatchedValue::Symbol(MatchedSymbol::Operator)),
             })
@@ -2040,7 +2040,7 @@ impl<'top> TextBuffer<'top> {
         // If we didn't check for a trailing underscore, it would be a SID (`$1`) and an
         // identifier (`_02`).
         terminated(complete_digit1, peek(not(complete_tag("_"))))
-            .map(|buffer: TextBuffer| {
+            .map(|buffer: TextBuffer<'_>| {
                 // The matched buffer is ascii base 10 digits, parsing must succeed
                 usize::from_str(buffer.as_utf8(self.offset()).unwrap()).unwrap()
             })

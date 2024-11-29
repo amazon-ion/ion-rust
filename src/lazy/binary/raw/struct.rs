@@ -157,7 +157,7 @@ mod tests {
         // occupy the specified input ranges.
         type FieldNameAndRange<'a> = (RawSymbolRef<'a>, Range<usize>);
         type FieldTest<'a> = (&'a [u8], &'a [FieldNameAndRange<'a>]);
-        let tests: &[FieldTest] = &[
+        let tests: &[FieldTest<'_>] = &[
             // (Ion input, expected ranges of the struct's field names)
             (
                 &[0xD2, 0x84, 0x80], // {name: ""}

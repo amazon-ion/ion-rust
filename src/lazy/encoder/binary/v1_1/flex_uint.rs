@@ -274,7 +274,7 @@ impl FlexUInt {
     }
 
     #[inline]
-    pub(crate) fn encode_opcode_and_length(output: &mut BumpVec<u8>, opcode: u8, length: u64) {
+    pub(crate) fn encode_opcode_and_length(output: &mut BumpVec<'_, u8>, opcode: u8, length: u64) {
         // In the common case, the length fits in a single FlexUInt byte. We can perform a single
         // `reserve`/`memcopy` to get both the opcode and the length into the buffer.
         if length < 127 {

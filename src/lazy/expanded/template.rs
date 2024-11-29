@@ -499,7 +499,7 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
             .get(name_expr_address)?
             .kind()
             .require_element();
-        let name: SymbolRef = match &name_element.value {
+        let name: SymbolRef<'_> = match &name_element.value {
             TemplateValue::Symbol(s) => s.into(),
             TemplateValue::String(s) => s.text().into(),
             _ => unreachable!("template struct field had a non-text field name"),

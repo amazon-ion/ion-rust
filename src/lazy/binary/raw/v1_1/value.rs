@@ -242,8 +242,8 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
                     IonType::Timestamp => ValueRef::Timestamp(value.read_timestamp()?),
                     IonType::String => ValueRef::String(value.read_string()?),
                     IonType::Symbol => {
-                        let raw_symbol: RawSymbolRef = value.read_symbol()?;
-                        let symbol: SymbolRef = raw_symbol.resolve("a value", context)?;
+                        let raw_symbol: RawSymbolRef<'_> = value.read_symbol()?;
+                        let symbol: SymbolRef<'_> = raw_symbol.resolve("a value", context)?;
                         ValueRef::Symbol(symbol)
                     }
                     IonType::Blob => ValueRef::Blob(value.read_blob()?),

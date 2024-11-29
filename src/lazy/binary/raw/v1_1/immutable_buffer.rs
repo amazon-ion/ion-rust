@@ -938,7 +938,7 @@ impl<'a> BinaryBuffer<'a> {
         // the batch size because it is a power of two and ~400 bytes seemed like a reasonable
         // chunk of stack space. This can be changed as needed.
         const ARG_BATCH_SIZE: usize = 4;
-        let mut args_array: ArrayVec<ValueExpr<v1_1::Binary>, 4> = ArrayVec::new();
+        let mut args_array: ArrayVec<ValueExpr<'_, v1_1::Binary>, 4> = ArrayVec::new();
         for arg in &mut args_iter {
             let arg = arg?;
             let value_expr = arg.resolve(self.context)?;
@@ -1259,7 +1259,7 @@ mod tests {
         #[case] input: &[u8],
         #[case] expected_header_length: usize,
         #[case] expected_sequence_length: usize,
-        #[case] expected_annotations: &[RawSymbolRef],
+        #[case] expected_annotations: &[RawSymbolRef<'_>],
     ) -> IonResult<()> {
         let context = EncodingContext::empty();
         let buffer = BinaryBuffer::new(context.get_ref(), input);
@@ -1289,7 +1289,7 @@ mod tests {
     fn eexp_test(
         macro_source: &str,
         encode_macro_fn: impl FnOnce(MacroAddress) -> Vec<u8>,
-        test_fn: impl FnOnce(BinaryEExpArgsIterator_1_1) -> IonResult<()>,
+        test_fn: impl FnOnce(BinaryEExpArgsIterator_1_1<'_>) -> IonResult<()>,
     ) -> IonResult<()> {
         let mut context = EncodingContext::empty();
         let template_macro = TemplateCompiler::compile_from_text(context.get_ref(), macro_source)?;
@@ -1314,7 +1314,7 @@ mod tests {
         eexp_test(
             macro_source,
             encode_eexp_fn,
-            |mut args: BinaryEExpArgsIterator_1_1| {
+            |mut args: BinaryEExpArgsIterator_1_1<'_>| {
                 assert!(args.next().is_none());
                 Ok(())
             },
@@ -1338,7 +1338,7 @@ mod tests {
             0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
         ];
 
-        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1<'_>| {
             assert_eq!(
                 args.next()
                     .unwrap()?
@@ -1375,7 +1375,7 @@ mod tests {
             0x54, 0x75, 0x65, 0x73, 0x64, 0x61, 0x79,
         ];
 
-        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1<'_>| {
             assert_eq!(
                 args.next()
                     .unwrap()?
@@ -1414,7 +1414,7 @@ mod tests {
             0b00,
         ];
 
-        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1<'_>| {
             let arg_group = args.next().unwrap()?.expr().expect_arg_group()?;
             let mut group_args = arg_group.iter();
             assert!(group_args.next().is_none());
@@ -1440,7 +1440,7 @@ mod tests {
             0x61, 0x01
         ];
 
-        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1<'_>| {
             let arg1 = args.next().unwrap()?.expr().expect_value()?;
             assert_eq!(arg1.read()?, RawValueRef::Int(1.into()));
             Ok(())
@@ -1468,7 +1468,7 @@ mod tests {
             0x61, 0x03, // Int 3
         ];
 
-        let args_test = |mut args: BinaryEExpArgsIterator_1_1| {
+        let args_test = |mut args: BinaryEExpArgsIterator_1_1<'_>| {
             let arg_group = args.next().unwrap()?.expr().expect_arg_group()?;
             let mut group_exprs = arg_group.iter();
             let group_arg1 = group_exprs.next().unwrap()?;

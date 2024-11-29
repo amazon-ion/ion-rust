@@ -97,7 +97,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             Some(ptr) => unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(ptr) },
             // Otherwise, allocate a new encoding buffer and set the pointer to refer to it.
             None => {
-                let buffer: &mut BumpVec<u8> = self.allocator.alloc_with(|| {
+                let buffer: &mut BumpVec<'_, u8> = self.allocator.alloc_with(|| {
                     // Use half of the bump allocator's backing array as an encoding space for this
                     // top level value. The other half of the bump can be used for incidental
                     // bookkeeping.
@@ -163,7 +163,10 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
 }
 
 impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {
-    type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'a> where Self: 'a;
+    type ValueWriter<'a>
+        = BinaryValueWriter_1_1<'a, 'a>
+    where
+        Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         self.value_writer()
