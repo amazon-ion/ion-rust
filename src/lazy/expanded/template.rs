@@ -3,8 +3,8 @@ use rustc_hash::FxHashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
-use std::rc::Rc;
-
+use std::sync::Arc;
+use compact_str::CompactString;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
@@ -24,9 +24,7 @@ use crate::{
 /// A parameter in a user-defined macro's signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
-    // Using an `Rc<str>` makes this type cheap to clone and takes 16 bytes instead of the 24 bytes
-    // required for a `String`.
-    name: Rc<str>,
+    name: CompactString,
     encoding: ParameterEncoding,
     cardinality: ParameterCardinality,
     rest_syntax_policy: RestSyntaxPolicy,
@@ -34,7 +32,7 @@ pub struct Parameter {
 
 impl Parameter {
     pub fn new(
-        name: impl Into<Rc<str>>,
+        name: impl Into<CompactString>,
         encoding: ParameterEncoding,
         cardinality: ParameterCardinality,
         rest_syntax_policy: RestSyntaxPolicy,
@@ -99,7 +97,7 @@ pub enum ParameterEncoding {
     Tagged,
     FlexUInt,
     // TODO: tagless types, including fixed-width types and macros
-    MacroShaped(Rc<Macro>),
+    MacroShaped(Arc<Macro>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -320,7 +318,7 @@ mod macro_signature_tests {
 /// in the macro table rather than by a human-friendly name.
 #[derive(Clone, PartialEq)]
 pub struct TemplateMacro {
-    pub(crate) name: Option<Rc<str>>,
+    pub(crate) name: Option<CompactString>,
     pub(crate) signature: MacroSignature,
     pub(crate) body: TemplateBody,
     pub(crate) expansion_analysis: ExpansionAnalysis,
@@ -562,7 +560,7 @@ impl TemplateBody {
         ))
     }
 
-    pub fn push_macro_invocation(&mut self, macro_ref: Rc<Macro>, expr_range: ExprRange) {
+    pub fn push_macro_invocation(&mut self, macro_ref: Arc<Macro>, expr_range: ExprRange) {
         self.expressions.push(TemplateBodyExpr::macro_invocation(
             macro_ref,
             expr_range,
@@ -617,7 +615,7 @@ impl TemplateBodyExpr {
         }
     }
 
-    pub fn macro_invocation(invoked_macro: Rc<Macro>, expr_range: ExprRange) -> Self {
+    pub fn macro_invocation(invoked_macro: Arc<Macro>, expr_range: ExprRange) -> Self {
         Self {
             kind: TemplateBodyExprKind::MacroInvocation(TemplateBodyMacroInvocation::new(
                 invoked_macro,
@@ -946,11 +944,11 @@ impl TemplateBodyExprKind {
 /// A macro invocation found in the body of a template.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TemplateBodyMacroInvocation {
-    pub(crate) invoked_macro: Rc<Macro>,
+    pub(crate) invoked_macro: Arc<Macro>,
 }
 
 impl TemplateBodyMacroInvocation {
-    pub fn new(invoked_macro: Rc<Macro>) -> Self {
+    pub fn new(invoked_macro: Arc<Macro>) -> Self {
         Self {
             invoked_macro,
         }

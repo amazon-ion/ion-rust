@@ -7,14 +7,15 @@ use crate::lazy::expanded::template::{
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, Symbol, TemplateBodyExpr};
+use compact_str::CompactString;
 use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::borrow::Cow;
-use std::rc::Rc;
+use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
-    name: Option<Rc<str>>,
+    name: Option<CompactString>,
     signature: MacroSignature,
     kind: MacroKind,
     // Compile-time heuristics that allow the reader to evaluate e-expressions lazily or using fewer
@@ -38,7 +39,7 @@ pub struct Macro {
 
 impl Macro {
     pub fn named(
-        name: impl Into<Rc<str>>,
+        name: impl Into<CompactString>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -64,7 +65,7 @@ impl Macro {
     }
 
     pub fn new(
-        name: Option<Rc<str>>,
+        name: Option<CompactString>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -80,8 +81,8 @@ impl Macro {
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
-    pub(crate) fn clone_name(&self) -> Option<Rc<str>> {
-        self.name.as_ref().map(Rc::clone)
+    pub(crate) fn clone_name(&self) -> Option<CompactString> {
+        self.name.as_ref().map(Clone::clone)
     }
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
@@ -171,23 +172,17 @@ impl<'top> MacroRef<'top> {
 #[derive(Debug, Clone)]
 pub struct MacroTable {
     // Stores `Rc` references to the macro definitions to make cloning the table's contents cheaper.
-    macros_by_address: Vec<Rc<Macro>>,
+    macros_by_address: Vec<Arc<Macro>>,
     // Maps names to an address that can be used to query the Vec above.
-    macros_by_name: FxHashMap<Rc<str>, usize>,
+    macros_by_name: FxHashMap<CompactString, usize>,
 }
 
-thread_local! {
-    /// An instance of the Ion 1.1 system macro table is lazily instantiated once per thread,
-    /// minimizing the number of times macro compilation occurs.
-    ///
-    /// The thread-local instance holds `Rc` references to its macro names and macro definitions,
-    /// making its contents inexpensive to `clone()` and reducing the number of duplicate `String`s
-    /// being allocated over time.
-    ///
-    /// Each time the user constructs a reader, it clones the thread-local copy of the system macro
-    /// table.
-    pub static ION_1_1_SYSTEM_MACROS: MacroTable = MacroTable::construct_system_macro_table();
-}
+/// A lazily initialized singleton instance of the Ion 1.1 system macro table.
+///
+/// This instance is shared by all readers, minimizing the number of times that macro compilation
+/// and heap allocation occurs.
+pub static ION_1_1_SYSTEM_MACROS: LazyLock<MacroTable> =
+    LazyLock::new(|| MacroTable::construct_system_macro_table());
 
 impl Default for MacroTable {
     fn default() -> Self {
@@ -208,12 +203,12 @@ impl MacroTable {
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
-    fn compile_system_macros() -> Vec<Rc<Macro>> {
+    fn compile_system_macros() -> Vec<Arc<Macro>> {
         // We cannot compile template macros from source (text Ion) because that would require a Reader,
         // and a Reader would require system macros. To avoid this circular dependency, we manually
         // compile any TemplateMacros ourselves.
         vec![
-            Rc::new(Macro::named(
+            Arc::new(Macro::named(
                 "none",
                 MacroSignature::new(vec![]).unwrap(),
                 MacroKind::None,
@@ -232,7 +227,7 @@ impl MacroTable {
             //    (macro values (x*) x)
             //
             // It is effectively a user-addressable expression group.
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("values".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
                     "expr_group",
@@ -247,7 +242,7 @@ impl MacroTable {
                 },
                 expansion_analysis: ExpansionAnalysis::default(),
             })),
-            Rc::new(Macro::named(
+            Arc::new(Macro::named(
                 "make_string",
                 MacroSignature::new(vec![Parameter::new(
                     "text_values",
@@ -268,7 +263,7 @@ impl MacroTable {
                     }),
                 },
             )),
-            Rc::new(Macro::named(
+            Arc::new(Macro::named(
                 "make_sexp",
                 MacroSignature::new(vec![Parameter::new(
                     "sequences",
@@ -292,7 +287,7 @@ impl MacroTable {
                     }),
                 },
             )),
-            Rc::new(Macro::named(
+            Arc::new(Macro::named(
                 "annotate",
                 MacroSignature::new(vec![
                     Parameter::new(
@@ -326,7 +321,7 @@ impl MacroTable {
             //        (macro_table $ion_encoding)
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_symbols".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
                     "symbols",
@@ -418,7 +413,7 @@ impl MacroTable {
             //        (macro_table $ion_encoding)
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_symbols".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
                     "symbols",
@@ -516,7 +511,7 @@ impl MacroTable {
             //        (macro_table (%macro_definitions))
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_macros".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
                     "macro_definitions",
@@ -603,7 +598,7 @@ impl MacroTable {
             //        (macro_table $ion_encoding (%macro_definitions))
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_macros".into()),
                 signature: MacroSignature::new(vec![Parameter::new(
                     "macro_definitions",
@@ -707,8 +702,9 @@ impl MacroTable {
         }
     }
 
+    // TODO: Remove this
     pub fn with_system_macros() -> Self {
-        ION_1_1_SYSTEM_MACROS.with(|system_macros| system_macros.clone())
+        ION_1_1_SYSTEM_MACROS.clone()
     }
 
     pub fn empty() -> Self {
@@ -731,6 +727,9 @@ impl MacroTable {
         match id {
             MacroIdRef::LocalName(name) => self.macro_with_name(name),
             MacroIdRef::LocalAddress(address) => self.macro_at_address(address),
+            MacroIdRef::SystemAddress(system_address) => {
+                ION_1_1_SYSTEM_MACROS.macro_at_address(system_address.as_usize())
+            }
         }
     }
 
@@ -749,22 +748,25 @@ impl MacroTable {
         Some(MacroRef { address, reference })
     }
 
-    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Rc<Macro>> {
+    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Arc<Macro>> {
         let address = *self.macros_by_name.get(name)?;
         let reference = self.macros_by_address.get(address)?;
-        Some(Rc::clone(reference))
+        Some(Arc::clone(reference))
     }
 
-    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Rc<Macro>> {
+    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Arc<Macro>> {
         let reference = self.macros_by_address.get(address)?;
-        Some(Rc::clone(reference))
+        Some(Arc::clone(reference))
     }
 
-    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef<'_>) -> Option<Rc<Macro>> {
+    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef<'_>) -> Option<Arc<Macro>> {
         use MacroIdRef::*;
         match macro_id {
             LocalName(name) => self.clone_macro_with_name(name),
             LocalAddress(address) => self.clone_macro_with_address(address),
+            SystemAddress(system_address) => {
+                ION_1_1_SYSTEM_MACROS.clone_macro_with_address(system_address.as_usize())
+            }
         }
     }
 
@@ -772,10 +774,10 @@ impl MacroTable {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
         if let Some(name) = &template.name {
-            if self.macros_by_name.contains_key(name.as_ref()) {
+            if self.macros_by_name.contains_key(name.as_str()) {
                 return IonResult::decoding_error(format!("macro named '{name}' already exists"));
             }
-            self.macros_by_name.insert(Rc::clone(name), id);
+            self.macros_by_name.insert(name.clone(), id);
         }
 
         let new_macro = Macro::new(
@@ -785,7 +787,7 @@ impl MacroTable {
             template.expansion_analysis,
         );
 
-        self.macros_by_address.push(Rc::new(new_macro));
+        self.macros_by_address.push(Arc::new(new_macro));
         Ok(id)
     }
 
@@ -793,14 +795,14 @@ impl MacroTable {
         for macro_ref in &other.macros_by_address {
             let next_id = self.len();
             if let Some(name) = macro_ref.clone_name() {
-                if self.macros_by_name.contains_key(name.as_ref()) {
+                if self.macros_by_name.contains_key(name.as_str()) {
                     return IonResult::decoding_error(format!(
                         "macro named '{name}' already exists"
                     ));
                 }
                 self.macros_by_name.insert(name, next_id);
             }
-            self.macros_by_address.push(Rc::clone(macro_ref))
+            self.macros_by_address.push(Arc::clone(macro_ref))
         }
         Ok(())
     }

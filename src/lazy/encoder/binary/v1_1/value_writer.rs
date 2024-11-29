@@ -726,6 +726,10 @@ impl BinaryValueWriter_1_1<'_, '_> {
             MacroIdRef::LocalAddress(_address) => {
                 todo!("macros with addresses greater than {MAX_20_BIT_ADDRESS}");
             }
+            MacroIdRef::SystemAddress(address) => {
+                self.encoding_buffer
+                    .extend_from_slice_copy(&[0xEF, address.as_u8()]); // System e-expression
+            }
         };
 
         Ok(BinaryEExpWriter_1_1::new(

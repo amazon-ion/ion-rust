@@ -4,9 +4,6 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 
-use bumpalo::collections::Vec as BumpVec;
-use nom::character::streaming::satisfy;
-
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
@@ -25,6 +22,9 @@ use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::{v1_1, Encoding, IonResult, IonType, RawSymbolRef};
+use bumpalo::collections::Vec as BumpVec;
+use nom::character::streaming::satisfy;
+use num_traits::ToPrimitive;
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],
@@ -112,6 +112,30 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
 /// The index at which this macro can be found in the macro table.
 pub type MacroAddress = usize;
 
+/// An address in the Ion 1.1 system macro table.
+/// Guaranteed to fit in a byte.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SystemMacroAddress(u8);
+
+impl SystemMacroAddress {
+    pub fn new(address: MacroAddress) -> Option<Self> {
+        let system_address = address.to_u8()?;
+        Some(Self(system_address))
+    }
+
+    pub fn new_unchecked(address: MacroAddress) -> Self {
+        Self(address as u8)
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+
+    pub fn as_u8(&self) -> u8 {
+        self.0
+    }
+}
+
 /// The index at which a value expression can be found within a template's body.
 pub type TemplateBodyExprAddress = usize;
 
@@ -119,6 +143,7 @@ pub type TemplateBodyExprAddress = usize;
 pub enum MacroIdRef<'data> {
     LocalName(&'data str),
     LocalAddress(usize),
+    SystemAddress(SystemMacroAddress),
     // TODO: Addresses and qualified names
 }
 
@@ -127,6 +152,9 @@ impl Display for MacroIdRef<'_> {
         match self {
             MacroIdRef::LocalName(name) => write!(f, "{}", name),
             MacroIdRef::LocalAddress(address) => write!(f, "{}", address),
+            MacroIdRef::SystemAddress(address) => {
+                write!(f, "$ion::{}", address.as_usize())
+            }
         }
     }
 }
