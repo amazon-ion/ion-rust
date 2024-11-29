@@ -22,7 +22,7 @@ use crate::{
     v1_0, Decimal, Encoding, Int, IonResult, IonType, RawSymbolRef, Timestamp, ValueWriterConfig,
 };
 
-pub struct TextValueWriter_1_0<'value, W: Write + 'value> {
+pub struct TextValueWriter_1_0<'value, W: Write> {
     pub(crate) writer: &'value mut LazyRawTextWriter_1_0<W>,
     pub(crate) depth: usize,
     value_delimiter: &'static str,

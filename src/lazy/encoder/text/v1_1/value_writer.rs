@@ -16,11 +16,11 @@ use crate::{v1_1, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWr
 use delegate::delegate;
 use std::io::Write;
 
-pub struct TextValueWriter_1_1<'value, W: Write + 'value> {
+pub struct TextValueWriter_1_1<'value, W: Write> {
     pub(crate) value_writer_1_0: TextValueWriter_1_0<'value, W>,
 }
 
-pub struct TextAnnotatedValueWriter_1_1<'value, W: Write + 'value> {
+pub struct TextAnnotatedValueWriter_1_1<'value, W: Write> {
     value_writer_1_0: TextAnnotatedValueWriter_1_0<'value, W>,
 }
 
