@@ -16,7 +16,7 @@ pub struct Span<'a> {
     offset: usize,
 }
 
-impl<'a> AsRef<[u8]> for Span<'a> {
+impl AsRef<[u8]> for Span<'_> {
     fn as_ref(&self) -> &[u8] {
         self.bytes()
     }
@@ -28,7 +28,7 @@ impl<'a> From<Span<'a>> for &'a [u8] {
     }
 }
 
-impl<'a, A: AsRef<[u8]>> PartialEq<A> for Span<'a> {
+impl<A: AsRef<[u8]>> PartialEq<A> for Span<'_> {
     fn eq(&self, other: &A) -> bool {
         self.bytes() == other.as_ref()
     }

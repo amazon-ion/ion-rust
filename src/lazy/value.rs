@@ -283,7 +283,7 @@ pub struct AnnotationsIterator<'top, D: Decoder> {
     pub(crate) context: EncodingContextRef<'top>,
 }
 
-impl<'top, D: Decoder> AnnotationsIterator<'top, D> {
+impl<D: Decoder> AnnotationsIterator<'_, D> {
     /// Returns `Ok(true)` if this annotations iterator matches the provided sequence exactly, or
     /// `Ok(false)` if not. If a decoding error occurs while visiting and resolving each annotation,
     /// returns an `Err(IonError)`.

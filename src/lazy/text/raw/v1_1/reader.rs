@@ -122,7 +122,7 @@ pub enum MacroIdRef<'data> {
     // TODO: Addresses and qualified names
 }
 
-impl<'data> Display for MacroIdRef<'data> {
+impl Display for MacroIdRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             MacroIdRef::LocalName(name) => write!(f, "{}", name),
@@ -131,7 +131,7 @@ impl<'data> Display for MacroIdRef<'data> {
     }
 }
 
-impl<'data> From<usize> for MacroIdRef<'data> {
+impl From<usize> for MacroIdRef<'_> {
     fn from(address: usize) -> Self {
         MacroIdRef::LocalAddress(address)
     }
@@ -156,7 +156,7 @@ impl<'top> HasSpan<'top> for TextEExpression_1_1<'top> {
     }
 }
 
-impl<'top> HasRange for TextEExpression_1_1<'top> {
+impl HasRange for TextEExpression_1_1<'_> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
@@ -175,7 +175,7 @@ impl<'top> RawEExpression<'top, TextEncoding_1_1> for TextEExpression_1_1<'top> 
     }
 }
 
-impl<'data> Debug for TextEExpression_1_1<'data> {
+impl Debug for TextEExpression_1_1<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // This is a text macro and the parser accepted it, so it's valid UTF-8. We can `unwrap()`.
         write!(f, "<macro invocation '{}'>", self.input.as_text().unwrap())
@@ -213,7 +213,7 @@ pub struct LazyRawTextList_1_1<'top> {
     pub(crate) value: LazyRawTextValue_1_1<'top>,
 }
 
-impl<'a> Debug for LazyRawTextList_1_1<'a> {
+impl Debug for LazyRawTextList_1_1<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self.iter() {
@@ -303,7 +303,7 @@ pub struct LazyRawTextSExp_1_1<'top> {
     pub(crate) value: LazyRawTextValue_1_1<'top>,
 }
 
-impl<'a> Debug for LazyRawTextSExp_1_1<'a> {
+impl Debug for LazyRawTextSExp_1_1<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self.iter() {
@@ -518,7 +518,7 @@ impl<'top> HasSpan<'top> for LazyRawTextFieldName_1_1<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawTextFieldName_1_1<'top> {
+impl HasRange for LazyRawTextFieldName_1_1<'_> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }
@@ -535,7 +535,7 @@ pub struct LazyRawTextStruct_1_1<'top> {
     pub(crate) value: LazyRawTextValue_1_1<'top>,
 }
 
-impl<'a> Debug for LazyRawTextStruct_1_1<'a> {
+impl Debug for LazyRawTextStruct_1_1<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field_result in self.iter() {

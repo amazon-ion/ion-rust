@@ -97,7 +97,7 @@ pub trait AsRawSymbolRef {
     fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_>;
 }
 
-impl<'a> AsRawSymbolRef for RawSymbolRef<'a> {
+impl AsRawSymbolRef for RawSymbolRef<'_> {
     fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         *self
     }
@@ -151,7 +151,7 @@ impl<'a> From<&'a &str> for RawSymbolRef<'a> {
     }
 }
 
-impl<'a> From<SymbolId> for RawSymbolRef<'a> {
+impl From<SymbolId> for RawSymbolRef<'_> {
     fn from(value: SymbolId) -> Self {
         RawSymbolRef::SymbolId(value)
     }

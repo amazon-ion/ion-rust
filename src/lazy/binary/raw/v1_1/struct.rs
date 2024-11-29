@@ -43,7 +43,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryFieldName_1_1<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawBinaryFieldName_1_1<'top> {
+impl HasRange for LazyRawBinaryFieldName_1_1<'_> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }
@@ -62,7 +62,7 @@ pub struct LazyRawBinaryStruct_1_1<'top> {
         Option<&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]>,
 }
 
-impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_1<'top> {
+impl<'top> IntoIterator for &LazyRawBinaryStruct_1_1<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_1>>;
     type IntoIter = RawBinaryStructIterator_1_1<'top>;
 
@@ -71,7 +71,7 @@ impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_1<'top> {
     }
 }
 
-impl<'top> Debug for LazyRawBinaryStruct_1_1<'top> {
+impl Debug for LazyRawBinaryStruct_1_1<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {

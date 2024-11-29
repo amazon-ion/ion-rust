@@ -31,7 +31,7 @@ enum ContainerEncodingKind<'value, 'top> {
     LengthPrefixed(LengthPrefixedEncoder<'value, 'top>),
 }
 
-impl<'value, 'top> ContainerEncodingKind<'value, 'top> {
+impl<'top> ContainerEncodingKind<'_, 'top> {
     fn target_buffer(&mut self) -> &mut BumpVec<'top, u8> {
         match self {
             ContainerEncodingKind::Delimited(encoder) => encoder.buffer,
@@ -202,7 +202,7 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_1<'value, 'top> {
+impl<'top> MakeValueWriter for BinaryListWriter_1_1<'_, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -210,7 +210,7 @@ impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> SequenceWriter for BinaryListWriter_1_1<'value, 'top> {
+impl SequenceWriter for BinaryListWriter_1_1<'_, '_> {
     type Resources = ();
 
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
@@ -267,7 +267,7 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_1<'value, 'top> {
+impl<'top> MakeValueWriter for BinarySExpWriter_1_1<'_, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -280,7 +280,7 @@ impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> SequenceWriter for BinarySExpWriter_1_1<'value, 'top> {
+impl SequenceWriter for BinarySExpWriter_1_1<'_, '_> {
     type Resources = ();
 
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
@@ -348,7 +348,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
+impl FieldEncoder for BinaryStructWriter_1_1<'_, '_> {
     #[inline]
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         use crate::raw_symbol_ref::RawSymbolRef::*;
@@ -373,7 +373,7 @@ impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_1<'value, 'top> {
+impl<'top> MakeValueWriter for BinaryStructWriter_1_1<'_, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top>
     where
         Self: 'a,;
@@ -383,7 +383,7 @@ impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> StructWriter for BinaryStructWriter_1_1<'value, 'top> {
+impl StructWriter for BinaryStructWriter_1_1<'_, '_> {
     fn close(mut self) -> IonResult<()> {
         if let ContainerEncodingKind::Delimited(_) = &mut self.container_writer.encoder {
             // Write the FlexSym escape (FlexUInt 0). The container writer can emit the closing
@@ -418,7 +418,7 @@ impl<'value, 'top> BinaryEExpWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> MakeValueWriter for BinaryEExpWriter_1_1<'value, 'top> {
+impl<'top> MakeValueWriter for BinaryEExpWriter_1_1<'_, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_1<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -426,7 +426,7 @@ impl<'value, 'top> MakeValueWriter for BinaryEExpWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> SequenceWriter for BinaryEExpWriter_1_1<'value, 'top> {
+impl SequenceWriter for BinaryEExpWriter_1_1<'_, '_> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -436,7 +436,7 @@ impl<'value, 'top> SequenceWriter for BinaryEExpWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> EExpWriter for BinaryEExpWriter_1_1<'value, 'top> {
+impl EExpWriter for BinaryEExpWriter_1_1<'_, '_> {
     fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
         FlexUInt::write(self.buffer, value)?;
         Ok(())

@@ -116,7 +116,7 @@ pub struct MacroExpr<'top, D: Decoder> {
     variable: Option<TemplateVariableReference<'top>>,
 }
 
-impl<'top, D: Decoder> Debug for MacroExpr<'top, D> {
+impl<D: Decoder> Debug for MacroExpr<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.kind)
     }
@@ -163,7 +163,7 @@ pub enum MacroExprKind<'top, D: Decoder> {
     EExpArgGroup(EExpArgGroup<'top, D>),
 }
 
-impl<'top, D: Decoder> Debug for MacroExprKind<'top, D> {
+impl<D: Decoder> Debug for MacroExprKind<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MacroExprKind::TemplateMacro(t) => write!(f, "{:?}", t),
@@ -345,7 +345,7 @@ pub enum ValueExpr<'top, D: Decoder> {
     MacroInvocation(MacroExpr<'top, D>),
 }
 
-impl<'top, D: Decoder> Debug for ValueExpr<'top, D> {
+impl<D: Decoder> Debug for ValueExpr<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueExpr::ValueLiteral(v) => write!(f, "value={:?}", v),
@@ -511,7 +511,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for MacroExpansion<'top, D> {
+impl<D: Decoder> Debug for MacroExpansion<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let name = match &self.kind {
             MacroExpansionKind::None => "none",
@@ -563,7 +563,7 @@ pub enum EvaluatorState<'top, D: Decoder> {
     Stacked(StackedMacroEvaluator<'top, D>),
 }
 
-impl<'top, D: Decoder> Default for EvaluatorState<'top, D> {
+impl<D: Decoder> Default for EvaluatorState<'_, D> {
     fn default() -> Self {
         Self::Empty
     }
@@ -920,7 +920,7 @@ impl<'iter, 'top, D: Decoder> EvaluatingIterator<'iter, 'top, D> {
     }
 }
 
-impl<'iter, 'top, D: Decoder> Iterator for EvaluatingIterator<'iter, 'top, D> {
+impl<'top, D: Decoder> Iterator for EvaluatingIterator<'_, 'top, D> {
     type Item = IonResult<LazyExpandedValue<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {

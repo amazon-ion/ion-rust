@@ -92,7 +92,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     }
 }
 
-impl<'data> Sealed for LazyRawBinaryReader_1_1<'data> {}
+impl Sealed for LazyRawBinaryReader_1_1<'_> {}
 
 impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1<'data> {
     fn new(data: &'data [u8]) -> Self {

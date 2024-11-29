@@ -55,7 +55,7 @@ pub type LazyBinaryStruct_1_0<'top> = LazyStruct<'top, BinaryEncoding_1_0>;
 
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.
-impl<'top, D: Decoder> Debug for LazyStruct<'top, D> {
+impl<D: Decoder> Debug for LazyStruct<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
@@ -274,7 +274,7 @@ pub struct LazyField<'top, D: Decoder> {
     pub(crate) expanded_field: LazyExpandedField<'top, D>,
 }
 
-impl<'top, D: Decoder> Debug for LazyField<'top, D> {
+impl<D: Decoder> Debug for LazyField<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -391,7 +391,7 @@ impl<'top, D: Decoder> TryFrom<LazyStruct<'top, D>> for Element {
     }
 }
 
-impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyStruct<'top, D> {
+impl<'top, D: Decoder> IntoIterator for &LazyStruct<'top, D> {
     type Item = IonResult<LazyField<'top, D>>;
     type IntoIter = StructIterator<'top, D>;
 
@@ -400,7 +400,7 @@ impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyStruct<'top, D>
     }
 }
 
-impl<'top, 'data: 'top, D: Decoder> IntoIterator for LazyStruct<'top, D> {
+impl<'top, D: Decoder> IntoIterator for LazyStruct<'top, D> {
     type Item = IonResult<LazyField<'top, D>>;
     type IntoIter = StructIterator<'top, D>;
 

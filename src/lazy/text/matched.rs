@@ -66,7 +66,7 @@ pub enum MatchedValue<'top, D: Decoder> {
     Struct(&'top [LazyRawFieldExpr<'top, D>]),
 }
 
-impl<'top, D: Decoder> PartialEq for MatchedValue<'top, D> {
+impl<D: Decoder> PartialEq for MatchedValue<'_, D> {
     fn eq(&self, other: &Self) -> bool {
         use MatchedValue::*;
         match (self, other) {

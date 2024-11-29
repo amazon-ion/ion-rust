@@ -36,7 +36,7 @@ pub struct BinaryValueWriter_1_1<'value, 'top> {
     value_writer_config: ValueWriterConfig,
 }
 
-impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
+impl BinaryValueWriter_1_1<'_, '_> {
     pub fn new<'a, 'b: 'a>(
         allocator: &'b BumpAllocator,
         encoding_buffer: &'a mut BumpVec<'b, u8>,
@@ -736,9 +736,9 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> Sealed for BinaryValueWriter_1_1<'value, 'top> {}
+impl Sealed for BinaryValueWriter_1_1<'_, '_> {}
 
-impl<'value, 'top> AnnotatableWriter for BinaryValueWriter_1_1<'value, 'top> {
+impl<'top> AnnotatableWriter for BinaryValueWriter_1_1<'_, 'top> {
     type AnnotatedValueWriter<'a>
         = BinaryAnnotatedValueWriter_1_1<'a, 'top>
     where
@@ -800,7 +800,7 @@ pub struct BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     value_writer_config: ValueWriterConfig,
 }
 
-impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
+impl<'top> BinaryAnnotatedValueWriter_1_1<'_, 'top> {
     fn encode_annotations(&mut self) {
         match self.annotations.as_slice() {
             [] => {
@@ -847,11 +847,11 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     }
 }
 
-impl<'value, 'top> Sealed for BinaryAnnotatedValueWriter_1_1<'value, 'top> {
+impl Sealed for BinaryAnnotatedValueWriter_1_1<'_, '_> {
     // No methods, precludes implementations outside the crate.
 }
 
-impl<'value, 'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> {
+impl<'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_1<'_, 'top> {
     type AnnotatedValueWriter<'a>
         = BinaryAnnotatedValueWriter_1_1<'a, 'top>
     where
@@ -2458,7 +2458,7 @@ mod tests {
 
     /// A list of field name/value pairs that will be serialized as a struct in each test.
     type TestStruct<'a> = &'a [(RawSymbolRef<'a>, Element)];
-    impl<'a> WriteAsIon for TestStruct<'a> {
+    impl WriteAsIon for TestStruct<'_> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             let mut struct_writer = writer.struct_writer()?;
             for (name, value) in self.iter() {

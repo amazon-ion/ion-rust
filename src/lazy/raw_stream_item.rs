@@ -27,7 +27,7 @@ pub type LazyRawStreamItem<'top, D> = RawStreamItem<
     <D as Decoder>::EExp<'top>,
 >;
 
-impl<'top> LazyRawStreamItem<'top, AnyEncoding> {
+impl LazyRawStreamItem<'_, AnyEncoding> {
     pub fn encoding(&self) -> IonEncoding {
         match self {
             LazyRawStreamItem::<AnyEncoding>::VersionMarker(m) => m.encoding(),

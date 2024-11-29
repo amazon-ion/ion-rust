@@ -33,7 +33,7 @@ pub enum RawValueRef<'top, D: Decoder> {
 }
 
 // Provides equality for scalar types, but not containers.
-impl<'top, D: Decoder> PartialEq for RawValueRef<'top, D> {
+impl<D: Decoder> PartialEq for RawValueRef<'_, D> {
     fn eq(&self, other: &Self) -> bool {
         use RawValueRef::*;
         match (self, other) {
@@ -54,7 +54,7 @@ impl<'top, D: Decoder> PartialEq for RawValueRef<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for RawValueRef<'top, D> {
+impl<D: Decoder> Debug for RawValueRef<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RawValueRef::Null(ion_type) => write!(f, "null.{}", ion_type),

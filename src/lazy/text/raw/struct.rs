@@ -100,7 +100,7 @@ impl<'top> HasSpan<'top> for LazyRawTextFieldName_1_0<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawTextFieldName_1_0<'top> {
+impl HasRange for LazyRawTextFieldName_1_0<'_> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }

@@ -12,7 +12,7 @@ pub struct SymbolRef<'a> {
     text: Option<&'a str>,
 }
 
-impl<'a> Debug for SymbolRef<'a> {
+impl Debug for SymbolRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.text().unwrap_or("$0"))
     }
@@ -49,7 +49,7 @@ impl<'a> SymbolRef<'a> {
     }
 }
 
-impl<'a, A> PartialEq<A> for SymbolRef<'a>
+impl<A> PartialEq<A> for SymbolRef<'_>
 where
     A: AsSymbolRef,
 {
@@ -74,7 +74,7 @@ impl<'a, A: AsRef<str>> AsSymbolRef for A {
     }
 }
 
-impl<'a> Hash for SymbolRef<'a> {
+impl Hash for SymbolRef<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.text() {
             None => 0.hash(state),
@@ -99,7 +99,7 @@ impl<'a> From<&'a Symbol> for SymbolRef<'a> {
 
 // Note that this method panics if the SymbolRef has unknown text! This is unfortunate but is required
 // in order to allow a HashMap<SymbolRef, _> to do lookups with a &str instead of a &SymbolRef
-impl<'a> Borrow<str> for SymbolRef<'a> {
+impl Borrow<str> for SymbolRef<'_> {
     fn borrow(&self) -> &str {
         self.text()
             .expect("cannot borrow a &str from a SymbolRef with unknown text")
@@ -124,7 +124,7 @@ impl AsSymbolRef for &Symbol {
     }
 }
 
-impl<'a> AsRawSymbolRef for SymbolRef<'a> {
+impl AsRawSymbolRef for SymbolRef<'_> {
     fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         match &self.text {
             None => RawSymbolRef::SymbolId(0),

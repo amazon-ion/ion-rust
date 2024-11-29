@@ -48,7 +48,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryVersionMarker_1_0<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawBinaryVersionMarker_1_0<'top> {
+impl HasRange for LazyRawBinaryVersionMarker_1_0<'_> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
@@ -79,7 +79,7 @@ pub struct LazyRawBinaryValue_1_0<'top> {
     pub(crate) input: BinaryBuffer<'top>,
 }
 
-impl<'top> Debug for LazyRawBinaryValue_1_0<'top> {
+impl Debug for LazyRawBinaryValue_1_0<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -100,7 +100,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_0<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawBinaryValue_1_0<'top> {
+impl HasRange for LazyRawBinaryValue_1_0<'_> {
     fn range(&self) -> Range<usize> {
         self.encoded_value.annotated_value_range()
     }
@@ -269,7 +269,7 @@ pub struct EncodedBinaryAnnotations_1_0<'a, 'top> {
     value: &'a LazyRawBinaryValue_1_0<'top>,
 }
 
-impl<'a, 'top> EncodedBinaryAnnotations_1_0<'a, 'top> {
+impl<'top> EncodedBinaryAnnotations_1_0<'_, 'top> {
     /// Returns the input stream index range that contains the bytes representing the complete
     /// annotations wrapper, including its opcode, wrapper length, annotations sequence length,
     /// and the sequence itself.
@@ -330,7 +330,7 @@ pub struct EncodedBinaryValueData_1_0<'a, 'top> {
     value: &'a LazyRawBinaryValue_1_0<'top>,
 }
 
-impl<'a, 'top> EncodedBinaryValueData_1_0<'a, 'top> {
+impl<'top> EncodedBinaryValueData_1_0<'_, 'top> {
     /// Returns the input stream index range that contains the bytes representing the complete value,
     /// including its opcode, length, and body.
     pub fn range(&self) -> Range<usize> {

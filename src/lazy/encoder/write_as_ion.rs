@@ -144,14 +144,14 @@ impl_write_as_ion_value!(
     Clob => write_clob,
 );
 
-impl<'b> WriteAsIon for RawSymbolRef<'b> {
+impl WriteAsIon for RawSymbolRef<'_> {
     #[inline]
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)
     }
 }
 
-impl<'b> WriteAsIon for SymbolRef<'b> {
+impl WriteAsIon for SymbolRef<'_> {
     #[inline]
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         writer.write_symbol(self)
@@ -275,7 +275,7 @@ impl WriteAsIon for Value {
     }
 }
 
-impl<'a, D: Decoder> WriteAsIon for LazyValue<'a, D> {
+impl<D: Decoder> WriteAsIon for LazyValue<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         if self.has_annotations() {
             let mut annotations = AnnotationsVec::new();
@@ -290,7 +290,7 @@ impl<'a, D: Decoder> WriteAsIon for LazyValue<'a, D> {
     }
 }
 
-impl<'a, D: Decoder> WriteAsIon for RawValueRef<'a, D> {
+impl<D: Decoder> WriteAsIon for RawValueRef<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
         use RawValueRef::*;
         match self {
@@ -419,7 +419,7 @@ impl<'a, D: Decoder> WriteableEExpArg<'a, D> {
     }
 }
 
-impl<'a, D: Decoder> WriteAsIon for WriteableEExpArg<'a, D> {
+impl<D: Decoder> WriteAsIon for WriteableEExpArg<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         use EExpArgExpr::*;
         match self.arg_expr.expr() {
@@ -446,7 +446,7 @@ impl<'a, D: Decoder> WriteableEExpArgGroup<'a, D> {
     }
 }
 
-impl<'a, D: Decoder> WriteAsIon for WriteableEExpArgGroup<'a, D> {
+impl<D: Decoder> WriteAsIon for WriteableEExpArgGroup<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, _writer: V) -> IonResult<()> {
         todo!()
     }
@@ -467,7 +467,7 @@ impl<'a, D: Decoder> WriteableRawValueExpr<'a, D> {
     }
 }
 
-impl<'a, D: Decoder> WriteAsIon for WriteableRawValueExpr<'a, D> {
+impl<D: Decoder> WriteAsIon for WriteableRawValueExpr<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         use RawValueExpr::*;
         match self.raw_value_expr {
@@ -477,7 +477,7 @@ impl<'a, D: Decoder> WriteAsIon for WriteableRawValueExpr<'a, D> {
     }
 }
 
-impl<'a, D: Decoder> WriteAsIon for ValueRef<'a, D> {
+impl<D: Decoder> WriteAsIon for ValueRef<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, value_writer: V) -> IonResult<()> {
         use ValueRef::*;
         match self {
@@ -498,7 +498,7 @@ impl<'a, D: Decoder> WriteAsIon for ValueRef<'a, D> {
     }
 }
 
-impl<'top, D: Decoder> WriteAsIon for LazyList<'top, D> {
+impl<D: Decoder> WriteAsIon for LazyList<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         let mut list = writer.list_writer()?;
         for value in self {
@@ -508,7 +508,7 @@ impl<'top, D: Decoder> WriteAsIon for LazyList<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> WriteAsIon for LazySExp<'top, D> {
+impl<D: Decoder> WriteAsIon for LazySExp<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         let mut sexp = writer.sexp_writer()?;
         for value in self {
@@ -518,7 +518,7 @@ impl<'top, D: Decoder> WriteAsIon for LazySExp<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> WriteAsIon for LazyStruct<'top, D> {
+impl<D: Decoder> WriteAsIon for LazyStruct<'_, D> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         let mut struct_writer = writer.struct_writer()?;
         for field_result in self {

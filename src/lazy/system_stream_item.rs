@@ -37,7 +37,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for SystemStreamItem<'top, D> {
+impl<D: Decoder> Debug for SystemStreamItem<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SystemStreamItem::VersionMarker(marker) => {

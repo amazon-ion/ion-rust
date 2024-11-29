@@ -81,7 +81,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawBinaryVersionMarker_1_1<'top> {
+impl HasRange for LazyRawBinaryVersionMarker_1_1<'_> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
@@ -287,7 +287,7 @@ pub enum DelimitedContents<'top> {
     Fields(&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]),
 }
 
-impl<'top> DelimitedContents<'top> {
+impl DelimitedContents<'_> {
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }

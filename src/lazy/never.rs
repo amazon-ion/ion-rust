@@ -161,7 +161,7 @@ impl<'top, D: Decoder> IsExhaustedIterator<'top, D> for NeverArgGroupIterator<'t
     }
 }
 
-impl<'top, D: Decoder> HasRange for NeverArgGroup<'top, D> {
+impl<D: Decoder> HasRange for NeverArgGroup<'_, D> {
     fn range(&self) -> Range<usize> {
         unreachable!("<NeverArgGroup as HasRange>::range")
     }

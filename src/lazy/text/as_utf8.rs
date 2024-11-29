@@ -24,7 +24,7 @@ impl<const N: usize> AsUtf8 for SmallVec<[u8; N]> {
     }
 }
 
-impl<'data> AsUtf8 for TextBuffer<'data> {
+impl AsUtf8 for TextBuffer<'_> {
     fn as_utf8(&self, position: impl Into<Position>) -> IonResult<&str> {
         bytes_as_utf8(self.bytes(), position)
     }

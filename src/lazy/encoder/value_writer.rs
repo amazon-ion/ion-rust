@@ -218,8 +218,8 @@ impl<'field, StructWriterType> FieldWriter<'field, StructWriterType> {
     }
 }
 
-impl<'field, StructWriterType: StructWriter> AnnotatableWriter
-    for FieldWriter<'field, StructWriterType>
+impl<StructWriterType: StructWriter> AnnotatableWriter
+    for FieldWriter<'_, StructWriterType>
 {
     type AnnotatedValueWriter<'a> = AnnotatedFieldWriter<'a, StructWriterType> where Self: 'a;
 
@@ -275,8 +275,8 @@ impl<'field, StructWriterType: StructWriter> AnnotatedFieldWriter<'field, Struct
     }
 }
 
-impl<'field, StructWriterType: StructWriter> AnnotatableWriter
-    for AnnotatedFieldWriter<'field, StructWriterType>
+impl<StructWriterType: StructWriter> AnnotatableWriter
+    for AnnotatedFieldWriter<'_, StructWriterType>
 {
     type AnnotatedValueWriter<'a> = AnnotatedFieldWriter<'a, StructWriterType> where Self: 'a;
 

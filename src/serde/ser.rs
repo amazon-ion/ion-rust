@@ -71,7 +71,7 @@ pub struct ValueSerializer<'a, V: ValueWriter> {
     lifetime: PhantomData<&'a ()>,
 }
 
-impl<'a, V: ValueWriter> ValueSerializer<'a, V> {
+impl<V: ValueWriter> ValueSerializer<'_, V> {
     pub fn new(value_writer: V, is_human_readable: bool) -> Self {
         Self {
             value_writer,

@@ -49,7 +49,7 @@ pub struct BinaryBuffer<'a> {
     context: EncodingContextRef<'a>,
 }
 
-impl<'a> Debug for BinaryBuffer<'a> {
+impl Debug for BinaryBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "BinaryBuffer {{")?;
         for byte in self.bytes().iter().take(16) {
@@ -59,7 +59,7 @@ impl<'a> Debug for BinaryBuffer<'a> {
     }
 }
 
-impl<'a> PartialEq for BinaryBuffer<'a> {
+impl PartialEq for BinaryBuffer<'_> {
     fn eq(&self, other: &Self) -> bool {
         // A definition of equality that ignores the `context` field.
         self.offset == other.offset && self.data == other.data

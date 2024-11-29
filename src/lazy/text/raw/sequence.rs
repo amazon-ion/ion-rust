@@ -65,7 +65,7 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextList_1_0<'da
     }
 }
 
-impl<'a, 'data> IntoIterator for &'a LazyRawTextList_1_0<'data> {
+impl<'data> IntoIterator for &LazyRawTextList_1_0<'data> {
     type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_0>>;
     type IntoIter = RawTextListIterator_1_0<'data>;
 
@@ -74,7 +74,7 @@ impl<'a, 'data> IntoIterator for &'a LazyRawTextList_1_0<'data> {
     }
 }
 
-impl<'a> Debug for LazyRawTextList_1_0<'a> {
+impl Debug for LazyRawTextList_1_0<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
@@ -102,7 +102,7 @@ impl<'data> RawTextListIterator_1_0<'data> {
     }
 }
 
-impl<'data> RawTextListIterator_1_0<'data> {
+impl RawTextListIterator_1_0<'_> {
     pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
         // The input has already skipped past the opening delimiter.
         let start = self.input.offset() - 1;
@@ -277,7 +277,7 @@ impl<'data> LazyRawSequence<'data, TextEncoding_1_0> for LazyRawTextSExp_1_0<'da
     }
 }
 
-impl<'a, 'data> IntoIterator for &'a LazyRawTextSExp_1_0<'data> {
+impl<'data> IntoIterator for &LazyRawTextSExp_1_0<'data> {
     type Item = IonResult<LazyRawValueExpr<'data, TextEncoding_1_0>>;
     type IntoIter = RawTextSExpIterator_1_0<'data>;
 
@@ -286,7 +286,7 @@ impl<'a, 'data> IntoIterator for &'a LazyRawTextSExp_1_0<'data> {
     }
 }
 
-impl<'a> Debug for LazyRawTextSExp_1_0<'a> {
+impl Debug for LazyRawTextSExp_1_0<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {

@@ -448,7 +448,7 @@ impl<R: Read> IonInput for BufReader<R> {
     }
 }
 
-impl<'a> IonInput for StdinLock<'a> {
+impl IonInput for StdinLock<'_> {
     type DataSource = IonStream<Self>;
 
     fn into_data_source(self) -> Self::DataSource {

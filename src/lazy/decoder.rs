@@ -358,7 +358,7 @@ impl<'top> LazyRawFieldExpr<'top, BinaryEncoding_1_0> {
     }
 }
 
-impl<'top, D: Decoder> HasRange for LazyRawFieldExpr<'top, D> {
+impl<D: Decoder> HasRange for LazyRawFieldExpr<'_, D> {
     // This type does not offer a `span()` method to get the bytes of the entire field.
     // In the case of a name/value or name/eexp pair, text parsers would need to provide a span that
     // included the interstitial whitespace and delimiting `:` between the name and value,

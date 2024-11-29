@@ -89,7 +89,7 @@ impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
     }
 }
 
-impl<'value, W: Write> TextValueWriter_1_0<'value, W> {
+impl<W: Write> TextValueWriter_1_0<'_, W> {
     fn output(&mut self) -> &mut W {
         &mut self.writer.output
     }
@@ -149,7 +149,7 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
 
 impl<'value, W: Write + 'value> Sealed for TextAnnotatedValueWriter_1_0<'value, W> {}
 
-impl<'value, W: Write> Sealed for TextValueWriter_1_0<'value, W> {}
+impl<W: Write> Sealed for TextValueWriter_1_0<'_, W> {}
 
 /// Helper type that is home to information and behavior common to the list writer, s-expression writer,
 /// and struct writer.
@@ -296,7 +296,7 @@ impl<'top, W: Write> TextListWriter_1_0<'top, W> {
     }
 }
 
-impl<'top, W: Write> MakeValueWriter for TextListWriter_1_0<'top, W> {
+impl<W: Write> MakeValueWriter for TextListWriter_1_0<'_, W> {
     type ValueWriter<'a> = TextValueWriter_1_0<'a, W> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -304,7 +304,7 @@ impl<'top, W: Write> MakeValueWriter for TextListWriter_1_0<'top, W> {
     }
 }
 
-impl<'top, W: Write> SequenceWriter for TextListWriter_1_0<'top, W> {
+impl<W: Write> SequenceWriter for TextListWriter_1_0<'_, W> {
     type Resources = ();
 
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
@@ -353,7 +353,7 @@ impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
     }
 }
 
-impl<'value, W: Write> MakeValueWriter for TextSExpWriter_1_0<'value, W> {
+impl<W: Write> MakeValueWriter for TextSExpWriter_1_0<'_, W> {
     type ValueWriter<'a> = TextValueWriter_1_0<'a, W> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -361,7 +361,7 @@ impl<'value, W: Write> MakeValueWriter for TextSExpWriter_1_0<'value, W> {
     }
 }
 
-impl<'a, W: Write> SequenceWriter for TextSExpWriter_1_0<'a, W> {
+impl<W: Write> SequenceWriter for TextSExpWriter_1_0<'_, W> {
     type Resources = ();
 
     delegate! {
@@ -405,7 +405,7 @@ impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
     }
 }
 
-impl<'a, W: Write> FieldEncoder for TextStructWriter_1_0<'a, W> {
+impl<W: Write> FieldEncoder for TextStructWriter_1_0<'_, W> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Leading indentation for the current depth
         self.container_writer
@@ -422,7 +422,7 @@ impl<'a, W: Write> FieldEncoder for TextStructWriter_1_0<'a, W> {
     }
 }
 
-impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
+impl<W: Write> MakeValueWriter for TextStructWriter_1_0<'_, W> {
     type ValueWriter<'a> = TextValueWriter_1_0<'a, W>
     where
         Self: 'a;
@@ -438,7 +438,7 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_0<'value, W> {
     }
 }
 
-impl<'value, W: Write> StructWriter for TextStructWriter_1_0<'value, W> {
+impl<W: Write> StructWriter for TextStructWriter_1_0<'_, W> {
     fn close(self) -> IonResult<()> {
         self.end()
     }
@@ -476,7 +476,7 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_0<'va
     delegate_value_writer_to!(fallible closure |self_: Self| self_.encode_annotations());
 }
 
-impl<'value, W: Write> AnnotatableWriter for TextValueWriter_1_0<'value, W> {
+impl<W: Write> AnnotatableWriter for TextValueWriter_1_0<'_, W> {
     type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_0<'a, W> where Self: 'a;
 
     fn with_annotations<'a>(
@@ -607,7 +607,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
         // This type exists solely to enable using the IonValueFormatter (which operates on
         // `std::fmt::Write`) to write to a `std::io::Write`.
         struct ClobShim<'a>(&'a [u8]);
-        impl<'a> std::fmt::Display for ClobShim<'a> {
+        impl std::fmt::Display for ClobShim<'_> {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                 let mut formatter = FmtValueFormatter { output: f };
                 formatter.format_clob(self.0)?;

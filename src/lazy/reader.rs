@@ -147,8 +147,8 @@ pub struct LazyElementIterator<'iter, Encoding: Decoder, Input: IonInput> {
     lazy_reader: &'iter mut Reader<Encoding, Input>,
 }
 
-impl<'iter, Encoding: Decoder, Input: IonInput> Iterator
-    for LazyElementIterator<'iter, Encoding, Input>
+impl<Encoding: Decoder, Input: IonInput> Iterator
+    for LazyElementIterator<'_, Encoding, Input>
 {
     type Item = IonResult<Element>;
 

@@ -204,7 +204,7 @@ impl<'top> EncodingContextRef<'top> {
     }
 }
 
-impl<'top> Deref for EncodingContextRef<'top> {
+impl Deref for EncodingContextRef<'_> {
     type Target = EncodingContext;
 
     fn deref(&self) -> &Self::Target {
@@ -450,7 +450,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         }
         // Otherwise, it's an application value.
         let lazy_value = LazyValue::new(value);
-        return Ok(SystemStreamItem::Value(lazy_value));
+        Ok(SystemStreamItem::Value(lazy_value))
     }
 
     fn interpret_ivm<'top>(
@@ -727,7 +727,7 @@ pub enum ExpandedValueSource<'top, D: Decoder> {
     ),
 }
 
-impl<'top, Encoding: Decoder> Debug for ExpandedValueSource<'top, Encoding> {
+impl<Encoding: Decoder> Debug for ExpandedValueSource<'_, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
             ExpandedValueSource::SingletonEExp(eexp) => write!(f, "singleton eexp {eexp:?}"),
@@ -842,7 +842,7 @@ pub struct LazyExpandedValue<'top, Encoding: Decoder> {
     pub(crate) variable: Option<TemplateVariableReference<'top>>,
 }
 
-impl<'top, Encoding: Decoder> Debug for LazyExpandedValue<'top, Encoding> {
+impl<Encoding: Decoder> Debug for LazyExpandedValue<'_, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.read_resolved()?)
     }
@@ -1116,7 +1116,7 @@ pub enum ExpandedValueRef<'top, Encoding: Decoder> {
     Struct(LazyExpandedStruct<'top, Encoding>),
 }
 
-impl<'top, Encoding: Decoder> PartialEq for ExpandedValueRef<'top, Encoding> {
+impl<Encoding: Decoder> PartialEq for ExpandedValueRef<'_, Encoding> {
     fn eq(&self, other: &Self) -> bool {
         use ExpandedValueRef::*;
         match (self, other) {
@@ -1280,7 +1280,7 @@ impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
     }
 }
 
-impl<'top, D: Decoder> Debug for ExpandedValueRef<'top, D> {
+impl<D: Decoder> Debug for ExpandedValueRef<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ExpandedValueRef::*;
         match self {

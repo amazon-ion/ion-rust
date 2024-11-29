@@ -158,7 +158,7 @@ impl<'top, D: Decoder> TryFrom<LazyList<'top, D>> for Element {
     }
 }
 
-impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyList<'top, D> {
+impl<'top, D: Decoder> IntoIterator for &LazyList<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
     type IntoIter = ListIterator<'top, D>;
 
@@ -167,7 +167,7 @@ impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazyList<'top, D> {
     }
 }
 
-impl<'top, 'data: 'top, D: Decoder> IntoIterator for LazyList<'top, D> {
+impl<'top, D: Decoder> IntoIterator for LazyList<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
     type IntoIter = ListIterator<'top, D>;
 
@@ -190,7 +190,7 @@ impl<'top, D: Decoder> Iterator for ListIterator<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for LazyList<'top, D> {
+impl<D: Decoder> Debug for LazyList<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
@@ -209,7 +209,7 @@ pub struct LazySExp<'top, D: Decoder> {
     pub(crate) expanded_sexp: LazyExpandedSExp<'top, D>,
 }
 
-impl<'top, D: Decoder> Debug for LazySExp<'top, D> {
+impl<D: Decoder> Debug for LazySExp<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {
@@ -324,7 +324,7 @@ impl<'top, D: Decoder> TryFrom<LazySExp<'top, D>> for Element {
     }
 }
 
-impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazySExp<'top, D> {
+impl<'top, D: Decoder> IntoIterator for &LazySExp<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
     type IntoIter = SExpIterator<'top, D>;
 
@@ -333,7 +333,7 @@ impl<'a, 'top, 'data: 'top, D: Decoder> IntoIterator for &'a LazySExp<'top, D> {
     }
 }
 
-impl<'top, 'data: 'top, D: Decoder> IntoIterator for LazySExp<'top, D> {
+impl<'top, D: Decoder> IntoIterator for LazySExp<'top, D> {
     type Item = IonResult<LazyValue<'top, D>>;
     type IntoIter = SExpIterator<'top, D>;
 

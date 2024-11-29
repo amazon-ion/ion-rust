@@ -120,7 +120,7 @@ impl<'data> From<InvalidInputError<'data>> for IonParseError<'data> {
 }
 
 // We cannot provide an analogous impl for `Incomplete` because it is missing necessary data.
-impl<'data> From<InvalidInputError<'data>> for IonError {
+impl From<InvalidInputError<'_>> for IonError {
     fn from(invalid_input_error: InvalidInputError<'_>) -> Self {
         let mut message = String::from(
             invalid_input_error
