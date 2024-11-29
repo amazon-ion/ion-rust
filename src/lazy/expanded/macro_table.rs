@@ -82,7 +82,7 @@ impl Macro {
         self.name.as_deref()
     }
     pub(crate) fn clone_name(&self) -> Option<CompactString> {
-        self.name.as_ref().map(Clone::clone)
+        self.name.clone()
     }
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
@@ -184,7 +184,7 @@ pub struct MacroTable {
 /// This instance is shared by all readers, minimizing the number of times that macro compilation
 /// and heap allocation occurs.
 pub static ION_1_1_SYSTEM_MACROS: LazyLock<MacroTable> =
-    LazyLock::new(|| MacroTable::construct_system_macro_table());
+    LazyLock::new(MacroTable::construct_system_macro_table);
 
 impl Default for MacroTable {
     fn default() -> Self {
