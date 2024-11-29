@@ -12,6 +12,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
@@ -24,7 +25,6 @@ use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator}
 use crate::{v1_1, Encoding, IonResult, IonType, RawSymbolRef};
 use bumpalo::collections::Vec as BumpVec;
 use nom::character::streaming::satisfy;
-use num_traits::ToPrimitive;
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],
@@ -119,11 +119,14 @@ pub struct SystemMacroAddress(u8);
 
 impl SystemMacroAddress {
     pub fn new(address: MacroAddress) -> Option<Self> {
-        let system_address = address.to_u8()?;
-        Some(Self(system_address))
+        if address < ION_1_1_SYSTEM_MACROS.len() {
+            Some(Self(address as u8))
+        } else {
+            None
+        }
     }
 
-    pub fn new_unchecked(address: MacroAddress) -> Self {
+    pub const fn new_unchecked(address: MacroAddress) -> Self {
         Self(address as u8)
     }
 
