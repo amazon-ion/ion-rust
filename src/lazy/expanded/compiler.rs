@@ -34,6 +34,14 @@ impl Default for ExpansionAnalysis {
     /// By default, macros are assumed to be capable of expanding to produce multiple values,
     /// any of which could be system values.
     fn default() -> Self {
+        ExpansionAnalysis::no_assertions_made()
+    }
+}
+
+impl ExpansionAnalysis {
+    /// The macro in question can produce zero or more values and/or system values.
+    /// It cannot be lazily evaluated.
+    pub const fn no_assertions_made() -> Self {
         ExpansionAnalysis {
             could_produce_system_value: true,
             must_produce_exactly_one_value: false,
@@ -41,9 +49,35 @@ impl Default for ExpansionAnalysis {
             expansion_singleton: None,
         }
     }
-}
 
-impl ExpansionAnalysis {
+    /// Returns an expansion analysis for a macro that always produces exactly one non-system value.
+    pub const fn single_application_value(ion_type: IonType) -> Self {
+        ExpansionAnalysis {
+            could_produce_system_value: false,
+            must_produce_exactly_one_value: true,
+            can_be_lazily_evaluated_at_top_level: true,
+            expansion_singleton: Some(ExpansionSingleton {
+                is_null: false,
+                ion_type,
+                num_annotations: 0,
+            }),
+        }
+    }
+
+    /// Produces a single system value: an s-expression annotated with `$ion`.
+    pub const fn directive() -> Self {
+        ExpansionAnalysis {
+            could_produce_system_value: true,
+            must_produce_exactly_one_value: true,
+            can_be_lazily_evaluated_at_top_level: false,
+            expansion_singleton: Some(ExpansionSingleton {
+                is_null: false,
+                ion_type: IonType::SExp,
+                num_annotations: 1,
+            }),
+        }
+    }
+
     pub fn could_produce_system_value(&self) -> bool {
         self.could_produce_system_value
     }

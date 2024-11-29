@@ -118,9 +118,7 @@ mod tests {
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
     use crate::lazy::expanded::EncodingContext;
-    use crate::lazy::text::raw::v1_1::reader::{
-        system_macro_addresses, LazyRawTextReader_1_1, MacroIdRef,
-    };
+    use crate::lazy::text::raw::v1_1::reader::{system_macros, LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
         v1_1, Annotatable, Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef,
@@ -362,7 +360,7 @@ mod tests {
     #[test]
     fn test_system_eexp() -> IonResult<()> {
         let mut writer = Writer::new(v1_1::Text, vec![])?;
-        let mut macro_args = writer.eexp_writer(system_macro_addresses::MAKE_STRING)?;
+        let mut macro_args = writer.eexp_writer(system_macros::MAKE_STRING)?;
         macro_args
             .write("foo")?
             .write("bar")?

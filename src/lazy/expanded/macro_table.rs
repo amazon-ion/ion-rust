@@ -118,6 +118,8 @@ pub enum MacroKind {
     MakeSExp,
     Annotate,
     Template(TemplateBody),
+    // A placeholder for not-yet-implemented macros
+    ToDo,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -198,7 +200,7 @@ impl MacroTable {
         MacroKind::MakeSExp,
         MacroKind::Annotate,
     ];
-    pub const NUM_SYSTEM_MACROS: usize = 9;
+    pub const NUM_SYSTEM_MACROS: usize = 24;
     // When a user defines new macros, this is the first ID that will be assigned. This value
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
@@ -243,51 +245,6 @@ impl MacroTable {
                 expansion_analysis: ExpansionAnalysis::default(),
             })),
             Arc::new(Macro::named(
-                "make_string",
-                MacroSignature::new(vec![Parameter::new(
-                    "text_values",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
-                MacroKind::MakeString,
-                ExpansionAnalysis {
-                    could_produce_system_value: false,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: true,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::String,
-                        num_annotations: 0,
-                    }),
-                },
-            )),
-            Arc::new(Macro::named(
-                "make_sexp",
-                MacroSignature::new(vec![Parameter::new(
-                    "sequences",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
-                MacroKind::MakeSExp,
-                ExpansionAnalysis {
-                    // `make_sexp` produces an unannotated s-expression, so it can't make a system
-                    // value when it's the body of a macro. (It would need to be nested in a call
-                    // to `annotate`.
-                    could_produce_system_value: false,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: true,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 0,
-                    }),
-                },
-            )),
-            Arc::new(Macro::named(
                 "annotate",
                 MacroSignature::new(vec![
                     Parameter::new(
@@ -311,6 +268,148 @@ impl MacroTable {
                     can_be_lazily_evaluated_at_top_level: false,
                     expansion_singleton: None,
                 },
+            )),
+            Arc::new(Macro::named(
+                "make_string",
+                MacroSignature::new(vec![Parameter::new(
+                    "text_values",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::MakeString,
+                ExpansionAnalysis::single_application_value(IonType::String),
+            )),
+            Arc::new(Macro::named(
+                "make_symbol",
+                MacroSignature::new(vec![Parameter::new(
+                    "text_values",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Symbol),
+            )),
+            Arc::new(Macro::named(
+                "make_blob",
+                MacroSignature::new(vec![Parameter::new(
+                    "lob_values",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Blob),
+            )),
+            Arc::new(Macro::named(
+                "make_decimal",
+                MacroSignature::new(vec![
+                    Parameter::new(
+                        "coefficient",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "exponent",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Decimal),
+            )),
+            Arc::new(Macro::named(
+                "make_timestamp",
+                MacroSignature::new(vec![
+                    Parameter::new(
+                        "year",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "month",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "day",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "hour",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "minute",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "second",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "offset_minutes",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Decimal),
+            )),
+            Arc::new(Macro::named(
+                "make_list",
+                MacroSignature::new(vec![Parameter::new(
+                    "sequences",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::List),
+            )),
+            Arc::new(Macro::named(
+                "make_sexp",
+                MacroSignature::new(vec![Parameter::new(
+                    "sequences",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::MakeSExp,
+                ExpansionAnalysis::single_application_value(IonType::SExp),
+            )),
+            Arc::new(Macro::named(
+                "make_struct",
+                MacroSignature::new(vec![Parameter::new(
+                    "sequences",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::MakeSExp,
+                ExpansionAnalysis::single_application_value(IonType::Struct),
             )),
             // This macro is equivalent to:
             //    (macro set_symbols (symbols*)
@@ -671,17 +770,153 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
+            Arc::new(Macro::named(
+                "use",
+                MacroSignature::new(vec![Parameter::new(
+                    "sequences",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::directive(),
+            )),
+            Arc::new(Macro::named(
+                "parse_ion",
+                MacroSignature::new(vec![Parameter::new(
+                    "data",
+                    ParameterEncoding::Tagged, // TODO: Support for other tagless types
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "repeat",
+                MacroSignature::new(vec![
+                    Parameter::new(
+                        "n",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "expr",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrMore,
+                        RestSyntaxPolicy::Allowed,
+                    ),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "delta",
+                MacroSignature::new(vec![Parameter::new(
+                    "deltas",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis {
+                    could_produce_system_value: false,
+                    must_produce_exactly_one_value: false,
+                    can_be_lazily_evaluated_at_top_level: true,
+                    expansion_singleton: None,
+                },
+            )),
+            Arc::new(Macro::named(
+                "flatten",
+                MacroSignature::new(vec![Parameter::new(
+                    "sequences",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "sum",
+                MacroSignature::new(vec![
+                    Parameter::new(
+                        "a",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "b",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Int),
+            )),
+            Arc::new(Macro::named(
+                "meta",
+                MacroSignature::new(vec![Parameter::new(
+                    "anything",
+                    ParameterEncoding::Tagged,
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "make_field",
+                MacroSignature::new(vec![
+                    Parameter::new(
+                        "field_name",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "field_value",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ExactlyOne,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Struct),
+            )),
+            Arc::new(Macro::named(
+                "default",
+                MacroSignature::new(vec![
+                    Parameter::new(
+                        "expr",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrMore,
+                        RestSyntaxPolicy::NotAllowed,
+                    ),
+                    Parameter::new(
+                        "default_expr",
+                        ParameterEncoding::Tagged,
+                        ParameterCardinality::ZeroOrMore,
+                        RestSyntaxPolicy::Allowed,
+                    ),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
             // Adding a new system macro? Make sure you update FIRST_USER_MACRO_ID
         ]
     }

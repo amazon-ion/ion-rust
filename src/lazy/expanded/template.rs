@@ -1180,6 +1180,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
                 let kind = MacroExpansionKind::Template(TemplateExpansion::new(template_ref));
                 return Ok(MacroExpansion::new(self.context(), new_environment, kind));
             }
+            MacroKind::ToDo => todo!("system macro {}", macro_ref.name().unwrap()),
         };
         Ok(MacroExpansion::new(
             self.context(),
