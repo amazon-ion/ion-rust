@@ -73,7 +73,6 @@ impl SharedSymbolTable {
 ///   ]
 /// }
 /// ```
-
 impl TryFrom<Element> for SharedSymbolTable {
     type Error = IonError;
 

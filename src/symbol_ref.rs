@@ -66,7 +66,7 @@ pub trait AsSymbolRef {
 }
 
 // All text types can be viewed as a `SymbolRef`.
-impl<'a, A: AsRef<str>> AsSymbolRef for A {
+impl<A: AsRef<str>> AsSymbolRef for A {
     fn as_symbol_ref(&self) -> SymbolRef<'_> {
         SymbolRef {
             text: Some(self.as_ref()),

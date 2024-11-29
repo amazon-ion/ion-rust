@@ -29,10 +29,10 @@ mod example {
         // By default, this program deletes the encoded output before it ends. To keep the files
         // for further review, you can pass a `--keep-files`/`-k` flag.
         let args: Vec<String> = args().collect();
-        let keep_files_flag = match args.get(1).map(|a| a.as_str()) {
-            Some("--keep-files") | Some("-k") => true,
-            _ => false,
-        };
+        let keep_files_flag = matches!(
+            args.get(1).map(|a| a.as_str()),
+            Some("--keep-files") | Some("-k")
+        );
 
         // Create a set of Log4J-style statements that might appear in a typical program. These statements
         // have a fixed combination of (logger name, log level, format string) fields.
