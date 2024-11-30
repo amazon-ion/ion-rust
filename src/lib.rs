@@ -210,7 +210,7 @@ macro_rules! v1_x_reader_writer {
             lazy::value_ref::ValueRef,
             lazy::r#struct::{LazyStruct, LazyField},
             lazy::sequence::{LazyList, LazySExp},
-            lazy::encoder::value_writer::{ValueWriter, StructWriter, SequenceWriter, EExpWriter},
+            lazy::encoder::value_writer::{ValueWriter, MakeValueWriter, StructWriter, SequenceWriter, EExpWriter},
             lazy::any_encoding::IonEncoding,
             lazy::expanded::compiler::TemplateCompiler,
             lazy::expanded::template::TemplateMacro,
