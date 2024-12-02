@@ -29,23 +29,23 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let template_definition_text: String = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
             {
-                'timestamp': timestamp,
-                'threadId': thread_id,
-                'threadName': (make_string "scheduler-thread-" thread_name),
+                'timestamp': (%timestamp),
+                'threadId': (%thread_id),
+                'threadName': (.make_string "scheduler-thread-" (%thread_name)),
                 'loggerName': "com.example.organization.product.component.ClassName",
-                'logLevel': (literal INFO),
+                'logLevel': (.literal INFO),
                 'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
                 'parameters': [
                     "SUCCESS",
-                    (make_string "example-client-" client_num),
-                    (make_string "aws-us-east-5f-" host_id),
-                    parameters
+                    (.make_string "example-client-" (%client_num)),
+                    (.make_string "aws-us-east-5f-" (%host_id)),
+                    (%parameters)
                 ]
             }
         )
     "#.to_owned();
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "abc123" (:: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
 
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
@@ -90,23 +90,23 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let template_definition_text = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
             {
-                'timestamp': timestamp,
-                'threadId': thread_id,
-                'threadName': thread_name,
+                'timestamp': (%timestamp),
+                'threadId': (%thread_id),
+                'threadName': (%thread_name),
                 'loggerName': "com.example.organization.product.component.ClassName",
-                'logLevel': (literal INFO),
+                'logLevel': (.literal INFO),
                 'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
                 'parameters': [
                     "SUCCESS",
-                    client_num,
-                    host_id,
-                    parameters
+                    (%client_num),
+                    (%host_id),
+                    (%parameters)
                 ]
             }
         )
     "#;
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (:: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
     let mut binary_1_1_data_body: Vec<u8> = [MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
@@ -159,23 +159,23 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
     let template_definition_text = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
             {
-                'timestamp': timestamp,
-                'threadId': thread_id,
-                'threadName': thread_name,
+                'timestamp': (%timestamp),
+                'threadId': (%thread_id),
+                'threadName': (%thread_name),
                 'loggerName': "com.example.organization.product.component.ClassName",
-                'logLevel': (literal INFO),
+                'logLevel': (.literal INFO),
                 'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
                 'parameters': [
                     "SUCCESS",
-                    client_num,
-                    host_id,
-                    parameters
+                    (%client_num),
+                    (%host_id),
+                    (%parameters)
                 ]
             }
         )
     "#;
 
-    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
+    let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (:: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
     let mut binary_1_1_data_body: Vec<u8> = [0xF5, // LP invocation
@@ -307,7 +307,7 @@ mod benchmark {
 
         // Load the Ion 1.0 values into a Sequence. We'll compare our Ion 1.1 streams' data to this
         // sequence to make sure that all of the tests are working on equivalent data.
-        let seq_1_0 = Reader::new(v1_1::Text, text_1_0_data.as_slice())
+        let seq_1_0 = Reader::new(v1_0::Text, text_1_0_data.as_slice())
             .unwrap()
             .read_all_elements()?;
 
@@ -315,7 +315,7 @@ mod benchmark {
         // Visit each top level value in the stream without reading it.
         text_1_0_group.bench_function("scan all", |b| {
             b.iter(|| {
-                let mut reader = Reader::new(v1_1::Text, text_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_0::Text, text_1_0_data.as_slice()).unwrap();
                 while let Some(item) = reader.next().unwrap() {
                     black_box(item);
                 }
@@ -324,7 +324,7 @@ mod benchmark {
         // Read every value in the stream, however deeply nested.
         text_1_0_group.bench_function("read all", |b| {
             b.iter(|| {
-                let mut reader = Reader::new(v1_1::Text, text_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_0::Text, text_1_0_data.as_slice()).unwrap();
                 let mut num_values = 0usize;
                 while let Some(item) = reader.next().unwrap() {
                     num_values += count_value_and_children(&item).unwrap();
@@ -335,7 +335,7 @@ mod benchmark {
         // Read the 'format' field from each top-level struct in the stream.
         text_1_0_group.bench_function("read 'format' field", |b| {
             b.iter(|| {
-                let mut reader = Reader::new(v1_1::Text, text_1_0_data.as_slice()).unwrap();
+                let mut reader = Reader::new(v1_0::Text, text_1_0_data.as_slice()).unwrap();
                 let mut num_values = 0usize;
                 while let Some(value) = reader.next().unwrap() {
                     let s = value.read().unwrap().expect_struct().unwrap();
@@ -412,7 +412,9 @@ mod benchmark {
         let seq_1_1 = reader_1_1.read_all_elements().unwrap();
         assert!(
             IonData::eq(seq_1_0, &seq_1_1),
-            "{name} binary Ion 1.1 sequence was not equal to the original Ion 1.0 sequence"
+            "{name} binary Ion 1.1 sequence was not equal to the original Ion 1.0 sequence: \n{:#?}\n  !=\n{:#?}",
+            seq_1_0.elements().take(10).collect::<Vec<_>>(),
+            seq_1_1.elements().take(100).collect::<Vec<_>>(),
         );
 
         // === Text equivalence check ===

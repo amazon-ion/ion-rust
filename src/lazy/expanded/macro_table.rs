@@ -200,6 +200,7 @@ impl MacroTable {
         MacroKind::MakeSExp,
         MacroKind::Annotate,
     ];
+    // The system macros range from address 0 to 23
     pub const NUM_SYSTEM_MACROS: usize = 24;
     // When a user defines new macros, this is the first ID that will be assigned. This value
     // is expected to change as development continues. It is currently used in several unit tests.
