@@ -232,34 +232,18 @@ impl MacroTable {
             // It is effectively a user-addressable expression group.
             Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("values".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "expr_group",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("expr_group")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![TemplateBodyExpr::variable(0, ExprRange::new(0..1))],
                     annotations_storage: vec![],
                 },
-                expansion_analysis: ExpansionAnalysis::default(),
+                expansion_analysis: ExpansionAnalysis::no_assertions_made(),
             })),
             Arc::new(Macro::named(
                 "annotate",
                 MacroSignature::new(vec![
-                    Parameter::new(
-                        "annotations",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrMore,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "value_to_annotate",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
+                    Parameter::zero_or_more("annotations"),
+                    Parameter::required("value_to_annotate"),
                 ])
                 .unwrap(),
                 MacroKind::Annotate,
@@ -272,55 +256,27 @@ impl MacroTable {
             )),
             Arc::new(Macro::named(
                 "make_string",
-                MacroSignature::new(vec![Parameter::new(
-                    "text_values",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("text_values")]).unwrap(),
                 MacroKind::MakeString,
                 ExpansionAnalysis::single_application_value(IonType::String),
             )),
             Arc::new(Macro::named(
                 "make_symbol",
-                MacroSignature::new(vec![Parameter::new(
-                    "text_values",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("text_values")]).unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Symbol),
             )),
             Arc::new(Macro::named(
                 "make_blob",
-                MacroSignature::new(vec![Parameter::new(
-                    "lob_values",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("lob_values")]).unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Blob),
             )),
             Arc::new(Macro::named(
                 "make_decimal",
                 MacroSignature::new(vec![
-                    Parameter::new(
-                        "coefficient",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "exponent",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
+                    Parameter::required("coefficient"),
+                    Parameter::required("coefficient"),
                 ])
                 .unwrap(),
                 MacroKind::ToDo,
@@ -329,48 +285,13 @@ impl MacroTable {
             Arc::new(Macro::named(
                 "make_timestamp",
                 MacroSignature::new(vec![
-                    Parameter::new(
-                        "year",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "month",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "day",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "hour",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "minute",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "second",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "offset_minutes",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
+                    Parameter::required("year"),
+                    Parameter::optional("month"),
+                    Parameter::optional("day"),
+                    Parameter::optional("hour"),
+                    Parameter::optional("minute"),
+                    Parameter::optional("second"),
+                    Parameter::optional("offset_minutes"),
                 ])
                 .unwrap(),
                 MacroKind::ToDo,
@@ -378,37 +299,19 @@ impl MacroTable {
             )),
             Arc::new(Macro::named(
                 "make_list",
-                MacroSignature::new(vec![Parameter::new(
-                    "sequences",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::List),
             )),
             Arc::new(Macro::named(
                 "make_sexp",
-                MacroSignature::new(vec![Parameter::new(
-                    "sequences",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
                 MacroKind::MakeSExp,
                 ExpansionAnalysis::single_application_value(IonType::SExp),
             )),
             Arc::new(Macro::named(
                 "make_struct",
-                MacroSignature::new(vec![Parameter::new(
-                    "sequences",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
                 MacroKind::MakeSExp,
                 ExpansionAnalysis::single_application_value(IonType::Struct),
             )),
@@ -423,13 +326,7 @@ impl MacroTable {
             //    )
             Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_symbols".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "symbols",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("symbols")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -493,16 +390,7 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
             // This macro is equivalent to:
             //    (macro add_symbols (symbols*)
@@ -515,13 +403,7 @@ impl MacroTable {
             //    )
             Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_symbols".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "symbols",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("symbols")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -591,16 +473,7 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
             // This macro is equivalent to:
             //    (macro set_macros (macro_definitions*)
@@ -613,13 +486,7 @@ impl MacroTable {
             //    )
             Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_macros".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "macro_definitions",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("macro_definitions")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -678,16 +545,7 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
             // This macro is equivalent to:
             //    (macro add_macros (macro_definitions*)
@@ -700,13 +558,7 @@ impl MacroTable {
             //    )
             Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_macros".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "macro_definitions",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("macro_definitions")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -775,12 +627,10 @@ impl MacroTable {
             })),
             Arc::new(Macro::named(
                 "use",
-                MacroSignature::new(vec![Parameter::new(
-                    "sequences",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
+                MacroSignature::new(vec![
+                    Parameter::required("catalog_key"),
+                    Parameter::optional("version"),
+                ])
                 .unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::directive(),
@@ -799,33 +649,14 @@ impl MacroTable {
             )),
             Arc::new(Macro::named(
                 "repeat",
-                MacroSignature::new(vec![
-                    Parameter::new(
-                        "n",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "expr",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrMore,
-                        RestSyntaxPolicy::Allowed,
-                    ),
-                ])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::required("n"), Parameter::rest("expr")])
+                    .unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::no_assertions_made(),
             )),
             Arc::new(Macro::named(
                 "delta",
-                MacroSignature::new(vec![Parameter::new(
-                    "deltas",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("deltas")]).unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis {
                     could_produce_system_value: false,
@@ -836,63 +667,28 @@ impl MacroTable {
             )),
             Arc::new(Macro::named(
                 "flatten",
-                MacroSignature::new(vec![Parameter::new(
-                    "sequences",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::no_assertions_made(),
             )),
             Arc::new(Macro::named(
                 "sum",
-                MacroSignature::new(vec![
-                    Parameter::new(
-                        "a",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "b",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                ])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::required("a"), Parameter::required("b")])
+                    .unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Int),
             )),
             Arc::new(Macro::named(
                 "meta",
-                MacroSignature::new(vec![Parameter::new(
-                    "anything",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                MacroSignature::new(vec![Parameter::rest("anything")]).unwrap(),
                 MacroKind::ToDo,
                 ExpansionAnalysis::no_assertions_made(),
             )),
             Arc::new(Macro::named(
                 "make_field",
                 MacroSignature::new(vec![
-                    Parameter::new(
-                        "field_name",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "field_value",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
+                    Parameter::required("field_name"),
+                    Parameter::required("field_value"),
                 ])
                 .unwrap(),
                 MacroKind::ToDo,
@@ -901,18 +697,8 @@ impl MacroTable {
             Arc::new(Macro::named(
                 "default",
                 MacroSignature::new(vec![
-                    Parameter::new(
-                        "expr",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrMore,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "default_expr",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrMore,
-                        RestSyntaxPolicy::Allowed,
-                    ),
+                    Parameter::zero_or_more("expr"),
+                    Parameter::rest("default_expr"),
                 ])
                 .unwrap(),
                 MacroKind::ToDo,

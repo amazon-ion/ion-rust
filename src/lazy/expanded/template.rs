@@ -45,6 +45,51 @@ impl Parameter {
         }
     }
 
+    /// Creates a tagged [`Parameter`] with the given name and a cardinality of `exactly-one`.
+    pub fn required(name: impl Into<CompactString>) -> Self {
+        Parameter::new(
+            name,
+            ParameterEncoding::Tagged,
+            ParameterCardinality::ExactlyOne,
+            RestSyntaxPolicy::NotAllowed,
+        )
+    }
+
+    /// Creates a tagged [`Parameter`] with the given name and a cardinality of `zero-or-one`.
+    pub fn optional(name: impl Into<CompactString>) -> Self {
+        Parameter::new(
+            name,
+            ParameterEncoding::Tagged,
+            ParameterCardinality::ZeroOrOne,
+            RestSyntaxPolicy::NotAllowed,
+        )
+    }
+
+    /// Creates a tagged, tail-position [`Parameter`] with the given name, a cardinality
+    /// of `zero-or-more`, and support for "rest" syntax.
+    pub fn rest(name: impl Into<CompactString>) -> Self {
+        Parameter::new(
+            name,
+            ParameterEncoding::Tagged,
+            ParameterCardinality::ZeroOrMore,
+            RestSyntaxPolicy::Allowed,
+        )
+    }
+
+    /// Creates a tagged, [`Parameter`] with the given name and a cardinality
+    /// of `zero-or-more`.
+    ///
+    /// This should not be used in tail position as it does not support rest syntax.
+    /// See [`rest`](Self::rest) instead.
+    pub fn zero_or_more(name: impl Into<CompactString>) -> Self {
+        Parameter::new(
+            name,
+            ParameterEncoding::Tagged,
+            ParameterCardinality::ZeroOrMore,
+            RestSyntaxPolicy::NotAllowed,
+        )
+    }
+
     pub fn name(&self) -> &str {
         self.name.as_ref()
     }
