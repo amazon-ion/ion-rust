@@ -959,7 +959,7 @@ mod tests {
     use crate::lazy::encoder::value_writer::ValueWriter;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsSExp};
-    use crate::lazy::text::raw::v1_1::reader::{system_macros, MacroIdRef, SystemMacroAddress};
+    use crate::lazy::text::raw::v1_1::reader::{system_macros, MacroIdRef};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
