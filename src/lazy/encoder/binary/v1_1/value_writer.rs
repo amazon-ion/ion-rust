@@ -959,7 +959,7 @@ mod tests {
     use crate::lazy::encoder::value_writer::ValueWriter;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsSExp};
-    use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress};
+    use crate::lazy::text::raw::v1_1::reader::{system_macros, MacroIdRef, SystemMacroAddress};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
@@ -2923,9 +2923,8 @@ mod tests {
     fn write_system_macro_invocation() -> IonResult<()> {
         encoding_test(
             |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
-                let mut args = writer.eexp_writer(MacroIdRef::SystemAddress(
-                    SystemMacroAddress::new(3).unwrap(), /* make_string */
-                ))?;
+                let mut args =
+                    writer.eexp_writer(MacroIdRef::SystemAddress(system_macros::MAKE_STRING))?;
                 args.write_symbol("foo")?
                     .write_symbol("bar")?
                     .write_symbol("baz")?;

@@ -413,8 +413,8 @@ mod benchmark {
         assert!(
             IonData::eq(seq_1_0, &seq_1_1),
             "{name} binary Ion 1.1 sequence was not equal to the original Ion 1.0 sequence: \n{:#?}\n  !=\n{:#?}",
-            seq_1_0.elements().take(10).collect::<Vec<_>>(),
-            seq_1_1.elements().take(100).collect::<Vec<_>>(),
+            seq_1_0.elements().next().unwrap(),
+            seq_1_1.elements().next().unwrap(),
         );
 
         // === Text equivalence check ===
