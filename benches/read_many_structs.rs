@@ -29,13 +29,13 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let template_definition_text: String = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
             {
-                'timestamp': (%timestamp),
-                'threadId': (%thread_id),
-                'threadName': (.make_string "scheduler-thread-" (%thread_name)),
-                'loggerName': "com.example.organization.product.component.ClassName",
-                'logLevel': (.literal INFO),
-                'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
-                'parameters': [
+                timestamp: (%timestamp),
+                threadId: (%thread_id),
+                threadName: (.make_string "scheduler-thread-" (%thread_name)),
+                loggerName: "com.example.organization.product.component.ClassName",
+                logLevel: INFO,
+                format: "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
+                parameters: [
                     "SUCCESS",
                     (.make_string "example-client-" (%client_num)),
                     (.make_string "aws-us-east-5f-" (%host_id)),
@@ -90,13 +90,13 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let template_definition_text = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
             {
-                'timestamp': (%timestamp),
-                'threadId': (%thread_id),
-                'threadName': (%thread_name),
-                'loggerName': "com.example.organization.product.component.ClassName",
-                'logLevel': (.literal INFO),
-                'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
-                'parameters': [
+                timestamp: (%timestamp),
+                threadId: (%thread_id),
+                threadName: (%thread_name),
+                loggerName: "com.example.organization.product.component.ClassName",
+                logLevel: INFO,
+                format: "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
+                parameters: [
                     "SUCCESS",
                     (%client_num),
                     (%host_id),
@@ -159,13 +159,13 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
     let template_definition_text = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
             {
-                'timestamp': (%timestamp),
-                'threadId': (%thread_id),
-                'threadName': (%thread_name),
-                'loggerName': "com.example.organization.product.component.ClassName",
-                'logLevel': (.literal INFO),
-                'format': "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
-                'parameters': [
+                timestamp: (%timestamp),
+                threadId: (%thread_id),
+                threadName: (%thread_name),
+                loggerName: "com.example.organization.product.component.ClassName",
+                logLevel: INFO,
+                format: "Request status: {} Client ID: {} Client Host: {} Client Region: {} Timestamp: {}",
+                parameters: [
                     "SUCCESS",
                     (%client_num),
                     (%host_id),
