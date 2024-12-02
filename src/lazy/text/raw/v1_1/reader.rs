@@ -4,9 +4,6 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 
-use bumpalo::collections::Vec as BumpVec;
-use nom::character::streaming::satisfy;
-
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
@@ -15,6 +12,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
+use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
@@ -25,6 +23,8 @@ use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::{v1_1, Encoding, IonResult, IonType, RawSymbolRef};
+use bumpalo::collections::Vec as BumpVec;
+use nom::character::streaming::satisfy;
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],
@@ -112,6 +112,62 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
 /// The index at which this macro can be found in the macro table.
 pub type MacroAddress = usize;
 
+/// An address in the Ion 1.1 system macro table.
+/// Guaranteed to fit in a byte.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SystemMacroAddress(u8);
+
+impl SystemMacroAddress {
+    pub fn new(address: MacroAddress) -> Option<Self> {
+        if address < ION_1_1_SYSTEM_MACROS.len() {
+            Some(Self(address as u8))
+        } else {
+            None
+        }
+    }
+
+    pub const fn new_unchecked(address: MacroAddress) -> Self {
+        Self(address as u8)
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+
+    pub fn as_u8(&self) -> u8 {
+        self.0
+    }
+}
+
+pub(crate) mod system_macros {
+    use crate::lazy::text::raw::v1_1::reader::SystemMacroAddress;
+
+    pub const NONE: SystemMacroAddress = SystemMacroAddress(0x00);
+    pub const VALUES: SystemMacroAddress = SystemMacroAddress(0x01);
+    pub const ANNOTATE: SystemMacroAddress = SystemMacroAddress(0x02);
+    pub const MAKE_STRING: SystemMacroAddress = SystemMacroAddress(0x03);
+    pub const MAKE_SYMBOL: SystemMacroAddress = SystemMacroAddress(0x04);
+    pub const MAKE_BLOB: SystemMacroAddress = SystemMacroAddress(0x05);
+    pub const MAKE_DECIMAL: SystemMacroAddress = SystemMacroAddress(0x06);
+    pub const MAKE_TIMESTAMP: SystemMacroAddress = SystemMacroAddress(0x07);
+    pub const MAKE_LIST: SystemMacroAddress = SystemMacroAddress(0x08);
+    pub const MAKE_SEXP: SystemMacroAddress = SystemMacroAddress(0x09);
+    pub const MAKE_STRUCT: SystemMacroAddress = SystemMacroAddress(0x0A);
+    pub const SET_SYMBOLS: SystemMacroAddress = SystemMacroAddress(0x0B);
+    pub const ADD_SYMBOLS: SystemMacroAddress = SystemMacroAddress(0x0C);
+    pub const SET_MACROS: SystemMacroAddress = SystemMacroAddress(0x0D);
+    pub const ADD_MACROS: SystemMacroAddress = SystemMacroAddress(0x0E);
+    pub const USE: SystemMacroAddress = SystemMacroAddress(0x0F);
+    pub const PARSE_ION: SystemMacroAddress = SystemMacroAddress(0x10);
+    pub const REPEAT: SystemMacroAddress = SystemMacroAddress(0x11);
+    pub const DELTA: SystemMacroAddress = SystemMacroAddress(0x12);
+    pub const FLATTEN: SystemMacroAddress = SystemMacroAddress(0x13);
+    pub const SUM: SystemMacroAddress = SystemMacroAddress(0x14);
+    pub const META: SystemMacroAddress = SystemMacroAddress(0x15);
+    pub const MAKE_FIELD: SystemMacroAddress = SystemMacroAddress(0x16);
+    pub const DEFAULT: SystemMacroAddress = SystemMacroAddress(0x17);
+}
+
 /// The index at which a value expression can be found within a template's body.
 pub type TemplateBodyExprAddress = usize;
 
@@ -119,6 +175,7 @@ pub type TemplateBodyExprAddress = usize;
 pub enum MacroIdRef<'data> {
     LocalName(&'data str),
     LocalAddress(usize),
+    SystemAddress(SystemMacroAddress),
     // TODO: Addresses and qualified names
 }
 
@@ -127,6 +184,9 @@ impl Display for MacroIdRef<'_> {
         match self {
             MacroIdRef::LocalName(name) => write!(f, "{}", name),
             MacroIdRef::LocalAddress(address) => write!(f, "{}", address),
+            MacroIdRef::SystemAddress(address) => {
+                write!(f, "$ion::{}", address.as_usize())
+            }
         }
     }
 }
@@ -140,6 +200,12 @@ impl From<usize> for MacroIdRef<'_> {
 impl<'data> From<&'data str> for MacroIdRef<'data> {
     fn from(name: &'data str) -> Self {
         MacroIdRef::LocalName(name)
+    }
+}
+
+impl From<SystemMacroAddress> for MacroIdRef<'_> {
+    fn from(system_macro_address: SystemMacroAddress) -> Self {
+        MacroIdRef::SystemAddress(system_macro_address)
     }
 }
 

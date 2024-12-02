@@ -18,7 +18,7 @@ use crate::{v1_1, IonError, IonResult, IonType, Macro, MacroTable, Reader, Symbo
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::ops::Range;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Information inferred about a template's expansion at compile time.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -34,6 +34,14 @@ impl Default for ExpansionAnalysis {
     /// By default, macros are assumed to be capable of expanding to produce multiple values,
     /// any of which could be system values.
     fn default() -> Self {
+        ExpansionAnalysis::no_assertions_made()
+    }
+}
+
+impl ExpansionAnalysis {
+    /// The macro in question can produce zero or more values and/or system values.
+    /// It cannot be lazily evaluated.
+    pub const fn no_assertions_made() -> Self {
         ExpansionAnalysis {
             could_produce_system_value: true,
             must_produce_exactly_one_value: false,
@@ -41,9 +49,35 @@ impl Default for ExpansionAnalysis {
             expansion_singleton: None,
         }
     }
-}
 
-impl ExpansionAnalysis {
+    /// Returns an expansion analysis for a macro that always produces exactly one non-system value.
+    pub const fn single_application_value(ion_type: IonType) -> Self {
+        ExpansionAnalysis {
+            could_produce_system_value: false,
+            must_produce_exactly_one_value: true,
+            can_be_lazily_evaluated_at_top_level: true,
+            expansion_singleton: Some(ExpansionSingleton {
+                is_null: false,
+                ion_type,
+                num_annotations: 0,
+            }),
+        }
+    }
+
+    /// Produces a single system value: an s-expression annotated with `$ion`.
+    pub const fn directive() -> Self {
+        ExpansionAnalysis {
+            could_produce_system_value: true,
+            must_produce_exactly_one_value: true,
+            can_be_lazily_evaluated_at_top_level: false,
+            expansion_singleton: Some(ExpansionSingleton {
+                is_null: false,
+                ion_type: IonType::SExp,
+                num_annotations: 1,
+            }),
+        }
+    }
+
     pub fn could_produce_system_value(&self) -> bool {
         self.could_produce_system_value
     }
@@ -379,7 +413,7 @@ impl TemplateCompiler {
         context: EncodingContextRef<'_>,
         pending_macros: &'a MacroTable,
         macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> Option<Rc<Macro>> {
+    ) -> Option<Arc<Macro>> {
         let macro_id = macro_id.into();
         // Since this ID is unqualified, it must be in either...
         // ...the local namespace, having just been defined...
@@ -393,7 +427,7 @@ impl TemplateCompiler {
         context: EncodingContextRef<'_>,
         module_name: &'a str,
         macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> Option<Rc<Macro>> {
+    ) -> Option<Arc<Macro>> {
         let macro_id = macro_id.into();
         match module_name {
             // If the module is `$ion`, this refers to the system module.
@@ -798,7 +832,7 @@ impl TemplateCompiler {
     fn compile_macro<'top, D: Decoder>(
         tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
-        macro_ref: Rc<Macro>,
+        macro_ref: Arc<Macro>,
         mut arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<()> {
         // If this macro doesn't accept any parameters but arg expressions have been passed,
@@ -814,7 +848,7 @@ impl TemplateCompiler {
         let macro_step_index = definition.expressions.len();
         // Assume the macro contains zero argument expressions to start, we'll update
         // this at the end of the function after we've compiled any argument expressions.
-        definition.push_macro_invocation(Rc::clone(&macro_ref), ExprRange::empty());
+        definition.push_macro_invocation(Arc::clone(&macro_ref), ExprRange::empty());
 
         // We'll step through the parameters one at a time, looking for a corresponding argument
         // expression for each. If the ratio of arguments to parameters isn't 1:1, we'll also
@@ -943,7 +977,7 @@ impl TemplateCompiler {
     fn insert_placeholder_none_invocations<D: Decoder>(
         tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
-        macro_ref: &Rc<Macro>,
+        macro_ref: &Macro,
         index: usize,
     ) -> Result<(), IonError> {
         // There are fewer args than parameters. That's ok as long as all of the remaining
@@ -1023,7 +1057,7 @@ impl TemplateCompiler {
     fn resolve_maybe_macro_id_expr<D: Decoder>(
         tdl_context: TdlContext<'_>,
         id_expr: Option<IonResult<LazyValue<'_, D>>>,
-    ) -> IonResult<Rc<Macro>> {
+    ) -> IonResult<Arc<Macro>> {
         // Get the name or address from the `Option<IonResult<LazyValue<_>>>` if possible, or
         // surface an appropriate error message.
         let value = match id_expr {
@@ -1043,7 +1077,7 @@ impl TemplateCompiler {
     fn resolve_macro_id_expr<D: Decoder>(
         tdl_context: TdlContext<'_>,
         id_expr: LazyValue<'_, D>,
-    ) -> IonResult<Rc<Macro>> {
+    ) -> IonResult<Arc<Macro>> {
         let macro_id = match id_expr.read()? {
             ValueRef::Symbol(s) => {
                 if let Some(name) = s.text() {
@@ -1268,7 +1302,7 @@ enum TdlSExpKind<'a, D: Decoder> {
     ///     (macro_id /*...*/)
     /// * Associated `Rc<Macro>` is a reference to the macro definition to which the `macro_id` referred.
     /// * Associated iterator returns the s-expression's remaining child expressions.
-    MacroInvocation(Rc<Macro>, SExpIterator<'a, D>),
+    MacroInvocation(Arc<Macro>, SExpIterator<'a, D>),
     /// An expression group being passed as an argument to a macro invocation.
     ///     (.. /*...*/)
     /// * Associated `Parameter` is the parameter to which this arg expression group is being passed.
@@ -1373,15 +1407,14 @@ struct TdlContext<'top> {
 
 #[cfg(test)]
 mod tests {
-    use rustc_hash::FxHashMap;
-    use std::rc::Rc;
-
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::template::{
         ExprRange, ParameterEncoding, TemplateBodyExpr, TemplateMacro, TemplateValue,
     };
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
     use crate::{Int, IntoAnnotations, IonResult, Macro, Symbol};
+    use rustc_hash::FxHashMap;
+    use std::sync::Arc;
 
     // XXX: The tests in this module compile inputs and expect a specific output. There is no "correct"
     // output, only correct behavior. As such, these tests are fragile; it is possible that optimizing
@@ -1409,14 +1442,14 @@ mod tests {
     fn expect_macro(
         definition: &TemplateMacro,
         index: usize,
-        expected_macro: Rc<Macro>,
+        expected_macro: Arc<Macro>,
         expected_num_args: usize,
     ) -> IonResult<()> {
         expect_step(
             definition,
             index,
             TemplateBodyExpr::macro_invocation(
-                Rc::clone(&expected_macro),
+                Arc::clone(&expected_macro),
                 // First arg position to last arg position (exclusive)
                 ExprRange::new(index..index + 1 + expected_num_args),
             ),

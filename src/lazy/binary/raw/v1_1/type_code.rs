@@ -37,7 +37,7 @@ pub enum OpcodeType {
     TypedNull,                   // 0xEB      -
     Nop,                         // 0xEC-0xED -
     SystemSymbolAddress,         // 0xEE
-    SystemMacroInvoke,           // 0xEF      -
+    SystemMacroEExpression,      // 0xEF      -
     DelimitedContainerClose,     // 0xF0
     ListDelimited,               // 0xF1
     SExpDelimited,               // 0xF2

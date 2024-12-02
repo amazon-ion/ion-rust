@@ -726,6 +726,10 @@ impl BinaryValueWriter_1_1<'_, '_> {
             MacroIdRef::LocalAddress(_address) => {
                 todo!("macros with addresses greater than {MAX_20_BIT_ADDRESS}");
             }
+            MacroIdRef::SystemAddress(address) => {
+                self.encoding_buffer
+                    .extend_from_slice_copy(&[0xEF, address.as_u8()]); // System e-expression
+            }
         };
 
         Ok(BinaryEExpWriter_1_1::new(
@@ -955,6 +959,7 @@ mod tests {
     use crate::lazy::encoder::value_writer::ValueWriter;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
     use crate::lazy::encoder::write_as_ion::{WriteAsIon, WriteAsSExp};
+    use crate::lazy::text::raw::v1_1::reader::{system_macros, MacroIdRef};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
@@ -2906,6 +2911,27 @@ mod tests {
             },
             &[
                 0x00, // Invoke macro address 0
+                0xA3, 0x66, 0x6f, 0x6f, // foo
+                0xA3, 0x62, 0x61, 0x72, // bar
+                0xA3, 0x62, 0x61, 0x7a, // baz
+            ],
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn write_system_macro_invocation() -> IonResult<()> {
+        encoding_test(
+            |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
+                let mut args =
+                    writer.eexp_writer(MacroIdRef::SystemAddress(system_macros::MAKE_STRING))?;
+                args.write_symbol("foo")?
+                    .write_symbol("bar")?
+                    .write_symbol("baz")?;
+                args.close()
+            },
+            &[
+                0xEF, 0x03, // Invoke system macro address 3
                 0xA3, 0x66, 0x6f, 0x6f, // foo
                 0xA3, 0x62, 0x61, 0x72, // bar
                 0xA3, 0x62, 0x61, 0x7a, // baz

@@ -1,4 +1,4 @@
-use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
+use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::template::{
     ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
     RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateMacro, TemplateMacroRef,
@@ -7,14 +7,15 @@ use crate::lazy::expanded::template::{
 use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, Symbol, TemplateBodyExpr};
+use compact_str::CompactString;
 use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::borrow::Cow;
-use std::rc::Rc;
+use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
-    name: Option<Rc<str>>,
+    name: Option<CompactString>,
     signature: MacroSignature,
     kind: MacroKind,
     // Compile-time heuristics that allow the reader to evaluate e-expressions lazily or using fewer
@@ -38,7 +39,7 @@ pub struct Macro {
 
 impl Macro {
     pub fn named(
-        name: impl Into<Rc<str>>,
+        name: impl Into<CompactString>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -64,7 +65,7 @@ impl Macro {
     }
 
     pub fn new(
-        name: Option<Rc<str>>,
+        name: Option<CompactString>,
         signature: MacroSignature,
         kind: MacroKind,
         expansion_analysis: ExpansionAnalysis,
@@ -80,8 +81,8 @@ impl Macro {
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
-    pub(crate) fn clone_name(&self) -> Option<Rc<str>> {
-        self.name.as_ref().map(Rc::clone)
+    pub(crate) fn clone_name(&self) -> Option<CompactString> {
+        self.name.clone()
     }
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
@@ -117,6 +118,8 @@ pub enum MacroKind {
     MakeSExp,
     Annotate,
     Template(TemplateBody),
+    // A placeholder for not-yet-implemented macros
+    ToDo,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -171,23 +174,17 @@ impl<'top> MacroRef<'top> {
 #[derive(Debug, Clone)]
 pub struct MacroTable {
     // Stores `Rc` references to the macro definitions to make cloning the table's contents cheaper.
-    macros_by_address: Vec<Rc<Macro>>,
+    macros_by_address: Vec<Arc<Macro>>,
     // Maps names to an address that can be used to query the Vec above.
-    macros_by_name: FxHashMap<Rc<str>, usize>,
+    macros_by_name: FxHashMap<CompactString, usize>,
 }
 
-thread_local! {
-    /// An instance of the Ion 1.1 system macro table is lazily instantiated once per thread,
-    /// minimizing the number of times macro compilation occurs.
-    ///
-    /// The thread-local instance holds `Rc` references to its macro names and macro definitions,
-    /// making its contents inexpensive to `clone()` and reducing the number of duplicate `String`s
-    /// being allocated over time.
-    ///
-    /// Each time the user constructs a reader, it clones the thread-local copy of the system macro
-    /// table.
-    pub static ION_1_1_SYSTEM_MACROS: MacroTable = MacroTable::construct_system_macro_table();
-}
+/// A lazily initialized singleton instance of the Ion 1.1 system macro table.
+///
+/// This instance is shared by all readers, minimizing the number of times that macro compilation
+/// and heap allocation occurs.
+pub static ION_1_1_SYSTEM_MACROS: LazyLock<MacroTable> =
+    LazyLock::new(MacroTable::construct_system_macro_table);
 
 impl Default for MacroTable {
     fn default() -> Self {
@@ -203,17 +200,18 @@ impl MacroTable {
         MacroKind::MakeSExp,
         MacroKind::Annotate,
     ];
-    pub const NUM_SYSTEM_MACROS: usize = 9;
+    // The system macros range from address 0 to 23
+    pub const NUM_SYSTEM_MACROS: usize = 24;
     // When a user defines new macros, this is the first ID that will be assigned. This value
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
-    fn compile_system_macros() -> Vec<Rc<Macro>> {
+    fn compile_system_macros() -> Vec<Arc<Macro>> {
         // We cannot compile template macros from source (text Ion) because that would require a Reader,
         // and a Reader would require system macros. To avoid this circular dependency, we manually
         // compile any TemplateMacros ourselves.
         vec![
-            Rc::new(Macro::named(
+            Arc::new(Macro::named(
                 "none",
                 MacroSignature::new(vec![]).unwrap(),
                 MacroKind::None,
@@ -232,81 +230,20 @@ impl MacroTable {
             //    (macro values (x*) x)
             //
             // It is effectively a user-addressable expression group.
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("values".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "expr_group",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("expr_group")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![TemplateBodyExpr::variable(0, ExprRange::new(0..1))],
                     annotations_storage: vec![],
                 },
-                expansion_analysis: ExpansionAnalysis::default(),
+                expansion_analysis: ExpansionAnalysis::no_assertions_made(),
             })),
-            Rc::new(Macro::named(
-                "make_string",
-                MacroSignature::new(vec![Parameter::new(
-                    "text_values",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
-                MacroKind::MakeString,
-                ExpansionAnalysis {
-                    could_produce_system_value: false,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: true,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::String,
-                        num_annotations: 0,
-                    }),
-                },
-            )),
-            Rc::new(Macro::named(
-                "make_sexp",
-                MacroSignature::new(vec![Parameter::new(
-                    "sequences",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
-                MacroKind::MakeSExp,
-                ExpansionAnalysis {
-                    // `make_sexp` produces an unannotated s-expression, so it can't make a system
-                    // value when it's the body of a macro. (It would need to be nested in a call
-                    // to `annotate`.
-                    could_produce_system_value: false,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: true,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 0,
-                    }),
-                },
-            )),
-            Rc::new(Macro::named(
+            Arc::new(Macro::named(
                 "annotate",
                 MacroSignature::new(vec![
-                    Parameter::new(
-                        "annotations",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ZeroOrMore,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
-                    Parameter::new(
-                        "value_to_annotate",
-                        ParameterEncoding::Tagged,
-                        ParameterCardinality::ExactlyOne,
-                        RestSyntaxPolicy::NotAllowed,
-                    ),
+                    Parameter::zero_or_more("annotations"),
+                    Parameter::required("value_to_annotate"),
                 ])
                 .unwrap(),
                 MacroKind::Annotate,
@@ -317,6 +254,67 @@ impl MacroTable {
                     expansion_singleton: None,
                 },
             )),
+            Arc::new(Macro::named(
+                "make_string",
+                MacroSignature::new(vec![Parameter::rest("text_values")]).unwrap(),
+                MacroKind::MakeString,
+                ExpansionAnalysis::single_application_value(IonType::String),
+            )),
+            Arc::new(Macro::named(
+                "make_symbol",
+                MacroSignature::new(vec![Parameter::rest("text_values")]).unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Symbol),
+            )),
+            Arc::new(Macro::named(
+                "make_blob",
+                MacroSignature::new(vec![Parameter::rest("lob_values")]).unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Blob),
+            )),
+            Arc::new(Macro::named(
+                "make_decimal",
+                MacroSignature::new(vec![
+                    Parameter::required("coefficient"),
+                    Parameter::required("coefficient"),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Decimal),
+            )),
+            Arc::new(Macro::named(
+                "make_timestamp",
+                MacroSignature::new(vec![
+                    Parameter::required("year"),
+                    Parameter::optional("month"),
+                    Parameter::optional("day"),
+                    Parameter::optional("hour"),
+                    Parameter::optional("minute"),
+                    Parameter::optional("second"),
+                    Parameter::optional("offset_minutes"),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Decimal),
+            )),
+            Arc::new(Macro::named(
+                "make_list",
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::List),
+            )),
+            Arc::new(Macro::named(
+                "make_sexp",
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
+                MacroKind::MakeSExp,
+                ExpansionAnalysis::single_application_value(IonType::SExp),
+            )),
+            Arc::new(Macro::named(
+                "make_struct",
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
+                MacroKind::MakeSExp,
+                ExpansionAnalysis::single_application_value(IonType::Struct),
+            )),
             // This macro is equivalent to:
             //    (macro set_symbols (symbols*)
             //      $ion_encoding::(
@@ -326,15 +324,9 @@ impl MacroTable {
             //        (macro_table $ion_encoding)
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_symbols".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "symbols",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("symbols")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -398,16 +390,7 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
             // This macro is equivalent to:
             //    (macro add_symbols (symbols*)
@@ -418,15 +401,9 @@ impl MacroTable {
             //        (macro_table $ion_encoding)
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_symbols".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "symbols",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("symbols")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -496,16 +473,7 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
             // This macro is equivalent to:
             //    (macro set_macros (macro_definitions*)
@@ -516,15 +484,9 @@ impl MacroTable {
             //        (macro_table (%macro_definitions))
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("set_macros".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "macro_definitions",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("macro_definitions")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -583,16 +545,7 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
             // This macro is equivalent to:
             //    (macro add_macros (macro_definitions*)
@@ -603,15 +556,9 @@ impl MacroTable {
             //        (macro_table $ion_encoding (%macro_definitions))
             //      )
             //    )
-            Rc::new(Macro::from_template_macro(TemplateMacro {
+            Arc::new(Macro::from_template_macro(TemplateMacro {
                 name: Some("add_macros".into()),
-                signature: MacroSignature::new(vec![Parameter::new(
-                    "macro_definitions",
-                    ParameterEncoding::Tagged,
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                signature: MacroSignature::new(vec![Parameter::rest("macro_definitions")]).unwrap(),
                 body: TemplateBody {
                     expressions: vec![
                         // The `$ion_encoding::(...)` s-expression
@@ -676,17 +623,87 @@ impl MacroTable {
                     ],
                     annotations_storage: vec![Symbol::owned("$ion_encoding")],
                 },
-                expansion_analysis: ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: Some(ExpansionSingleton {
-                        is_null: false,
-                        ion_type: IonType::SExp,
-                        num_annotations: 1,
-                    }),
-                },
+                expansion_analysis: ExpansionAnalysis::directive(),
             })),
+            Arc::new(Macro::named(
+                "use",
+                MacroSignature::new(vec![
+                    Parameter::required("catalog_key"),
+                    Parameter::optional("version"),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::directive(),
+            )),
+            Arc::new(Macro::named(
+                "parse_ion",
+                MacroSignature::new(vec![Parameter::new(
+                    "data",
+                    ParameterEncoding::Tagged, // TODO: Support for other tagless types
+                    ParameterCardinality::ZeroOrMore,
+                    RestSyntaxPolicy::Allowed,
+                )])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "repeat",
+                MacroSignature::new(vec![Parameter::required("n"), Parameter::rest("expr")])
+                    .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "delta",
+                MacroSignature::new(vec![Parameter::rest("deltas")]).unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis {
+                    could_produce_system_value: false,
+                    must_produce_exactly_one_value: false,
+                    can_be_lazily_evaluated_at_top_level: true,
+                    expansion_singleton: None,
+                },
+            )),
+            Arc::new(Macro::named(
+                "flatten",
+                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "sum",
+                MacroSignature::new(vec![Parameter::required("a"), Parameter::required("b")])
+                    .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Int),
+            )),
+            Arc::new(Macro::named(
+                "meta",
+                MacroSignature::new(vec![Parameter::rest("anything")]).unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
+            Arc::new(Macro::named(
+                "make_field",
+                MacroSignature::new(vec![
+                    Parameter::required("field_name"),
+                    Parameter::required("field_value"),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Struct),
+            )),
+            Arc::new(Macro::named(
+                "default",
+                MacroSignature::new(vec![
+                    Parameter::zero_or_more("expr"),
+                    Parameter::rest("default_expr"),
+                ])
+                .unwrap(),
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            )),
             // Adding a new system macro? Make sure you update FIRST_USER_MACRO_ID
         ]
     }
@@ -707,8 +724,9 @@ impl MacroTable {
         }
     }
 
+    // TODO: Remove this
     pub fn with_system_macros() -> Self {
-        ION_1_1_SYSTEM_MACROS.with(|system_macros| system_macros.clone())
+        ION_1_1_SYSTEM_MACROS.clone()
     }
 
     pub fn empty() -> Self {
@@ -731,6 +749,9 @@ impl MacroTable {
         match id {
             MacroIdRef::LocalName(name) => self.macro_with_name(name),
             MacroIdRef::LocalAddress(address) => self.macro_at_address(address),
+            MacroIdRef::SystemAddress(system_address) => {
+                ION_1_1_SYSTEM_MACROS.macro_at_address(system_address.as_usize())
+            }
         }
     }
 
@@ -749,22 +770,25 @@ impl MacroTable {
         Some(MacroRef { address, reference })
     }
 
-    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Rc<Macro>> {
+    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Arc<Macro>> {
         let address = *self.macros_by_name.get(name)?;
         let reference = self.macros_by_address.get(address)?;
-        Some(Rc::clone(reference))
+        Some(Arc::clone(reference))
     }
 
-    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Rc<Macro>> {
+    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Arc<Macro>> {
         let reference = self.macros_by_address.get(address)?;
-        Some(Rc::clone(reference))
+        Some(Arc::clone(reference))
     }
 
-    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef<'_>) -> Option<Rc<Macro>> {
+    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef<'_>) -> Option<Arc<Macro>> {
         use MacroIdRef::*;
         match macro_id {
             LocalName(name) => self.clone_macro_with_name(name),
             LocalAddress(address) => self.clone_macro_with_address(address),
+            SystemAddress(system_address) => {
+                ION_1_1_SYSTEM_MACROS.clone_macro_with_address(system_address.as_usize())
+            }
         }
     }
 
@@ -772,10 +796,10 @@ impl MacroTable {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
         if let Some(name) = &template.name {
-            if self.macros_by_name.contains_key(name.as_ref()) {
+            if self.macros_by_name.contains_key(name.as_str()) {
                 return IonResult::decoding_error(format!("macro named '{name}' already exists"));
             }
-            self.macros_by_name.insert(Rc::clone(name), id);
+            self.macros_by_name.insert(name.clone(), id);
         }
 
         let new_macro = Macro::new(
@@ -785,7 +809,7 @@ impl MacroTable {
             template.expansion_analysis,
         );
 
-        self.macros_by_address.push(Rc::new(new_macro));
+        self.macros_by_address.push(Arc::new(new_macro));
         Ok(id)
     }
 
@@ -793,14 +817,14 @@ impl MacroTable {
         for macro_ref in &other.macros_by_address {
             let next_id = self.len();
             if let Some(name) = macro_ref.clone_name() {
-                if self.macros_by_name.contains_key(name.as_ref()) {
+                if self.macros_by_name.contains_key(name.as_str()) {
                     return IonResult::decoding_error(format!(
                         "macro named '{name}' already exists"
                     ));
                 }
                 self.macros_by_name.insert(name, next_id);
             }
-            self.macros_by_address.push(Rc::clone(macro_ref))
+            self.macros_by_address.push(Arc::clone(macro_ref))
         }
         Ok(())
     }

@@ -53,6 +53,7 @@ base64 = "0.12"
 # chrono < 0.5 brings in a deprecated version of the `time` crate via `oldtime` feature by default
 # this makes it explicitly not do this as there is an advisory warning against this:
 # See: https://github.com/chronotope/chrono/issues/602
+compact_str = "0.8.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 delegate = "0.12.0"
 thiserror = "1.0"

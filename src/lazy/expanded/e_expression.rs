@@ -127,6 +127,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
                 environment = self.new_evaluation_environment()?;
                 MacroExpansionKind::Template(TemplateExpansion::new(template_ref))
             }
+            MacroKind::ToDo => todo!("system macro {}", invoked_macro.name().unwrap()),
         };
         Ok(MacroExpansion::new(
             self.context(),

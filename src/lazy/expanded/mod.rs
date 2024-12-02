@@ -33,12 +33,11 @@
 //! that are ignored by the reader do not incur the cost of symbol table resolution.
 
 use bumpalo::Bump as BumpAllocator;
+use sequence::{LazyExpandedList, LazyExpandedSExp};
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
-use std::rc::Rc;
-
-use sequence::{LazyExpandedList, LazyExpandedSExp};
+use std::sync::Arc;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
@@ -191,13 +190,13 @@ impl<'top> EncodingContextRef<'top> {
         self.context.system_module.macro_table()
     }
 
-    pub(crate) fn none_macro(&self) -> Rc<Macro> {
+    pub(crate) fn none_macro(&self) -> Arc<Macro> {
         self.system_macro_table()
             .clone_macro_with_name("none")
             .expect("`none` macro in system macro table")
     }
 
-    pub(crate) fn values_macro(&self) -> Rc<Macro> {
+    pub(crate) fn values_macro(&self) -> Arc<Macro> {
         self.system_macro_table()
             .clone_macro_with_name("values")
             .expect("`values` macro in system macro table")

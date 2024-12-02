@@ -38,8 +38,8 @@ use crate::lazy::text::raw::sequence::{RawTextListIterator_1_0, RawTextSExpItera
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
 use crate::lazy::text::raw::v1_1::reader::{
     LazyRawTextFieldName_1_1, MacroIdRef, RawTextListIterator_1_1, RawTextSExpIterator_1_1,
-    RawTextStructIterator_1_1, TextEExpression_1_1, TextListSpanFinder_1_1, TextSExpSpanFinder_1_1,
-    TextStructSpanFinder_1_1,
+    RawTextStructIterator_1_1, SystemMacroAddress, TextEExpression_1_1, TextListSpanFinder_1_1,
+    TextSExpSpanFinder_1_1, TextStructSpanFinder_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
@@ -49,7 +49,7 @@ use crate::{
     v1_1, Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, TimestampPrecision,
 };
 
-use crate::lazy::expanded::macro_table::Macro;
+use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use bumpalo::collections::Vec as BumpVec;
@@ -1177,8 +1177,49 @@ impl<'top> TextBuffer<'top> {
         Ok((exp_body_after_id, id))
     }
 
+    pub fn match_system_eexp_id(self) -> IonParseResult<'top, MacroIdRef<'top>> {
+        let (after_system_annotation, _matched_system_annotation) = recognize(tuple((
+            tag("$ion"),
+            whitespace_and_then(tag("::")),
+            Self::match_optional_whitespace,
+        )))
+        .parse(self)?;
+
+        let (remaining, id) = alt((
+            Self::match_e_expression_address,
+            Self::match_e_expression_name,
+        ))
+        .parse(after_system_annotation)?;
+        let system_id = match id {
+            MacroIdRef::LocalName(name) => {
+                let Some(macro_address) = ION_1_1_SYSTEM_MACROS.address_for_name(name) else {
+                    return fatal_parse_error(
+                        after_system_annotation,
+                        format!("Found unrecognized system macro name: '{}'", name),
+                    );
+                };
+                // This address came from the system table, so we don't need to validate it.
+                MacroIdRef::SystemAddress(SystemMacroAddress::new_unchecked(macro_address))
+            }
+            MacroIdRef::LocalAddress(address) => {
+                let Some(system_address) = SystemMacroAddress::new(address) else {
+                    return fatal_parse_error(
+                        after_system_annotation,
+                        format!("Found out-of-bounds system macro address {}", address),
+                    );
+                };
+                MacroIdRef::SystemAddress(system_address)
+            }
+            MacroIdRef::SystemAddress(_) => {
+                unreachable!("`match_e_expression_address` always returns a LocalAddress")
+            }
+        };
+        Ok((remaining, system_id))
+    }
+
     pub fn match_e_expression_id(self) -> IonParseResult<'top, MacroIdRef<'top>> {
         let (input_after_id, id) = alt((
+            Self::match_system_eexp_id,
             Self::match_e_expression_name,
             Self::match_e_expression_address,
         ))(self)?;
