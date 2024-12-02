@@ -66,7 +66,7 @@ pub enum MatchedValue<'top, D: Decoder> {
     Struct(&'top [LazyRawFieldExpr<'top, D>]),
 }
 
-impl<'top, D: Decoder> PartialEq for MatchedValue<'top, D> {
+impl<D: Decoder> PartialEq for MatchedValue<'_, D> {
     fn eq(&self, other: &Self) -> bool {
         use MatchedValue::*;
         match (self, other) {
@@ -181,7 +181,7 @@ impl MatchedInt {
     }
 
     /// Attempts to finish reading the partially parsed integer.
-    pub fn read(&self, matched_input: TextBuffer) -> IonResult<Int> {
+    pub fn read(&self, matched_input: TextBuffer<'_>) -> IonResult<Int> {
         let digits = matched_input.slice_to_end(self.digits_offset as usize);
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
@@ -233,7 +233,7 @@ impl MatchedFloat {
     // Floats that take more than 32 bytes of text to represent will heap allocate a larger buffer.
     const STACK_ALLOC_BUFFER_CAPACITY: usize = 32;
 
-    pub fn read(&self, matched_input: TextBuffer) -> IonResult<f64> {
+    pub fn read(&self, matched_input: TextBuffer<'_>) -> IonResult<f64> {
         match self {
             MatchedFloat::PositiveInfinity => return Ok(f64::INFINITY),
             MatchedFloat::NegativeInfinity => return Ok(f64::NEG_INFINITY),
@@ -292,7 +292,7 @@ impl MatchedDecimal {
         }
     }
 
-    pub fn read(&self, matched_input: TextBuffer) -> IonResult<Decimal> {
+    pub fn read(&self, matched_input: TextBuffer<'_>) -> IonResult<Decimal> {
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
 
@@ -511,8 +511,8 @@ impl MatchedString {
 }
 
 fn replace_escapes_with_byte_values(
-    matched_input: TextBuffer,
-    sanitized: &mut BumpVec<u8>,
+    matched_input: TextBuffer<'_>,
+    sanitized: &mut BumpVec<'_, u8>,
     // If the text being escaped is in a long string or a clob, then unescaped \r\n and \r get
     // normalized to \n.
     normalize_newlines: bool,
@@ -564,7 +564,7 @@ fn replace_escapes_with_byte_values(
 #[cold]
 fn normalize_newline<'data>(
     remaining: TextBuffer<'data>,
-    sanitized: &mut BumpVec<u8>,
+    sanitized: &mut BumpVec<'_, u8>,
     escape_offset: usize,
 ) -> TextBuffer<'data> {
     // Insert the normalized newline
@@ -585,7 +585,7 @@ fn normalize_newline<'data>(
 /// sequence.
 fn decode_escape_into_bytes<'data>(
     input: TextBuffer<'data>,
-    sanitized: &mut BumpVec<u8>,
+    sanitized: &mut BumpVec<'_, u8>,
     support_unicode_escapes: bool,
 ) -> IonResult<TextBuffer<'data>> {
     // Note that by the time this method has been called, the parser has already confirmed that
@@ -663,7 +663,7 @@ fn decode_escape_into_bytes<'data>(
 fn decode_hex_digits_escape<'data>(
     num_digits: usize,
     input: TextBuffer<'data>,
-    sanitized: &mut BumpVec<u8>,
+    sanitized: &mut BumpVec<'_, u8>,
     support_unicode_escapes: bool,
 ) -> IonResult<TextBuffer<'data>> {
     if input.len() < num_digits {
@@ -745,7 +745,7 @@ fn decode_hex_digits_escape<'data>(
 /// with the specified high surrogate. Appends the UTF-8 encoding of the resulting Unicode scalar
 /// to `sanitized` and returns the remaining text in the buffer.
 fn complete_surrogate_pair<'data>(
-    sanitized: &mut BumpVec<u8>,
+    sanitized: &mut BumpVec<'_, u8>,
     high_surrogate: u32,
     input: TextBuffer<'data>,
 ) -> IonResult<TextBuffer<'data>> {
@@ -920,7 +920,7 @@ impl MatchedTimestamp {
         self
     }
 
-    pub(crate) fn read(&self, matched_input: TextBuffer) -> IonResult<Timestamp> {
+    pub(crate) fn read(&self, matched_input: TextBuffer<'_>) -> IonResult<Timestamp> {
         // The parser has already confirmed that each subfield is made of ASCII digits,
         // so UTF-8 validation and parsing cannot fail. `unwrap()` is used in such cases
         // throughout.
@@ -1542,7 +1542,7 @@ mod tests {
             matched.read(context.allocator(), buffer)
         }
 
-        fn expect_clob_error(context: EncodingContextRef, data: &str) {
+        fn expect_clob_error(context: EncodingContextRef<'_>, data: &str) {
             let actual = read_clob(context, data);
             assert!(
                 actual.is_err(),
@@ -1550,7 +1550,7 @@ mod tests {
             );
         }
 
-        fn expect_clob(context: EncodingContextRef, data: &str, expected: &str) {
+        fn expect_clob(context: EncodingContextRef<'_>, data: &str, expected: &str) {
             let result = read_clob(context, data);
             assert!(
                 result.is_ok(),

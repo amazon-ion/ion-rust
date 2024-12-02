@@ -103,7 +103,7 @@ pub enum LazyRawAnyVersionMarkerKind<'top> {
     Binary_1_1(LazyRawBinaryVersionMarker_1_1<'top>),
 }
 
-impl<'top> LazyRawAnyVersionMarker<'top> {
+impl LazyRawAnyVersionMarker<'_> {
     pub fn encoding(&self) -> IonEncoding {
         use crate::lazy::any_encoding::LazyRawAnyVersionMarkerKind::*;
         match self.encoding {
@@ -127,7 +127,7 @@ impl<'top> HasSpan<'top> for LazyRawAnyVersionMarker<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawAnyVersionMarker<'top> {
+impl HasRange for LazyRawAnyVersionMarker<'_> {
     fn range(&self) -> Range<usize> {
         use LazyRawAnyVersionMarkerKind::*;
         match self.encoding {
@@ -240,7 +240,7 @@ impl<'top> HasSpan<'top> for LazyRawAnyEExpression<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawAnyEExpression<'top> {
+impl HasRange for LazyRawAnyEExpression<'_> {
     fn range(&self) -> Range<usize> {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
@@ -286,7 +286,7 @@ pub enum AnyEExpArgGroupKind<'top> {
     Binary_1_1(BinaryEExpArgGroup<'top>),
 }
 
-impl<'top> AnyEExpArgGroupKind<'top> {
+impl AnyEExpArgGroupKind<'_> {
     fn encoding(&self) -> &ParameterEncoding {
         match self {
             AnyEExpArgGroupKind::Text_1_1(g) => g.encoding(),
@@ -295,7 +295,7 @@ impl<'top> AnyEExpArgGroupKind<'top> {
     }
 }
 
-impl<'top> HasRange for AnyEExpArgGroup<'top> {
+impl HasRange for AnyEExpArgGroup<'_> {
     fn range(&self) -> Range<usize> {
         match self.kind {
             AnyEExpArgGroupKind::Text_1_1(group) => group.range(),
@@ -445,7 +445,7 @@ pub struct LazyRawAnyReader<'data> {
     encoding_reader: RawReaderKind<'data>,
 }
 
-impl<'data> LazyRawAnyReader<'data> {
+impl LazyRawAnyReader<'_> {
     fn detect_encoding(data: &[u8]) -> IonEncoding {
         const BINARY_1_0_IVM: &[u8] = &[0xEA, 0x01, 0x00, 0xE0];
 
@@ -478,7 +478,7 @@ impl<'data> RawReaderKind<'data> {
         data: &'data [u8],
         stream_offset: usize,
         encoding_hint: IonEncoding,
-    ) -> RawReaderKind {
+    ) -> RawReaderKind<'data> {
         use IonEncoding::*;
         match encoding_hint {
             Text_1_0 => RawReaderKind::Text_1_0(LazyRawTextReader_1_0::resume_at_offset(
@@ -659,7 +659,7 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         }
 
         use RawReaderKind::*;
-        let item: LazyRawStreamItem<AnyEncoding> = match &mut self.encoding_reader {
+        let item: LazyRawStreamItem<'_, AnyEncoding> = match &mut self.encoding_reader {
             Text_1_0(r) => r.next(context)?.into(),
             Binary_1_0(r) => r.next()?.into(),
             Text_1_1(r) => r.next(context)?.into(),
@@ -1008,7 +1008,7 @@ impl<'top> HasSpan<'top> for LazyRawAnyValue<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawAnyValue<'top> {
+impl HasRange for LazyRawAnyValue<'_> {
     fn range(&self) -> Range<usize> {
         use LazyRawValueKind::*;
         match &self.encoding {
@@ -1490,7 +1490,7 @@ impl<'top> HasSpan<'top> for LazyRawAnyFieldName<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawAnyFieldName<'top> {
+impl HasRange for LazyRawAnyFieldName<'_> {
     fn range(&self) -> Range<usize> {
         use LazyRawFieldNameKind::*;
         match self.encoding {
@@ -1817,8 +1817,8 @@ mod tests {
     }
 
     fn expect_version_change(
-        context_ref: EncodingContextRef,
-        reader: &mut LazyRawAnyReader,
+        context_ref: EncodingContextRef<'_>,
+        reader: &mut LazyRawAnyReader<'_>,
         encoding_before: IonEncoding,
         encoding_after: IonEncoding,
     ) -> IonResult<()> {
@@ -1835,8 +1835,8 @@ mod tests {
     }
 
     fn expect_int(
-        context_ref: EncodingContextRef,
-        reader: &mut LazyRawAnyReader,
+        context_ref: EncodingContextRef<'_>,
+        reader: &mut LazyRawAnyReader<'_>,
         expected_encoding: IonEncoding,
         expected_int: i64,
     ) -> IonResult<()> {

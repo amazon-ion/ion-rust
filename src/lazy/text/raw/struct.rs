@@ -100,7 +100,7 @@ impl<'top> HasSpan<'top> for LazyRawTextFieldName_1_0<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawTextFieldName_1_0<'top> {
+impl HasRange for LazyRawTextFieldName_1_0<'_> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }
@@ -209,7 +209,7 @@ mod tests {
         // occupy the specified input ranges.
         type FieldNameAndRange<'a> = (&'a str, Range<usize>);
         type FieldTest<'a> = (&'a str, &'a [FieldNameAndRange<'a>]);
-        let tests: &[FieldTest] = &[
+        let tests: &[FieldTest<'_>] = &[
             // (Ion input, expected ranges of the struct's field names)
             ("{a:1}", &[("a", 1..2)]),
             ("{a: 1}", &[("a", 1..2)]),

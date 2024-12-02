@@ -15,7 +15,7 @@ const fn init_bytes_needed_cache() -> [u8; 129] {
     while leading_zeros < BITS_PER_U128 {
         let magnitude_bits_needed = 128 - leading_zeros;
         cache[leading_zeros] =
-            ((magnitude_bits_needed + BITS_PER_ENCODED_BYTE - 1) / BITS_PER_ENCODED_BYTE) as u8;
+            magnitude_bits_needed.div_ceil(BITS_PER_ENCODED_BYTE) as u8;
         leading_zeros += 1;
     }
     // Special case: 128 leading zeros means it's `0i128`, which requires one byte.
@@ -274,7 +274,7 @@ impl FlexUInt {
     }
 
     #[inline]
-    pub(crate) fn encode_opcode_and_length(output: &mut BumpVec<u8>, opcode: u8, length: u64) {
+    pub(crate) fn encode_opcode_and_length(output: &mut BumpVec<'_, u8>, opcode: u8, length: u64) {
         // In the common case, the length fits in a single FlexUInt byte. We can perform a single
         // `reserve`/`memcopy` to get both the opcode and the length into the buffer.
         if length < 127 {

@@ -185,7 +185,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 }
 
 impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
-    type ValueWriter<'a> = ApplicationValueWriter<'a, <E::Writer<Vec<u8>> as MakeValueWriter>::ValueWriter<'a>>
+    type ValueWriter<'a>
+        = ApplicationValueWriter<'a, <E::Writer<Vec<u8>> as MakeValueWriter>::ValueWriter<'a>>
     where
         Self: 'a;
 
@@ -233,7 +234,7 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
     }
 }
 
-impl<'a, 'value, 'top> ApplicationValueWriter<'a, BinaryValueWriter_1_1<'value, 'top>> {
+impl ApplicationValueWriter<'_, BinaryValueWriter_1_1<'_, '_>> {
     pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
         self.value_writer_config = self
             .value_writer_config
@@ -259,8 +260,11 @@ impl<'a, 'value, 'top> ApplicationValueWriter<'a, BinaryValueWriter_1_1<'value, 
     }
 }
 
-impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value, V> {
-    type AnnotatedValueWriter<'a> = ApplicationValueWriter<'a, V::AnnotatedValueWriter<'a>> where Self: 'a;
+impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
+    type AnnotatedValueWriter<'a>
+        = ApplicationValueWriter<'a, V::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         mut self,
@@ -293,7 +297,7 @@ impl<'value, V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'value
     }
 }
 
-impl<'value, V: ValueWriter> ApplicationValueWriter<'value, V> {
+impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
     /// Converts each annotation in `annotations` to a symbol ID, adding symbols to the symbol table
     /// as necessary. If one of the annotations is a symbol ID that is not in the symbol table,
     /// returns an `Err`.
@@ -531,8 +535,9 @@ impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
     }
 }
 
-impl<'value, V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'value, V> {
-    type ValueWriter<'a> = ApplicationValueWriter<'a, <V::StructWriter as MakeValueWriter>::ValueWriter<'a>>
+impl<V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'_, V> {
+    type ValueWriter<'a>
+        = ApplicationValueWriter<'a, <V::StructWriter as MakeValueWriter>::ValueWriter<'a>>
     where
         Self: 'a;
 
@@ -545,7 +550,7 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'value,
     }
 }
 
-impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V> {
+impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         let text = match name.as_raw_symbol_ref() {
             // This is an application-level struct writer. It is expected that method calls will
@@ -577,7 +582,7 @@ impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V>
         }
 
         // Otherwise, see if the symbol is already in the symbol table.
-        let token: RawSymbolRef = match self.encoding.symbol_table.sid_for(&text) {
+        let token: RawSymbolRef<'_> = match self.encoding.symbol_table.sid_for(&text) {
             // If so, use the existing ID.
             Some(sid) => sid.into(),
             // If it's not but the struct writer is configured to intern new text, add it to the
@@ -597,7 +602,7 @@ impl<'value, V: ValueWriter> FieldEncoder for ApplicationStructWriter<'value, V>
     }
 }
 
-impl<'value, V: ValueWriter> StructWriter for ApplicationStructWriter<'value, V> {
+impl<V: ValueWriter> StructWriter for ApplicationStructWriter<'_, V> {
     fn field_writer<'a>(&'a mut self, name: impl Into<RawSymbolRef<'a>>) -> FieldWriter<'a, Self> {
         FieldWriter::new(name.into(), self.value_writer_config, self)
     }
@@ -631,8 +636,9 @@ impl<'value, V: ValueWriter> ApplicationListWriter<'value, V> {
     }
 }
 
-impl<'value, V: ValueWriter> MakeValueWriter for ApplicationListWriter<'value, V> {
-    type ValueWriter<'a> = ApplicationValueWriter<'a, <V::ListWriter as MakeValueWriter>::ValueWriter<'a>>
+impl<V: ValueWriter> MakeValueWriter for ApplicationListWriter<'_, V> {
+    type ValueWriter<'a>
+        = ApplicationValueWriter<'a, <V::ListWriter as MakeValueWriter>::ValueWriter<'a>>
     where
         Self: 'a;
 
@@ -645,7 +651,7 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationListWriter<'value, V
     }
 }
 
-impl<'value, V: ValueWriter> SequenceWriter for ApplicationListWriter<'value, V> {
+impl<V: ValueWriter> SequenceWriter for ApplicationListWriter<'_, V> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -673,9 +679,11 @@ impl<'value, V: ValueWriter> ApplicationSExpWriter<'value, V> {
     }
 }
 
-impl<'value, V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'value, V> {
-    type ValueWriter<'a> =
-        ApplicationValueWriter<'a, <V::SExpWriter as MakeValueWriter>::ValueWriter<'a>> where Self: 'a;
+impl<V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'_, V> {
+    type ValueWriter<'a>
+        = ApplicationValueWriter<'a, <V::SExpWriter as MakeValueWriter>::ValueWriter<'a>>
+    where
+        Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         ApplicationValueWriter::new(
@@ -686,7 +694,7 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'value, V
     }
 }
 
-impl<'value, V: ValueWriter> SequenceWriter for ApplicationSExpWriter<'value, V> {
+impl<V: ValueWriter> SequenceWriter for ApplicationSExpWriter<'_, V> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -714,7 +722,7 @@ impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
     }
 }
 
-impl<'value, V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'value, V> {
+impl<V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'_, V> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -722,8 +730,14 @@ impl<'value, V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'value, V>
     }
 }
 
-impl<'value, V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'value, V> {
-    type ValueWriter<'a> = ApplicationValueWriter<'a, <<V as ValueWriter>::EExpWriter as MakeValueWriter>::ValueWriter<'a>> where Self: 'a;
+impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
+    type ValueWriter<'a>
+        = ApplicationValueWriter<
+        'a,
+        <<V as ValueWriter>::EExpWriter as MakeValueWriter>::ValueWriter<'a>,
+    >
+    where
+        Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
         ApplicationValueWriter::new(
@@ -734,7 +748,7 @@ impl<'value, V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'value, V
     }
 }
 
-impl<'value, V: ValueWriter> EExpWriter for ApplicationEExpWriter<'value, V> {
+impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
     // Default methods
     fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
         self.raw_eexp_writer.write_flex_uint(value)
@@ -847,7 +861,7 @@ mod tests {
 
     fn annotations_sequence_encoding_test(
         encoding: AnnotationsEncoding,
-        sequence: &[RawSymbolRef],
+        sequence: &[RawSymbolRef<'_>],
         expected_encoding: &[u8],
     ) -> IonResult<()> {
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
@@ -942,7 +956,7 @@ mod tests {
     /// For simplicity, the value for each field is the integer 0.
     fn struct_field_encoding_test(
         encoding: FieldNameEncoding,
-        field_names_and_encodings: &[(RawSymbolRef, &[u8])],
+        field_names_and_encodings: &[(RawSymbolRef<'_>, &[u8])],
     ) -> IonResult<()> {
         // Configure a struct writer that uses the requested field name encoding
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;

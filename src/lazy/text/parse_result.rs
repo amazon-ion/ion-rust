@@ -120,8 +120,8 @@ impl<'data> From<InvalidInputError<'data>> for IonParseError<'data> {
 }
 
 // We cannot provide an analogous impl for `Incomplete` because it is missing necessary data.
-impl<'data> From<InvalidInputError<'data>> for IonError {
-    fn from(invalid_input_error: InvalidInputError) -> Self {
+impl From<InvalidInputError<'_>> for IonError {
+    fn from(invalid_input_error: InvalidInputError<'_>) -> Self {
         let mut message = String::from(
             invalid_input_error
                 .description()
@@ -329,9 +329,9 @@ impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
 /// Constructs a `nom::Err::Failure` that contains an `IonParseError` describing the problem
 /// that was encountered.
 pub(crate) fn fatal_parse_error<D: Into<Cow<'static, str>>, O>(
-    input: TextBuffer,
+    input: TextBuffer<'_>,
     description: D,
-) -> IonParseResult<O> {
+) -> IonParseResult<'_, O> {
     Err(nom::Err::Failure(
         InvalidInputError::new(input)
             .with_description(description)
@@ -342,7 +342,11 @@ pub(crate) fn fatal_parse_error<D: Into<Cow<'static, str>>, O>(
 /// An extension trait that allows a [std::result::Result] of any kind to be mapped to an
 /// `IonParseResult` concisely.
 pub(crate) trait OrFatalParseError<T> {
-    fn or_fatal_parse_error<L: Display>(self, input: TextBuffer, label: L) -> IonParseResult<T>;
+    fn or_fatal_parse_error<L: Display>(
+        self,
+        input: TextBuffer<'_>,
+        label: L,
+    ) -> IonParseResult<'_, T>;
 }
 
 /// See the documentation for [OrFatalParseError].
@@ -350,7 +354,11 @@ impl<T, E> OrFatalParseError<T> for Result<T, E>
 where
     E: Debug,
 {
-    fn or_fatal_parse_error<L: Display>(self, input: TextBuffer, label: L) -> IonParseResult<T> {
+    fn or_fatal_parse_error<L: Display>(
+        self,
+        input: TextBuffer<'_>,
+        label: L,
+    ) -> IonParseResult<'_, T> {
         match self {
             Ok(value) => Ok((input, value)),
             Err(error) => fatal_parse_error(input, format!("{label}: {error:?}")),

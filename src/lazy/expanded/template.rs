@@ -499,7 +499,7 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
             .get(name_expr_address)?
             .kind()
             .require_element();
-        let name: SymbolRef = match &name_element.value {
+        let name: SymbolRef<'_> = match &name_element.value {
             TemplateValue::Symbol(s) => s.into(),
             TemplateValue::String(s) => s.text().into(),
             _ => unreachable!("template struct field had a non-text field name"),
@@ -1044,7 +1044,7 @@ impl<'top, D: Decoder> TemplateExprGroup<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for TemplateExprGroup<'top, D> {
+impl<D: Decoder> Debug for TemplateExprGroup<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -1073,7 +1073,7 @@ pub struct TemplateMacroInvocation<'top, D: Decoder> {
     arg_expressions_range: ExprRange,
 }
 
-impl<'top, D: Decoder> Debug for TemplateMacroInvocation<'top, D> {
+impl<D: Decoder> Debug for TemplateMacroInvocation<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

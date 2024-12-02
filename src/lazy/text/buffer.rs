@@ -54,7 +54,7 @@ use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use bumpalo::collections::Vec as BumpVec;
 
-impl<'a> Debug for TextBuffer<'a> {
+impl Debug for TextBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         const CHARS_TO_SHOW: usize = 64;
         write!(f, "TextBuffer {{")?;
@@ -116,7 +116,7 @@ pub struct TextBuffer<'top> {
     pub(crate) context: EncodingContextRef<'top>,
 }
 
-impl<'a> PartialEq for TextBuffer<'a> {
+impl PartialEq for TextBuffer<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.offset == other.offset && self.data == other.data
     }
@@ -2005,7 +2005,7 @@ impl<'top> TextBuffer<'top> {
         self,
     ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
         is_a("!#%&*+-./;<=>?@^`|~")
-            .map(|text: TextBuffer| LazyRawTextValue {
+            .map(|text: TextBuffer<'_>| LazyRawTextValue {
                 input: text,
                 encoded_value: EncodedTextValue::new(MatchedValue::Symbol(MatchedSymbol::Operator)),
             })
@@ -2040,7 +2040,7 @@ impl<'top> TextBuffer<'top> {
         // If we didn't check for a trailing underscore, it would be a SID (`$1`) and an
         // identifier (`_02`).
         terminated(complete_digit1, peek(not(complete_tag("_"))))
-            .map(|buffer: TextBuffer| {
+            .map(|buffer: TextBuffer<'_>| {
                 // The matched buffer is ascii base 10 digits, parsing must succeed
                 usize::from_str(buffer.as_utf8(self.offset()).unwrap()).unwrap()
             })
@@ -2541,7 +2541,7 @@ impl<'top> TextBuffer<'top> {
 // As `TextBuffer` is just a wrapper around a `&[u8]`, these implementations mostly delegate
 // to the existing trait impls for `&[u8]`.
 
-impl<'data> nom::InputTake for TextBuffer<'data> {
+impl nom::InputTake for TextBuffer<'_> {
     fn take(&self, count: usize) -> Self {
         self.slice(0, count)
     }
@@ -2556,7 +2556,7 @@ impl<'data> nom::InputTake for TextBuffer<'data> {
     }
 }
 
-impl<'data> nom::InputLength for TextBuffer<'data> {
+impl nom::InputLength for TextBuffer<'_> {
     fn input_len(&self) -> usize {
         self.len()
     }
@@ -2587,7 +2587,7 @@ impl<'data> nom::InputIter for TextBuffer<'data> {
     }
 }
 
-impl<'a, 'b> nom::Compare<&'a str> for TextBuffer<'b> {
+impl<'a> nom::Compare<&'a str> for TextBuffer<'_> {
     fn compare(&self, t: &'a str) -> CompareResult {
         self.data.compare(t.as_bytes())
     }
@@ -2597,31 +2597,31 @@ impl<'a, 'b> nom::Compare<&'a str> for TextBuffer<'b> {
     }
 }
 
-impl<'data> nom::Offset for TextBuffer<'data> {
+impl nom::Offset for TextBuffer<'_> {
     fn offset(&self, second: &Self) -> usize {
         self.data.offset(second.data)
     }
 }
 
-impl<'data> nom::Slice<RangeFrom<usize>> for TextBuffer<'data> {
+impl nom::Slice<RangeFrom<usize>> for TextBuffer<'_> {
     fn slice(&self, range: RangeFrom<usize>) -> Self {
         self.slice_to_end(range.start)
     }
 }
 
-impl<'data> nom::Slice<RangeTo<usize>> for TextBuffer<'data> {
+impl nom::Slice<RangeTo<usize>> for TextBuffer<'_> {
     fn slice(&self, range: RangeTo<usize>) -> Self {
         self.slice(0, range.end)
     }
 }
 
-impl<'data> nom::FindSubstring<&str> for TextBuffer<'data> {
+impl nom::FindSubstring<&str> for TextBuffer<'_> {
     fn find_substring(&self, substr: &str) -> Option<usize> {
         self.data.find_substring(substr)
     }
 }
 
-impl<'data> nom::InputTakeAtPosition for TextBuffer<'data> {
+impl nom::InputTakeAtPosition for TextBuffer<'_> {
     type Item = u8;
 
     fn split_at_position<P, E: ParseError<Self>>(&self, predicate: P) -> IResult<Self, Self, E>

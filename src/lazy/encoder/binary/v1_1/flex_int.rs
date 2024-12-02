@@ -74,7 +74,7 @@ impl FlexInt {
     // memory errors and the like), which eliminates some branching, a loop inside
     // `io::Write::write_all`, and the construction of a return value.
     #[inline]
-    pub fn encode_i64(output: &mut BumpVec<u8>, value: i64) {
+    pub fn encode_i64(output: &mut BumpVec<'_, u8>, value: i64) {
         let encoded_size_in_bytes = if value < 0 {
             BYTES_NEEDED_CACHE[value.leading_ones() as usize]
         } else {

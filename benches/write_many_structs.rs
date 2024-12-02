@@ -39,7 +39,7 @@ mod benchmark {
             // $16 = parameters
             .write(
                 16,
-                &[
+                [
                     black_box("SUCCESS"),
                     black_box("example-client-1"),
                     black_box("aws-us-east-5f-abc-123"),
@@ -68,7 +68,7 @@ mod benchmark {
             // $16 = parameters
             .write(
                 16,
-                &[
+                [
                     // $21 = SUCCESS
                     symbol_id(black_box(21)),
                     // $22 = example-client-1

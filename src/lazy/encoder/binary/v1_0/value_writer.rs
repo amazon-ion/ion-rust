@@ -262,9 +262,9 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> Sealed for BinaryValueWriter_1_0<'value, 'top> {}
+impl Sealed for BinaryValueWriter_1_0<'_, '_> {}
 
-impl<'value, 'top> AnnotatableWriter for BinaryValueWriter_1_0<'value, 'top> {
+impl<'top> AnnotatableWriter for BinaryValueWriter_1_0<'_, 'top> {
     type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top> where Self: 'a;
 
     fn with_annotations<'a>(
@@ -335,7 +335,7 @@ macro_rules! annotate_and_delegate_1_0 {
     };
 }
 
-impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+impl BinaryAnnotatedValueWriter_1_0<'_, '_> {
     pub(crate) fn annotate_encoded_value(&mut self, encoded_value: &[u8]) -> IonResult<()> {
         if self.annotations.is_empty() {
             self.output_buffer.extend_from_slice(encoded_value);
@@ -384,11 +384,11 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> Sealed for BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+impl Sealed for BinaryAnnotatedValueWriter_1_0<'_, '_> {
     // No methods, precludes implementations outside the crate.
 }
 
-impl<'value, 'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+impl<'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'_, 'top> {
     type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top> where Self: 'a;
 
     fn with_annotations<'a>(

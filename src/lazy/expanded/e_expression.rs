@@ -59,7 +59,7 @@ impl<'top, D: Decoder> EExpArgGroup<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> HasRange for EExpArgGroup<'top, D> {
+impl<D: Decoder> HasRange for EExpArgGroup<'_, D> {
     fn range(&self) -> Range<usize> {
         self.raw_arg_group.range()
     }
@@ -71,7 +71,7 @@ impl<'top, D: Decoder> HasSpan<'top> for EExpArgGroup<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for EExpArgGroup<'top, D> {
+impl<D: Decoder> Debug for EExpArgGroup<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "(: {:?}", self.raw_arg_group)?;
         for expr in self.expressions() {
@@ -178,7 +178,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for EExpression<'top, D> {
+impl<D: Decoder> Debug for EExpression<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -192,7 +192,7 @@ impl<'top, D: Decoder> Debug for EExpression<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> HasRange for EExpression<'top, D> {
+impl<D: Decoder> HasRange for EExpression<'_, D> {
     fn range(&self) -> Range<usize> {
         self.raw_invocation.range()
     }
@@ -249,7 +249,7 @@ pub struct EExpressionArgsIterator<'top, D: Decoder> {
     index: u32,
 }
 
-impl<'top, D: Decoder> EExpressionArgsIterator<'top, D> {
+impl<D: Decoder> EExpressionArgsIterator<'_, D> {
     pub fn is_exhausted(&self) -> bool {
         self.index == self.num_args
     }

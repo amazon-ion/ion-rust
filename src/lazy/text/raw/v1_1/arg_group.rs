@@ -88,7 +88,7 @@ impl<'top, D: Decoder> From<LazyRawValueExpr<'top, D>> for EExpArgExpr<'top, D> 
     }
 }
 
-impl<'top, D: Decoder> HasRange for EExpArgExpr<'top, D> {
+impl<D: Decoder> HasRange for EExpArgExpr<'_, D> {
     fn range(&self) -> Range<usize> {
         match self {
             EExpArgExpr::ValueLiteral(v) => v.range(),
@@ -121,7 +121,7 @@ impl<'top> TextEExpArgGroup<'top> {
     }
 }
 
-impl<'top> HasRange for TextEExpArgGroup<'top> {
+impl HasRange for TextEExpArgGroup<'_> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }

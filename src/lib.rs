@@ -2,6 +2,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::bare_urls)]
+#![deny(rust_2018_idioms)]
 // Warn if example code in the doc tests contains unused imports/variables
 #![doc(test(attr(warn(unused))))]
 //! # Reading and writing `Element`s

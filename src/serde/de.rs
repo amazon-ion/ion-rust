@@ -82,7 +82,7 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
     }
 }
 
-impl<'a, 'de> de::Deserializer<'de> for ValueDeserializer<'a, 'de> {
+impl<'de> de::Deserializer<'de> for ValueDeserializer<'_, 'de> {
     type Error = IonError;
 
     /// Determine whether Deserialize implementations should expect to deserialize their human-readable form.
@@ -539,7 +539,7 @@ impl<'a, 'de> VariantAccess<'a, 'de> {
     }
 }
 
-impl<'a, 'de> EnumAccess<'de> for VariantAccess<'a, 'de> {
+impl<'de> EnumAccess<'de> for VariantAccess<'_, 'de> {
     type Error = IonError;
     type Variant = Self;
 
@@ -551,7 +551,7 @@ impl<'a, 'de> EnumAccess<'de> for VariantAccess<'a, 'de> {
     }
 }
 
-impl<'a, 'de> de::VariantAccess<'de> for VariantAccess<'a, 'de> {
+impl<'de> de::VariantAccess<'de> for VariantAccess<'_, 'de> {
     type Error = IonError;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
@@ -595,7 +595,7 @@ impl<'a, 'de> UnitVariantAccess<'a, 'de> {
     }
 }
 
-impl<'a, 'de> EnumAccess<'de> for UnitVariantAccess<'a, 'de> {
+impl<'de> EnumAccess<'de> for UnitVariantAccess<'_, 'de> {
     type Error = IonError;
     type Variant = Self;
 
@@ -608,7 +608,7 @@ impl<'a, 'de> EnumAccess<'de> for UnitVariantAccess<'a, 'de> {
     }
 }
 
-impl<'a, 'de> de::VariantAccess<'de> for UnitVariantAccess<'a, 'de> {
+impl<'de> de::VariantAccess<'de> for UnitVariantAccess<'_, 'de> {
     type Error = IonError;
 
     fn unit_variant(self) -> Result<(), Self::Error> {

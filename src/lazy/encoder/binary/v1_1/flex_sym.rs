@@ -28,7 +28,7 @@ impl<'top> FlexSym<'top> {
     pub const ZERO: u8 = 0x01;
 
     /// Encode the provided `symbol` as a FlexSym and write it to the provided [`BumpVec`].
-    pub fn encode_symbol(output: &mut BumpVec<u8>, symbol: impl AsRawSymbolRef) {
+    pub fn encode_symbol(output: &mut BumpVec<'_, u8>, symbol: impl AsRawSymbolRef) {
         let symbol_token = symbol.as_raw_symbol_ref();
         // Write the field name
         use RawSymbolRef::*;
@@ -49,7 +49,7 @@ impl<'top> FlexSym<'top> {
 
     /// Encodes the empty string, symbol ID zero, or a system symbol as a FlexSym. The caller is
     /// responsible for confirming that `symbol` is one of these three cases before calling.
-    fn encode_special_case(output: &mut BumpVec<u8>, symbol: RawSymbolRef) {
+    fn encode_special_case(output: &mut BumpVec<'_, u8>, symbol: RawSymbolRef<'_>) {
         use RawSymbolRef::*;
         let encoding: &[u8] = match symbol {
             // Per this method's preconditions, this branch must be SymbolId zero.

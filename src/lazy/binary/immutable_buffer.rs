@@ -42,7 +42,7 @@ pub struct BinaryBuffer<'a> {
     offset: usize,
 }
 
-impl<'a> Debug for BinaryBuffer<'a> {
+impl Debug for BinaryBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "BinaryBuffer {{")?;
         for byte in self.bytes().iter().take(16) {
@@ -57,11 +57,11 @@ pub(crate) type ParseResult<'a, T> = IonResult<(T, BinaryBuffer<'a>)>;
 impl<'a> BinaryBuffer<'a> {
     /// Constructs a new `BinaryBuffer` that wraps `data`.
     #[inline]
-    pub fn new(data: &[u8]) -> BinaryBuffer {
+    pub fn new(data: &[u8]) -> BinaryBuffer<'_> {
         Self::new_with_offset(data, 0)
     }
 
-    pub fn new_with_offset(data: &[u8], offset: usize) -> BinaryBuffer {
+    pub fn new_with_offset(data: &[u8], offset: usize) -> BinaryBuffer<'_> {
         BinaryBuffer { data, offset }
     }
 

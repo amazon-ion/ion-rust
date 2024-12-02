@@ -34,7 +34,7 @@ pub struct LazyExpandedField<'top, D: Decoder> {
     value: LazyExpandedValue<'top, D>,
 }
 
-impl<'top, D: Decoder> LazyExpandedField<'top, D> {}
+impl<D: Decoder> LazyExpandedField<'_, D> {}
 
 impl<'top, D: Decoder> LazyExpandedField<'top, D> {
     pub fn new(name: LazyExpandedFieldName<'top, D>, value: LazyExpandedValue<'top, D>) -> Self {

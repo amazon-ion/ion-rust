@@ -197,7 +197,7 @@ impl<'value, 'top> BinaryListWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_0<'value, 'top> {
+impl<'top> MakeValueWriter for BinaryListWriter_1_0<'_, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_0<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -208,7 +208,7 @@ impl<'value, 'top> MakeValueWriter for BinaryListWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> SequenceWriter for BinaryListWriter_1_0<'value, 'top> {
+impl SequenceWriter for BinaryListWriter_1_0<'_, '_> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -216,7 +216,7 @@ impl<'value, 'top> SequenceWriter for BinaryListWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_0<'value, 'top> {
+impl<'top> MakeValueWriter for BinarySExpWriter_1_0<'_, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_0<'a, 'top> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -227,7 +227,7 @@ impl<'value, 'top> MakeValueWriter for BinarySExpWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> SequenceWriter for BinarySExpWriter_1_0<'value, 'top> {
+impl SequenceWriter for BinarySExpWriter_1_0<'_, '_> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -306,7 +306,7 @@ impl<'value, 'top> BinaryStructWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_0<'value, 'top> {
+impl FieldEncoder for BinaryStructWriter_1_0<'_, '_> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Write the field name
         let sid = match name.as_raw_symbol_ref() {
@@ -322,7 +322,7 @@ impl<'value, 'top> FieldEncoder for BinaryStructWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_0<'value, 'top> {
+impl<'top> MakeValueWriter for BinaryStructWriter_1_0<'_, 'top> {
     type ValueWriter<'a> = BinaryValueWriter_1_0<'a, 'top>
     where
         Self: 'a;
@@ -335,7 +335,7 @@ impl<'value, 'top> MakeValueWriter for BinaryStructWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'value, 'top> StructWriter for BinaryStructWriter_1_0<'value, 'top> {
+impl StructWriter for BinaryStructWriter_1_0<'_, '_> {
     fn close(self) -> IonResult<()> {
         self.container_writer.end()
     }

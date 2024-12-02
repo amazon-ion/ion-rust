@@ -114,8 +114,8 @@ pub struct BinaryEncoding_1_0;
 #[derive(Copy, Clone, Debug, Default)]
 pub struct BinaryEncoding_1_1;
 
-impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_0 {}
-impl<'top> BinaryEncoding<'top> for BinaryEncoding_1_1 {}
+impl BinaryEncoding<'_> for BinaryEncoding_1_0 {}
+impl BinaryEncoding<'_> for BinaryEncoding_1_1 {}
 
 /// The Ion 1.0 text encoding.
 #[derive(Copy, Clone, Debug, Default)]
@@ -249,8 +249,8 @@ pub trait TextEncoding<'top>:
 {
     // No methods, just a marker
 }
-impl<'top> TextEncoding<'top> for TextEncoding_1_0 {}
-impl<'top> TextEncoding<'top> for TextEncoding_1_1 {}
+impl TextEncoding<'_> for TextEncoding_1_0 {}
+impl TextEncoding<'_> for TextEncoding_1_1 {}
 
 /// Marker trait for encodings that support macros.
 pub trait EncodingWithMacroSupport {}
@@ -323,9 +323,9 @@ impl Decoder for BinaryEncoding_1_1 {
 pub trait RawValueLiteral {}
 
 impl<'top, E: TextEncoding<'top>> RawValueLiteral for LazyRawTextValue<'top, E> {}
-impl<'top> RawValueLiteral for LazyRawBinaryValue_1_0<'top> {}
+impl RawValueLiteral for LazyRawBinaryValue_1_0<'_> {}
 impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_1<'top> {}
-impl<'top> RawValueLiteral for LazyRawAnyValue<'top> {}
+impl RawValueLiteral for LazyRawAnyValue<'_> {}
 
 #[cfg(test)]
 mod tests {

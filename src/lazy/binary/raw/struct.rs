@@ -27,7 +27,7 @@ impl<'top> LazyRawBinaryStruct_1_0<'top> {
     }
 }
 
-impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_0<'top> {
+impl<'top> IntoIterator for &LazyRawBinaryStruct_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
     type IntoIter = RawBinaryStructIterator_1_0<'top>;
 
@@ -36,7 +36,7 @@ impl<'a, 'top> IntoIterator for &'a LazyRawBinaryStruct_1_0<'top> {
     }
 }
 
-impl<'top> Debug for LazyRawBinaryStruct_1_0<'top> {
+impl Debug for LazyRawBinaryStruct_1_0<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
@@ -129,7 +129,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryFieldName_1_0<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawBinaryFieldName_1_0<'top> {
+impl HasRange for LazyRawBinaryFieldName_1_0<'_> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }
@@ -157,7 +157,7 @@ mod tests {
         // occupy the specified input ranges.
         type FieldNameAndRange<'a> = (RawSymbolRef<'a>, Range<usize>);
         type FieldTest<'a> = (&'a [u8], &'a [FieldNameAndRange<'a>]);
-        let tests: &[FieldTest] = &[
+        let tests: &[FieldTest<'_>] = &[
             // (Ion input, expected ranges of the struct's field names)
             (
                 &[0xD2, 0x84, 0x80], // {name: ""}

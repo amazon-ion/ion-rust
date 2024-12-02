@@ -106,7 +106,7 @@ impl<'top> LazyRawBinarySequence_1_0<'top> {
     }
 }
 
-impl<'a, 'top> IntoIterator for &'a LazyRawBinarySequence_1_0<'top> {
+impl<'top> IntoIterator for &LazyRawBinarySequence_1_0<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_0>>;
     type IntoIter = RawBinarySequenceIterator_1_0<'top>;
 
@@ -115,7 +115,7 @@ impl<'a, 'top> IntoIterator for &'a LazyRawBinarySequence_1_0<'top> {
     }
 }
 
-impl<'a> Debug for LazyRawBinarySequence_1_0<'a> {
+impl Debug for LazyRawBinarySequence_1_0<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.value.encoded_value.ion_type() {
             IonType::SExp => {

@@ -25,7 +25,7 @@ impl<'data> StrRef<'data> {
     }
 }
 
-impl<'data> Deref for StrRef<'data> {
+impl Deref for StrRef<'_> {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
@@ -33,13 +33,13 @@ impl<'data> Deref for StrRef<'data> {
     }
 }
 
-impl<'data> PartialEq<str> for StrRef<'data> {
+impl PartialEq<str> for StrRef<'_> {
     fn eq(&self, other: &str) -> bool {
         self.text() == other
     }
 }
 
-impl<'data> PartialEq<&str> for StrRef<'data> {
+impl PartialEq<&str> for StrRef<'_> {
     fn eq(&self, other: &&str) -> bool {
         self.text() == *other
     }
@@ -51,7 +51,7 @@ impl<'data> PartialEq<StrRef<'data>> for str {
     }
 }
 
-impl<'data> Display for StrRef<'data> {
+impl Display for StrRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut formatter = FmtValueFormatter { output: f };
         formatter

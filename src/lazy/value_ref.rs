@@ -37,7 +37,7 @@ pub enum ValueRef<'top, D: Decoder> {
     Struct(LazyStruct<'top, D>),
 }
 
-impl<'top, D: Decoder> PartialEq for ValueRef<'top, D> {
+impl<D: Decoder> PartialEq for ValueRef<'_, D> {
     fn eq(&self, other: &Self) -> bool {
         use ValueRef::*;
         match (self, other) {
@@ -60,7 +60,7 @@ impl<'top, D: Decoder> PartialEq for ValueRef<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Debug for ValueRef<'top, D> {
+impl<D: Decoder> Debug for ValueRef<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ValueRef::*;
         match self {

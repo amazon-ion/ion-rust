@@ -8,7 +8,7 @@ pub struct BytesRef<'data> {
     data: &'data [u8],
 }
 
-impl<'data> Deref for BytesRef<'data> {
+impl Deref for BytesRef<'_> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -16,7 +16,7 @@ impl<'data> Deref for BytesRef<'data> {
     }
 }
 
-impl<'data> BytesRef<'data> {
+impl BytesRef<'_> {
     pub fn to_owned(self) -> Bytes {
         Bytes::from(self.data)
     }
@@ -56,13 +56,13 @@ impl<'data> From<&'data str> for BytesRef<'data> {
     }
 }
 
-impl<'data> PartialEq<[u8]> for BytesRef<'data> {
+impl PartialEq<[u8]> for BytesRef<'_> {
     fn eq(&self, other: &[u8]) -> bool {
         self.data() == other
     }
 }
 
-impl<'data> PartialEq<&[u8]> for BytesRef<'data> {
+impl PartialEq<&[u8]> for BytesRef<'_> {
     fn eq(&self, other: &&[u8]) -> bool {
         self.data() == *other
     }
@@ -74,13 +74,13 @@ impl<'data> PartialEq<BytesRef<'data>> for [u8] {
     }
 }
 
-impl<'a, 'b> PartialEq<BytesRef<'a>> for BytesRef<'b> {
+impl<'a> PartialEq<BytesRef<'a>> for BytesRef<'_> {
     fn eq(&self, other: &BytesRef<'a>) -> bool {
         self == other.data()
     }
 }
 
-impl<'data> Display for BytesRef<'data> {
+impl Display for BytesRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut formatter = FmtValueFormatter { output: f };
         formatter
@@ -89,7 +89,7 @@ impl<'data> Display for BytesRef<'data> {
     }
 }
 
-impl<'data> Debug for BytesRef<'data> {
+impl Debug for BytesRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         const NUM_BYTES_TO_SHOW: usize = 32;
         let data = self.data;

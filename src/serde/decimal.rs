@@ -30,7 +30,7 @@ impl<'de> Deserialize<'de> for Decimal {
     {
         struct DecimalVisitor;
 
-        impl<'de> Visitor<'de> for DecimalVisitor {
+        impl Visitor<'_> for DecimalVisitor {
             type Value = Decimal;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

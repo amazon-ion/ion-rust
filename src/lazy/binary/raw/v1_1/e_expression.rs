@@ -413,7 +413,7 @@ impl<'top> BinaryEExpArgGroup<'top> {
     }
 }
 
-impl<'top> HasRange for BinaryEExpArgGroup<'top> {
+impl HasRange for BinaryEExpArgGroup<'_> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }

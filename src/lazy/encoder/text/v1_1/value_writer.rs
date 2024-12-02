@@ -16,11 +16,11 @@ use crate::{v1_1, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWr
 use delegate::delegate;
 use std::io::Write;
 
-pub struct TextValueWriter_1_1<'value, W: Write + 'value> {
+pub struct TextValueWriter_1_1<'value, W: Write> {
     pub(crate) value_writer_1_0: TextValueWriter_1_0<'value, W>,
 }
 
-pub struct TextAnnotatedValueWriter_1_1<'value, W: Write + 'value> {
+pub struct TextAnnotatedValueWriter_1_1<'value, W: Write> {
     value_writer_1_0: TextAnnotatedValueWriter_1_0<'value, W>,
 }
 
@@ -166,7 +166,7 @@ pub struct TextListWriter_1_1<'value, W: Write> {
     writer_1_0: TextListWriter_1_0<'value, W>,
 }
 
-impl<'value, W: Write> MakeValueWriter for TextListWriter_1_1<'value, W> {
+impl<W: Write> MakeValueWriter for TextListWriter_1_1<'_, W> {
     type ValueWriter<'a> = TextValueWriter_1_1<'a, W> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -176,7 +176,7 @@ impl<'value, W: Write> MakeValueWriter for TextListWriter_1_1<'value, W> {
     }
 }
 
-impl<'value, W: Write> SequenceWriter for TextListWriter_1_1<'value, W> {
+impl<W: Write> SequenceWriter for TextListWriter_1_1<'_, W> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -188,7 +188,7 @@ pub struct TextSExpWriter_1_1<'value, W: Write> {
     writer_1_0: TextSExpWriter_1_0<'value, W>,
 }
 
-impl<'value, W: Write> MakeValueWriter for TextSExpWriter_1_1<'value, W> {
+impl<W: Write> MakeValueWriter for TextSExpWriter_1_1<'_, W> {
     type ValueWriter<'a> = TextValueWriter_1_1<'a, W> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -198,7 +198,7 @@ impl<'value, W: Write> MakeValueWriter for TextSExpWriter_1_1<'value, W> {
     }
 }
 
-impl<'value, W: Write> SequenceWriter for TextSExpWriter_1_1<'value, W> {
+impl<W: Write> SequenceWriter for TextSExpWriter_1_1<'_, W> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -210,13 +210,13 @@ pub struct TextStructWriter_1_1<'value, W: Write> {
     writer_1_0: TextStructWriter_1_0<'value, W>,
 }
 
-impl<'value, W: Write> FieldEncoder for TextStructWriter_1_1<'value, W> {
+impl<W: Write> FieldEncoder for TextStructWriter_1_1<'_, W> {
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         self.writer_1_0.encode_field_name(name)
     }
 }
 
-impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_1<'value, W> {
+impl<W: Write> MakeValueWriter for TextStructWriter_1_1<'_, W> {
     type ValueWriter<'a> = TextValueWriter_1_1<'a, W> where Self: 'a;
 
     fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
@@ -226,7 +226,7 @@ impl<'value, W: Write> MakeValueWriter for TextStructWriter_1_1<'value, W> {
     }
 }
 
-impl<'value, W: Write> StructWriter for TextStructWriter_1_1<'value, W> {
+impl<W: Write> StructWriter for TextStructWriter_1_1<'_, W> {
     fn close(self) -> IonResult<()> {
         self.writer_1_0.close()
     }

@@ -31,7 +31,7 @@ pub struct Environment<'top, D: Decoder> {
     expressions: &'top [ValueExpr<'top, D>],
 }
 
-impl<'top, D: Decoder> Debug for Environment<'top, D> {
+impl<D: Decoder> Debug for Environment<'_, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Environment::[")?;
         for expr in self.expressions {
@@ -85,7 +85,7 @@ impl<'top, D: Decoder> Environment<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Default for Environment<'top, D> {
+impl<D: Decoder> Default for Environment<'_, D> {
     fn default() -> Self {
         Self::empty()
     }
@@ -246,7 +246,7 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
             }
             ExpandedSExpSource::Constructed(_environment, _args) => {
                 // `make_sexp` always produces an unannotated s-expression
-                const EMPTY_ANNOTATIONS: &[SymbolRef] = &[];
+                const EMPTY_ANNOTATIONS: &[SymbolRef<'_>] = &[];
                 ExpandedAnnotationsIterator {
                     source: ExpandedAnnotationsSource::Constructed(EMPTY_ANNOTATIONS.iter()),
                 }

@@ -75,7 +75,7 @@ pub struct ElementIterator<'a, R: ElementReader + ?Sized> {
     reader: &'a mut R,
 }
 
-impl<'a, R: ElementReader + ?Sized> Iterator for ElementIterator<'a, R> {
+impl<R: ElementReader + ?Sized> Iterator for ElementIterator<'_, R> {
     type Item = IonResult<Element>;
 
     fn next(&mut self) -> Option<Self::Item> {

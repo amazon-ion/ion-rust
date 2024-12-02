@@ -94,29 +94,29 @@ impl<'a> RawSymbolRef<'a> {
 
 /// Implemented by types that can be viewed as a [RawSymbolRef] without allocations.
 pub trait AsRawSymbolRef {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef;
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_>;
 }
 
-impl<'a> AsRawSymbolRef for RawSymbolRef<'a> {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
+impl AsRawSymbolRef for RawSymbolRef<'_> {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         *self
     }
 }
 
 impl AsRawSymbolRef for SymbolId {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         RawSymbolRef::SymbolId(*self)
     }
 }
 
 impl AsRawSymbolRef for &str {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         RawSymbolRef::Text(self)
     }
 }
 
 impl AsRawSymbolRef for Symbol {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         match self.text() {
             Some(text) => RawSymbolRef::Text(text),
             None => RawSymbolRef::SymbolId(0),
@@ -128,7 +128,7 @@ impl<T> AsRawSymbolRef for &T
 where
     T: AsRawSymbolRef,
 {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         (*self).as_raw_symbol_ref()
     }
 }
@@ -151,7 +151,7 @@ impl<'a> From<&'a &str> for RawSymbolRef<'a> {
     }
 }
 
-impl<'a> From<SymbolId> for RawSymbolRef<'a> {
+impl From<SymbolId> for RawSymbolRef<'_> {
     fn from(value: SymbolId) -> Self {
         RawSymbolRef::SymbolId(value)
     }
@@ -230,7 +230,7 @@ impl SystemSymbol_1_1 {
 }
 
 impl AsRawSymbolRef for SystemSymbol_1_1 {
-    fn as_raw_symbol_ref(&self) -> RawSymbolRef {
+    fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         // In Ion 1.1, system symbols have their own address space.
         RawSymbolRef::SystemSymbol_1_1(*self)
     }

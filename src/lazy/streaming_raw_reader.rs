@@ -157,7 +157,10 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             let bytes_read = end_position - starting_position;
             let input = unsafe { &mut *self.input.get() };
             // If we ran out of data before we could get a result...
-            if matches!(result, Err(IonError::Incomplete(_)) | Ok(LazyRawStreamItem::<Encoding>::EndOfStream(_))) {
+            if matches!(
+                result,
+                Err(IonError::Incomplete(_)) | Ok(LazyRawStreamItem::<Encoding>::EndOfStream(_))
+            ) {
                 // ...try to pull more data from the data source. It's ok to modify the buffer in
                 // this case because `result` (which holds a reference to the buffer) will be
                 // discarded.
@@ -445,7 +448,7 @@ impl<R: Read> IonInput for BufReader<R> {
     }
 }
 
-impl<'a> IonInput for StdinLock<'a> {
+impl IonInput for StdinLock<'_> {
     type DataSource = IonStream<Self>;
 
     fn into_data_source(self) -> Self::DataSource {
@@ -498,7 +501,7 @@ mod tests {
         expect_value(actual, RawValueRef::<AnyEncoding>::String(text.into()))
     }
 
-    fn expect_end_of_stream(actual: LazyRawStreamItem<AnyEncoding>) -> IonResult<()> {
+    fn expect_end_of_stream(actual: LazyRawStreamItem<'_, AnyEncoding>) -> IonResult<()> {
         assert!(matches!(
             actual,
             LazyRawStreamItem::<AnyEncoding>::EndOfStream(_)
@@ -630,7 +633,7 @@ mod tests {
         let value = reader.next(context)?.expect_value()?;
         let annotations = value
             .annotations()
-            .collect::<IonResult<Vec<RawSymbolRef>>>()?;
+            .collect::<IonResult<Vec<RawSymbolRef<'_>>>>()?;
         assert_eq!(
             annotations,
             vec![

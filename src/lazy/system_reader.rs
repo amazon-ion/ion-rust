@@ -22,9 +22,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 // Symbol IDs used for processing symbol table structs
-const ION_SYMBOL_TABLE: RawSymbolRef = RawSymbolRef::SymbolId(3);
-const IMPORTS: RawSymbolRef = RawSymbolRef::SymbolId(6);
-const SYMBOLS: RawSymbolRef = RawSymbolRef::SymbolId(7);
+const ION_SYMBOL_TABLE: RawSymbolRef<'_> = RawSymbolRef::SymbolId(3);
+const IMPORTS: RawSymbolRef<'_> = RawSymbolRef::SymbolId(6);
+const SYMBOLS: RawSymbolRef<'_> = RawSymbolRef::SymbolId(7);
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -208,13 +208,13 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     /// Returns the next value that is part of the application data model, bypassing all encoding
     /// artifacts (IVMs, symbol tables).
-    pub fn next_value(&mut self) -> IonResult<Option<LazyValue<Encoding>>> {
+    pub fn next_value(&mut self) -> IonResult<Option<LazyValue<'_, Encoding>>> {
         self.expanding_reader.next_value()
     }
 
     /// Like [`next_value`](Self::next_value) but returns an error if there is not another
     /// application value in the stream.
-    pub fn expect_next_value(&mut self) -> IonResult<LazyValue<Encoding>> {
+    pub fn expect_next_value(&mut self) -> IonResult<LazyValue<'_, Encoding>> {
         self.next_value()?.ok_or_else(|| {
             IonError::decoding_error("expected another application value but found none")
         })
@@ -234,7 +234,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     pub(crate) fn process_encoding_directive_operation(
         pending_changes: &mut PendingContextChanges,
-        value: LazyExpandedValue<Encoding>,
+        value: LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         let operation_sexp = LazyValue::new(value).read()?.expect_sexp().map_err(|_| {
             IonError::decoding_error(format!(
@@ -291,7 +291,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     fn process_module_definition(
         _pending_changes: &mut PendingContextChanges,
-        module: LazySExp<Encoding>,
+        module: LazySExp<'_, Encoding>,
     ) -> IonResult<()> {
         let mut args = module.iter();
         // We've already looked at and validated the `name` to get to this point. We can skip it.
@@ -317,7 +317,9 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         Ok(())
     }
 
-    fn process_symbol_table_definition(operation: LazySExp<Encoding>) -> IonResult<SymbolTable> {
+    fn process_symbol_table_definition(
+        operation: LazySExp<'_, Encoding>,
+    ) -> IonResult<SymbolTable> {
         let mut args = operation.iter();
         let operation_name_value =
             Self::expect_next_sexp_value("a `symbol_table` operation name", &mut args)?;
@@ -364,7 +366,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         Ok(symbol_table)
     }
 
-    fn process_macro_table_definition(operation: LazySExp<Encoding>) -> IonResult<MacroTable> {
+    fn process_macro_table_definition(operation: LazySExp<'_, Encoding>) -> IonResult<MacroTable> {
         let mut args = operation.iter();
         let operation_name_value =
             Self::expect_next_sexp_value("a `macro_table` operation name", &mut args)?;
@@ -462,8 +464,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
         // We're interested in the `imports` field and the `symbols` field. Both are optional;
         // however, it is illegal to specify either field more than once.
-        let mut imports_field: Option<LazyField<Encoding>> = None;
-        let mut symbols_field: Option<LazyField<Encoding>> = None;
+        let mut imports_field: Option<LazyField<'_, Encoding>> = None;
+        let mut symbols_field: Option<LazyField<'_, Encoding>> = None;
 
         let symbol_table = LazyStruct {
             expanded_struct: symbol_table,

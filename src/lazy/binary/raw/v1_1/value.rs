@@ -81,7 +81,7 @@ impl<'top> HasSpan<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
     }
 }
 
-impl<'top> HasRange for LazyRawBinaryVersionMarker_1_1<'top> {
+impl HasRange for LazyRawBinaryVersionMarker_1_1<'_> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
@@ -242,8 +242,8 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
                     IonType::Timestamp => ValueRef::Timestamp(value.read_timestamp()?),
                     IonType::String => ValueRef::String(value.read_string()?),
                     IonType::Symbol => {
-                        let raw_symbol: RawSymbolRef = value.read_symbol()?;
-                        let symbol: SymbolRef = raw_symbol.resolve("a value", context)?;
+                        let raw_symbol: RawSymbolRef<'_> = value.read_symbol()?;
+                        let symbol: SymbolRef<'_> = raw_symbol.resolve("a value", context)?;
                         ValueRef::Symbol(symbol)
                     }
                     IonType::Blob => ValueRef::Blob(value.read_blob()?),
@@ -287,7 +287,7 @@ pub enum DelimitedContents<'top> {
     Fields(&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]),
 }
 
-impl<'top> DelimitedContents<'top> {
+impl DelimitedContents<'_> {
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }

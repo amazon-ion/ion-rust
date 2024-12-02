@@ -49,8 +49,7 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
 
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
-    let mut binary_1_1_data_body: Vec<u8> = vec![
-        MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
+    let mut binary_1_1_data_body: Vec<u8> = [MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
         0b10, // [NOTE: `0b`] `parameters*` arg is an arg group
         0x66, // 6-byte integer (`timestamp` param)
         0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
@@ -73,8 +72,7 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         0x32, 0x30, 0x3A, 0x35,
         0x39, 0x3A, 0x35, 0x39,
         0x2E, 0x37, 0x34, 0x34,
-        0x30, 0x30, 0x30, 0x5A,
-    ].repeat(num_values);
+        0x30, 0x30, 0x30, 0x5A].repeat(num_values);
     binary_1_1_data.append(&mut binary_1_1_data_body);
     TestData_1_1 {
         name: "maximally compact".to_owned(),
@@ -111,8 +109,7 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
-    let mut binary_1_1_data_body: Vec<u8> = vec![
-        MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
+    let mut binary_1_1_data_body: Vec<u8> = [MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
         0b10, // [NOTE: `0b` prefix] `parameters*` arg is an arg group
         0x66, // 6-byte integer (`timestamp` param)
         0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
@@ -143,8 +140,7 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         0x32, 0x30, 0x3A, 0x35,
         0x39, 0x3A, 0x35, 0x39,
         0x2E, 0x37, 0x34, 0x34,
-        0x30, 0x30, 0x30, 0x5A,
-    ].repeat(num_values);
+        0x30, 0x30, 0x30, 0x5A].repeat(num_values);
 
     binary_1_1_data.append(&mut binary_1_1_data_body);
     TestData_1_1 {
@@ -182,8 +178,7 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
     let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
     let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
-    let mut binary_1_1_data_body: Vec<u8> = vec![
-        0xF5, // LP invocation
+    let mut binary_1_1_data_body: Vec<u8> = [0xF5, // LP invocation
         ((MacroTable::FIRST_USER_MACRO_ID * 2) + 1) as u8, // Macro ID
         0xDF, // Length prefix: FlexUInt 111
         0b10, // [NOTE: `0b` prefix] `parameters*` arg is an arg group
@@ -216,8 +211,7 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
         0x32, 0x30, 0x3A, 0x35,
         0x39, 0x3A, 0x35, 0x39,
         0x2E, 0x37, 0x34, 0x34,
-        0x30, 0x30, 0x30, 0x5A,
-    ].repeat(num_values);
+        0x30, 0x30, 0x30, 0x5A].repeat(num_values);
 
     binary_1_1_data.append(&mut binary_1_1_data_body);
     TestData_1_1 {
