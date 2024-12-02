@@ -1,4 +1,4 @@
-use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
+use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::template::{
     ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
     RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateMacro, TemplateMacroRef,
