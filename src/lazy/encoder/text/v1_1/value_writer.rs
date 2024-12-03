@@ -12,7 +12,9 @@ use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::{ContainerType, ParentType};
-use crate::{v1_1, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
+use crate::{
+    v1_1, ContextWriter, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWriterConfig,
+};
 use delegate::delegate;
 use std::io::Write;
 
@@ -180,13 +182,15 @@ pub struct TextListWriter_1_1<'value, W: Write> {
     writer_1_0: TextListWriter_1_0<'value, W>,
 }
 
-impl<W: Write> MakeValueWriter for TextListWriter_1_1<'_, W> {
-    type ValueWriter<'a>
+impl<W: Write> ContextWriter for TextListWriter_1_1<'_, W> {
+    type NestedValueWriter<'a>
         = TextValueWriter_1_1<'a, W>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for TextListWriter_1_1<'_, W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         TextValueWriter_1_1 {
             value_writer_1_0: self.writer_1_0.make_value_writer(),
         }
@@ -205,13 +209,15 @@ pub struct TextSExpWriter_1_1<'value, W: Write> {
     writer_1_0: TextSExpWriter_1_0<'value, W>,
 }
 
-impl<W: Write> MakeValueWriter for TextSExpWriter_1_1<'_, W> {
-    type ValueWriter<'a>
+impl<W: Write> ContextWriter for TextSExpWriter_1_1<'_, W> {
+    type NestedValueWriter<'a>
         = TextValueWriter_1_1<'a, W>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for TextSExpWriter_1_1<'_, W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         TextValueWriter_1_1 {
             value_writer_1_0: self.writer_1_0.make_value_writer(),
         }
@@ -236,13 +242,15 @@ impl<W: Write> FieldEncoder for TextStructWriter_1_1<'_, W> {
     }
 }
 
-impl<W: Write> MakeValueWriter for TextStructWriter_1_1<'_, W> {
-    type ValueWriter<'a>
+impl<W: Write> ContextWriter for TextStructWriter_1_1<'_, W> {
+    type NestedValueWriter<'a>
         = TextValueWriter_1_1<'a, W>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for TextStructWriter_1_1<'_, W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         TextValueWriter_1_1 {
             value_writer_1_0: self.writer_1_0.make_value_writer(),
         }
@@ -296,13 +304,15 @@ impl<'value, W: Write + 'value> SequenceWriter for TextEExpWriter_1_1<'value, W>
     }
 }
 
-impl<'value, W: Write + 'value> MakeValueWriter for TextEExpWriter_1_1<'value, W> {
-    type ValueWriter<'a>
+impl<'value, W: Write + 'value> ContextWriter for TextEExpWriter_1_1<'value, W> {
+    type NestedValueWriter<'a>
         = TextValueWriter_1_1<'a, W>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<'value, W: Write + 'value> MakeValueWriter for TextEExpWriter_1_1<'value, W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         TextValueWriter_1_1 {
             value_writer_1_0: self.container_writer.value_writer(),
         }

@@ -25,8 +25,8 @@ use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    Decimal, Element, ElementWriter, Int, IonResult, IonType, IonVersion, MacroTable, RawSymbolRef,
-    Symbol, SymbolTable, Timestamp, UInt, Value,
+    ContextWriter, Decimal, Element, ElementWriter, Int, IonResult, IonType, IonVersion,
+    MacroTable, RawSymbolRef, Symbol, SymbolTable, Timestamp, UInt, Value,
 };
 
 pub(crate) struct WriterContext {
@@ -184,13 +184,15 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
     }
 }
 
-impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
-    type ValueWriter<'a>
-        = ApplicationValueWriter<'a, <E::Writer<Vec<u8>> as MakeValueWriter>::ValueWriter<'a>>
+impl<E: Encoding, Output: Write> ContextWriter for Writer<E, Output> {
+    type NestedValueWriter<'a>
+        = ApplicationValueWriter<'a, <E::Writer<Vec<u8>> as ContextWriter>::NestedValueWriter<'a>>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         let raw_value_writer = self.data_writer.make_value_writer();
 
         ApplicationValueWriter {
@@ -535,13 +537,15 @@ impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
     }
 }
 
-impl<V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'_, V> {
-    type ValueWriter<'a>
-        = ApplicationValueWriter<'a, <V::StructWriter as MakeValueWriter>::ValueWriter<'a>>
+impl<V: ValueWriter> ContextWriter for ApplicationStructWriter<'_, V> {
+    type NestedValueWriter<'a>
+        = ApplicationValueWriter<'a, <V::StructWriter as ContextWriter>::NestedValueWriter<'a>>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'_, V> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.encoding,
             self.value_writer_config,
@@ -636,13 +640,15 @@ impl<'value, V: ValueWriter> ApplicationListWriter<'value, V> {
     }
 }
 
-impl<V: ValueWriter> MakeValueWriter for ApplicationListWriter<'_, V> {
-    type ValueWriter<'a>
-        = ApplicationValueWriter<'a, <V::ListWriter as MakeValueWriter>::ValueWriter<'a>>
+impl<V: ValueWriter> ContextWriter for ApplicationListWriter<'_, V> {
+    type NestedValueWriter<'a>
+        = ApplicationValueWriter<'a, <V::ListWriter as ContextWriter>::NestedValueWriter<'a>>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<V: ValueWriter> MakeValueWriter for ApplicationListWriter<'_, V> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.encoding,
             self.value_writer_config,
@@ -679,13 +685,15 @@ impl<'value, V: ValueWriter> ApplicationSExpWriter<'value, V> {
     }
 }
 
-impl<V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'_, V> {
-    type ValueWriter<'a>
-        = ApplicationValueWriter<'a, <V::SExpWriter as MakeValueWriter>::ValueWriter<'a>>
+impl<V: ValueWriter> ContextWriter for ApplicationSExpWriter<'_, V> {
+    type NestedValueWriter<'a>
+        = ApplicationValueWriter<'a, <V::SExpWriter as ContextWriter>::NestedValueWriter<'a>>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'_, V> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.encoding,
             self.value_writer_config,
@@ -730,16 +738,18 @@ impl<V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'_, V> {
     }
 }
 
-impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
-    type ValueWriter<'a>
+impl<V: ValueWriter> ContextWriter for ApplicationEExpWriter<'_, V> {
+    type NestedValueWriter<'a>
         = ApplicationValueWriter<
         'a,
-        <<V as ValueWriter>::EExpWriter as MakeValueWriter>::ValueWriter<'a>,
+        <<V as ValueWriter>::EExpWriter as ContextWriter>::NestedValueWriter<'a>,
     >
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.encoding,
             self.value_writer_config,
