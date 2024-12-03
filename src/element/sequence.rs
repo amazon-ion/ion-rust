@@ -190,6 +190,7 @@ impl IonOrd for Sequence {
     }
 }
 
+#[derive(Clone)]
 pub struct OwnedSequenceIterator {
     elements: VecDeque<Element>,
 }

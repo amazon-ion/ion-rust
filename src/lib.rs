@@ -149,7 +149,7 @@ pub use element::{
 pub use ion_data::IonData;
 
 #[doc(inline)]
-pub use result::{IonError, IonResult};
+pub use result::{ConversionOperationError, ConversionOperationResult, IonError, IonResult};
 pub use shared_symbol_table::SharedSymbolTable;
 pub use symbol_ref::SymbolRef;
 #[doc(inline)]

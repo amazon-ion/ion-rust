@@ -6,7 +6,7 @@ use crate::text::text_formatter::FmtValueFormatter;
 use crate::Symbol;
 use smallvec::SmallVec;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
 
 // A convenient type alias for a vector capable of storing a single `usize` inline
@@ -105,6 +105,38 @@ impl<'a> Iterator for FieldIterator<'a> {
             .as_mut()
             // Get the next &(name, value) and convert it to (&name, &value)
             .and_then(|iter| iter.next().map(|field| (&field.0, &field.1)))
+    }
+}
+
+/// Iterates over the (field name, field value) pairs in a Struct.
+pub struct OwnedFieldIterator {
+    fields: VecDeque<(Symbol, Element)>,
+}
+
+impl OwnedFieldIterator {
+    fn new(data: Vec<(Symbol, Element)>) -> Self {
+        OwnedFieldIterator {
+            fields: data.into(),
+        }
+    }
+
+    fn empty() -> OwnedFieldIterator {
+        OwnedFieldIterator {
+            fields: VecDeque::default(),
+        }
+    }
+}
+
+impl Iterator for OwnedFieldIterator {
+    type Item = (Symbol, Element);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.fields.pop_front()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.fields.len();
+        (len, Some(len))
     }
 }
 
@@ -255,6 +287,16 @@ impl<'a> IntoIterator for &'a Struct {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+// Allows `for (name, value) in my_struct {...}` syntax
+impl IntoIterator for Struct {
+    type Item = (Symbol, Element);
+    type IntoIter = OwnedFieldIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        OwnedFieldIterator::new(self.fields.by_index)
     }
 }
 
