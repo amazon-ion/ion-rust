@@ -423,8 +423,8 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
 pub enum MacroExpansionKind<'top, D: Decoder> {
     None, // `(.none)` returns the empty stream
     ExprGroup(ExprGroupExpansion<'top, D>),
-    MakeString(MakeStringExpansion<'top, D>),
-    MakeSymbol(MakeSymbolExpansion<'top, D>),
+    MakeString(MakeTextExpansion<'top, D>),
+    MakeSymbol(MakeTextExpansion<'top, D>),
     MakeSExp(MakeSExpExpansion<'top, D>),
     Annotate(AnnotateExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
@@ -497,8 +497,8 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         match &mut self.kind {
             Template(template_expansion) => template_expansion.next(context, environment),
             ExprGroup(expr_group_expansion) => expr_group_expansion.next(context, environment),
-            MakeString(make_string_expansion) => make_string_expansion.next(context, environment),
-            MakeSymbol(make_symbol_expansion) => make_symbol_expansion.next(context, environment),
+            MakeString(make_string_expansion) => make_string_expansion.make_text_value(context),
+            MakeSymbol(make_symbol_expansion) => make_symbol_expansion.make_text_value(context),
             MakeSExp(make_sexp_expansion) => make_sexp_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             // `none` is trivial and requires no delegation
@@ -982,20 +982,37 @@ impl<'top, D: Decoder> ExprGroupExpansion<'top, D> {
 
 // ===== Implementation of the `make_string` macro =====
 
+#[derive(Copy, Clone, Debug)]
+enum TextValueType {
+    String,
+    Symbol,
+}
+
 /// Evaluation logic shared by the `make_string` and `make_symbol` macros.
 #[derive(Copy, Clone, Debug)]
 pub struct MakeTextExpansion<'top, D: Decoder> {
+    value_type: TextValueType,
     arguments: MacroExprArgsIterator<'top, D>,
 }
 
 impl<'top, D: Decoder> MakeTextExpansion<'top, D> {
-    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
-        Self { arguments }
+    pub fn string_maker(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self {
+            value_type: TextValueType::String,
+            arguments,
+        }
+    }
+
+    pub fn symbol_maker(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self {
+            value_type: TextValueType::Symbol,
+            arguments,
+        }
     }
 
     /// Concatenates all of the macro's arguments into a single bump-allocated string.
     /// If any of the arguments are not text values, returns `Err`.
-    pub fn concatenate_text_arguments(
+    fn concatenate_text_arguments(
         &mut self,
         context: EncodingContextRef<'top>,
     ) -> IonResult<&'top str> {
@@ -1030,100 +1047,17 @@ impl<'top, D: Decoder> MakeTextExpansion<'top, D> {
         // Convert our BumpString<'bump> into a &'bump str and return it
         Ok(buffer.into_bump_str())
     }
-}
 
-/// The evaluation state of the `make_string` macro.
-///
-/// `(:make_string ...)` eagerly expands each of its arguments in turn, concatenating the resulting
-/// string and symbol values in order to make a single string.
-///
-/// This allows a writer to construct a string from fragments, some or all of which may reside
-/// in the symbol or macro tables.
-///
-/// If any of the arguments expand to a non-text value, `make_string` will return an error.
-///
-/// Examples:
-///   (:make_string "foo" "bar")              => "foobar"
-///   (:make_string foo bar)                  => "foobar"
-///   (:make_string "foo" bar)                => "foobar"
-///   (:make_string "first_" $4)              => "first_name"
-///   (:make_string (:values "first" "_") $4) => "first_name"
-///   (:make_string)                          => ""
-///   (:make_string "foo" 7)                  => Error
-#[derive(Copy, Clone, Debug)]
-pub struct MakeStringExpansion<'top, D: Decoder> {
-    arguments: MakeTextExpansion<'top, D>,
-}
-
-impl<'top, D: Decoder> MakeStringExpansion<'top, D> {
-    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
-        Self {
-            arguments: MakeTextExpansion::new(arguments),
-        }
-    }
-
-    /// Yields the next [`ValueExpr`] in this `make_string` macro's evaluation.
-    pub fn next(
+    fn make_text_value(
         &mut self,
         context: EncodingContextRef<'top>,
-        _environment: Environment<'top, D>,
     ) -> IonResult<MacroExpansionStep<'top, D>> {
-        let constructed_text = self.arguments.concatenate_text_arguments(context)?;
-        let value_ref: &'top ValueRef<'top, _> = context
-            .allocator()
-            .alloc_with(|| ValueRef::String(StrRef::from(constructed_text)));
-        static EMPTY_ANNOTATIONS: &[SymbolRef<'_>] = &[];
-
-        Ok(MacroExpansionStep::FinalStep(Some(
-            ValueExpr::ValueLiteral(LazyExpandedValue::from_constructed(
-                context,
-                EMPTY_ANNOTATIONS,
-                value_ref,
-            )),
-        )))
-    }
-}
-
-/// The evaluation state of the `make_symbol` macro.
-///
-/// `(:make_symbol ...)` eagerly expands each of its arguments in turn, concatenating the resulting
-/// string and symbol values in order to make a single symbol.
-///
-/// This allows a writer to construct a symbol from fragments, some or all of which may reside
-/// in the symbol or macro tables.
-///
-/// If any of the arguments expand to a non-text value, `make_string` will return an error.
-///
-/// Examples:
-///   (:make_string "foo" "bar")              => foobar
-///   (:make_string foo bar)                  => foobar
-///   (:make_string "foo" bar)                => foobar
-///   (:make_string "first_" $4)              => first_name
-///   (:make_string (:values "first" "_") $4) => first_name
-///   (:make_string)                          => ''
-///   (:make_string "foo" 7)                  => Error
-#[derive(Copy, Clone, Debug)]
-pub struct MakeSymbolExpansion<'top, D: Decoder> {
-    arguments: MakeTextExpansion<'top, D>,
-}
-
-impl<'top, D: Decoder> MakeSymbolExpansion<'top, D> {
-    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
-        Self {
-            arguments: MakeTextExpansion::new(arguments),
-        }
-    }
-
-    /// Yields the next [`ValueExpr`] in this `make_symbol` macro's evaluation.
-    pub fn next(
-        &mut self,
-        context: EncodingContextRef<'top>,
-        _environment: Environment<'top, D>,
-    ) -> IonResult<MacroExpansionStep<'top, D>> {
-        let constructed_text = self.arguments.concatenate_text_arguments(context)?;
-        let value_ref: &'top ValueRef<'top, _> = context
-            .allocator()
-            .alloc_with(|| ValueRef::Symbol(SymbolRef::from(constructed_text)));
+        let constructed_text = self.concatenate_text_arguments(context)?;
+        let value_ref: &'top ValueRef<'top, _> =
+            context.allocator().alloc_with(|| match self.value_type {
+                TextValueType::String => ValueRef::String(StrRef::from(constructed_text)),
+                TextValueType::Symbol => ValueRef::Symbol(SymbolRef::from(constructed_text)),
+            });
         static EMPTY_ANNOTATIONS: &[SymbolRef<'_>] = &[];
 
         Ok(MacroExpansionStep::FinalStep(Some(
