@@ -8,7 +8,7 @@ use compact_str::CompactString;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
-use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeSExpExpansion, MakeStringExpansion, TemplateExpansion, ValueExpr, ExprGroupExpansion};
+use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeSExpExpansion, MakeStringExpansion, TemplateExpansion, ValueExpr, ExprGroupExpansion, MakeSymbolExpansion};
 use crate::lazy::expanded::macro_table::{Macro, MacroKind};
 use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
@@ -1216,6 +1216,9 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
             },
             MacroKind::MakeString => {
                 MacroExpansionKind::MakeString(MakeStringExpansion::new(arguments))
+            }
+            MacroKind::MakeSymbol => {
+                MacroExpansionKind::MakeSymbol(MakeSymbolExpansion::new(arguments))
             }
             MacroKind::MakeSExp => MacroExpansionKind::MakeSExp(MakeSExpExpansion::new(arguments)),
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),

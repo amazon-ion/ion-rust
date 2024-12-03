@@ -11,7 +11,7 @@ use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::macro_evaluator::{
     AnnotateExpansion, EExpressionArgGroup, ExprGroupExpansion, IsExhaustedIterator,
     MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeSExpExpansion,
-    MakeStringExpansion, RawEExpression, TemplateExpansion, ValueExpr,
+    MakeStringExpansion, MakeSymbolExpansion, RawEExpression, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::template::TemplateMacroRef;
@@ -119,6 +119,9 @@ impl<'top, D: Decoder> EExpression<'top, D> {
             }
             MacroKind::MakeString => {
                 MacroExpansionKind::MakeString(MakeStringExpansion::new(arguments))
+            }
+            MacroKind::MakeSymbol => {
+                MacroExpansionKind::MakeSymbol(MakeSymbolExpansion::new(arguments))
             }
             MacroKind::MakeSExp => MacroExpansionKind::MakeSExp(MakeSExpExpansion::new(arguments)),
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
