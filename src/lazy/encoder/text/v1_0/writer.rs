@@ -13,7 +13,7 @@ use crate::text::whitespace_config::{
 };
 use crate::types::ParentType;
 use crate::write_config::WriteConfigKind;
-use crate::{IonEncoding, IonResult, TextFormat, WriteConfig};
+use crate::{ContextWriter, IonEncoding, IonResult, TextFormat, WriteConfig};
 
 /// A raw text Ion 1.0 writer.
 pub struct LazyRawTextWriter_1_0<W: Write> {
@@ -60,12 +60,15 @@ impl<W: Write> SequenceWriter for LazyRawTextWriter_1_0<W> {
     }
 }
 
-impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
-    type ValueWriter<'a> = TextValueWriter_1_0<'a, W>
+impl<W: Write> ContextWriter for LazyRawTextWriter_1_0<W> {
+    type NestedValueWriter<'a>
+        = TextValueWriter_1_0<'a, W>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.value_writer()
     }
 }

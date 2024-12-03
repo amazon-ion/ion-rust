@@ -5,17 +5,22 @@ use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp, UInt};
 
-pub mod internal {
-    use crate::lazy::encoder::value_writer::ValueWriter;
+// This module is `pub(crate)` to deter crates from providing their own implementations of these traits.
+pub(crate) mod internal {
     use crate::raw_symbol_ref::AsRawSymbolRef;
-    use crate::IonResult;
+    use crate::{ContextWriter, IonResult};
 
-    pub trait MakeValueWriter {
-        type ValueWriter<'a>: ValueWriter
-        where
-            Self: 'a;
-
-        fn make_value_writer(&mut self) -> Self::ValueWriter<'_>;
+    pub trait MakeValueWriter: ContextWriter {
+        /// Constructs a new instance of the implementation's preferred `ValueWriter` type.
+        ///
+        /// Instances of `ValueWriter` are single-use by design, as this allows the crate to
+        /// statically guarantee that the application cannot (e.g.) try to encode multiple
+        /// values after an annotations sequence or in a struct field.
+        ///
+        /// This trait (and this method by extension) are kept `pub(crate)` to prevent users
+        /// from circumventing this restriction, creating and then using multiple value writers
+        /// in situations where that would produce illegal data.
+        fn make_value_writer(&mut self) -> <Self as ContextWriter>::NestedValueWriter<'_>;
     }
 
     /// A (private) prerequisite for [`StructWriter`](super::StructWriter) implementations.
@@ -29,6 +34,18 @@ pub mod internal {
         /// the field name itself, and the delimiting `:`.
         fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()>;
     }
+}
+
+/// The context in which a given value is found: either a container or the top level.
+//
+// This type is a public-facing version of `MakeValueWriter`.
+// It allows applications to refer to the value writer's associated types without exposing
+// the `make_value_writer` method.
+pub trait ContextWriter {
+    /// The `ValueWriter` type family the implementor uses to encode data nested in this context.
+    type NestedValueWriter<'a>: ValueWriter
+    where
+        Self: 'a;
 }
 
 pub trait EExpWriter: SequenceWriter {
@@ -218,10 +235,11 @@ impl<'field, StructWriterType> FieldWriter<'field, StructWriterType> {
     }
 }
 
-impl<StructWriterType: StructWriter> AnnotatableWriter
-    for FieldWriter<'_, StructWriterType>
-{
-    type AnnotatedValueWriter<'a> = AnnotatedFieldWriter<'a, StructWriterType> where Self: 'a;
+impl<StructWriterType: StructWriter> AnnotatableWriter for FieldWriter<'_, StructWriterType> {
+    type AnnotatedValueWriter<'a>
+        = AnnotatedFieldWriter<'a, StructWriterType>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -240,13 +258,13 @@ impl<StructWriterType: StructWriter> AnnotatableWriter
 
 impl<'field, StructWriterType: StructWriter> ValueWriter for FieldWriter<'field, StructWriterType> {
     type ListWriter =
-        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::ListWriter;
+        <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::ListWriter;
     type SExpWriter =
-        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::SExpWriter;
+        <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::SExpWriter;
     type StructWriter =
-        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::StructWriter;
+        <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::StructWriter;
     type EExpWriter =
-        <<StructWriterType as MakeValueWriter>::ValueWriter<'field> as ValueWriter>::EExpWriter;
+        <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::EExpWriter;
 
     delegate_value_writer_to!(fallible closure |self_: Self| {
         self_.struct_writer.encode_field_name(self_.name)?;
@@ -278,7 +296,10 @@ impl<'field, StructWriterType: StructWriter> AnnotatedFieldWriter<'field, Struct
 impl<StructWriterType: StructWriter> AnnotatableWriter
     for AnnotatedFieldWriter<'_, StructWriterType>
 {
-    type AnnotatedValueWriter<'a> = AnnotatedFieldWriter<'a, StructWriterType> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = AnnotatedFieldWriter<'a, StructWriterType>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -299,13 +320,13 @@ impl<'field, StructWriterType: StructWriter> ValueWriter
     for AnnotatedFieldWriter<'field, StructWriterType>
 {
     type ListWriter =
-        <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::ListWriter;
+        <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::ListWriter;
     type SExpWriter =
-    <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::SExpWriter;
+    <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::SExpWriter;
     type StructWriter =
-    <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::StructWriter;
+    <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::StructWriter;
     type EExpWriter =
-    <<<StructWriterType as MakeValueWriter>::ValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::EExpWriter;
+    <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::EExpWriter;
 
     delegate_value_writer_to!(fallible closure |self_: Self| {
         self_.struct_writer.encode_field_name(self_.name)?;
@@ -370,7 +391,7 @@ pub trait SequenceWriter: MakeValueWriter {
     //      to `<MyType as SequenceWriter>::End` in a variety of APIs.
     type Resources;
 
-    fn value_writer(&mut self) -> Self::ValueWriter<'_> {
+    fn value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         <Self as MakeValueWriter>::make_value_writer(self)
     }
 
@@ -413,22 +434,28 @@ pub trait SequenceWriter: MakeValueWriter {
         impl AsRef<[u8]> => write_blob,
     );
 
-    fn list_writer(&mut self) -> IonResult<<Self::ValueWriter<'_> as ValueWriter>::ListWriter> {
+    fn list_writer(
+        &mut self,
+    ) -> IonResult<<Self::NestedValueWriter<'_> as ValueWriter>::ListWriter> {
         self.value_writer().list_writer()
     }
 
-    fn sexp_writer(&mut self) -> IonResult<<Self::ValueWriter<'_> as ValueWriter>::SExpWriter> {
+    fn sexp_writer(
+        &mut self,
+    ) -> IonResult<<Self::NestedValueWriter<'_> as ValueWriter>::SExpWriter> {
         self.value_writer().sexp_writer()
     }
 
-    fn struct_writer(&mut self) -> IonResult<<Self::ValueWriter<'_> as ValueWriter>::StructWriter> {
+    fn struct_writer(
+        &mut self,
+    ) -> IonResult<<Self::NestedValueWriter<'_> as ValueWriter>::StructWriter> {
         self.value_writer().struct_writer()
     }
 
     fn eexp_writer<'a>(
         &'a mut self,
         macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> IonResult<<Self::ValueWriter<'a> as ValueWriter>::EExpWriter> {
+    ) -> IonResult<<Self::NestedValueWriter<'a> as ValueWriter>::EExpWriter> {
         self.value_writer().eexp_writer(macro_id)
     }
 

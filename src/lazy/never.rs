@@ -19,7 +19,7 @@ use crate::lazy::span::Span;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::{Decimal, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
+use crate::{ContextWriter, Decimal, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
 
 /// An uninhabited type that signals to the compiler that related code paths are not reachable.
 #[derive(Debug, Copy, Clone)]
@@ -63,11 +63,15 @@ impl StructWriter for Never {
     }
 }
 
-impl MakeValueWriter for Never {
-    type ValueWriter<'a> = Never
-    where Self: 'a;
+impl ContextWriter for Never {
+    type NestedValueWriter<'a>
+        = Never
+    where
+        Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl MakeValueWriter for Never {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         unreachable!("MakeValueWriter::value_writer in Never")
     }
 }
@@ -75,8 +79,10 @@ impl MakeValueWriter for Never {
 impl EExpWriter for Never {}
 
 impl AnnotatableWriter for Never {
-    type AnnotatedValueWriter<'a> = Never
-    where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = Never
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
