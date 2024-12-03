@@ -53,6 +53,10 @@ where
             output_type: PhantomData,
         }
     }
+
+    pub fn original_value(self) -> FromType {
+        self.input_value
+    }
 }
 
 impl<FromType, ToType> From<FromType> for ConversionOperationError<FromType, ToType>
