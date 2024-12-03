@@ -379,9 +379,9 @@ mod tests {
 
     #[test]
     fn for_field_in_struct() {
-        // Simple example to exercise List's implementation of IntoIterator
+        // Simple example to exercise Struct's implementation of IntoIterator
         let s = ion_struct! { "foo": 1, "bar": 2, "baz": 3};
-        let _fields = s.clone().iter().collect::<Vec<_>>();
+        let _fields = s.clone().iter().collect::<Vec<_>>(); // exercises `size_hint`
         let mut baz_value = None;
         for (name, value) in &s {
             if *name == "baz" {
@@ -393,9 +393,9 @@ mod tests {
 
     #[test]
     fn for_field_in_owned_struct() {
-        // Simple example to exercise List's implementation of IntoIterator
+        // Simple example to exercise Struct's implementation of IntoIterator
         let s = ion_struct! { "foo": 1, "bar": 2, "baz": 3};
-        let _fields = s.clone().into_iter().collect::<Vec<_>>();
+        let _fields = s.clone().into_iter().collect::<Vec<_>>(); // exercises `size_hint`
         let mut baz_value = None;
         for (name, value) in s {
             if name == "baz" {
