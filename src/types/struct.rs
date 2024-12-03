@@ -119,12 +119,6 @@ impl OwnedFieldIterator {
             fields: data.into(),
         }
     }
-
-    fn empty() -> OwnedFieldIterator {
-        OwnedFieldIterator {
-            fields: VecDeque::default(),
-        }
-    }
 }
 
 impl Iterator for OwnedFieldIterator {
@@ -387,6 +381,7 @@ mod tests {
     fn for_field_in_struct() {
         // Simple example to exercise List's implementation of IntoIterator
         let s = ion_struct! { "foo": 1, "bar": 2, "baz": 3};
+        let _fields = s.clone().iter().collect::<Vec<_>>();
         let mut baz_value = None;
         for (name, value) in &s {
             if *name == "baz" {
@@ -394,5 +389,19 @@ mod tests {
             }
         }
         assert_eq!(baz_value, Some(&Element::int(3)));
+    }
+
+    #[test]
+    fn for_field_in_owned_struct() {
+        // Simple example to exercise List's implementation of IntoIterator
+        let s = ion_struct! { "foo": 1, "bar": 2, "baz": 3};
+        let _fields = s.clone().into_iter().collect::<Vec<_>>();
+        let mut baz_value = None;
+        for (name, value) in s {
+            if name == "baz" {
+                baz_value = Some(value);
+            }
+        }
+        assert_eq!(baz_value, Some(Element::int(3)));
     }
 }
