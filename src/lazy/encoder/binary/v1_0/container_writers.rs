@@ -206,7 +206,7 @@ impl<'top> ContextWriter for BinaryListWriter_1_0<'_, 'top> {
         Self: 'a;
 }
 
-impl<'top> MakeValueWriter for BinaryListWriter_1_0<'_, 'top> {
+impl MakeValueWriter for BinaryListWriter_1_0<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         BinaryValueWriter_1_0::new(
             self.container_writer.allocator,
@@ -230,7 +230,7 @@ impl<'top> ContextWriter for BinarySExpWriter_1_0<'_, 'top> {
         Self: 'a;
 }
 
-impl<'top> MakeValueWriter for BinarySExpWriter_1_0<'_, 'top> {
+impl MakeValueWriter for BinarySExpWriter_1_0<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         BinaryValueWriter_1_0::new(
             self.container_writer.allocator,
@@ -341,7 +341,7 @@ impl<'top> ContextWriter for BinaryStructWriter_1_0<'_, 'top> {
         Self: 'a;
 }
 
-impl<'top> MakeValueWriter for BinaryStructWriter_1_0<'_, 'top> {
+impl MakeValueWriter for BinaryStructWriter_1_0<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         BinaryValueWriter_1_0::new(
             self.container_writer.allocator,
