@@ -10,7 +10,7 @@ use crate::text::whitespace_config::{
     COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
 };
 use crate::write_config::WriteConfigKind;
-use crate::{IonEncoding, IonResult, TextFormat, WriteConfig};
+use crate::{ContextWriter, IonEncoding, IonResult, TextFormat, WriteConfig};
 
 // Text Ion 1.1 is a syntactic superset of Ion 1.0. The types comprising this writer implementation
 // delegates nearly all of their functionality to the 1.0 text writer.
@@ -28,13 +28,15 @@ impl<W: Write> SequenceWriter for LazyRawTextWriter_1_1<W> {
     }
 }
 
-impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_1<W> {
-    type ValueWriter<'a>
+impl<W: Write> ContextWriter for LazyRawTextWriter_1_1<W> {
+    type NestedValueWriter<'a>
         = TextValueWriter_1_1<'a, W>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_1<W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         let value_writer_1_0 = self.writer_1_0.make_value_writer();
         TextValueWriter_1_1 { value_writer_1_0 }
     }

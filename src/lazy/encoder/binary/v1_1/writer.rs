@@ -14,7 +14,7 @@ use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::Encoding;
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref, ptr_to_ref};
 use crate::write_config::{WriteConfig, WriteConfigKind};
-use crate::{IonEncoding, IonResult};
+use crate::{ContextWriter, IonEncoding, IonResult};
 
 /// A "raw"-level streaming binary Ion 1.1 writer. This writer does not provide encoding module
 /// management; symbol- and macro- related operations require the caller to perform their own
@@ -162,13 +162,15 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
     }
 }
 
-impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {
-    type ValueWriter<'a>
+impl<W: Write> ContextWriter for LazyRawBinaryWriter_1_1<W> {
+    type NestedValueWriter<'a>
         = BinaryValueWriter_1_1<'a, 'a>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for LazyRawBinaryWriter_1_1<W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.value_writer()
     }
 }

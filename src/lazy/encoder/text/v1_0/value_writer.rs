@@ -19,7 +19,8 @@ use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::{ContainerType, ParentType};
 use crate::{
-    v1_0, Decimal, Encoding, Int, IonResult, IonType, RawSymbolRef, Timestamp, ValueWriterConfig,
+    v1_0, ContextWriter, Decimal, Encoding, Int, IonResult, IonType, RawSymbolRef, Timestamp,
+    ValueWriterConfig,
 };
 
 pub struct TextValueWriter_1_0<'value, W: Write> {
@@ -296,10 +297,15 @@ impl<'top, W: Write> TextListWriter_1_0<'top, W> {
     }
 }
 
-impl<W: Write> MakeValueWriter for TextListWriter_1_0<'_, W> {
-    type ValueWriter<'a> = TextValueWriter_1_0<'a, W> where Self: 'a;
+impl<W: Write> ContextWriter for TextListWriter_1_0<'_, W> {
+    type NestedValueWriter<'a>
+        = TextValueWriter_1_0<'a, W>
+    where
+        Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for TextListWriter_1_0<'_, W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.container_writer.value_writer()
     }
 }
@@ -353,10 +359,15 @@ impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
     }
 }
 
-impl<W: Write> MakeValueWriter for TextSExpWriter_1_0<'_, W> {
-    type ValueWriter<'a> = TextValueWriter_1_0<'a, W> where Self: 'a;
+impl<W: Write> ContextWriter for TextSExpWriter_1_0<'_, W> {
+    type NestedValueWriter<'a>
+        = TextValueWriter_1_0<'a, W>
+    where
+        Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for TextSExpWriter_1_0<'_, W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.container_writer.value_writer()
     }
 }
@@ -422,12 +433,15 @@ impl<W: Write> FieldEncoder for TextStructWriter_1_0<'_, W> {
     }
 }
 
-impl<W: Write> MakeValueWriter for TextStructWriter_1_0<'_, W> {
-    type ValueWriter<'a> = TextValueWriter_1_0<'a, W>
+impl<W: Write> ContextWriter for TextStructWriter_1_0<'_, W> {
+    type NestedValueWriter<'a>
+        = TextValueWriter_1_0<'a, W>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl<W: Write> MakeValueWriter for TextStructWriter_1_0<'_, W> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         TextValueWriter_1_0 {
             writer: self.container_writer.writer,
             depth: self.container_writer.depth + 1,
@@ -449,7 +463,10 @@ impl<W: Write> StructWriter for TextStructWriter_1_0<'_, W> {
 }
 
 impl<'value, W: Write + 'value> AnnotatableWriter for TextAnnotatedValueWriter_1_0<'value, W> {
-    type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_0<'a, W> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = TextAnnotatedValueWriter_1_0<'a, W>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -477,7 +494,10 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_0<'va
 }
 
 impl<W: Write> AnnotatableWriter for TextValueWriter_1_0<'_, W> {
-    type AnnotatedValueWriter<'a> = TextAnnotatedValueWriter_1_0<'a, W> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = TextAnnotatedValueWriter_1_0<'a, W>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,

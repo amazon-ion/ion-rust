@@ -9,7 +9,9 @@ use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
-use crate::{v1_0, Encoding, IonError, IonResult, RawSymbolRef, SymbolId, ValueWriterConfig};
+use crate::{
+    v1_0, ContextWriter, Encoding, IonError, IonResult, RawSymbolRef, SymbolId, ValueWriterConfig,
+};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_0`],
 /// [`BinarySExpWriter_1_0`], and [`BinaryStructWriter_1_0`].
@@ -197,10 +199,15 @@ impl<'value, 'top> BinaryListWriter_1_0<'value, 'top> {
     }
 }
 
-impl<'top> MakeValueWriter for BinaryListWriter_1_0<'_, 'top> {
-    type ValueWriter<'a> = BinaryValueWriter_1_0<'a, 'top> where Self: 'a;
+impl<'top> ContextWriter for BinaryListWriter_1_0<'_, 'top> {
+    type NestedValueWriter<'a>
+        = BinaryValueWriter_1_0<'a, 'top>
+    where
+        Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl MakeValueWriter for BinaryListWriter_1_0<'_, '_> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         BinaryValueWriter_1_0::new(
             self.container_writer.allocator,
             &mut self.container_writer.child_values_buffer,
@@ -216,10 +223,15 @@ impl SequenceWriter for BinaryListWriter_1_0<'_, '_> {
     }
 }
 
-impl<'top> MakeValueWriter for BinarySExpWriter_1_0<'_, 'top> {
-    type ValueWriter<'a> = BinaryValueWriter_1_0<'a, 'top> where Self: 'a;
+impl<'top> ContextWriter for BinarySExpWriter_1_0<'_, 'top> {
+    type NestedValueWriter<'a>
+        = BinaryValueWriter_1_0<'a, 'top>
+    where
+        Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl MakeValueWriter for BinarySExpWriter_1_0<'_, '_> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         BinaryValueWriter_1_0::new(
             self.container_writer.allocator,
             &mut self.container_writer.child_values_buffer,
@@ -322,12 +334,15 @@ impl FieldEncoder for BinaryStructWriter_1_0<'_, '_> {
     }
 }
 
-impl<'top> MakeValueWriter for BinaryStructWriter_1_0<'_, 'top> {
-    type ValueWriter<'a> = BinaryValueWriter_1_0<'a, 'top>
+impl<'top> ContextWriter for BinaryStructWriter_1_0<'_, 'top> {
+    type NestedValueWriter<'a>
+        = BinaryValueWriter_1_0<'a, 'top>
     where
         Self: 'a;
+}
 
-    fn make_value_writer(&mut self) -> Self::ValueWriter<'_> {
+impl MakeValueWriter for BinaryStructWriter_1_0<'_, '_> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         BinaryValueWriter_1_0::new(
             self.container_writer.allocator,
             &mut self.container_writer.child_values_buffer,
