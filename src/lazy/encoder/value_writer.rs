@@ -36,11 +36,9 @@ pub(crate) mod internal {
     }
 }
 
-/// The context in which a given value is found: either a container or the top level.
-//
-// This type is a public-facing version of `MakeValueWriter`.
-// It allows applications to refer to the value writer's associated types without exposing
-// the `make_value_writer` method.
+/// A writer which can encode nested values.
+///
+/// Implementors include top-level writers, container writers, and e-expression writers.
 pub trait ContextWriter {
     /// The `ValueWriter` type family the implementor uses to encode data nested in this context.
     type NestedValueWriter<'a>: ValueWriter
