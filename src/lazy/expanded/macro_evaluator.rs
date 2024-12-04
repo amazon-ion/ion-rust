@@ -1239,17 +1239,31 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{v1_1, ElementReader, Int, IonResult, MacroTable, Reader};
+    use crate::{v1_1, ElementReader, Int, IonResult, MacroTable, Reader, Sequence};
 
     /// Reads `input` and `expected` and asserts that their output is Ion-equivalent.
     fn stream_eq<'data>(input: &'data str, expected: &'data str) -> IonResult<()> {
         let mut actual_reader = Reader::new(v1_1::Text, input)?;
         let actual = actual_reader.read_all_elements()?;
 
+        assert_eq_expected(&actual, expected)
+    }
+
+    fn bin_stream_eq(input: &[u8], expected: &str) -> IonResult<()> {
+        let mut actual_reader = Reader::new(v1_1::Binary, input)?;
+        let actual = actual_reader.read_all_elements()?;
+
+        assert_eq_expected(&actual, expected)
+    }
+
+    fn assert_eq_expected(actual: &Sequence, expected: &str) -> IonResult<()> {
         let mut expected_reader = Reader::new(v1_1::Text, expected)?;
         let expected = expected_reader.read_all_elements()?;
-
-        assert_eq!(actual, expected);
+        assert_eq!(
+            actual, &expected,
+            "actual\n{:?}\nwas not equal to expected\n{:?}\n",
+            actual, expected
+        );
         Ok(())
     }
 
@@ -1269,6 +1283,23 @@ mod tests {
         assert!(matches!(expected_reader.next(), Ok(None)));
 
         Ok(())
+    }
+
+    #[test]
+    fn read_system_eexp() -> IonResult<()> {
+        bin_stream_eq(
+            &[
+                0xEF, // System macro, address follows as 1-byte FixedUInt
+                0x03, // make_string
+                0x02, // Argument group
+                0x11, // FlexUInt 8
+                0x93, // Opcode: 3-byte string follows
+                0x66, 0x6F, 0x6F, // "foo"
+                0x93, // Opcode: 3-byte string follows
+                0x62, 0x61, 0x72, // "bar"
+            ],
+            r#""foobar""#,
+        )
     }
 
     #[test]

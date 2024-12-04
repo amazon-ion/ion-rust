@@ -141,7 +141,7 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top BinaryEExpression_1_1<'t
     type ArgGroup = BinaryEExpArgGroup<'top>;
 
     fn id(self) -> MacroIdRef<'top> {
-        MacroIdRef::LocalAddress(self.macro_ref.address())
+        self.macro_ref.id()
     }
 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator {

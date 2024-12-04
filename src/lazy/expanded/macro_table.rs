@@ -4,13 +4,12 @@ use crate::lazy::expanded::template::{
     RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateMacro, TemplateMacroRef,
     TemplateValue,
 };
-use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{IonResult, IonType, Symbol, TemplateBodyExpr};
 use compact_str::CompactString;
 use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
-use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,13 +124,16 @@ pub enum MacroKind {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MacroRef<'top> {
-    address: MacroAddress,
+    id: MacroIdRef<'top>,
     reference: &'top Macro,
 }
 
 impl<'top> MacroRef<'top> {
-    pub fn new(address: MacroAddress, reference: &'top Macro) -> Self {
-        Self { address, reference }
+    pub fn new(macro_id: MacroIdRef<'top>, reference: &'top Macro) -> Self {
+        Self {
+            id: macro_id,
+            reference,
+        }
     }
 
     pub fn require_template(self) -> TemplateMacroRef<'top> {
@@ -144,14 +146,8 @@ impl<'top> MacroRef<'top> {
         )
     }
 
-    pub fn id_text(&'top self) -> Cow<'top, str> {
-        self.name()
-            .map(Cow::from)
-            .unwrap_or_else(move || Cow::from(format!("{}", self.address())))
-    }
-
-    pub fn address(&self) -> MacroAddress {
-        self.address
+    pub fn id(&self) -> MacroIdRef<'top> {
+        self.id
     }
 
     pub fn reference(&self) -> &'top Macro {
@@ -757,8 +753,9 @@ impl MacroTable {
     }
 
     pub fn macro_at_address(&self, address: usize) -> Option<MacroRef<'_>> {
+        let id = MacroIdRef::LocalAddress(address);
         let reference = self.macros_by_address.get(address)?;
-        Some(MacroRef { address, reference })
+        Some(MacroRef { id, reference })
     }
 
     pub fn address_for_name(&self, name: &str) -> Option<usize> {
@@ -767,8 +764,9 @@ impl MacroTable {
 
     pub fn macro_with_name(&self, name: &str) -> Option<MacroRef<'_>> {
         let address = *self.macros_by_name.get(name)?;
+        let id = MacroIdRef::LocalAddress(address);
         let reference = self.macros_by_address.get(address)?;
-        Some(MacroRef { address, reference })
+        Some(MacroRef { id, reference })
     }
 
     pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Arc<Macro>> {
