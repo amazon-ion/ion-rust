@@ -466,7 +466,13 @@ impl<'a> BinaryBuffer<'a> {
     pub(crate) fn peek_delimited_sequence(
         self,
     ) -> IonResult<(DelimitedContents<'a>, BinaryBuffer<'a>)> {
-        let mut input = self.consume(1);
+        self.consume(1).peek_delimited_sequence_body()
+    }
+
+    pub(crate) fn peek_delimited_sequence_body(
+        self,
+    ) -> IonResult<(DelimitedContents<'a>, BinaryBuffer<'a>)> {
+        let mut input = self;
         let mut values =
             BumpVec::<LazyRawValueExpr<'a, v1_1::Binary>>::new_in(self.context.allocator());
 

@@ -1292,11 +1292,41 @@ mod tests {
                 0xEF, // System macro, address follows as 1-byte FixedUInt
                 0x03, // make_string
                 0x02, // Argument group
-                0x11, // FlexUInt 8
+                0x11, // FlexUInt 8: 8-byte group
                 0x93, // Opcode: 3-byte string follows
                 0x66, 0x6F, 0x6F, // "foo"
                 0x93, // Opcode: 3-byte string follows
                 0x62, 0x61, 0x72, // "bar"
+            ],
+            r#""foobar""#,
+        )
+    }
+
+    #[test]
+    fn read_system_eexp_with_delimited_tagged_arg_group() -> IonResult<()> {
+        // Empty delimited argument group
+        bin_stream_eq(
+            &[
+                0xEF, // System macro, address follows as 1-byte FixedUInt
+                0x03, // make_string
+                0x02, // Argument group
+                0x01, // FlexUInt 0: delimited group
+                0xF0, // Delimited END
+            ],
+            r#""" // <-- empty string "#,
+        )?;
+        // Populated delimited argument group
+        bin_stream_eq(
+            &[
+                0xEF, // System macro, address follows as 1-byte FixedUInt
+                0x03, // make_string
+                0x02, // Argument group
+                0x01, // FlexUInt 0: delimited group
+                0x93, // Opcode: 3-byte string follows
+                0x66, 0x6F, 0x6F, // "foo"
+                0x93, // Opcode: 3-byte string follows
+                0x62, 0x61, 0x72, // "bar"
+                0xF0, // Delimited END
             ],
             r#""foobar""#,
         )

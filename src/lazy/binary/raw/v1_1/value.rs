@@ -282,6 +282,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
 
 #[derive(Debug, Copy, Clone)]
 pub enum DelimitedContents<'top> {
+    // I believe this is intended to be a flat version of Option<DelimitedContents>
     None,
     Values(&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]),
     Fields(&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]),
