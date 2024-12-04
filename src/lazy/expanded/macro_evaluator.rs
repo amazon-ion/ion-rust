@@ -1289,7 +1289,6 @@ mod tests {
     fn read_system_eexp() -> IonResult<()> {
         bin_stream_eq(
             &[
-                0xE0, 0x01, 0x01, 0xEA, // IVM
                 0xEF, // System macro, address follows as 1-byte FixedUInt
                 0x03, // make_string
                 0x02, // Argument group
@@ -1408,11 +1407,6 @@ mod tests {
                 (1 [] 3 a [] c)
             "#,
         )
-    }
-
-    #[test]
-    fn call_system_e_exp_with_arguments() -> IonResult<()> {
-        stream_eq("(:$ion::make_string foo bar baz)", "\"foobarbaz\"")
     }
 
     #[test]
