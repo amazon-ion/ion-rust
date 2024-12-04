@@ -24,7 +24,7 @@ use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
-use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress};
 use crate::result::IonFailure;
 use crate::{v1_1, IonError, IonResult, ValueExpr};
 
@@ -863,8 +863,11 @@ impl<'a> BinaryBuffer<'a> {
     #[inline]
     pub fn read_e_expression(self, opcode: Opcode) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
-        let (macro_address, input_after_address) = match opcode.opcode_type {
-            EExpressionWith6BitAddress => (opcode.byte as usize, self.consume(1)),
+        let (macro_id, input_after_address) = match opcode.opcode_type {
+            EExpressionWith6BitAddress => (
+                MacroIdRef::LocalAddress(opcode.byte as usize),
+                self.consume(1),
+            ),
             EExpressionWith12BitAddress => {
                 if self.len() < 2 {
                     return IonResult::incomplete("parsing a 12-bit e-exp address", self.offset);
@@ -873,7 +876,7 @@ impl<'a> BinaryBuffer<'a> {
                 let bias = ((opcode.byte as usize & 0x0F) << 8) + 64;
                 let fixed_uint = self.bytes()[1] as usize;
                 let address = fixed_uint + bias;
-                (address, self.consume(2))
+                (MacroIdRef::LocalAddress(address), self.consume(2))
             }
             EExpressionWith20BitAddress => {
                 if self.len() < 3 {
@@ -882,34 +885,51 @@ impl<'a> BinaryBuffer<'a> {
                 let bias = ((opcode.byte as usize & 0x0F) << 16) + 4160;
                 let (fixed_uint, input_after_opcode) = self.consume(1).read_fixed_uint(2)?;
                 let address = fixed_uint.value().expect_usize()? + bias;
-                (address, input_after_opcode)
+                (MacroIdRef::LocalAddress(address), input_after_opcode)
             }
             // Length-prefixed is a special case.
             EExpressionWithLengthPrefix => return self.read_eexp_with_length_prefix(opcode),
+            SystemEExpression => {
+                // The next byte is the system macro address; make sure we have another byte available
+                if self.len() < 2 {
+                    return IonResult::incomplete("parsing a system macro address", self.offset);
+                }
+                let address = self.bytes()[1] as usize;
+                let system_macro_address = SystemMacroAddress::new(address).ok_or_else(|| {
+                    IonError::decoding_error(format!(
+                        "found invalid system macro address {address}"
+                    ))
+                })?;
+
+                (
+                    MacroIdRef::SystemAddress(system_macro_address),
+                    self.consume(2), // 0xEF and address byte
+                )
+            }
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
-        self.read_eexp_with_address(input_after_address, macro_address)
+        self.read_eexp_with_id(input_after_address, macro_id)
     }
 
     /// Reads a complete e-expression whose address is provided.
     ///
     /// `self` begins at the opcode, `input_after_address` begins after the opcode and any address
     /// bytes, and `macro_address` is the address of the invoked macro.
-    fn read_eexp_with_address(
+    fn read_eexp_with_id(
         self,
         input_after_address: BinaryBuffer<'a>,
-        macro_address: MacroAddress,
+        macro_id: MacroIdRef<'a>,
     ) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
         // Get a reference to the macro that lives at that address
         let macro_ref = self
             .context
             .macro_table()
-            .macro_at_address(macro_address)
+            .macro_with_id(macro_id)
             .ok_or_else(
                 #[inline(never)]
                 || {
                     IonError::decoding_error(format!(
-                        "invocation of macro at unknown address '{macro_address:?}'"
+                        "invocation of macro at unknown ID '{macro_id:?}'"
                     ))
                 },
             )?
@@ -960,7 +980,7 @@ impl<'a> BinaryBuffer<'a> {
         Ok((
             {
                 BinaryEExpression_1_1::new(
-                    MacroRef::new(macro_address, macro_ref),
+                    MacroRef::new(macro_id, macro_ref),
                     bitmap_bits,
                     matched_eexp_bytes,
                     // There is no length prefix, so we re-use the bitmap_offset as the first position
@@ -1007,7 +1027,7 @@ impl<'a> BinaryBuffer<'a> {
         let remaining_input = self.consume(total_length);
         Ok((
             BinaryEExpression_1_1::new(
-                MacroRef::new(macro_address, macro_ref),
+                MacroRef::new(MacroIdRef::LocalAddress(macro_address), macro_ref),
                 bitmap_bits,
                 matched_bytes,
                 length_offset,
@@ -1330,7 +1350,7 @@ mod tests {
         "#;
 
         #[rustfmt::skip]
-            let encode_eexp_fn = |address: MacroAddress| vec![
+        let encode_eexp_fn = |address: MacroAddress| vec![
             address as u8,
             // === 8-byte string ====
             0x98,
