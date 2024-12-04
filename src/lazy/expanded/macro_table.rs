@@ -115,6 +115,7 @@ pub enum MacroKind {
     None, // `(.none)` returns the empty stream
     ExprGroup,
     MakeString,
+    MakeSymbol,
     MakeSExp,
     Annotate,
     Template(TemplateBody),
@@ -263,7 +264,7 @@ impl MacroTable {
             Arc::new(Macro::named(
                 "make_symbol",
                 MacroSignature::new(vec![Parameter::rest("text_values")]).unwrap(),
-                MacroKind::ToDo,
+                MacroKind::MakeSymbol,
                 ExpansionAnalysis::single_application_value(IonType::Symbol),
             )),
             Arc::new(Macro::named(
