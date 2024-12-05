@@ -473,7 +473,7 @@ pub struct BinaryEExpArgGroupIterator<'top> {
 
 #[derive(Debug, Copy, Clone)]
 enum BinaryEExpArgGroupIteratorSource<'top> {
-    /// The iterator is parsing expressions from a slice of the input buffer
+    /// The iterator is parsing expressions from a slice of the input buffer.
     Input(BinaryBuffer<'top>),
     /// The iterator is iterating over the bump-allocated cache of previously parsed expressions.
     Cache(&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]),

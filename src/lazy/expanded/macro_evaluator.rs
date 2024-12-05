@@ -1313,7 +1313,7 @@ mod tests {
                 0x01, // FlexUInt 0: delimited group
                 0xF0, // Delimited END
             ],
-            r#""" // <-- empty string "#,
+            r#" "" // <-- empty string "#,
         )?;
         // Populated delimited argument group
         bin_stream_eq(
@@ -1328,7 +1328,7 @@ mod tests {
                 0x62, 0x61, 0x72, // "bar"
                 0xF0, // Delimited END
             ],
-            r#""foobar""#,
+            r#" "foobar" "#,
         )
     }
 
