@@ -280,10 +280,23 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
     }
 }
 
+/// Nested expressions parsed and cached while reading (e.g.) a [`LazyRawBinaryValue_1_1`].
 #[derive(Debug, Copy, Clone)]
 pub enum DelimitedContents<'top> {
+    /// This value has no delimited nested data.
+    /// Examples:
+    ///   * a scalar value like a string or timestamp
+    ///   * a length-prefixed list
+    // This type could also be expressed as `Option<DelimitedContents<'top>>`, with its `None`
+    // variant removed.
     None,
+    /// This value contains a delimited sequence of values.
+    /// Examples:
+    ///   * delimited list
+    ///   * delimited s-expression
+    ///   * delimited argument expression group
     Values(&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]),
+    /// This value contains a delimited sequence of struct fields.
     Fields(&'top [LazyRawFieldExpr<'top, BinaryEncoding_1_1>]),
 }
 

@@ -1,11 +1,9 @@
 #![allow(non_camel_case_types)]
 
-use std::fmt::{Debug, Formatter};
-use std::ops::Range;
-
 use crate::lazy::binary::raw::v1_1::immutable_buffer::{
     ArgGrouping, ArgGroupingBitmapIterator, BinaryBuffer,
 };
+use crate::lazy::binary::raw::v1_1::value::DelimitedContents;
 use crate::lazy::decoder::LazyRawValueExpr;
 use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::e_expression::EExpArgGroup;
@@ -17,6 +15,8 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::{try_or_some_err, v1_1, Environment, HasRange, HasSpan, IonResult, Span};
+use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 
 /// An e-expression which has been parsed from a binary Ion 1.1 stream.
 #[derive(Copy, Clone)]
@@ -332,24 +332,53 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
             ArgGrouping::ArgGroup => {
                 //...then it starts with a FlexUInt that indicates whether the group is length-prefixed
                 // or delimited.
-                let (group_header_flex_uint, _remaining_args_input) =
+                let (group_header_flex_uint, remaining_args_input) =
                     try_or_some_err!(self.remaining_args_buffer.read_flex_uint());
-                let bytes_to_read = match group_header_flex_uint.value() {
-                    0 => todo!("delimited argument groups"),
-                    n_bytes => n_bytes as usize,
-                };
-                // If it's length-prefixed, we don't need to inspect its contents. We can build an
-                // ArgGroup using the unexamined bytes; we'll parse them later if they get evaluated.
-                let arg_group_length = group_header_flex_uint.size_in_bytes() + bytes_to_read;
-                let arg_group = BinaryEExpArgGroup::new(
-                    parameter,
-                    self.remaining_args_buffer.slice(0, arg_group_length),
-                    group_header_flex_uint.size_in_bytes() as u8,
-                );
-                (
-                    EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group)),
-                    self.remaining_args_buffer.consume(arg_group_length),
-                )
+                match group_header_flex_uint.value() {
+                    // A FlexUInt of `0` indicates that the arg group is delimited.
+                    // We need to step through it to determine its span.
+                    0 if *parameter.encoding() == ParameterEncoding::Tagged => {
+                        // Read the delimited sequence of tagged expressions, caching them as we go.
+                        let (delimited_contents, remaining) =
+                            try_or_some_err!(remaining_args_input.peek_delimited_sequence_body());
+                        let DelimitedContents::Values(delimited_values) = delimited_contents else {
+                            unreachable!("parser found a delimited arg group")
+                        };
+                        // Isolate the part of the input buffer that represented the argument group.
+                        let matched_buffer = self
+                            .remaining_args_buffer
+                            .slice(0, remaining.offset() - self.remaining_args_buffer.offset());
+                        let arg_group = BinaryEExpArgGroup::new(
+                            parameter,
+                            matched_buffer,
+                            // Make a note of the leading FlexUInt header size so we can skip it later.
+                            group_header_flex_uint.size_in_bytes() as u8,
+                        )
+                        .with_delimited_values(delimited_values);
+                        (
+                            EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group)),
+                            remaining,
+                        )
+                    }
+                    0 => todo!("delimited argument groups for untagged encodings"),
+                    // The arg group is length-prefixed; we don't need to inspect its contents yet.
+                    // We can build an ArgGroup using the unexamined bytes;
+                    // we'll parse them later if they get evaluated.
+                    n_bytes => {
+                        let bytes_to_read = n_bytes as usize;
+                        let arg_group_length =
+                            group_header_flex_uint.size_in_bytes() + bytes_to_read;
+                        let arg_group = BinaryEExpArgGroup::new(
+                            parameter,
+                            self.remaining_args_buffer.slice(0, arg_group_length),
+                            group_header_flex_uint.size_in_bytes() as u8,
+                        );
+                        (
+                            EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group)),
+                            self.remaining_args_buffer.consume(arg_group_length),
+                        )
+                    }
+                }
             }
         };
 
@@ -401,6 +430,8 @@ pub struct BinaryEExpArgGroup<'top> {
     parameter: &'top Parameter,
     input: BinaryBuffer<'top>,
     header_size: u8,
+    // If this is a delimited arg group, this cache will hold the expressions found during parsing.
+    delimited_values: Option<&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]>,
 }
 
 impl<'top> BinaryEExpArgGroup<'top> {
@@ -409,7 +440,16 @@ impl<'top> BinaryEExpArgGroup<'top> {
             parameter,
             input,
             header_size,
+            delimited_values: None,
         }
+    }
+
+    pub fn with_delimited_values(
+        mut self,
+        delimited_values: &'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>],
+    ) -> Self {
+        self.delimited_values = Some(delimited_values);
+        self
     }
 }
 
@@ -428,12 +468,23 @@ impl<'top> HasSpan<'top> for BinaryEExpArgGroup<'top> {
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgGroupIterator<'top> {
     parameter: &'top Parameter,
-    remaining_args_buffer: BinaryBuffer<'top>,
+    source: BinaryEExpArgGroupIteratorSource<'top>,
+}
+
+#[derive(Debug, Copy, Clone)]
+enum BinaryEExpArgGroupIteratorSource<'top> {
+    /// The iterator is parsing expressions from a slice of the input buffer.
+    Input(BinaryBuffer<'top>),
+    /// The iterator is iterating over the bump-allocated cache of previously parsed expressions.
+    Cache(&'top [LazyRawValueExpr<'top, BinaryEncoding_1_1>]),
 }
 
 impl<'top> IsExhaustedIterator<'top, BinaryEncoding_1_1> for BinaryEExpArgGroupIterator<'top> {
     fn is_exhausted(&self) -> bool {
-        self.remaining_args_buffer.is_empty()
+        match self.source {
+            BinaryEExpArgGroupIteratorSource::Input(ref input) => input.is_empty(),
+            BinaryEExpArgGroupIteratorSource::Cache(cache) => cache.is_empty(),
+        }
     }
 }
 
@@ -441,15 +492,24 @@ impl<'top> Iterator for BinaryEExpArgGroupIterator<'top> {
     type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_1>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining_args_buffer.is_empty() {
-            return None;
+        match self.source {
+            BinaryEExpArgGroupIteratorSource::Input(ref mut input) => {
+                if input.is_empty() {
+                    return None;
+                }
+                let (expr, remaining) = try_or_some_err! {
+                    // TODO: Other encodings
+                    input.expect_sequence_value_expr("eexp arg group subarg")
+                };
+                *input = remaining;
+                Some(Ok(expr))
+            }
+            BinaryEExpArgGroupIteratorSource::Cache(ref mut cache) => {
+                let expr = cache.first()?;
+                *cache = &cache[1..];
+                Some(Ok(*expr))
+            }
         }
-        let (expr, remaining) = try_or_some_err! {
-            // TODO: Other encodings
-            self.remaining_args_buffer.expect_sequence_value_expr("eexp arg group subarg")
-        };
-        self.remaining_args_buffer = remaining;
-        Some(Ok(expr))
     }
 }
 
@@ -458,9 +518,15 @@ impl<'top> IntoIterator for BinaryEExpArgGroup<'top> {
     type IntoIter = BinaryEExpArgGroupIterator<'top>;
 
     fn into_iter(self) -> Self::IntoIter {
+        let source = match self.delimited_values {
+            None => BinaryEExpArgGroupIteratorSource::Input(
+                self.input.consume(self.header_size as usize),
+            ),
+            Some(delimited_values) => BinaryEExpArgGroupIteratorSource::Cache(delimited_values),
+        };
         BinaryEExpArgGroupIterator {
             parameter: self.parameter,
-            remaining_args_buffer: self.input.consume(self.header_size as usize),
+            source,
         }
     }
 }
