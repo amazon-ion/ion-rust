@@ -72,16 +72,15 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             encoding_buffer_ptr,
         } = self;
 
-        let encoding_buffer = match encoding_buffer_ptr {
-            // If `encoding_buffer_ptr` is set, get the slice of bytes to which it refers.
-            Some(ptr) => unsafe { ptr_to_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() },
-            // Otherwise, there's nothing in the buffer. Use an empty slice.
-            None => &[],
-        };
-        // Write our top level encoding buffer's contents to the output sink.
-        output.write_all(encoding_buffer)?;
-        // Flush the output sink, which may have its own buffers.
-        output.flush()?;
+        if let Some(ptr) = encoding_buffer_ptr {
+            let encoding_buffer = unsafe { ptr_to_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() };
+            // Write our top level encoding buffer's contents to the output sink.
+            output.write_all(encoding_buffer)?;
+            // Flush the output sink, which may have its own buffers.
+            output.flush()?;
+        }
+        // Now that we've written the encoding buffer's contents to output, clear it.
+        self.encoding_buffer_ptr = None;
         // Clear the allocator. A new encoding buffer will be allocated on the next write.
         allocator.reset();
         Ok(())
@@ -181,5 +180,30 @@ impl<W: Write> SequenceWriter for LazyRawBinaryWriter_1_1<W> {
     fn close(mut self) -> IonResult<Self::Resources> {
         self.flush()?;
         Ok(self.output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{v1_1, IonResult};
+
+    #[test]
+    fn flush_clears_encoding_buffer() -> IonResult<()> {
+        use crate::Writer;
+        let mut writer = Writer::new(v1_1::Binary, Vec::new()).expect("BinaryWriter::new() failed");
+
+        writer.write(42)?;
+        writer.flush()?;
+        let expected_output = writer.output().clone();
+        writer.flush()?;
+        assert_eq!(
+            *writer.output(),
+            expected_output,
+            "actual\n{:x?}\nwas not eq to\n{:x?}",
+            writer.output(),
+            expected_output
+        );
+
+        Ok(())
     }
 }
