@@ -396,7 +396,7 @@ mod benchmark {
         let name = test_data_1_1.name.as_str();
 
         let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
-        let compiled_macro = TemplateCompiler::compile_from_text(
+        let compiled_macro = TemplateCompiler::compile_from_source(
             empty_context.get_ref(),
             &test_data_1_1.template_definition_text,
         )

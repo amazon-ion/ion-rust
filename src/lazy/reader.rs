@@ -184,11 +184,10 @@ mod tests {
     use crate::element::Element;
     use crate::lazy::encoder::writer::Writer;
     use crate::lazy::encoding::BinaryEncoding_1_0;
-    use crate::lazy::expanded::EncodingContext;
+    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
-    use crate::{ion_list, ion_sexp, ion_struct, v1_0, AnyEncoding, Int, IonResult, IonType};
-    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+    use crate::{ion_list, ion_sexp, ion_struct, v1_0, v1_1, Int, IonResult, IonType, MacroTable};
 
     use super::*;
 
@@ -287,20 +286,18 @@ mod tests {
     fn expand_macro_test(
         macro_source: &str,
         encode_macro_fn: impl FnOnce(MacroAddress) -> Vec<u8>,
-        test_fn: impl FnOnce(Reader<AnyEncoding, &[u8]>) -> IonResult<()>,
+        test_fn: impl FnOnce(Reader<v1_1::Binary, &[u8]>) -> IonResult<()>,
     ) -> IonResult<()> {
         // Because readers do not yet understand encoding directives, we'll pre-calculate the
-        // macro ID that will be assigned. Make an empty encoding context...
-        let context = EncodingContext::empty();
-        // ...and see how many macros it contains. This will change as development continues.
-        let macro_address = context.macro_table.len();
+        // macro ID that will be assigned.
+        let macro_address = MacroTable::FIRST_USER_MACRO_ID;
         let opcode_byte = u8::try_from(macro_address).unwrap();
         // Using that ID, encode a binary stream containing an invocation of the new macro.
         // This function must add an IVM and the encoded e-expression ID, followed by any number
         // of arguments that matches the provided signature.
         let binary_ion = encode_macro_fn(opcode_byte as usize);
         // Construct a reader for the encoded data.
-        let mut reader = Reader::new(AnyEncoding, binary_ion.as_slice())?;
+        let mut reader = Reader::new(v1_1::Binary, binary_ion.as_slice())?;
         // Register the template definition, getting the same ID we used earlier.
         let actual_address = reader.register_template_src(macro_source)?;
         assert_eq!(
@@ -315,7 +312,7 @@ mod tests {
     #[test]
     fn expand_binary_template_macro() -> IonResult<()> {
         let macro_source = "(macro seventeen () 17)";
-        let encode_macro_fn = |address| vec![0xE0, 0x01, 0x01, 0xEA, address as u8];
+        let encode_macro_fn = |address| vec![address as u8];
         expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
             assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 17);
             Ok(())
@@ -332,8 +329,6 @@ mod tests {
         "#;
         #[rustfmt::skip]
         let encode_macro_fn = |address| vec![
-            // === 1.1 IVM ===
-            0xE0, 0x01, 0x01, 0xEA,
             // === Macro ID ===
             address as u8,
             // === Arg 1 ===
@@ -363,8 +358,6 @@ mod tests {
         "#;
         #[rustfmt::skip]
             let encode_macro_fn = |address| vec![
-            // === 1.1 IVM ===
-            0xE0, 0x01, 0x01, 0xEA,
             // === Macro ID ===
             address as u8,
             // === Arg 1 ===

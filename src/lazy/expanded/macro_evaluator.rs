@@ -2110,22 +2110,16 @@ mod tests {
             (&[macro_id, 0x0B, 0x0D], (5, 6)), // TODO: non-required cardinalities
         ];
 
-        for test in tests {
-            let mut stream = vec![0xE0, 0x01, 0x00, 0xEA];
-            stream.extend_from_slice(test.0);
-            println!(
-                "stream {:02X?} -> pair ({}, {})",
-                test.0, test.1 .0, test.1 .1
-            );
-            let mut reader = Reader::new(v1_1::Binary, stream.as_slice())?;
+        for (stream, (num1, num2)) in tests.iter().copied() {
+            let mut reader = Reader::new(v1_1::Binary, stream)?;
             reader.register_template_src(template_definition)?;
             assert_eq!(
                 reader.next()?.unwrap().read()?.expect_int()?,
-                Int::from(test.1 .0)
+                Int::from(num1)
             );
             assert_eq!(
                 reader.next()?.unwrap().read()?.expect_int()?,
-                Int::from(test.1 .1)
+                Int::from(num2)
             );
         }
         Ok(())

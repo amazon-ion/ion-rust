@@ -2,6 +2,7 @@
 //! evaluation.
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::Decoder;
+use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
 use crate::lazy::expanded::template::{
     ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
     RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateBodyExpr, TemplateMacro,
@@ -14,7 +15,10 @@ use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
-use crate::{v1_1, IonError, IonResult, IonType, Macro, MacroTable, Reader, Symbol, SymbolRef};
+use crate::{
+    AnyEncoding, IonError, IonInput, IonResult, IonType, Macro, MacroTable, Reader, Symbol,
+    SymbolRef,
+};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::ops::Range;
@@ -50,6 +54,17 @@ impl ExpansionAnalysis {
         }
     }
 
+    /// Returns an expansion analysis for a macro that will produce a single value that may or may
+    /// not be a system value.
+    pub const fn possible_system_value() -> Self {
+        ExpansionAnalysis {
+            could_produce_system_value: true,
+            must_produce_exactly_one_value: true,
+            can_be_lazily_evaluated_at_top_level: false,
+            expansion_singleton: None,
+        }
+    }
+
     /// Returns an expansion analysis for a macro that always produces exactly one non-system value.
     pub const fn single_application_value(ion_type: IonType) -> Self {
         ExpansionAnalysis {
@@ -61,6 +76,19 @@ impl ExpansionAnalysis {
                 ion_type,
                 num_annotations: 0,
             }),
+        }
+    }
+
+    /// Returns an expansion analysis for a macro that always produces application values
+    /// (i.e. not system values), but the number of values produced is unspecified.
+    // TODO: It might be helpful to have an `empty_stream()` ExpansionAnalysis constructor
+    //       to optimize `none`, `meta`, and template macros based on those.
+    pub const fn application_value_stream() -> Self {
+        ExpansionAnalysis {
+            could_produce_system_value: false,
+            must_produce_exactly_one_value: false,
+            can_be_lazily_evaluated_at_top_level: false, // Requires exactly-one output
+            expansion_singleton: None,
         }
     }
 
@@ -146,7 +174,7 @@ pub struct TemplateCompiler {}
 
 impl TemplateCompiler {
     /// Takes a TDL expression in the form:
-    /// ```ion_1_1
+    /// ```ion
     ///     (macro name (param1 param2 [...] paramN) body)
     /// ```
     /// and compiles it into a [`TemplateMacro`].
@@ -163,7 +191,7 @@ impl TemplateCompiler {
     /// This arrangement--expressions storing their composite expression count--enables the reader
     /// to skip the entire parent expression as desired. For example, in this macro:
     ///
-    /// ```ion_1_1
+    /// ```ion
     /// (macro foo ()
     ///                  // Template body expressions
     ///     [            // #0, num_expressions=5, range=0..5
@@ -185,12 +213,12 @@ impl TemplateCompiler {
     /// The compiler recognizes the `(literal expr1 expr2 [...] exprN)` form, adding each subexpression
     /// to the template without interpretation. `(literal ...)` does not appear in the compiled
     /// template as there is nothing more for it to do at expansion time.
-    pub fn compile_from_text(
+    pub fn compile_from_source(
         context: EncodingContextRef<'_>,
-        expression: &str,
+        source: impl IonInput,
     ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that surfaces terse errors.
-        let mut reader = Reader::new(v1_1::Text, expression.as_bytes())?;
+        let mut reader = Reader::new(AnyEncoding, source)?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
 
         Self::compile_from_sexp(context, &MacroTable::empty(), macro_def_sexp)
@@ -431,10 +459,7 @@ impl TemplateCompiler {
         let macro_id = macro_id.into();
         match module_name {
             // If the module is `$ion`, this refers to the system module.
-            "$ion" => context
-                .system_module
-                .macro_table()
-                .clone_macro_with_id(macro_id),
+            "$ion" => ION_1_1_SYSTEM_MACROS.clone_macro_with_id(macro_id),
             // If the module is `$ion_encoding`, this refers to the active encoding module.
             "$ion_encoding" => context.macro_table().clone_macro_with_id(macro_id),
             _ => todo!(
@@ -459,7 +484,61 @@ impl TemplateCompiler {
         // The `params` clause of the macro definition is an s-expression enumerating the parameters
         // that the macro accepts. For example: `(flex_uint::x, y*, z?)`.
         let params_clause = Self::expect_sexp("an s-expression defining parameters", &mut values)?;
+        let signature = Self::compile_signature_from_sexp(context, pending_macros, params_clause)?;
+        let body = Self::expect_next("the template body", &mut values)?;
+        let expansion_analysis = Self::analyze_body_expr(body)?;
+        let mut compiled_body = TemplateBody {
+            expressions: Vec::new(),
+            annotations_storage: Vec::new(),
+        };
+        // Information that will be propagated to each subexpression
+        let tdl_context = TdlContext {
+            context,
+            pending_macros,
+            signature: &signature,
+        };
+        Self::compile_value(
+            tdl_context,
+            &mut compiled_body,
+            /*is_literal=*/ false,
+            /*target_parameter=*/ None, /*; this is not a macro invocation arg.*/
+            body,
+        )?;
+        // Make sure there aren't any unexpected expressions following the body.
+        match values.next() {
+            None => {}
+            Some(expr) => {
+                let name = template_name.unwrap_or_else(|| "<anonymous>".into());
+                return IonResult::decoding_error(format!(
+                    "found unexpected expression following the body of macro '{name}': {:?}",
+                    expr?
+                ));
+            }
+        }
+        let template_macro = TemplateMacro {
+            name: template_name,
+            signature,
+            body: compiled_body,
+            expansion_analysis,
+        };
+        Ok(template_macro)
+    }
 
+    pub fn compile_signature(
+        context: EncodingContextRef<'_>,
+        source: impl IonInput,
+    ) -> IonResult<MacroSignature> {
+        let mut reader = Reader::new(AnyEncoding, source)?;
+        let empty_macro_table = MacroTable::empty();
+        let params_clause = reader.expect_next()?.read()?.expect_sexp()?;
+        Self::compile_signature_from_sexp(context, &empty_macro_table, params_clause)
+    }
+
+    fn compile_signature_from_sexp<D: Decoder>(
+        context: EncodingContextRef<'_>,
+        pending_macros: &MacroTable,
+        params_clause: LazySExp<'_, D>,
+    ) -> IonResult<MacroSignature> {
         let mut compiled_params = Vec::new();
         // `param_items` is a peekable iterator over the Ion values in `params_clause`. Because it
         // is peekable, we can look ahead at each step to see if there are more values. This is
@@ -520,44 +599,7 @@ impl TemplateCompiler {
                 Parameter::new(name, parameter_encoding, cardinality, rest_syntax_policy);
             compiled_params.push(compiled_param);
         }
-        let signature = MacroSignature::new(compiled_params)?;
-        let body = Self::expect_next("the template body", &mut values)?;
-        let expansion_analysis = Self::analyze_body_expr(body)?;
-        let mut compiled_body = TemplateBody {
-            expressions: Vec::new(),
-            annotations_storage: Vec::new(),
-        };
-        // Information that will be propagated to each subexpression
-        let tdl_context = TdlContext {
-            context,
-            pending_macros,
-            signature: &signature,
-        };
-        Self::compile_value(
-            tdl_context,
-            &mut compiled_body,
-            /*is_literal=*/ false,
-            /*target_parameter=*/ None, /*; this is not a macro invocation arg.*/
-            body,
-        )?;
-        // Make sure there aren't any unexpected expressions following the body.
-        match values.next() {
-            None => {}
-            Some(expr) => {
-                let name = template_name.unwrap_or_else(|| "<anonymous>".into());
-                return IonResult::decoding_error(format!(
-                    "found unexpected expression following the body of macro '{name}': {:?}",
-                    expr?
-                ));
-            }
-        }
-        let template_macro = TemplateMacro {
-            name: template_name,
-            signature,
-            body: compiled_body,
-            expansion_analysis,
-        };
-        Ok(template_macro)
+        MacroSignature::new(compiled_params)
     }
 
     /// The entry point for static analysis of a template body expression.
@@ -1412,7 +1454,7 @@ mod tests {
         ExprRange, ParameterEncoding, TemplateBodyExpr, TemplateMacro, TemplateValue,
     };
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
-    use crate::{Int, IntoAnnotations, IonResult, Macro, Symbol};
+    use crate::{Int, IntoAnnotations, IonResult, IonVersion, Macro, Symbol};
     use rustc_hash::FxHashMap;
     use std::sync::Arc;
 
@@ -1514,7 +1556,7 @@ mod tests {
     impl TestResources {
         fn new() -> Self {
             Self {
-                context: EncodingContext::empty(),
+                context: EncodingContext::for_ion_version(IonVersion::v1_1),
             }
         }
 
@@ -1530,7 +1572,7 @@ mod tests {
 
         let expression = "(macro foo () 42)";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::Int(42.into()))?;
@@ -1544,7 +1586,7 @@ mod tests {
 
         let expression = "(macro foo () [1, 2, 3])";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::List)?;
@@ -1561,7 +1603,7 @@ mod tests {
 
         let expression = r#"(macro foo () (.values 42 "hello" false))"#;
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_macro(
@@ -1584,7 +1626,7 @@ mod tests {
         let expression =
             "(macro foo (x y z) [100, [200, a::b::300], (%x), {y: [true, false, (%z)]}])";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
         expect_value(&template, 0, TemplateValue::List)?;
         expect_value(&template, 1, TemplateValue::Int(Int::from(100)))?;
         expect_value(&template, 2, TemplateValue::List)?;
@@ -1610,7 +1652,7 @@ mod tests {
 
         let expression = "(macro identity (x) (%x))";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().len(), 1);
         expect_variable(&template, 0, 0)?;
@@ -1624,7 +1666,7 @@ mod tests {
 
         let expression = "(macro identity (flex_uint::x) (%x))";
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().len(), 1);
         assert_eq!(
@@ -1656,7 +1698,7 @@ mod tests {
                         (.values (%x) ))))
         "#;
 
-        let template = TemplateCompiler::compile_from_text(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 1);
         // Outer `values`
