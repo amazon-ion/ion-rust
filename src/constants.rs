@@ -49,7 +49,7 @@ pub(crate) mod v1_1 {
     use phf::phf_map;
 
     pub mod constants {
-        pub const DEFAULT_MODULE_NAME: &'static str = "_";
+        pub const DEFAULT_MODULE_NAME: &str = "_";
     }
     pub static SYSTEM_SYMBOLS: &[&str] = &[
         // <unknown text>               $0
