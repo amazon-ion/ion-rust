@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use crate::constants::v1_1;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::TemplateCompiler;
@@ -249,7 +250,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         let module_name = Self::expect_next_sexp_value("module name", &mut exprs)?;
         let module_name = Self::expect_symbol_text("module name", module_name)?;
 
-        if module_name != "_" {
+        if module_name != v1_1::constants::DEFAULT_MODULE_NAME {
             return IonResult::decoding_error("only the default module `_` is currently supported");
         }
 
@@ -281,7 +282,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 let symbol_table = Self::process_symbol_table_definition(operation_sexp)?;
                 let new_encoding_module = match pending_changes.take_new_active_module() {
                     None => EncodingModule::new(
-                        "_".to_owned(),
+                        v1_1::constants::DEFAULT_MODULE_NAME.to_owned(),
                         MacroTable::with_system_macros(IonVersion::v1_1),
                         symbol_table,
                     ),
@@ -296,7 +297,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 let macro_table = Self::process_macro_table_definition(operation_sexp)?;
                 let new_encoding_module = match pending_changes.take_new_active_module() {
                     None => EncodingModule::new(
-                        "_".to_owned(),
+                        v1_1::constants::DEFAULT_MODULE_NAME.to_owned(),
                         macro_table,
                         SymbolTable::empty(IonVersion::v1_1),
                     ),
@@ -361,7 +362,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         let mut symbol_table = SymbolTable::empty(IonVersion::v1_1);
         for arg in args {
             match arg?.read()? {
-                ValueRef::Symbol(symbol) if symbol == "_" => {
+                ValueRef::Symbol(symbol) if symbol == v1_1::constants::DEFAULT_MODULE_NAME => {
                     let active_symtab = operation.expanded().context.symbol_table();
                     for symbol in active_symtab.application_symbols() {
                         symbol_table.add_symbol(symbol.clone());
@@ -414,11 +415,15 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                         TemplateCompiler::compile_from_sexp(context, &macro_table, macro_def_sexp)?;
                     macro_table.add_macro(new_macro)?;
                 }
-                ValueRef::Symbol(module_name) if module_name == "_" => {
+                ValueRef::Symbol(module_name)
+                    if module_name == v1_1::constants::DEFAULT_MODULE_NAME =>
+                {
                     let active_mactab = operation.expanded().context.macro_table();
                     macro_table.append_all_macros_from(active_mactab)?;
                 }
-                ValueRef::Symbol(module_name) if module_name == "$ion" => {
+                ValueRef::Symbol(module_name)
+                    if module_name == v1_1::system_symbols::ION.text() =>
+                {
                     macro_table.append_all_macros_from(&ION_1_1_SYSTEM_MACROS)?;
                 }
                 ValueRef::Symbol(_module_name) => {
@@ -681,7 +686,7 @@ mod tests {
     use crate::lazy::decoder::RawVersionMarker;
     use crate::lazy::system_stream_item::SystemStreamItem;
     use crate::{
-        v1_0, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef, ValueWriter, Writer,
+        v1_0, v1_1, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef, ValueWriter, Writer,
     };
 
     use super::*;
@@ -1055,7 +1060,9 @@ mod tests {
             .value_writer()
             .with_annotations("$ion")?
             .sexp_writer()?;
-        directive.write_symbol("module")?.write_symbol("_")?;
+        directive
+            .write_symbol(v1_1::system_symbols::MODULE)?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
 
         let mut symbol_table = directive.sexp_writer()?;
         symbol_table.write_symbol("symbol_table")?;
@@ -1094,7 +1101,9 @@ mod tests {
             .value_writer()
             .with_annotations("$ion")?
             .sexp_writer()?;
-        directive.write_symbol("module")?.write_symbol("_")?;
+        directive
+            .write_symbol(v1_1::system_symbols::MODULE.text())?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
         let mut symbol_table = directive.sexp_writer()?;
         symbol_table.write_symbol("symbol_table")?;
         symbol_table.write_list(["foo", "bar", "baz"])?;

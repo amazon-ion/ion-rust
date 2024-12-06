@@ -1,5 +1,6 @@
 //! Compiles template definition language (TDL) expressions into a form suitable for fast incremental
 //! evaluation.
+use crate::constants::v1_1;
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
@@ -461,7 +462,9 @@ impl TemplateCompiler {
             // If the module is `$ion`, this refers to the system module.
             "$ion" => ION_1_1_SYSTEM_MACROS.clone_macro_with_id(macro_id),
             // If the module is `_`, this refers to the active encoding module.
-            "_" => context.macro_table().clone_macro_with_id(macro_id),
+            v1_1::constants::DEFAULT_MODULE_NAME => {
+                context.macro_table().clone_macro_with_id(macro_id)
+            }
             _ => todo!("qualified references to modules other than `_` (found `{module_name}`"),
         }
     }
