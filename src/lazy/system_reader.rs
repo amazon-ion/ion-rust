@@ -686,7 +686,8 @@ mod tests {
     use crate::lazy::decoder::RawVersionMarker;
     use crate::lazy::system_stream_item::SystemStreamItem;
     use crate::{
-        v1_0, v1_1, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef, ValueWriter, Writer,
+        constants, v1_0, v1_1, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef,
+        ValueWriter, Writer,
     };
 
     use super::*;
@@ -1101,9 +1102,8 @@ mod tests {
             .value_writer()
             .with_annotations("$ion")?
             .sexp_writer()?;
-        directive
-            .write_symbol(v1_1::system_symbols::MODULE.text())?
-            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
+        // We avoid using 1.1 text constants here because access to them is feature gated.
+        directive.write_symbol("module")?.write_symbol("_")?;
         let mut symbol_table = directive.sexp_writer()?;
         symbol_table.write_symbol("symbol_table")?;
         symbol_table.write_list(["foo", "bar", "baz"])?;

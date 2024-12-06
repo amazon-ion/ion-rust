@@ -382,14 +382,11 @@ pub mod v1_0 {
 
 #[cfg(feature = "experimental-ion-1-1")]
 pub mod v1_1 {
-    #[cfg(feature = "experimental-tooling-apis")]
-    v1_1_tooling_apis!(pub);
-
-    #[cfg(feature = "experimental-tooling-apis")]
+    pub use crate::constants::v1_1::constants;
     pub use crate::constants::v1_1::system_symbols;
 
     #[cfg(feature = "experimental-tooling-apis")]
-    pub use crate::constants::v1_1::constants;
+    v1_1_tooling_apis!(pub);
 
     #[cfg(not(feature = "experimental-tooling-apis"))]
     v1_1_tooling_apis!(pub(crate));
