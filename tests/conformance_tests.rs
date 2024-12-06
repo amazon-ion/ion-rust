@@ -62,7 +62,7 @@ mod implementation {
     fn test_encoding() {
         let test: &str = r#"
              (ion_1_1
-                 (encoding (macro_table (macro m () 1)))
+                 (encoding module _ (macro_table (macro m () 1)))
                  (text "(:m)")
                  (produces 1)
              )"#;

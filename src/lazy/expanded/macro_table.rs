@@ -292,11 +292,12 @@ impl MacroTable {
             template(
                 r#"
                         (macro set_symbols (symbols*)
-                             $ion_encoding::(
+                             $ion::
+                             (module _
                                // Set a new symbol table
                                (symbol_table [(%symbols)])
                                // Include the active encoding module macros
-                               (macro_table $ion_encoding)
+                               (macro_table _)
                              )
                        )
                     "#,
@@ -304,11 +305,12 @@ impl MacroTable {
             template(
                 r#"
                         (macro add_symbols (symbols*)
-                             $ion_encoding::(
+                             $ion::
+                             (module _
                                // Set a new symbol table
-                               (symbol_table $ion_encoding [(%symbols)])
+                               (symbol_table _ [(%symbols)])
                                // Include the active encoding module macros
-                               (macro_table $ion_encoding)
+                               (macro_table _)
                              )
                        )
                     "#,
@@ -316,9 +318,10 @@ impl MacroTable {
             template(
                 r#"
                        (macro set_macros (macro_definitions*)
-                           $ion_encoding::(
+                           $ion::
+                           (module _
                                // Include the active encoding module symbols
-                               (symbol_table $ion_encoding)
+                               (symbol_table _)
                                // Set a new macro table
                                (macro_table (%macro_definitions))
                            )
@@ -328,11 +331,12 @@ impl MacroTable {
             template(
                 r#"
                        (macro add_macros (macro_definitions*)
-                           $ion_encoding::(
+                           $ion::
+                           (module _
                                // Include the active encoding module symbols
-                               (symbol_table $ion_encoding)
+                               (symbol_table _)
                                // Set a new macro table
-                               (macro_table $ion_encoding (%macro_definitions))
+                               (macro_table _ (%macro_definitions))
                            )
                        )
                     "#,

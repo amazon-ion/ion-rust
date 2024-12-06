@@ -48,6 +48,9 @@ pub(crate) mod v1_1 {
     use crate::types::SymbolAddress;
     use phf::phf_map;
 
+    pub mod constants {
+        pub const DEFAULT_MODULE_NAME: &str = "_";
+    }
     pub static SYSTEM_SYMBOLS: &[&str] = &[
         // <unknown text>               $0
         "$ion",                     //  $1
@@ -59,7 +62,7 @@ pub(crate) mod v1_1 {
         "symbols",                  //  $7
         "max_id",                   //  $8
         "$ion_shared_symbol_table", //  $9
-        "$ion_encoding",            // $10
+        "encoding",                 // $10
         "$ion_literal",             // $11
         "$ion_shared_module",       // $12
         "macro",                    // $13
@@ -120,8 +123,10 @@ pub(crate) mod v1_1 {
     pub mod system_symbols {
         use crate::raw_symbol_ref::SystemSymbol_1_1;
 
-        pub const ION_ENCODING: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(10);
+        pub const ION: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(1);
+        pub const ENCODING: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(10);
         pub const SYMBOL_TABLE: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(15);
+        pub const MODULE: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(16);
         pub const EMPTY_TEXT: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(21);
         pub const ADD_SYMBOLS: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(45);
         pub const ADD_MACROS: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(47);

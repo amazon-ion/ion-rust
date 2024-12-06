@@ -166,7 +166,7 @@ pub use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 // Private modules that serve to organize implementation details.
 pub(crate) mod binary;
 pub(crate) mod catalog;
-mod constants;
+pub(crate) mod constants;
 mod ion_data;
 mod raw_symbol_ref;
 mod shared_symbol_table;
@@ -382,6 +382,9 @@ pub mod v1_0 {
 
 #[cfg(feature = "experimental-ion-1-1")]
 pub mod v1_1 {
+    pub use crate::constants::v1_1::constants;
+    pub use crate::constants::v1_1::system_symbols;
+
     #[cfg(feature = "experimental-tooling-apis")]
     v1_1_tooling_apis!(pub);
 

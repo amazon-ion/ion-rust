@@ -335,10 +335,11 @@ mod tests {
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
         let encoding_directive = Element::read_one(
             r#"
-                $ion_encoding::(
-                    (symbol_table $ion_encoding)
+                $ion::
+                (module _
+                    (symbol_table _)
                     (macro_table
-                        $ion_encoding
+                        _
                         (macro greet (name) (.make_string "hello, " (%name)))
                     )
                 )

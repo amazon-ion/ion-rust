@@ -96,9 +96,7 @@ impl Fragment {
                 Ok(bytes.to_owned())
             }
             Fragment::Binary(_) => unreachable!(),
-            Fragment::Ivm(maj, min) => {
-                Ok(format!("$ion_{}_{}", maj, min).as_bytes().to_owned())
-            }
+            Fragment::Ivm(maj, min) => Ok(format!("$ion_{}_{}", maj, min).as_bytes().to_owned()),
         }
     }
 
@@ -151,7 +149,7 @@ impl TryFrom<Clause> for Fragment {
                 // Rather than treat Encoding special, we expand it to a (toplevel ..) as described
                 // in the spec.
                 let inner: Element = SExp(Sequence::new(other.body)).into();
-                let inner = inner.with_annotations(["$ion_encoding"]);
+                let inner = inner.with_annotations(["$ion"]);
                 Fragment::TopLevel(TopLevel { elems: vec![inner] })
             }
             ClauseType::MacTab => {

@@ -15,7 +15,7 @@ pub enum SystemStreamItem<'top, D: Decoder> {
     VersionMarker(D::VersionMarker<'top>),
     /// An Ion 1.0-style symbol table encoded as a struct annotated with `$ion_symbol_table`.
     SymbolTable(LazyStruct<'top, D>),
-    /// An Ion 1.1 encoding directive; an s-expression annotated with `$ion_encoding`.
+    /// An Ion 1.1 encoding directive; an s-expression annotated with `$ion`.
     EncodingDirective(LazySExp<'top, D>),
     /// An application-level Ion value
     Value(LazyValue<'top, D>),
