@@ -347,7 +347,7 @@ mod tests {
             0xE3, 0x01, 0x00, 0x00,
 
             // System symbols
-            0xEE, 0x0A, // $ion_encoding
+            0xEE, 0x0A, // encoding
             0xEE, 0x0E, // macro_table
             0xEE, 0x15, // empty text
             0xEE, 0x41, // make_field
@@ -364,7 +364,7 @@ mod tests {
             RawSymbolRef::SymbolId(1),
             RawSymbolRef::SymbolId(257),
             RawSymbolRef::SymbolId(65_793),
-            RawSymbolRef::Text("$ion_encoding"),
+            RawSymbolRef::Text("encoding"),
             RawSymbolRef::Text("macro_table"),
             RawSymbolRef::Text(""),
             RawSymbolRef::Text("make_field"),

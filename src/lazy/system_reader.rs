@@ -164,8 +164,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         Ok(false)
     }
 
-    /// Returns `true` if the provided `LazyRawValue` is an s-expression whose first annotation
-    /// is `$ion_encoding`. Caller is responsible for confirming the sexp appeared at the top
+    /// Returns `true` if the provided `LazyRawValue` is an s-expression whose only annotation
+    /// is `$ion`. Caller is responsible for confirming the sexp appeared at the top
     /// level AND that this stream is encoded using Ion 1.1.
     pub(crate) fn is_encoding_directive_sexp(
         lazy_value: &'_ LazyExpandedValue<'_, Encoding>,
@@ -176,11 +176,13 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         if !lazy_value.has_annotations() {
             return Ok(false);
         }
-        // At this point, we've confirmed it's an annotated s-expression. We need to see if its
-        // first annotation has the text `$ion_encoding`, which may involve a lookup in the
-        // encoding context. We'll promote this LazyExpandedValue to a LazyValue to enable that.
+        // At this point, we've confirmed it's an annotated s-expression. We need to see if:
+        //   1. It only has one annotation
+        //   2. That annotation is `$ion`
+        // This may involve a lookup in the encoding context.
+        // We'll promote this LazyExpandedValue to a LazyValue to facilitate that.
         let lazy_value = LazyValue::new(*lazy_value);
-        lazy_value.annotations().starts_with(["$ion_encoding"])
+        lazy_value.annotations().are(["$ion"])
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
@@ -225,8 +227,33 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         directive: LazyExpandedValue<'_, Encoding>,
     ) -> IonResult<()> {
         // We've already confirmed this is an annotated sexp
-        let directive = directive.read()?.expect_sexp()?;
-        for step in directive.iter() {
+        let directive = LazyValue::new(directive).read()?.expect_sexp()?;
+        let mut exprs = directive.iter();
+        let operation = Self::expect_next_sexp_value("operation name", &mut exprs)?;
+        let operation_name = Self::expect_symbol_text("operation name", operation)?;
+        // For now, the only supported directive is `$ion::(module _ /*...*/)`.
+        match operation_name {
+            "module" => {}
+            todo_operation @ ("encoding" | "import") => {
+                return IonResult::decoding_error(format!(
+                    "directive operation `{todo_operation}` is not yet supported"
+                ));
+            }
+            invalid_operation => {
+                return IonResult::decoding_error(format!(
+                    "unrecognized directive operation `{invalid_operation}`"
+                ));
+            }
+        }
+
+        let module_name = Self::expect_next_sexp_value("module name", &mut exprs)?;
+        let module_name = Self::expect_symbol_text("module name", module_name)?;
+
+        if module_name != "_" {
+            return IonResult::decoding_error("only the default module `_` is currently supported");
+        }
+
+        for step in exprs {
             Self::process_encoding_directive_operation(pending_changes, step?)?;
         }
         Ok(())
@@ -234,9 +261,9 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
 
     pub(crate) fn process_encoding_directive_operation(
         pending_changes: &mut PendingContextChanges,
-        value: LazyExpandedValue<'_, Encoding>,
+        value: LazyValue<'_, Encoding>,
     ) -> IonResult<()> {
-        let operation_sexp = LazyValue::new(value).read()?.expect_sexp().map_err(|_| {
+        let operation_sexp = value.read()?.expect_sexp().map_err(|_| {
             IonError::decoding_error(format!(
                 "found an encoding directive step that was not an s-expression: {value:?}"
             ))
@@ -254,7 +281,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 let symbol_table = Self::process_symbol_table_definition(operation_sexp)?;
                 let new_encoding_module = match pending_changes.take_new_active_module() {
                     None => EncodingModule::new(
-                        "$ion_encoding".to_owned(),
+                        "_".to_owned(),
                         MacroTable::with_system_macros(IonVersion::v1_1),
                         symbol_table,
                     ),
@@ -269,7 +296,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 let macro_table = Self::process_macro_table_definition(operation_sexp)?;
                 let new_encoding_module = match pending_changes.take_new_active_module() {
                     None => EncodingModule::new(
-                        "$ion_encoding".to_owned(),
+                        "_".to_owned(),
                         macro_table,
                         SymbolTable::empty(IonVersion::v1_1),
                     ),
@@ -334,14 +361,14 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         let mut symbol_table = SymbolTable::empty(IonVersion::v1_1);
         for arg in args {
             match arg?.read()? {
-                ValueRef::Symbol(symbol) if symbol == "$ion_encoding" => {
+                ValueRef::Symbol(symbol) if symbol == "_" => {
                     let active_symtab = operation.expanded().context.symbol_table();
                     for symbol in active_symtab.application_symbols() {
                         symbol_table.add_symbol(symbol.clone());
                     }
                 }
                 ValueRef::Symbol(symbol) => {
-                    todo!("modules other than $ion_encoding (found symbol '{symbol:?}')")
+                    todo!("modules other than _ (found symbol '{symbol:?}')")
                 }
                 ValueRef::List(symbol_list) => {
                     for value in symbol_list {
@@ -387,7 +414,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                         TemplateCompiler::compile_from_sexp(context, &macro_table, macro_def_sexp)?;
                     macro_table.add_macro(new_macro)?;
                 }
-                ValueRef::Symbol(module_name) if module_name == "$ion_encoding" => {
+                ValueRef::Symbol(module_name) if module_name == "_" => {
                     let active_mactab = operation.expanded().context.macro_table();
                     macro_table.append_all_macros_from(active_mactab)?;
                 }
@@ -395,7 +422,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     macro_table.append_all_macros_from(&ION_1_1_SYSTEM_MACROS)?;
                 }
                 ValueRef::Symbol(_module_name) => {
-                    todo!("re-exporting macros from a module other than $ion_encoding")
+                    todo!("re-exporting macros from a module other than _")
                 }
                 _other => {
                     return IonResult::decoding_error(format!(
@@ -1008,7 +1035,9 @@ mod tests {
     fn detect_encoding_directive_text() -> IonResult<()> {
         let text = r#"
             $ion_1_1
-            $ion_encoding::((symbol_table ["foo", "bar", "baz"]))
+            $ion::
+            (module _
+                (symbol_table ["foo", "bar", "baz"]))
         "#;
 
         let mut reader = SystemReader::new(AnyEncoding, text);
@@ -1024,8 +1053,10 @@ mod tests {
         let mut writer = LazyRawBinaryWriter_1_1::new(Vec::new())?;
         let mut directive = writer
             .value_writer()
-            .with_annotations("$ion_encoding")?
+            .with_annotations("$ion")?
             .sexp_writer()?;
+        directive.write_symbol("module")?.write_symbol("_")?;
+
         let mut symbol_table = directive.sexp_writer()?;
         symbol_table.write_symbol("symbol_table")?;
         symbol_table.write_list(["foo", "bar", "baz"])?;
@@ -1044,13 +1075,15 @@ mod tests {
         let text = r#"
             $ion_1_0
             // In Ion 1.0, this is just an annotated s-expression.
-            $ion_encoding::((symbol_table ["foo", "bar", "baz"]))
+            $ion::
+            (encoding _
+                (symbol_table ["foo", "bar", "baz"]))
         "#;
 
         let mut reader = SystemReader::new(AnyEncoding, text);
         assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 0));
         let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
-        assert!(sexp.annotations().are(["$ion_encoding"])?);
+        assert!(sexp.annotations().are(["$ion"])?);
         Ok(())
     }
 
@@ -1059,8 +1092,9 @@ mod tests {
         let mut writer = Writer::new(v1_0::Binary, Vec::new())?;
         let mut directive = writer
             .value_writer()
-            .with_annotations("$ion_encoding")?
+            .with_annotations("$ion")?
             .sexp_writer()?;
+        directive.write_symbol("module")?.write_symbol("_")?;
         let mut symbol_table = directive.sexp_writer()?;
         symbol_table.write_symbol("symbol_table")?;
         symbol_table.write_list(["foo", "bar", "baz"])?;
@@ -1072,7 +1106,7 @@ mod tests {
         assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 0));
         let _ = reader.next_item()?.expect_symbol_table()?;
         let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
-        assert!(sexp.annotations().are(["$ion_encoding"])?);
+        assert!(sexp.annotations().are(["$ion"])?);
         Ok(())
     }
 
@@ -1081,10 +1115,11 @@ mod tests {
     fn read_encoding_directive_new_active_module() -> IonResult<()> {
         let ion = r#"
             $ion_1_1
-            $ion_encoding::(
+            $ion::
+            (module _
                 (symbol_table ["foo", "bar", "baz"])
                 (macro_table
-                    $ion_encoding
+                    _
                     (macro seventeen () 17)
                     (macro twelve () 12)))
             (:seventeen)

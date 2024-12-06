@@ -460,11 +460,9 @@ impl TemplateCompiler {
         match module_name {
             // If the module is `$ion`, this refers to the system module.
             "$ion" => ION_1_1_SYSTEM_MACROS.clone_macro_with_id(macro_id),
-            // If the module is `$ion_encoding`, this refers to the active encoding module.
-            "$ion_encoding" => context.macro_table().clone_macro_with_id(macro_id),
-            _ => todo!(
-                "qualified references to modules other than $ion_encoding (found {module_name}"
-            ),
+            // If the module is `_`, this refers to the active encoding module.
+            "_" => context.macro_table().clone_macro_with_id(macro_id),
+            _ => todo!("qualified references to modules other than `_` (found `{module_name}`"),
         }
     }
 
@@ -1725,9 +1723,10 @@ mod tests {
 
         let ion = r#"
             $ion_1_1
-            $ion_encoding::(
+            $ion::
+            (module _
                 (macro_table
-                    $ion_encoding
+                    _
                     (macro hello (name) (.make_string "hello " (%name)))
                     (macro hello_world () (.hello "world")) // Depends on macro 'hello'
                 )

@@ -1350,7 +1350,8 @@ mod tests {
         stream_eq(
             r#"
                 // Define macro `double`
-                $ion_encoding::(
+                $ion::
+                (module _
                     (macro_table
                         $ion
                         (macro double (x) (.$ion::values (%x) (%x)))
@@ -1359,7 +1360,8 @@ mod tests {
 
                 // `double` exists until the *end* of the encoding directive below. Define a new
                 // macro that depends on `double`.
-                $ion_encoding::(
+                $ion::
+                (module _
                     (macro_table
                         (macro quadruple (y)
                             (.$ion::values
@@ -1367,7 +1369,7 @@ mod tests {
                                 // to it without qualification.
                                 (.double (%y))
                                 // We could also refer to it with a qualification.
-                                (.$ion_encoding::double (%y))))
+                                (._::double (%y))))
                     )
                 )
 
@@ -1388,23 +1390,25 @@ mod tests {
         stream_eq(
             r#"
                 // Define macro `double`
-                $ion_encoding::(
+                $ion::
+                (module _
                     (macro_table
-                        $ion_encoding
+                        _
                         (macro double (x) (.values (%x) (%x)))
                     )
                 )
 
-                $ion_encoding::(
+                $ion::
+                (module _
                     (macro_table
-                        $ion_encoding // Re-export the active encoding module's macros
+                        _ // Re-export the active encoding module's macros
                         (macro quadruple (y)
                             (.$ion::values
                                 // Because `double` has been added to the local namespace,
                                 // we can refer to it without a qualified reference.
                                 (.double (%y))
                                 // However, we can also refer to it using a qualified reference.
-                                (.$ion_encoding::double (%y))))
+                                (._::double (%y))))
                     )
                 )
 
@@ -1456,7 +1460,8 @@ mod tests {
     fn multiple_arg_expr_groups() -> IonResult<()> {
         stream_eq(
             r#"
-                $ion_encoding::(
+                $ion::
+                (module _
                     (macro_table
                         (macro foo (x+ y* z+)
                             (.make_string (.. (%x) "-" (%y) "-" (%z))))
@@ -1540,7 +1545,8 @@ mod tests {
         stream_eq(
             r#"
                 // Define some symbols
-                $ion_encoding::(
+                $ion::
+                (module _
                     (symbol_table ["foo", "bar"]) // $1, $2
                 )
                 // Use them
@@ -1608,7 +1614,8 @@ mod tests {
         // TODO: update symbol IDs when reading and writing system symbols are implemented
         stream_eq(
             r#"
-                $ion_encoding::(
+                $ion::
+                (module _
                     (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
                 )
                 $1
@@ -1686,7 +1693,8 @@ mod tests {
         // TODO: update symbol IDs when reading and writing system symbols are implemented
         stream_eq(
             r#"
-                $ion_encoding::(
+                $ion::
+                (module _
                     (symbol_table ["foo", "bar", "baz"]) // $1, $2, $3
                 )
                 $1
@@ -1727,7 +1735,8 @@ mod tests {
         eval_template_invocation(
             r#"
                 (macro def_macros (macros*)
-                    $ion_encoding::(
+                    $ion::
+                    (module _
                         (macro_table (%macros))
                     )
                 )"#,

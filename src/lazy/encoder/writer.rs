@@ -165,8 +165,10 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
         let mut directive = directive_writer
             .value_writer()
-            .with_annotations(v1_1::system_symbols::ION_ENCODING)?
+            .with_annotations(v1_1::system_symbols::ION)?
             .sexp_writer()?;
+
+        directive.write_symbol("module")?.write_symbol("_")?;
 
         let pending_symbols = context
             .symbol_table
@@ -177,7 +179,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         let mut symbol_table = directive.sexp_writer()?;
         symbol_table
             .write_symbol(v1_1::system_symbols::SYMBOL_TABLE)?
-            .write_symbol(v1_1::system_symbols::ION_ENCODING)?
+            .write_symbol("_")?
             .write_list(pending_symbols)?;
         symbol_table.close()?;
         directive.close()

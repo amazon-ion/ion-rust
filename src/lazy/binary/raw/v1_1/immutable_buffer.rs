@@ -1269,15 +1269,15 @@ mod tests {
         RawSymbolRef::SymbolId(5)
     ])]
     #[case::one_flex_syms_with_system_symbol(AnnotationsEncoding::FlexSym, &[0xE7, 0x01, 0x6A], 1, 2, &[
-        RawSymbolRef::Text("$ion_encoding"),
+        RawSymbolRef::Text("encoding"),
     ])]
     #[case::two_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE8, 0x01, 0x60, 0x01, 0x6A], 1, 4, &[
         RawSymbolRef::SymbolId(0),
-        RawSymbolRef::Text("$ion_encoding"),
+        RawSymbolRef::Text("encoding"),
     ])]
     #[case::three_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE9, 0x0D, 0x01, 0x60, 0x01, 0x6A, 0x01, 0xA1], 2, 6, &[
         RawSymbolRef::SymbolId(0),
-        RawSymbolRef::Text("$ion_encoding"),
+        RawSymbolRef::Text("encoding"),
         RawSymbolRef::Text("make_field"),
     ])]
     fn read_annotations_sequence(
@@ -1623,8 +1623,7 @@ mod tests {
 
         // Construct an encoding directive that defines this number of macros. Each macro will expand
         // to its own address.
-        let mut macro_definitions =
-            String::from("$ion_encoding::(\n  (macro_table $ion_encoding\n");
+        let mut macro_definitions = String::from("$ion::\n(module _\n  (macro_table _\n");
         for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
             writeln!(macro_definitions, "    (macro m{address} () {address})")?;
         }
