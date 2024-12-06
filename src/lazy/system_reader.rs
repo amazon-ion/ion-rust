@@ -4,7 +4,7 @@ use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::encoding_module::EncodingModule;
-use crate::lazy::expanded::macro_table::MacroTable;
+use crate::lazy::expanded::macro_table::{MacroTable, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::TemplateMacro;
 use crate::lazy::expanded::{ExpandedStreamItem, ExpandingReader, LazyExpandedValue};
 use crate::lazy::sequence::SExpIterator;
@@ -255,7 +255,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 let new_encoding_module = match pending_changes.take_new_active_module() {
                     None => EncodingModule::new(
                         "$ion_encoding".to_owned(),
-                        MacroTable::with_system_macros(),
+                        MacroTable::with_system_macros(IonVersion::v1_1),
                         symbol_table,
                     ),
                     Some(mut module) => {
@@ -392,9 +392,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     macro_table.append_all_macros_from(active_mactab)?;
                 }
                 ValueRef::Symbol(module_name) if module_name == "$ion" => {
-                    let expanded_value = operation.expanded();
-                    let system_mactab = expanded_value.context.system_module.macro_table();
-                    macro_table.append_all_macros_from(system_mactab)?;
+                    macro_table.append_all_macros_from(&ION_1_1_SYSTEM_MACROS)?;
                 }
                 ValueRef::Symbol(_module_name) => {
                     todo!("re-exporting macros from a module other than $ion_encoding")

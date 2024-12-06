@@ -46,11 +46,10 @@ use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
-use crate::lazy::expanded::encoding_module::EncodingModule;
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpansion, MacroExpr, RawEExpression,
 };
-use crate::lazy::expanded::macro_table::{Macro, MacroTable};
+use crate::lazy::expanded::macro_table::{Macro, MacroTable, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
@@ -92,7 +91,6 @@ pub mod template;
 //  would need to be proved out first.
 #[derive(Debug)]
 pub struct EncodingContext {
-    pub(crate) system_module: EncodingModule,
     pub(crate) macro_table: MacroTable,
     pub(crate) symbol_table: SymbolTable,
     pub(crate) allocator: BumpAllocator,
@@ -105,7 +103,6 @@ impl EncodingContext {
         allocator: BumpAllocator,
     ) -> Self {
         Self {
-            system_module: EncodingModule::ion_1_1_system_module(),
             macro_table,
             symbol_table,
             allocator,
@@ -113,16 +110,13 @@ impl EncodingContext {
     }
 
     pub fn for_ion_version(version: IonVersion) -> Self {
-        Self::new(
-            MacroTable::with_system_macros(),
-            SymbolTable::new(version),
-            BumpAllocator::new(),
-        )
+        let macro_table = MacroTable::with_system_macros(version);
+        Self::new(macro_table, SymbolTable::new(version), BumpAllocator::new())
     }
 
     pub fn empty() -> Self {
         Self::new(
-            MacroTable::with_system_macros(),
+            MacroTable::empty(),
             SymbolTable::empty(IonVersion::default()),
             BumpAllocator::new(),
         )
@@ -151,7 +145,7 @@ impl EncodingContext {
     // TODO: These methods are temporary; they will be removed once shared modules are supported.
     pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         let template_macro: TemplateMacro =
-            TemplateCompiler::compile_from_text(self.get_ref(), template_definition)?;
+            TemplateCompiler::compile_from_source(self.get_ref(), template_definition)?;
         self.register_template(template_macro)
     }
 
@@ -182,22 +176,14 @@ impl<'top> EncodingContextRef<'top> {
         &self.context.macro_table
     }
 
-    pub fn system_symbol_table(&self) -> &'top SymbolTable {
-        self.context.system_module.symbol_table()
-    }
-
-    pub fn system_macro_table(&self) -> &'top MacroTable {
-        self.context.system_module.macro_table()
-    }
-
     pub(crate) fn none_macro(&self) -> Arc<Macro> {
-        self.system_macro_table()
+        ION_1_1_SYSTEM_MACROS
             .clone_macro_with_name("none")
             .expect("`none` macro in system macro table")
     }
 
     pub(crate) fn values_macro(&self) -> Arc<Macro> {
-        self.system_macro_table()
+        ION_1_1_SYSTEM_MACROS
             .clone_macro_with_name("values")
             .expect("`values` macro in system macro table")
     }
@@ -297,7 +283,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 
     fn compile_template(&self, template_definition: &str) -> IonResult<TemplateMacro> {
-        TemplateCompiler::compile_from_text(self.context(), template_definition)
+        TemplateCompiler::compile_from_source(self.context(), template_definition)
     }
 
     fn add_macro(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
@@ -371,6 +357,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     ) {
         if let Some(new_version) = pending_changes.switch_to_version.take() {
             symbol_table.reset_to_version(new_version);
+            macro_table.reset_to_system_macros();
             pending_changes.has_changes = false;
             pending_changes.is_lst_append = false;
             // If we're switching to a new version, the last stream item was a version marker

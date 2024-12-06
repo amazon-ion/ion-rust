@@ -285,7 +285,7 @@ mod tests {
         let mut reader = LazyRawTextReader_1_1::new(encoded_text.as_bytes());
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let macro_foo =
-            TemplateCompiler::compile_from_text(context.get_ref(), "(macro foo (x*) null)")?;
+            TemplateCompiler::compile_from_source(context.get_ref(), "(macro foo (x*) null)")?;
         context.macro_table.add_macro(macro_foo)?;
         let context = context.get_ref();
         let _marker = reader.next(context)?.expect_ivm()?;

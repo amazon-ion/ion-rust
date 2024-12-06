@@ -1,12 +1,10 @@
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::template::{
-    ExprRange, MacroSignature, Parameter, ParameterCardinality, ParameterEncoding,
-    RestSyntaxPolicy, TemplateBody, TemplateBodyElement, TemplateMacro, TemplateMacroRef,
-    TemplateValue,
+    MacroSignature, TemplateBody, TemplateMacro, TemplateMacroRef,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{IonResult, IonType, Symbol, TemplateBodyExpr};
+use crate::{EncodingContext, IonResult, IonType, IonVersion, TemplateCompiler};
 use compact_str::CompactString;
 use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
@@ -185,7 +183,7 @@ pub static ION_1_1_SYSTEM_MACROS: LazyLock<MacroTable> =
 
 impl Default for MacroTable {
     fn default() -> Self {
-        Self::with_system_macros()
+        Self::with_system_macros(IonVersion::default())
     }
 }
 
@@ -204,504 +202,195 @@ impl MacroTable {
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
     fn compile_system_macros() -> Vec<Arc<Macro>> {
-        // We cannot compile template macros from source (text Ion) because that would require a Reader,
-        // and a Reader would require system macros. To avoid this circular dependency, we manually
-        // compile any TemplateMacros ourselves.
+        let bootstrap_context = EncodingContext::empty();
+        let context = bootstrap_context.get_ref();
+
+        // Creates a `Macro` from a TDL expression
+        let template = |source: &str| {
+            Arc::new(Macro::from_template_macro(
+                TemplateCompiler::compile_from_source(context, source).unwrap(),
+            ))
+        };
+
+        // Creates a `Macro` whose implementation is provided by the system
+        let builtin = |name: &str,
+                       signature: &str,
+                       kind: MacroKind,
+                       expansion_analysis: ExpansionAnalysis| {
+            Arc::new(Macro::named(
+                name,
+                TemplateCompiler::compile_signature(context, signature).unwrap(),
+                kind,
+                expansion_analysis,
+            ))
+        };
+
+        // Macro definitions in the system table are encoded in **Ion 1.0** because it does not
+        // require the Ion 1.1 system macros to exist.
         vec![
-            Arc::new(Macro::named(
+            builtin(
                 "none",
-                MacroSignature::new(vec![]).unwrap(),
+                "()",
                 MacroKind::None,
-                ExpansionAnalysis {
-                    could_produce_system_value: false,
-                    must_produce_exactly_one_value: false,
-                    // This is false because lazy evaluation requires giving out a LazyValue as a
-                    // handle to eventually read the expression. We cannot give out a `LazyValue`
-                    // for e-expressions that will produce 0 or 2+ values.
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: None,
-                },
-            )),
-            //
-            // This macro is equivalent to:
-            //    (macro values (x*) x)
-            //
-            // It is effectively a user-addressable expression group.
-            Arc::new(Macro::from_template_macro(TemplateMacro {
-                name: Some("values".into()),
-                signature: MacroSignature::new(vec![Parameter::rest("expr_group")]).unwrap(),
-                body: TemplateBody {
-                    expressions: vec![TemplateBodyExpr::variable(0, ExprRange::new(0..1))],
-                    annotations_storage: vec![],
-                },
-                expansion_analysis: ExpansionAnalysis::no_assertions_made(),
-            })),
-            Arc::new(Macro::named(
+                ExpansionAnalysis::application_value_stream(),
+            ),
+            template("(macro values (x*) (%x))"),
+            builtin(
                 "annotate",
-                MacroSignature::new(vec![
-                    Parameter::zero_or_more("annotations"),
-                    Parameter::required("value_to_annotate"),
-                ])
-                .unwrap(),
+                "(annotations* value_to_annotate)",
                 MacroKind::Annotate,
-                ExpansionAnalysis {
-                    could_produce_system_value: true,
-                    must_produce_exactly_one_value: true,
-                    can_be_lazily_evaluated_at_top_level: false,
-                    expansion_singleton: None,
-                },
-            )),
-            Arc::new(Macro::named(
+                ExpansionAnalysis::possible_system_value(),
+            ),
+            builtin(
                 "make_string",
-                MacroSignature::new(vec![Parameter::rest("text_values")]).unwrap(),
+                "(text_values*)",
                 MacroKind::MakeString,
                 ExpansionAnalysis::single_application_value(IonType::String),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "make_symbol",
-                MacroSignature::new(vec![Parameter::rest("text_values")]).unwrap(),
+                "(text_values*)",
                 MacroKind::MakeSymbol,
                 ExpansionAnalysis::single_application_value(IonType::Symbol),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "make_blob",
-                MacroSignature::new(vec![Parameter::rest("lob_values")]).unwrap(),
+                "(lob_values*)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Blob),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "make_decimal",
-                MacroSignature::new(vec![
-                    Parameter::required("coefficient"),
-                    Parameter::required("coefficient"),
-                ])
-                .unwrap(),
+                "(coefficient exponent)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Decimal),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "make_timestamp",
-                MacroSignature::new(vec![
-                    Parameter::required("year"),
-                    Parameter::optional("month"),
-                    Parameter::optional("day"),
-                    Parameter::optional("hour"),
-                    Parameter::optional("minute"),
-                    Parameter::optional("second"),
-                    Parameter::optional("offset_minutes"),
-                ])
-                .unwrap(),
+                "(year month? day? hour? minute? second? offset_minutes?)",
                 MacroKind::ToDo,
-                ExpansionAnalysis::single_application_value(IonType::Decimal),
-            )),
-            Arc::new(Macro::named(
+                ExpansionAnalysis::single_application_value(IonType::Timestamp),
+            ),
+            builtin(
                 "make_list",
-                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
+                "(sequences*)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::List),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "make_sexp",
-                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
+                "(sequences*)",
                 MacroKind::MakeSExp,
                 ExpansionAnalysis::single_application_value(IonType::SExp),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "make_struct",
-                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
-                MacroKind::MakeSExp,
+                "(fields*)",
+                MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Struct),
-            )),
-            // This macro is equivalent to:
-            //    (macro set_symbols (symbols*)
-            //      $ion_encoding::(
-            //        // Set a new symbol table
-            //        (symbol_table [(%symbols)])
-            //        // Include the active encoding module macros
-            //        (macro_table $ion_encoding)
-            //      )
-            //    )
-            Arc::new(Macro::from_template_macro(TemplateMacro {
-                name: Some("set_symbols".into()),
-                signature: MacroSignature::new(vec![Parameter::rest("symbols")]).unwrap(),
-                body: TemplateBody {
-                    expressions: vec![
-                        // The `$ion_encoding::(...)` s-expression
-                        /* 0 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp)
-                                // Has the first annotation in annotations storage below; `$ion_encoding`
-                                .with_annotations(0..1),
-                            // Contains expressions 0 (itself) through 7 (exclusive)
-                            ExprRange::new(0..8),
-                        ),
-                        // The `(symbol_table ...)` s-expression.
-                        /* 1 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            ExprRange::new(1..5),
-                        ),
-                        // The clause name `symbol_table`
-                        /* 2 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "symbol_table",
-                            ))),
-                            ExprRange::new(2..3),
-                        ),
-                        // The list which will contain the expanded variable `symbols`
-                        /* 3 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::List),
-                            ExprRange::new(3..5),
-                        ),
-                        // We do not include the symbol literal `$ion_encoding`, indicating that
-                        // we're replacing the existing symbol table.
-
-                        // The variable at signature index 0 (`symbols`)
-                        /* 4 */
-                        TemplateBodyExpr::variable(0, ExprRange::new(4..5)),
-                        // The `(macro_table ...)` s-expression.
-                        /* 5 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 4 (itself) through 8 (exclusive)
-                            ExprRange::new(5..8),
-                        ),
-                        // The clause name `macro_table`
-                        /* 6 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "macro_table",
-                            ))),
-                            ExprRange::new(6..7),
-                        ),
-                        // The module name $ion_encoding
-                        /* 7 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "$ion_encoding",
-                            ))),
-                            ExprRange::new(7..8),
-                        ),
-                    ],
-                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
-                },
-                expansion_analysis: ExpansionAnalysis::directive(),
-            })),
-            // This macro is equivalent to:
-            //    (macro add_symbols (symbols*)
-            //      $ion_encoding::(
-            //        // Include the active encoding module symbols, and add more
-            //        (symbol_table $ion_encoding [(%symbols)])
-            //        // Include the active encoding module macros
-            //        (macro_table $ion_encoding)
-            //      )
-            //    )
-            Arc::new(Macro::from_template_macro(TemplateMacro {
-                name: Some("add_symbols".into()),
-                signature: MacroSignature::new(vec![Parameter::rest("symbols")]).unwrap(),
-                body: TemplateBody {
-                    expressions: vec![
-                        // The `$ion_encoding::(...)` s-expression
-                        /* 0 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp)
-                                // Has the first annotation in annotations storage below; `$ion_encoding`
-                                .with_annotations(0..1),
-                            // Contains expressions 0 (itself) through 8 (exclusive)
-                            ExprRange::new(0..9),
-                        ),
-                        // The `(symbol_table ...)` s-expression.
-                        /* 1 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 1 (itself) through 5 (exclusive)
-                            ExprRange::new(1..6),
-                        ),
-                        // The clause name `symbol_table`
-                        /* 2 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "symbol_table",
-                            ))),
-                            ExprRange::new(2..3),
-                        ),
-                        // The module name $ion_encoding
-                        /* 3 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "$ion_encoding",
-                            ))),
-                            ExprRange::new(3..4),
-                        ),
-                        // The list which will contain the expanded variable `symbols`
-                        /* 4 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::List),
-                            ExprRange::new(4..6),
-                        ),
-                        // The variable at signature index 0 (`symbols`)
-                        /* 5 */
-                        TemplateBodyExpr::variable(0, ExprRange::new(5..6)),
-                        // The `(macro_table ...)` s-expression.
-                        /* 6 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 6 (itself) through 9 (exclusive)
-                            ExprRange::new(6..9),
-                        ),
-                        // The clause name `macro_table`
-                        /* 7 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "macro_table",
-                            ))),
-                            ExprRange::new(7..8),
-                        ),
-                        // The module name $ion_encoding
-                        /* 8 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "$ion_encoding",
-                            ))),
-                            ExprRange::new(8..9),
-                        ),
-                    ],
-                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
-                },
-                expansion_analysis: ExpansionAnalysis::directive(),
-            })),
-            // This macro is equivalent to:
-            //    (macro set_macros (macro_definitions*)
-            //      $ion_encoding::(
-            //        // Include the active encoding module symbols
-            //        (symbol_table $ion_encoding)
-            //        // Set a new macro table
-            //        (macro_table (%macro_definitions))
-            //      )
-            //    )
-            Arc::new(Macro::from_template_macro(TemplateMacro {
-                name: Some("set_macros".into()),
-                signature: MacroSignature::new(vec![Parameter::rest("macro_definitions")]).unwrap(),
-                body: TemplateBody {
-                    expressions: vec![
-                        // The `$ion_encoding::(...)` s-expression
-                        /* 0 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp)
-                                // Has the first annotation in annotations storage below; `$ion_encoding`
-                                .with_annotations(0..1),
-                            // Contains expressions 0 (itself) through 7 (exclusive)
-                            ExprRange::new(0..7),
-                        ),
-                        // The `(symbol_table ...)` s-expression.
-                        /* 1 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 1 (itself) through 4 (exclusive)
-                            ExprRange::new(1..4),
-                        ),
-                        // The clause name `symbol_table`
-                        /* 2 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "symbol_table",
-                            ))),
-                            ExprRange::new(2..3),
-                        ),
-                        // The module name $ion_encoding
-                        /* 3 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "$ion_encoding",
-                            ))),
-                            ExprRange::new(3..4),
-                        ),
-                        // The `(macro_table ...)` s-expression.
-                        /* 4 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 4 (itself) through 7 (exclusive)
-                            ExprRange::new(4..7),
-                        ),
-                        // The clause name `macro_table`
-                        /* 5 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "macro_table",
-                            ))),
-                            ExprRange::new(5..6),
-                        ),
-                        // We do not include the symbol literal `$ion_encoding`, indicating that
-                        // we're replacing the existing macro table.
-
-                        // The variable at signature index 0 (`macro_definitions`)
-                        /* 6 */
-                        TemplateBodyExpr::variable(0, ExprRange::new(6..7)),
-                    ],
-                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
-                },
-                expansion_analysis: ExpansionAnalysis::directive(),
-            })),
-            // This macro is equivalent to:
-            //    (macro add_macros (macro_definitions*)
-            //      $ion_encoding::(
-            //        // Include the active encoding module symbols
-            //        (symbol_table $ion_encoding)
-            //        // Include the active encoding module macros and add more
-            //        (macro_table $ion_encoding (%macro_definitions))
-            //      )
-            //    )
-            Arc::new(Macro::from_template_macro(TemplateMacro {
-                name: Some("add_macros".into()),
-                signature: MacroSignature::new(vec![Parameter::rest("macro_definitions")]).unwrap(),
-                body: TemplateBody {
-                    expressions: vec![
-                        // The `$ion_encoding::(...)` s-expression
-                        /* 0 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp)
-                                // Has the first annotation in annotations storage below; `$ion_encoding`
-                                .with_annotations(0..1),
-                            // Contains expressions 0 (itself) through 8 (exclusive)
-                            ExprRange::new(0..8),
-                        ),
-                        // The `(symbol_table ...)` s-expression.
-                        /* 1 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 1 (itself) through 4 (exclusive)
-                            ExprRange::new(1..4),
-                        ),
-                        // The clause name `symbol_table`
-                        /* 2 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "symbol_table",
-                            ))),
-                            ExprRange::new(2..3),
-                        ),
-                        // The module name $ion_encoding
-                        /* 3 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "$ion_encoding",
-                            ))),
-                            ExprRange::new(3..4),
-                        ),
-                        // The `(macro_table ...)` s-expression.
-                        /* 4 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::SExp),
-                            // Contains expression 4 (itself) through 8 (exclusive)
-                            ExprRange::new(4..8),
-                        ),
-                        // The clause name `macro_table`
-                        /* 5 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "macro_table",
-                            ))),
-                            ExprRange::new(5..6),
-                        ),
-                        // The symbol literal `$ion_encoding`, indicating that we're appending
-                        // to the existing macro table.
-                        /* 6 */
-                        TemplateBodyExpr::element(
-                            TemplateBodyElement::with_value(TemplateValue::Symbol(Symbol::owned(
-                                "$ion_encoding",
-                            ))),
-                            ExprRange::new(6..7),
-                        ),
-                        // The variable at signature index 0 (`macro_definitions`)
-                        /* 7 */
-                        TemplateBodyExpr::variable(0, ExprRange::new(7..8)),
-                    ],
-                    annotations_storage: vec![Symbol::owned("$ion_encoding")],
-                },
-                expansion_analysis: ExpansionAnalysis::directive(),
-            })),
-            Arc::new(Macro::named(
+            ),
+            template(
+                r#"
+                        (macro set_symbols (symbols*)
+                             $ion_encoding::(
+                               // Set a new symbol table
+                               (symbol_table [(%symbols)])
+                               // Include the active encoding module macros
+                               (macro_table $ion_encoding)
+                             )
+                       )
+                    "#,
+            ),
+            template(
+                r#"
+                        (macro add_symbols (symbols*)
+                             $ion_encoding::(
+                               // Set a new symbol table
+                               (symbol_table $ion_encoding [(%symbols)])
+                               // Include the active encoding module macros
+                               (macro_table $ion_encoding)
+                             )
+                       )
+                    "#,
+            ),
+            template(
+                r#"
+                       (macro set_macros (macro_definitions*)
+                           $ion_encoding::(
+                               // Include the active encoding module symbols
+                               (symbol_table $ion_encoding)
+                               // Set a new macro table
+                               (macro_table (%macro_definitions))
+                           )
+                       )
+                    "#,
+            ),
+            template(
+                r#"
+                       (macro add_macros (macro_definitions*)
+                           $ion_encoding::(
+                               // Include the active encoding module symbols
+                               (symbol_table $ion_encoding)
+                               // Set a new macro table
+                               (macro_table $ion_encoding (%macro_definitions))
+                           )
+                       )
+                    "#,
+            ),
+            builtin(
                 "use",
-                MacroSignature::new(vec![
-                    Parameter::required("catalog_key"),
-                    Parameter::optional("version"),
-                ])
-                .unwrap(),
+                "(catalog_key version)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::directive(),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "parse_ion",
-                MacroSignature::new(vec![Parameter::new(
-                    "data",
-                    ParameterEncoding::Tagged, // TODO: Support for other tagless types
-                    ParameterCardinality::ZeroOrMore,
-                    RestSyntaxPolicy::Allowed,
-                )])
-                .unwrap(),
+                "(data*)",
                 MacroKind::ToDo,
-                ExpansionAnalysis::no_assertions_made(),
-            )),
-            Arc::new(Macro::named(
+                ExpansionAnalysis::application_value_stream(),
+            ),
+            builtin(
                 "repeat",
-                MacroSignature::new(vec![Parameter::required("n"), Parameter::rest("expr")])
-                    .unwrap(),
+                "(n expr*)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::no_assertions_made(),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "delta",
-                MacroSignature::new(vec![Parameter::rest("deltas")]).unwrap(),
+                "(deltas*)",
                 MacroKind::ToDo,
-                ExpansionAnalysis {
-                    could_produce_system_value: false,
-                    must_produce_exactly_one_value: false,
-                    can_be_lazily_evaluated_at_top_level: true,
-                    expansion_singleton: None,
-                },
-            )),
-            Arc::new(Macro::named(
+                ExpansionAnalysis::application_value_stream(),
+            ),
+            builtin(
                 "flatten",
-                MacroSignature::new(vec![Parameter::rest("sequences")]).unwrap(),
+                "(sequences*)",
                 MacroKind::ToDo,
-                ExpansionAnalysis::no_assertions_made(),
-            )),
-            Arc::new(Macro::named(
+                ExpansionAnalysis::application_value_stream(),
+            ),
+            builtin(
                 "sum",
-                MacroSignature::new(vec![Parameter::required("a"), Parameter::required("b")])
-                    .unwrap(),
+                "(a b)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Int),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "meta",
-                MacroSignature::new(vec![Parameter::rest("anything")]).unwrap(),
+                "(expr*)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::no_assertions_made(),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "make_field",
-                MacroSignature::new(vec![
-                    Parameter::required("field_name"),
-                    Parameter::required("field_value"),
-                ])
-                .unwrap(),
+                "(name value)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Struct),
-            )),
-            Arc::new(Macro::named(
+            ),
+            builtin(
                 "default",
-                MacroSignature::new(vec![
-                    Parameter::zero_or_more("expr"),
-                    Parameter::rest("default_expr"),
-                ])
-                .unwrap(),
+                "(expr* default_expr*)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::no_assertions_made(),
-            )),
-            // Adding a new system macro? Make sure you update FIRST_USER_MACRO_ID
+            ),
         ]
     }
 
@@ -721,9 +410,15 @@ impl MacroTable {
         }
     }
 
-    // TODO: Remove this
-    pub fn with_system_macros() -> Self {
-        ION_1_1_SYSTEM_MACROS.clone()
+    // TODO: When multi-module support is added, this can be updated to avoid allocating.
+    //       The 1.1 system macro table is now available as a singleton (`ION_1_1_SYSTEM_MACROS`).
+    //       While its `Arc<Macro>` contents may be cloned into the user address space, there
+    //       isn't a use case for creating a new instance of `MacroTable` to represent the same thing.
+    pub fn with_system_macros(ion_version: IonVersion) -> Self {
+        match ion_version {
+            IonVersion::v1_0 => MacroTable::empty(),
+            IonVersion::v1_1 => ION_1_1_SYSTEM_MACROS.clone(),
+        }
     }
 
     pub fn empty() -> Self {
@@ -826,5 +521,11 @@ impl MacroTable {
             self.macros_by_address.push(Arc::clone(macro_ref))
         }
         Ok(())
+    }
+
+    pub(crate) fn reset_to_system_macros(&mut self) {
+        self.macros_by_name.clear();
+        self.macros_by_address.clear();
+        self.append_all_macros_from(&ION_1_1_SYSTEM_MACROS).unwrap()
     }
 }

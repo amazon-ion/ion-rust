@@ -70,7 +70,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
         let ion_version = E::ion_version();
         let symbol_table = SymbolTable::new(ion_version);
-        let macro_table = MacroTable::with_system_macros();
+        let macro_table = MacroTable::with_system_macros(ion_version);
         let context = WriterContext::new(symbol_table, macro_table);
         let mut writer = Writer {
             context,
