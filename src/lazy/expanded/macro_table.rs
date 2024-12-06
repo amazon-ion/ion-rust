@@ -8,6 +8,7 @@ use crate::{EncodingContext, IonResult, IonType, IonVersion, TemplateCompiler};
 use compact_str::CompactString;
 use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::cell::RefCell;
 use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -202,14 +203,20 @@ impl MacroTable {
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
     fn compile_system_macros() -> Vec<Arc<Macro>> {
-        let bootstrap_context = EncodingContext::empty();
-        let context = bootstrap_context.get_ref();
+        let bootstrap_context = RefCell::new(EncodingContext::empty());
 
         // Creates a `Macro` from a TDL expression
         let template = |source: &str| {
-            Arc::new(Macro::from_template_macro(
-                TemplateCompiler::compile_from_source(context, source).unwrap(),
-            ))
+            let macro_ref = Arc::new(Macro::from_template_macro(
+                TemplateCompiler::compile_from_source(bootstrap_context.borrow().get_ref(), source)
+                    .unwrap(),
+            ));
+            bootstrap_context
+                .borrow_mut()
+                .macro_table_mut()
+                .append_macro(&macro_ref)
+                .unwrap();
+            macro_ref
         };
 
         // Creates a `Macro` whose implementation is provided by the system
@@ -217,12 +224,22 @@ impl MacroTable {
                        signature: &str,
                        kind: MacroKind,
                        expansion_analysis: ExpansionAnalysis| {
-            Arc::new(Macro::named(
+            let macro_ref = Arc::new(Macro::named(
                 name,
-                TemplateCompiler::compile_signature(context, signature).unwrap(),
+                TemplateCompiler::compile_signature(
+                    bootstrap_context.borrow().get_ref(),
+                    signature,
+                )
+                .unwrap(),
                 kind,
                 expansion_analysis,
-            ))
+            ));
+            bootstrap_context
+                .borrow_mut()
+                .macro_table_mut()
+                .append_macro(&macro_ref)
+                .unwrap();
+            macro_ref
         };
 
         // Macro definitions in the system table are encoded in **Ion 1.0** because it does not
@@ -377,12 +394,7 @@ impl MacroTable {
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Int),
             ),
-            builtin(
-                "meta",
-                "(expr*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::no_assertions_made(),
-            ),
+            template("(macro meta (expr*) (.none))"),
             builtin(
                 "make_field",
                 "(name value)",
@@ -490,7 +502,7 @@ impl MacroTable {
         }
     }
 
-    pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
+    pub fn add_template_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
         if let Some(name) = &template.name {
@@ -511,18 +523,21 @@ impl MacroTable {
         Ok(id)
     }
 
+    pub(crate) fn append_macro(&mut self, macro_ref: &Arc<Macro>) -> IonResult<()> {
+        let next_id = self.len();
+        if let Some(name) = macro_ref.clone_name() {
+            if self.macros_by_name.contains_key(name.as_str()) {
+                return IonResult::decoding_error(format!("macro named '{name}' already exists"));
+            }
+            self.macros_by_name.insert(name, next_id);
+        }
+        self.macros_by_address.push(Arc::clone(macro_ref));
+        Ok(())
+    }
+
     pub(crate) fn append_all_macros_from(&mut self, other: &MacroTable) -> IonResult<()> {
         for macro_ref in &other.macros_by_address {
-            let next_id = self.len();
-            if let Some(name) = macro_ref.clone_name() {
-                if self.macros_by_name.contains_key(name.as_str()) {
-                    return IonResult::decoding_error(format!(
-                        "macro named '{name}' already exists"
-                    ));
-                }
-                self.macros_by_name.insert(name, next_id);
-            }
-            self.macros_by_address.push(Arc::clone(macro_ref))
+            self.append_macro(macro_ref)?
         }
         Ok(())
     }

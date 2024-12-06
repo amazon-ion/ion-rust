@@ -150,7 +150,7 @@ impl EncodingContext {
     }
 
     pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        self.macro_table.add_macro(template_macro)
+        self.macro_table.add_template_macro(template_macro)
     }
 }
 
@@ -288,7 +288,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
 
     fn add_macro(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
         let macro_table = &mut self.context_mut().macro_table;
-        macro_table.add_macro(template_macro)
+        macro_table.add_template_macro(template_macro)
     }
 
     pub fn context(&self) -> EncodingContextRef<'_> {

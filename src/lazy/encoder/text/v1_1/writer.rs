@@ -286,7 +286,7 @@ mod tests {
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let macro_foo =
             TemplateCompiler::compile_from_source(context.get_ref(), "(macro foo (x*) null)")?;
-        context.macro_table.add_macro(macro_foo)?;
+        context.macro_table.add_template_macro(macro_foo)?;
         let context = context.get_ref();
         let _marker = reader.next(context)?.expect_ivm()?;
         let eexp = reader.next(context)?.expect_eexp()?;
