@@ -413,7 +413,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 ValueRef::SExp(macro_def_sexp) => {
                     let new_macro =
                         TemplateCompiler::compile_from_sexp(context, &macro_table, macro_def_sexp)?;
-                    macro_table.add_macro(new_macro)?;
+                    macro_table.add_template_macro(new_macro)?;
                 }
                 ValueRef::Symbol(module_name)
                     if module_name == v1_1::constants::DEFAULT_MODULE_NAME =>
@@ -686,8 +686,7 @@ mod tests {
     use crate::lazy::decoder::RawVersionMarker;
     use crate::lazy::system_stream_item::SystemStreamItem;
     use crate::{
-        constants, v1_0, v1_1, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef,
-        ValueWriter, Writer,
+        v1_0, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef, ValueWriter, Writer,
     };
 
     use super::*;

@@ -8,6 +8,7 @@ use crate::{EncodingContext, IonResult, IonType, IonVersion, TemplateCompiler};
 use compact_str::CompactString;
 use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
+use std::cell::RefCell;
 use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,8 +114,8 @@ pub enum MacroKind {
     ExprGroup,
     MakeString,
     MakeSymbol,
-    MakeSExp,
     Annotate,
+    Flatten,
     Template(TemplateBody),
     // A placeholder for not-yet-implemented macros
     ToDo,
@@ -188,13 +189,6 @@ impl Default for MacroTable {
 }
 
 impl MacroTable {
-    pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] = &[
-        MacroKind::None,
-        MacroKind::ExprGroup,
-        MacroKind::MakeString,
-        MacroKind::MakeSExp,
-        MacroKind::Annotate,
-    ];
     // The system macros range from address 0 to 23
     pub const NUM_SYSTEM_MACROS: usize = 24;
     // When a user defines new macros, this is the first ID that will be assigned. This value
@@ -202,14 +196,25 @@ impl MacroTable {
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
     fn compile_system_macros() -> Vec<Arc<Macro>> {
-        let bootstrap_context = EncodingContext::empty();
-        let context = bootstrap_context.get_ref();
+        // This is wrapped in a `RefCell` in order to allow two different closures to hold
+        // runtime-checked mutating references to the context. This overhead is minimal and is only
+        // paid during the initialization of the singleton system macro table.
+        let bootstrap_context = RefCell::new(EncodingContext::empty());
 
         // Creates a `Macro` from a TDL expression
         let template = |source: &str| {
-            Arc::new(Macro::from_template_macro(
-                TemplateCompiler::compile_from_source(context, source).unwrap(),
-            ))
+            // Compile the given TDL source expression using the current context.
+            let macro_ref = Arc::new(Macro::from_template_macro(
+                TemplateCompiler::compile_from_source(bootstrap_context.borrow().get_ref(), source)
+                    .unwrap(),
+            ));
+            // Add the new macro to the context so 'downstream' macros can invoke it.
+            bootstrap_context
+                .borrow_mut()
+                .macro_table_mut()
+                .append_macro(&macro_ref)
+                .unwrap();
+            macro_ref
         };
 
         // Creates a `Macro` whose implementation is provided by the system
@@ -217,13 +222,35 @@ impl MacroTable {
                        signature: &str,
                        kind: MacroKind,
                        expansion_analysis: ExpansionAnalysis| {
-            Arc::new(Macro::named(
+            // Construct a macro from the provided parameters using the current context.
+            let macro_ref = Arc::new(Macro::named(
                 name,
-                TemplateCompiler::compile_signature(context, signature).unwrap(),
+                TemplateCompiler::compile_signature(
+                    bootstrap_context.borrow().get_ref(),
+                    signature,
+                )
+                .unwrap(),
                 kind,
                 expansion_analysis,
-            ))
+            ));
+            // Add the new macro to the context so 'downstream' macros can invoke it.
+            bootstrap_context
+                .borrow_mut()
+                .macro_table_mut()
+                .append_macro(&macro_ref)
+                .unwrap();
+            macro_ref
         };
+
+        // `make_sexp` and `make_list` depend on `flatten`, which happens to be defined later in the
+        // table. We define it in advance so it will already be in the context when `make_sexp` and
+        // `make_list` are defined.
+        let flatten_macro_definition = builtin(
+            "flatten",
+            "(sequences*)",
+            MacroKind::Flatten,
+            ExpansionAnalysis::application_value_stream(),
+        );
 
         // Macro definitions in the system table are encoded in **Ion 1.0** because it does not
         // require the Ion 1.1 system macros to exist.
@@ -271,17 +298,17 @@ impl MacroTable {
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Timestamp),
             ),
-            builtin(
-                "make_list",
-                "(sequences*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::single_application_value(IonType::List),
+            template(
+                r#"
+                (macro make_list (sequences*)
+                    [(.flatten (%sequences))])
+            "#,
             ),
-            builtin(
-                "make_sexp",
-                "(sequences*)",
-                MacroKind::MakeSExp,
-                ExpansionAnalysis::single_application_value(IonType::SExp),
+            template(
+                r#"
+                (macro make_sexp (sequences*)
+                    ((.flatten (%sequences))))
+            "#,
             ),
             builtin(
                 "make_struct",
@@ -365,24 +392,14 @@ impl MacroTable {
                 MacroKind::ToDo,
                 ExpansionAnalysis::application_value_stream(),
             ),
-            builtin(
-                "flatten",
-                "(sequences*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::application_value_stream(),
-            ),
+            flatten_macro_definition,
             builtin(
                 "sum",
                 "(a b)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Int),
             ),
-            builtin(
-                "meta",
-                "(expr*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::no_assertions_made(),
-            ),
+            template("(macro meta (expr*) (.none))"),
             builtin(
                 "make_field",
                 "(name value)",
@@ -490,7 +507,7 @@ impl MacroTable {
         }
     }
 
-    pub fn add_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
+    pub fn add_template_macro(&mut self, template: TemplateMacro) -> IonResult<usize> {
         let id = self.macros_by_address.len();
         // If the macro has a name, make sure that name is not already in use and then add it.
         if let Some(name) = &template.name {
@@ -511,18 +528,21 @@ impl MacroTable {
         Ok(id)
     }
 
+    pub(crate) fn append_macro(&mut self, macro_ref: &Arc<Macro>) -> IonResult<()> {
+        let next_id = self.len();
+        if let Some(name) = macro_ref.clone_name() {
+            if self.macros_by_name.contains_key(name.as_str()) {
+                return IonResult::decoding_error(format!("macro named '{name}' already exists"));
+            }
+            self.macros_by_name.insert(name, next_id);
+        }
+        self.macros_by_address.push(Arc::clone(macro_ref));
+        Ok(())
+    }
+
     pub(crate) fn append_all_macros_from(&mut self, other: &MacroTable) -> IonResult<()> {
         for macro_ref in &other.macros_by_address {
-            let next_id = self.len();
-            if let Some(name) = macro_ref.clone_name() {
-                if self.macros_by_name.contains_key(name.as_str()) {
-                    return IonResult::decoding_error(format!(
-                        "macro named '{name}' already exists"
-                    ));
-                }
-                self.macros_by_name.insert(name, next_id);
-            }
-            self.macros_by_address.push(Arc::clone(macro_ref))
+            self.append_macro(macro_ref)?
         }
         Ok(())
     }

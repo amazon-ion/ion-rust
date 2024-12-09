@@ -438,7 +438,7 @@ mod benchmark {
             let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
             context
                 .macro_table_mut()
-                .add_macro(compiled_macro.clone())
+                .add_template_macro(compiled_macro.clone())
                 .unwrap();
             let context_ref = context.get_ref();
             b.iter(|| {
