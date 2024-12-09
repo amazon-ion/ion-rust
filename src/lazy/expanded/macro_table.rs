@@ -204,14 +204,19 @@ impl MacroTable {
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
     fn compile_system_macros() -> Vec<Arc<Macro>> {
+        // This is wrapped in a `RefCell` in order to allow two different closures to hold
+        // runtime-checked mutating references to the context. This overhead is minimal and is only
+        // paid during the initialization of the singleton system macro table.
         let bootstrap_context = RefCell::new(EncodingContext::empty());
 
         // Creates a `Macro` from a TDL expression
         let template = |source: &str| {
+            // Compile the given TDL source expression using the current context.
             let macro_ref = Arc::new(Macro::from_template_macro(
                 TemplateCompiler::compile_from_source(bootstrap_context.borrow().get_ref(), source)
                     .unwrap(),
             ));
+            // Add the new macro to the context so 'downstream' macros can invoke it.
             bootstrap_context
                 .borrow_mut()
                 .macro_table_mut()
@@ -225,6 +230,7 @@ impl MacroTable {
                        signature: &str,
                        kind: MacroKind,
                        expansion_analysis: ExpansionAnalysis| {
+            // Construct a macro from the provided parameters using the current context.
             let macro_ref = Arc::new(Macro::named(
                 name,
                 TemplateCompiler::compile_signature(
@@ -235,6 +241,7 @@ impl MacroTable {
                 kind,
                 expansion_analysis,
             ));
+            // Add the new macro to the context so 'downstream' macros can invoke it.
             bootstrap_context
                 .borrow_mut()
                 .macro_table_mut()
@@ -243,8 +250,9 @@ impl MacroTable {
             macro_ref
         };
 
-        // This is defined in advance so it is available for use in the definition of `make_sexp`
-        // and `make_list`.
+        // `make_sexp` and `make_list` depend on `flatten`, which happens to be defined later in the
+        // table. We define it in advance so it will already be in the context when `make_sexp` and
+        // `make_list` are defined.
         let flatten_macro_definition = builtin(
             "flatten",
             "(sequences*)",
