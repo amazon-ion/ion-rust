@@ -9,9 +9,9 @@ use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::macro_evaluator::{
-    AnnotateExpansion, EExpressionArgGroup, ExprGroupExpansion, IsExhaustedIterator,
-    MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeSExpExpansion,
-    MakeTextExpansion, RawEExpression, TemplateExpansion, ValueExpr,
+    AnnotateExpansion, EExpressionArgGroup, ExprGroupExpansion, FlattenExpansion,
+    IsExhaustedIterator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator,
+    MakeSExpExpansion, MakeTextExpansion, RawEExpression, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::template::TemplateMacroRef;
@@ -125,6 +125,11 @@ impl<'top, D: Decoder> EExpression<'top, D> {
             }
             MacroKind::MakeSExp => MacroExpansionKind::MakeSExp(MakeSExpExpansion::new(arguments)),
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
+            MacroKind::Flatten => MacroExpansionKind::Flatten(FlattenExpansion::new(
+                self.context,
+                environment,
+                arguments,
+            )),
             MacroKind::Template(template_body) => {
                 let template_ref = TemplateMacroRef::new(invoked_macro.reference(), template_body);
                 environment = self.new_evaluation_environment()?;

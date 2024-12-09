@@ -116,6 +116,7 @@ pub enum MacroKind {
     MakeSymbol,
     MakeSExp,
     Annotate,
+    Flatten,
     Template(TemplateBody),
     // A placeholder for not-yet-implemented macros
     ToDo,
@@ -242,6 +243,15 @@ impl MacroTable {
             macro_ref
         };
 
+        // This is defined in advance so it is available for use in the definition of `make_sexp`
+        // and `make_list`.
+        let flatten_macro_definition = builtin(
+            "flatten",
+            "(sequences*)",
+            MacroKind::Flatten,
+            ExpansionAnalysis::application_value_stream(),
+        );
+
         // Macro definitions in the system table are encoded in **Ion 1.0** because it does not
         // require the Ion 1.1 system macros to exist.
         vec![
@@ -288,17 +298,17 @@ impl MacroTable {
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Timestamp),
             ),
-            builtin(
-                "make_list",
-                "(sequences*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::single_application_value(IonType::List),
+            template(
+                r#"
+                (macro make_list (sequences*)
+                    [(.flatten (%sequences))])
+            "#,
             ),
-            builtin(
-                "make_sexp",
-                "(sequences*)",
-                MacroKind::MakeSExp,
-                ExpansionAnalysis::single_application_value(IonType::SExp),
+            template(
+                r#"
+                (macro make_sexp (sequences*)
+                    ((.flatten (%sequences))))
+            "#,
             ),
             builtin(
                 "make_struct",
@@ -382,12 +392,7 @@ impl MacroTable {
                 MacroKind::ToDo,
                 ExpansionAnalysis::application_value_stream(),
             ),
-            builtin(
-                "flatten",
-                "(sequences*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::application_value_stream(),
-            ),
+            flatten_macro_definition,
             builtin(
                 "sum",
                 "(a b)",

@@ -13,6 +13,7 @@
 #![allow(non_camel_case_types)]
 
 use std::fmt::{Debug, Formatter};
+use std::mem;
 use std::ops::Range;
 
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
@@ -22,7 +23,7 @@ use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::e_expression::{
     EExpArgGroup, EExpArgGroupIterator, EExpression, EExpressionArgsIterator,
 };
-use crate::lazy::expanded::sequence::Environment;
+use crate::lazy::expanded::sequence::{Environment, ExpandedSequenceIterator};
 use crate::lazy::expanded::template::{
     ParameterEncoding, TemplateBodyVariableReference, TemplateExprGroup, TemplateMacroInvocation,
     TemplateMacroInvocationArgsIterator, TemplateMacroRef,
@@ -34,8 +35,8 @@ use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{
-    ExpandedSExpSource, ExpandedValueSource, IonError, IonResult, LazyExpandedSExp, LazySExp,
-    LazyValue, Span, SymbolRef, ValueRef,
+    ExpandedSExpSource, ExpandedValueRef, ExpandedValueSource, IonError, IonResult,
+    LazyExpandedSExp, LazySExp, LazyValue, Span, SymbolRef, ValueRef,
 };
 
 pub trait IsExhaustedIterator<'top, D: Decoder>:
@@ -419,7 +420,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
 
 /// Indicates which of the supported macros this represents and stores the state necessary to
 /// continue evaluating that macro.
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug)]
 pub enum MacroExpansionKind<'top, D: Decoder> {
     None, // `(.none)` returns the empty stream
     ExprGroup(ExprGroupExpansion<'top, D>),
@@ -427,12 +428,12 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     MakeSymbol(MakeTextExpansion<'top, D>),
     MakeSExp(MakeSExpExpansion<'top, D>),
     Annotate(AnnotateExpansion<'top, D>),
+    Flatten(FlattenExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
 }
 
 /// A macro in the process of being evaluated. Stores both the state of the evaluation and the
 /// syntactic element that represented the macro invocation.
-#[derive(Copy, Clone)]
 pub struct MacroExpansion<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     kind: MacroExpansionKind<'top, D>,
@@ -501,15 +502,10 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             MakeSymbol(make_symbol_expansion) => make_symbol_expansion.make_text_value(context),
             MakeSExp(make_sexp_expansion) => make_sexp_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
+            Flatten(flatten_expansion) => flatten_expansion.next(),
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
-    }
-
-    // Calculate the next step in this macro expansion without advancing the expansion.
-    pub fn peek_next_step(&self) -> IonResult<MacroExpansionStep<'top, D>> {
-        let mut expansion_copy = *self;
-        expansion_copy.next_step()
     }
 }
 
@@ -522,6 +518,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::MakeSymbol(_) => "make_symbol",
             MacroExpansionKind::MakeSExp(_) => "make_sexp",
             MacroExpansionKind::Annotate(_) => "annotate",
+            MacroExpansionKind::Flatten(_) => "flatten",
             MacroExpansionKind::Template(t) => {
                 return if let Some(name) = t.template.name() {
                     write!(f, "<expansion of template '{}'>", name)
@@ -718,7 +715,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
 
     #[inline(never)]
     pub fn push_general_case(&mut self, new_expansion: MacroExpansion<'top, D>) {
-        match self.state {
+        match mem::take(&mut self.state) {
             // Going from zero expansions to one expansion
             EvaluatorState::Empty => self.state = EvaluatorState::Stackless(new_expansion),
             // Going from one expansion to two
@@ -729,7 +726,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
                 );
                 stacked_evaluator
                     .macro_stack
-                    .extend_from_slice_copy(&[original_expansion, new_expansion]);
+                    .extend([original_expansion, new_expansion].into_iter());
                 self.state = EvaluatorState::Stacked(stacked_evaluator)
             }
             // Going from 2+ up
@@ -1070,6 +1067,101 @@ impl<'top, D: Decoder> MakeTextExpansion<'top, D> {
     }
 }
 
+// ====== Implementation of the `flatten` macro
+
+#[derive(Debug)]
+pub struct FlattenExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+    evaluator: &'top mut MacroEvaluator<'top, D>,
+    // This is &mut Option<_> instead of Option<&mut _> because it allows us to do a single
+    // bump-allocation up front and re-use that space to hold each of the iterators we'll
+    // work with over the course of evaluation.
+    // In plainer terms: we _always_ have an allocated space that may or may not contain an iterator.
+    // We can put iterators into that space or remove them.
+    // If this were Option<&mut _>, we _might_ have a space with an iterator in it. If we set a new
+    // iterator, we would have to allocate a space for that iterator.
+    current_sequence: &'top mut Option<ExpandedSequenceIterator<'top, D>>,
+}
+
+impl<'top, D: Decoder> FlattenExpansion<'top, D> {
+    pub fn new(
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+        arguments: MacroExprArgsIterator<'top, D>,
+    ) -> Self {
+        let allocator = context.allocator();
+        let evaluator = allocator.alloc_with(|| MacroEvaluator::new_with_environment(environment));
+        let current_sequence = allocator.alloc_with(|| None);
+        Self {
+            evaluator,
+            arguments,
+            current_sequence,
+        }
+    }
+
+    fn set_current_sequence(&mut self, value: LazyExpandedValue<'top, D>) -> IonResult<()> {
+        *self.current_sequence = match value.read()? {
+            ExpandedValueRef::List(list) => Some(ExpandedSequenceIterator::List(list.iter())),
+            ExpandedValueRef::SExp(sexp) => Some(ExpandedSequenceIterator::SExp(sexp.iter())),
+            other => {
+                return IonResult::decoding_error(format!(
+                    "`flatten` only accepts sequences, received {other:?}"
+                ))
+            }
+        };
+        Ok(())
+    }
+
+    /// Yields the next [`ValueExpr`] in this `flatten` macro's evaluation.
+    fn next(&mut self) -> IonResult<MacroExpansionStep<'top, D>> {
+        loop {
+            // If we're already flattening a sequence, get the next nested value from it.
+            if let Some(current_sequence) = self.current_sequence {
+                // First, get the next nested sequence value result from the iterator.
+                match current_sequence.next() {
+                    // If we get `Some(IonResult)`, return it even if it's an Err.
+                    Some(Ok(result)) => {
+                        return Ok(MacroExpansionStep::Step(ValueExpr::ValueLiteral(result)))
+                    }
+                    Some(Err(e)) => return Err(e),
+                    // If we get `None`, the iterator is exhausted and we should continue on to the next sequence.
+                    None => *self.current_sequence = None,
+                }
+            }
+
+            // If we reach this point, we don't have a current sequence.
+            // We've either just started evaluation and haven't set one yet or
+            // we just finished flattening a sequence and need to set a new one.
+
+            // See if the evaluator has an expansion in progress.
+            let mut next_seq = self.evaluator.next()?;
+
+            if next_seq.is_none() {
+                // If we don't get anything from the evaluator, we'll get our sequence from the
+                // next argument expression.
+                next_seq = match self.arguments.next().transpose()? {
+                    // If the expression is a value literal, that's our new sequence.
+                    Some(ValueExpr::ValueLiteral(value)) => Some(value),
+                    // If the expression is a macro invocation, we'll start evaluating it
+                    // and return to the top of the loop.
+                    Some(ValueExpr::MacroInvocation(invocation)) => {
+                        self.evaluator.push(invocation.expand()?);
+                        continue;
+                    }
+                    // If there isn't a next argument expression, then evaluation is complete.
+                    None => return Ok(MacroExpansionStep::FinalStep(None)),
+                }
+            }
+
+            // At this point, `next_seq` is definitely populated, so we can safely unwrap it.
+            let next_seq = next_seq.unwrap();
+
+            // Set it as our new current sequence. This step also type-checks the value to confirm
+            // that it is either a list or an s-expression.
+            self.set_current_sequence(next_seq)?;
+        }
+    }
+}
 // ====== Implementation of the `make_sexp` macro
 
 #[derive(Copy, Clone, Debug)]
@@ -2435,6 +2527,23 @@ mod tests {
     }
 
     #[test]
+    fn flatten_e_expression() -> IonResult<()> {
+        stream_eq(
+            r#"
+                (:flatten
+                    [1, 2, 3]
+                    []
+                    []
+                    (4 5 6)
+                    ()
+                    ()
+                    (7))
+            "#,
+            r#" 1 2 3 4 5 6 7 "#,
+        )
+    }
+
+    #[test]
     fn make_sexp_e_expression() -> IonResult<()> {
         let e_expression = r#"
         (:make_sexp
@@ -2447,6 +2556,36 @@ mod tests {
             (7))
         "#;
         stream_eq(e_expression, r#" (1 2 3 4 5 6 7) "#)
+    }
+
+    #[test]
+    fn make_list_e_expression() -> IonResult<()> {
+        let e_expression = r#"
+        (:make_list
+            [1, 2, 3]
+            []
+            []
+            (4 5 6)
+            ()
+            ()
+            (7))
+        "#;
+        stream_eq(e_expression, r#" [1, 2, 3, 4, 5, 6, 7] "#)
+    }
+
+    #[test]
+    fn make_list_with_nested_eexp() -> IonResult<()> {
+        let e_expression = r#"
+        (:make_list
+            [1, 2, 3]
+            []
+            []
+            ((:values 4 (:values 5 6)))
+            ()
+            ()
+            (7))
+        "#;
+        stream_eq(e_expression, r#" [1, 2, 3, 4, 5, 6, 7] "#)
     }
 
     #[test]

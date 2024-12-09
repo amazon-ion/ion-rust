@@ -173,6 +173,7 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
 }
 
 /// The source of child values iterated over by an [`ExpandedListIterator`].
+#[derive(Debug)]
 pub enum ExpandedListIteratorSource<'top, D: Decoder> {
     ValueLiteral(
         // Giving the list iterator its own evaluator means that we can abandon the iterator
@@ -185,6 +186,7 @@ pub enum ExpandedListIteratorSource<'top, D: Decoder> {
 }
 
 /// Iterates over the child values of a [`LazyExpandedList`].
+#[derive(Debug)]
 pub struct ExpandedListIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     source: ExpandedListIteratorSource<'top, D>,
@@ -299,6 +301,7 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
 }
 
 /// The source of child values iterated over by an [`ExpandedSExpIterator`].
+#[derive(Debug)]
 pub enum ExpandedSExpIteratorSource<'top, D: Decoder> {
     /// The SExp was a literal in the data stream
     ValueLiteral(
@@ -320,6 +323,7 @@ pub enum ExpandedSExpIteratorSource<'top, D: Decoder> {
 }
 
 /// Iterates over the child values of a [`LazyExpandedSExp`].
+#[derive(Debug)]
 pub struct ExpandedSExpIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     source: ExpandedSExpIteratorSource<'top, D>,
@@ -401,7 +405,7 @@ fn expand_next_sequence_value<'top, D: Decoder>(
     expand_next_sequence_value_from_resolved(evaluator, &mut resolving_iter)
 }
 
-fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
+pub(crate) fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
     evaluator: &mut MacroEvaluator<'top, D>,
     iter: &mut impl Iterator<Item = IonResult<ValueExpr<'top, D>>>,
 ) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
@@ -432,6 +436,28 @@ fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
 /// Represents a sequence (list or sexp) whose contents are being traversed.
 /// This is used in (e.g.) `make_sexp` to store an iterator for each of its
 /// sequence arguments in turn.
+#[derive(Debug)]
+pub enum ExpandedSequenceIterator<'top, D: Decoder> {
+    List(ExpandedListIterator<'top, D>),
+    SExp(ExpandedSExpIterator<'top, D>),
+}
+
+impl<'top, D: Decoder> Iterator for ExpandedSequenceIterator<'top, D> {
+    type Item = IonResult<LazyExpandedValue<'top, D>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use ExpandedSequenceIterator::*;
+        match self {
+            List(l) => l.next(),
+            SExp(s) => s.next(),
+        }
+    }
+}
+
+/// Represents a sequence (list or sexp) whose contents are being traversed.
+/// This is used in (e.g.) `make_sexp` to store an iterator for each of its
+/// sequence arguments in turn.
+#[derive(Debug)]
 pub enum FlattenedSequence<'top, D: Decoder> {
     List(&'top mut ExpandedListIterator<'top, D>),
     SExp(&'top mut ExpandedSExpIterator<'top, D>),
