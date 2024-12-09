@@ -726,7 +726,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
                 );
                 stacked_evaluator
                     .macro_stack
-                    .extend([original_expansion, new_expansion].into_iter());
+                    .extend([original_expansion, new_expansion]);
                 self.state = EvaluatorState::Stacked(stacked_evaluator)
             }
             // Going from 2+ up
