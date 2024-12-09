@@ -331,7 +331,7 @@ fn expand_next_sequence_value<'top, D: Decoder>(
     expand_next_sequence_value_from_resolved(evaluator, &mut resolving_iter)
 }
 
-pub(crate) fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
+fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
     evaluator: &mut MacroEvaluator<'top, D>,
     iter: &mut impl Iterator<Item = IonResult<ValueExpr<'top, D>>>,
 ) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
@@ -360,7 +360,7 @@ pub(crate) fn expand_next_sequence_value_from_resolved<'top, D: Decoder>(
 }
 
 /// Represents a sequence (list or sexp) whose contents are being traversed.
-/// This is used in (e.g.) `make_sexp` to store an iterator for each of its
+/// This is used in `flatten` to store an iterator for each of its
 /// sequence arguments in turn.
 #[derive(Debug)]
 pub enum ExpandedSequenceIterator<'top, D: Decoder> {
@@ -373,27 +373,6 @@ impl<'top, D: Decoder> Iterator for ExpandedSequenceIterator<'top, D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         use ExpandedSequenceIterator::*;
-        match self {
-            List(l) => l.next(),
-            SExp(s) => s.next(),
-        }
-    }
-}
-
-/// Represents a sequence (list or sexp) whose contents are being traversed.
-/// This is used in (e.g.) `make_sexp` to store an iterator for each of its
-/// sequence arguments in turn.
-#[derive(Debug)]
-pub enum FlattenedSequence<'top, D: Decoder> {
-    List(&'top mut ExpandedListIterator<'top, D>),
-    SExp(&'top mut ExpandedSExpIterator<'top, D>),
-}
-
-impl<'top, D: Decoder> Iterator for FlattenedSequence<'top, D> {
-    type Item = IonResult<LazyExpandedValue<'top, D>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use FlattenedSequence::*;
         match self {
             List(l) => l.next(),
             SExp(s) => s.next(),
