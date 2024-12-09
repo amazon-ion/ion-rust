@@ -9,9 +9,9 @@ use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::macro_evaluator::{
-    AnnotateExpansion, EExpressionArgGroup, ExprGroupExpansion, FlattenExpansion,
-    IsExhaustedIterator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator,
-    MakeTextExpansion, RawEExpression, TemplateExpansion, ValueExpr,
+    AnnotateExpansion, ConditionalExpansion, EExpressionArgGroup, ExprGroupExpansion,
+    FlattenExpansion, IsExhaustedIterator, MacroExpansion, MacroExpansionKind, MacroExpr,
+    MacroExprArgsIterator, MakeTextExpansion, RawEExpression, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::template::TemplateMacroRef;
@@ -135,6 +135,18 @@ impl<'top, D: Decoder> EExpression<'top, D> {
                 MacroExpansionKind::Template(TemplateExpansion::new(template_ref))
             }
             MacroKind::ToDo => todo!("system macro {}", invoked_macro.name().unwrap()),
+            MacroKind::IfNone => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_none(arguments))
+            }
+            MacroKind::IfSome => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_some(arguments))
+            }
+            MacroKind::IfSingle => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_single(arguments))
+            }
+            MacroKind::IfMulti => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_multi(arguments))
+            }
         };
         Ok(MacroExpansion::new(
             self.context(),

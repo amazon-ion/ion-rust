@@ -222,6 +222,39 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         }
     }
 
+    /// Returns an [`ExpansionCardinality`] indicating whether this macro invocation will expand
+    /// to a stream that is empty, a singleton, or multiple values.
+    pub(crate) fn expansion_cardinality(
+        &self,
+        environment: Environment<'top, D>,
+    ) -> IonResult<ExpansionCardinality> {
+        // If we've statically determined this to produce exactly one value,
+        // the expansion cardinality must be `Single`.
+        if self.expansion_analysis().must_produce_exactly_one_value() {
+            return Ok(ExpansionCardinality::Single);
+        }
+        // If it's an empty arg group, the expansion cardinality is `None`.
+        let is_empty = match self.kind() {
+            MacroExprKind::EExpArgGroup(group) => group.expressions().next().is_none(),
+            MacroExprKind::TemplateArgGroup(group) => group.arg_expressions().is_empty(),
+            _ => false,
+        };
+        if is_empty {
+            return Ok(ExpansionCardinality::None);
+        }
+
+        // Otherwise, we need to begin expanding the invocation to see how many values it will produce.
+        let mut evaluator = MacroEvaluator::new_with_environment(environment);
+        evaluator.push(self.expand()?);
+        if evaluator.next()?.is_none() {
+            return Ok(ExpansionCardinality::None);
+        }
+        if evaluator.next()?.is_none() {
+            return Ok(ExpansionCardinality::Single);
+        }
+        Ok(ExpansionCardinality::Multi)
+    }
+
     pub(crate) fn context(&self) -> EncodingContextRef<'top> {
         use MacroExprKind::*;
         match self.kind {
@@ -429,6 +462,14 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     Annotate(AnnotateExpansion<'top, D>),
     Flatten(FlattenExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
+    // `if_none`, `if_single`, `if_multi`
+    Conditional(ConditionalExpansion<'top, D>),
+}
+
+pub enum ExpansionCardinality {
+    None,
+    Single,
+    Multi,
 }
 
 /// A macro in the process of being evaluated. Stores both the state of the evaluation and the
@@ -501,6 +542,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             MakeSymbol(make_symbol_expansion) => make_symbol_expansion.make_text_value(context),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
+            Conditional(cardiality_test_expansion) => cardiality_test_expansion.next(environment),
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
@@ -516,6 +558,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::MakeSymbol(_) => "make_symbol",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
+            MacroExpansionKind::Conditional(test) => test.name(),
             MacroExpansionKind::Template(t) => {
                 return if let Some(name) = t.template.name() {
                     write!(f, "<expansion of template '{}'>", name)
@@ -970,6 +1013,101 @@ impl<'top, D: Decoder> ExprGroupExpansion<'top, D> {
             Some(Ok(expr)) => Ok(MacroExpansionStep::Step(expr)),
             None => Ok(MacroExpansionStep::FinalStep(None)),
             Some(Err(e)) => Err(e),
+        }
+    }
+}
+
+// ===== Implementation of `if_none`, `if_some`, `if_single`, `if_multi` =====
+#[derive(Debug)]
+pub struct ConditionalExpansion<'top, D: Decoder> {
+    test_kind: CardinalityTestKind,
+    arguments: MacroExprArgsIterator<'top, D>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+// The compiler objects to each variant having the same prefix (`If`) because this is often a sign
+// that the enum name is being repeated. In this case, removing the prefix causes `None` and `Some`
+// to collide with the `Option` variants that are already in the prelude.
+#[allow(clippy::enum_variant_names)]
+pub enum CardinalityTestKind {
+    IfNone,
+    IfSome,
+    IfSingle,
+    IfMulti,
+}
+
+impl<'top, D: Decoder> ConditionalExpansion<'top, D> {
+    pub fn new(kind: CardinalityTestKind, arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self {
+            test_kind: kind,
+            arguments,
+        }
+    }
+
+    pub fn if_none(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self::new(CardinalityTestKind::IfNone, arguments)
+    }
+
+    pub fn if_some(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self::new(CardinalityTestKind::IfSome, arguments)
+    }
+
+    pub fn if_single(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self::new(CardinalityTestKind::IfSingle, arguments)
+    }
+
+    pub fn if_multi(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self::new(CardinalityTestKind::IfMulti, arguments)
+    }
+
+    pub fn name(&self) -> &str {
+        use CardinalityTestKind::*;
+        match self.test_kind {
+            IfNone => "if_none",
+            IfSome => "if_some",
+            IfSingle => "if_single",
+            IfMulti => "if_multi",
+        }
+    }
+
+    pub fn next(
+        &mut self,
+        environment: Environment<'top, D>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        // These are errors are `unreachable!` because all three arguments are zero-or-more.
+        // In text, `(.if_none)` would be passing three empty streams due to rest syntax.
+        // In binary, not passing arguments at all would be invalid data. Setting the empty stream
+        // bits in the bitmap would be close, but then you'd still have three empty streams.
+        let expr_to_test = self.arguments.next().transpose()?.unwrap_or_else(|| {
+            unreachable!(
+                "macro `{}` was not given an expression to test",
+                self.name()
+            )
+        });
+        let true_expr = self.arguments.next().transpose()?.unwrap_or_else(|| {
+            unreachable!("macro `{}` was not given a `true` expression", self.name())
+        });
+        let true_result = Ok(MacroExpansionStep::FinalStep(Some(true_expr)));
+
+        let cardinality = match expr_to_test {
+            ValueExpr::ValueLiteral(_) => ExpansionCardinality::Single,
+            ValueExpr::MacroInvocation(invocation) => {
+                invocation.expansion_cardinality(environment)?
+            }
+        };
+        use CardinalityTestKind::*;
+        use ExpansionCardinality as EC;
+        match (self.test_kind, cardinality) {
+            (IfNone, EC::None)
+            | (IfSome, EC::Single | EC::Multi)
+            | (IfSingle, EC::Single)
+            | (IfMulti, EC::Multi) => true_result,
+            _ => {
+                let false_expr = self.arguments.next().transpose()?.unwrap_or_else(|| {
+                    unreachable!("macro `{}` was not given a `false` expression", self.name())
+                });
+                Ok(MacroExpansionStep::FinalStep(Some(false_expr)))
+            }
         }
     }
 }
@@ -2547,6 +2685,107 @@ mod tests {
             (7))
         "#;
         stream_eq(e_expression, r#" [1, 2, 3, 4, 5, 6, 7] "#)
+    }
+
+    #[test]
+    fn default_eexp() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:add_macros
+                (macro foo (x?)
+                    (.make_string "Hello, " (.default (%x) "World!"))))
+            (:foo "Gary")
+            (:foo)
+        "#,
+            r#"
+            "Hello, Gary"
+            "Hello, World!"
+        "#,
+        )
+    }
+
+    #[test]
+    fn special_form_if_none() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:add_macros
+                (macro foo (x*)
+                    (.make_string "Hello, " (.if_none (%x) "world!" (%x)))))
+            (:foo "Gary")
+            (:foo "Gary" " and " "Susan")
+            (:foo (:flatten ["Tina", " and ", "Lisa"]))
+            (:foo)
+        "#,
+            r#"
+            "Hello, Gary"
+            "Hello, Gary and Susan"
+            "Hello, Tina and Lisa"
+            "Hello, world!"
+        "#,
+        )
+    }
+
+    #[test]
+    fn special_form_if_some() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:add_macros
+                (macro foo (x*)
+                    (.make_string "Hello, " (.if_some (%x) (%x) "world!" ))))
+            (:foo "Gary")
+            (:foo "Gary" " and " "Susan")
+            (:foo (:flatten ["Tina", " and ", "Lisa"]))
+            (:foo)
+        "#,
+            r#"
+            "Hello, Gary"
+            "Hello, Gary and Susan"
+            "Hello, Tina and Lisa"
+            "Hello, world!"
+        "#,
+        )
+    }
+
+    #[test]
+    fn special_form_if_single() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:add_macros
+                (macro snack (x*)
+                    {
+                        fruit: (.if_single (%x) (%x) [(%x)] )
+                    }))
+            (:snack)
+            (:snack "apple")
+            (:snack "apple" "banana" "cherry")
+        "#,
+            r#"
+            {fruit: []}
+            {fruit: "apple"}
+            {fruit: ["apple", "banana", "cherry"]}
+        "#,
+        )
+    }
+
+    #[test]
+    fn special_form_if_multi() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:add_macros
+                (macro snack (x*)
+                    {
+                        fruit: (.if_multi (%x) [(%x)] (%x) )
+                    }))
+            (:snack)
+            (:snack "apple")
+            (:snack "apple" "banana" "cherry")
+        "#,
+            r#"
+            {}
+            {fruit: "apple"}
+            {fruit: ["apple", "banana", "cherry"]}
+        "#,
+        )
     }
 
     #[test]

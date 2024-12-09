@@ -117,6 +117,10 @@ pub enum MacroKind {
     Annotate,
     Flatten,
     Template(TemplateBody),
+    IfNone,
+    IfSome,
+    IfSingle,
+    IfMulti,
     // A placeholder for not-yet-implemented macros
     ToDo,
 }
@@ -406,11 +410,8 @@ impl MacroTable {
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Struct),
             ),
-            builtin(
-                "default",
-                "(expr* default_expr*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::no_assertions_made(),
+            template(
+                "(macro default (expr* default_expr*) (.if_none (%expr) (%default_expr) (%expr) ))",
             ),
         ]
     }
