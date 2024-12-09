@@ -114,7 +114,6 @@ pub enum MacroKind {
     ExprGroup,
     MakeString,
     MakeSymbol,
-    MakeSExp,
     Annotate,
     Flatten,
     Template(TemplateBody),
@@ -190,13 +189,6 @@ impl Default for MacroTable {
 }
 
 impl MacroTable {
-    pub const SYSTEM_MACRO_KINDS: &'static [MacroKind] = &[
-        MacroKind::None,
-        MacroKind::ExprGroup,
-        MacroKind::MakeString,
-        MacroKind::MakeSExp,
-        MacroKind::Annotate,
-    ];
     // The system macros range from address 0 to 23
     pub const NUM_SYSTEM_MACROS: usize = 24;
     // When a user defines new macros, this is the first ID that will be assigned. This value

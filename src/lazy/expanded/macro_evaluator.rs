@@ -35,8 +35,8 @@ use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{
-    ExpandedSExpSource, ExpandedValueRef, ExpandedValueSource, IonError, IonResult,
-    LazyExpandedSExp, LazySExp, LazyValue, Span, SymbolRef, ValueRef,
+    ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyValue, Span, SymbolRef,
+    ValueRef,
 };
 
 pub trait IsExhaustedIterator<'top, D: Decoder>:
@@ -426,7 +426,6 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     ExprGroup(ExprGroupExpansion<'top, D>),
     MakeString(MakeTextExpansion<'top, D>),
     MakeSymbol(MakeTextExpansion<'top, D>),
-    MakeSExp(MakeSExpExpansion<'top, D>),
     Annotate(AnnotateExpansion<'top, D>),
     Flatten(FlattenExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
@@ -500,7 +499,6 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             ExprGroup(expr_group_expansion) => expr_group_expansion.next(context, environment),
             MakeString(make_string_expansion) => make_string_expansion.make_text_value(context),
             MakeSymbol(make_symbol_expansion) => make_symbol_expansion.make_text_value(context),
-            MakeSExp(make_sexp_expansion) => make_sexp_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             // `none` is trivial and requires no delegation
@@ -516,7 +514,6 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::ExprGroup(_) => "[internal] expr_group",
             MacroExpansionKind::MakeString(_) => "make_string",
             MacroExpansionKind::MakeSymbol(_) => "make_symbol",
-            MacroExpansionKind::MakeSExp(_) => "make_sexp",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
             MacroExpansionKind::Template(t) => {
@@ -1160,42 +1157,6 @@ impl<'top, D: Decoder> FlattenExpansion<'top, D> {
             // that it is either a list or an s-expression.
             self.set_current_sequence(next_seq)?;
         }
-    }
-}
-// ====== Implementation of the `make_sexp` macro
-
-#[derive(Copy, Clone, Debug)]
-pub struct MakeSExpExpansion<'top, D: Decoder> {
-    arguments: MacroExprArgsIterator<'top, D>,
-}
-
-impl<'top, D: Decoder> MakeSExpExpansion<'top, D> {
-    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
-        Self { arguments }
-    }
-
-    /// Yields the next [`ValueExpr`] in this `make_sexp` macro's evaluation.
-    pub fn next(
-        &mut self,
-        context: EncodingContextRef<'top>,
-        environment: Environment<'top, D>,
-    ) -> IonResult<MacroExpansionStep<'top, D>> {
-        // The `make_sexp` macro always produces a single s-expression. When `next()` is called
-        // to begin its evaluation, immediately return a lazy value representing the (not yet
-        // computed) sexp. If/when the application tries to iterate over its child expressions,
-        // the iterator will evaluate the child expressions incrementally.
-        let lazy_expanded_sexp = LazyExpandedSExp {
-            source: ExpandedSExpSource::Constructed(environment, self.arguments),
-            context,
-        };
-        let lazy_sexp = LazySExp::new(lazy_expanded_sexp);
-        // Store the `SExp` in the bump so it's guaranteed to be around as long as the reader is
-        // positioned on this top-level value.
-        let value_ref = context.allocator().alloc_with(|| ValueRef::SExp(lazy_sexp));
-        let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
-        Ok(MacroExpansionStep::FinalStep(Some(
-            ValueExpr::ValueLiteral(lazy_expanded_value),
-        )))
     }
 }
 

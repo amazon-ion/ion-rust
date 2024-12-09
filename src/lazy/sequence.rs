@@ -9,7 +9,7 @@ use crate::lazy::expanded::sequence::{
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::{
     try_next, Annotations, Element, ExpandedListSource, ExpandedSExpSource, IntoAnnotatedElement,
-    LazyExpandedValue, LazyRawContainer, Sequence, Value, ValueRef,
+    LazyExpandedValue, LazyRawContainer, Sequence, Value,
 };
 use crate::{IonError, IonResult};
 
@@ -244,11 +244,6 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
             }
             ExpandedSExpSource::Template(env, element) => {
                 LazyExpandedValue::from_template(context, env, element)
-            }
-            ExpandedSExpSource::Constructed(_environment, _args) => {
-                let value_ref = context.allocator().alloc_with(|| ValueRef::SExp(*self));
-                let annotations = &[];
-                LazyExpandedValue::from_constructed(context, annotations, value_ref)
             }
         };
         LazyValue::new(expanded_value)

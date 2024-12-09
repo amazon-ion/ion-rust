@@ -1,14 +1,11 @@
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{Decoder, LazyRawSequence, LazyRawValueExpr};
-use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, MacroExprArgsIterator, RawEExpression, ValueExpr,
-};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression, ValueExpr};
 use crate::lazy::expanded::template::{TemplateElement, TemplateSequenceIterator};
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, LazyExpandedValue,
 };
-use crate::result::IonFailure;
-use crate::{try_or_some_err, ExpandedValueRef, IonResult, IonType, SymbolRef};
+use crate::{try_or_some_err, IonResult, IonType};
 use std::fmt::Debug;
 
 /// A sequence of not-yet-evaluated expressions passed as arguments to a macro invocation.
@@ -214,8 +211,6 @@ pub enum ExpandedSExpSource<'top, D: Decoder> {
     /// Because the TDL treats s-expressions as literals, this variant only applies when the
     /// s-expression appeared within a `literal` operation.
     Template(Environment<'top, D>, TemplateElement<'top>),
-    /// The SExp was produced by a call to `make_sexp`.
-    Constructed(Environment<'top, D>, MacroExprArgsIterator<'top, D>),
 }
 
 /// An s-expression that may have come from either a value literal in the input stream or from
@@ -246,13 +241,6 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
                     source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
                 }
             }
-            ExpandedSExpSource::Constructed(_environment, _args) => {
-                // `make_sexp` always produces an unannotated s-expression
-                const EMPTY_ANNOTATIONS: &[SymbolRef<'_>] = &[];
-                ExpandedAnnotationsIterator {
-                    source: ExpandedAnnotationsSource::Constructed(EMPTY_ANNOTATIONS.iter()),
-                }
-            }
         }
     }
 
@@ -270,10 +258,6 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
                     element.template(),
                     nested_expressions,
                 ))
-            }
-            ExpandedSExpSource::Constructed(environment, args) => {
-                let evaluator = MacroEvaluator::new_with_environment(*environment);
-                ExpandedSExpIteratorSource::Constructed(evaluator, *args, None)
             }
         };
         ExpandedSExpIterator {
@@ -312,14 +296,6 @@ pub enum ExpandedSExpIteratorSource<'top, D: Decoder> {
     ),
     /// The SExp was in the body of a macro
     Template(TemplateSequenceIterator<'top, D>),
-    /// The SExp came from a call to `make_sexp`
-    Constructed(
-        MacroEvaluator<'top, D>,
-        // The argument expressions passed to `make_sexp`
-        MacroExprArgsIterator<'top, D>,
-        // The list or sexp whose contents are currently being traversed by the iterator
-        Option<FlattenedSequence<'top, D>>,
-    ),
 }
 
 /// Iterates over the child values of a [`LazyExpandedSExp`].
@@ -339,56 +315,6 @@ impl<'top, D: Decoder> Iterator for ExpandedSExpIterator<'top, D> {
                 expand_next_sequence_value(self.context, evaluator, iter)
             }
             Template(iter) => iter.next(),
-            Constructed(evaluator, iter, current_sequence) => {
-                Self::next_concatenated_value(evaluator, iter, current_sequence)
-            }
-        }
-    }
-}
-
-impl<'top, D: Decoder> ExpandedSExpIterator<'top, D> {
-    fn next_concatenated_value(
-        evaluator: &mut MacroEvaluator<'top, D>,
-        iter: &mut MacroExprArgsIterator<'top, D>,
-        current_sequence: &mut Option<FlattenedSequence<'top, D>>,
-    ) -> Option<IonResult<LazyExpandedValue<'top, D>>> {
-        loop {
-            // If we're currently traversing a list or sexp, get the next value out of it.
-            if let Some(sequence) = current_sequence {
-                if let Some(result) = sequence.next() {
-                    return Some(result);
-                }
-            }
-
-            // If we get this far, any sequence we may have been traversing is now exhausted. We should
-            // start evaluating the next expression from `iter`, expecting another sequence to traverse.
-            let value = match expand_next_sequence_value_from_resolved(evaluator, iter) {
-                Some(Ok(value)) => value,
-                Some(Err(e)) => return Some(Err(e)),
-                None => return None,
-            };
-
-            // We got another value from our iterator. Make sure it's a sequence and then store
-            // an iterator for it
-            match try_or_some_err!(value.read()) {
-                ExpandedValueRef::List(list) => {
-                    *current_sequence = {
-                        let list_iter = value.context().allocator().alloc_with(|| list.iter());
-                        Some(FlattenedSequence::List(list_iter))
-                    }
-                }
-                ExpandedValueRef::SExp(sexp) => {
-                    *current_sequence = {
-                        let sexp_iter = value.context().allocator().alloc_with(|| sexp.iter());
-                        Some(FlattenedSequence::SExp(sexp_iter))
-                    }
-                }
-                other => {
-                    return Some(IonResult::decoding_error(format!(
-                        "`make_sexp` arguments must be sequences (list or sexp); found {other:?}"
-                    )))
-                }
-            }
         }
     }
 }
