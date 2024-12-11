@@ -35,8 +35,8 @@ use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{
-    ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyValue, Span, SymbolRef,
-    ValueRef,
+    ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyExpandedStruct, LazyStruct,
+    LazyValue, Span, SymbolRef, ValueRef,
 };
 
 pub trait IsExhaustedIterator<'top, D: Decoder>:
@@ -459,6 +459,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     ExprGroup(ExprGroupExpansion<'top, D>),
     MakeString(MakeTextExpansion<'top, D>),
     MakeSymbol(MakeTextExpansion<'top, D>),
+    MakeStruct(MakeStructExpansion<'top, D>),
     Annotate(AnnotateExpansion<'top, D>),
     Flatten(FlattenExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
@@ -540,6 +541,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             ExprGroup(expr_group_expansion) => expr_group_expansion.next(context, environment),
             MakeString(make_string_expansion) => make_string_expansion.make_text_value(context),
             MakeSymbol(make_symbol_expansion) => make_symbol_expansion.make_text_value(context),
+            MakeStruct(make_struct_expansion) => make_struct_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             Conditional(cardiality_test_expansion) => cardiality_test_expansion.next(environment),
@@ -556,6 +558,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::ExprGroup(_) => "[internal] expr_group",
             MacroExpansionKind::MakeString(_) => "make_string",
             MacroExpansionKind::MakeSymbol(_) => "make_symbol",
+            MacroExpansionKind::MakeStruct(_) => "make_struct",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
             MacroExpansionKind::Conditional(test) => test.name(),
@@ -1112,6 +1115,40 @@ impl<'top, D: Decoder> ConditionalExpansion<'top, D> {
     }
 }
 
+// ===== Implementation of the `make_struct` macro =====
+#[derive(Copy, Clone, Debug)]
+pub struct MakeStructExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+}
+
+impl<'top, D: Decoder> MakeStructExpansion<'top, D> {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self { arguments }
+    }
+
+    fn next(
+        &mut self,
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        // The `make_struct` macro always produces a single struct value. When `next()` is called
+        // to begin its evaluation, it immediately returns a lazy value representing the (not yet
+        // computed) struct. If/when the application tries to iterate over its fields,
+        // the iterator will evaluate the field expressions incrementally.
+        let lazy_expanded_struct =
+            LazyExpandedStruct::from_constructed(context, environment, self.arguments);
+        let lazy_struct = LazyStruct::new(lazy_expanded_struct);
+        // Store the `Struct` in the bump so it's guaranteed to be around as long as the reader is
+        // positioned on this top-level value.
+        let value_ref = context
+            .allocator()
+            .alloc_with(|| ValueRef::Struct(lazy_struct));
+        let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
+        Ok(MacroExpansionStep::FinalStep(Some(
+            ValueExpr::ValueLiteral(lazy_expanded_value),
+        )))
+    }
+}
 // ===== Implementation of the `make_string` macro =====
 
 #[derive(Copy, Clone, Debug)]
@@ -2784,6 +2821,28 @@ mod tests {
             {}
             {fruit: "apple"}
             {fruit: ["apple", "banana", "cherry"]}
+        "#,
+        )
+    }
+
+    #[test]
+    fn make_struct_eexp() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:make_struct)
+            (:make_struct {a: 1})
+            (:make_struct {a: 1} {})
+            (:make_struct {a: 1} {b: 2})
+            (:make_struct {a: 1} {b: 2} {a: 3, d: 4})
+            (:make_struct {a: 1} {b: 2} {a: 3, d: 4} (:make_struct {e: 5} {f: 6}))
+        "#,
+            r#"
+            {}
+            {a: 1}
+            {a: 1}
+            {a: 1, b: 2}
+            {a: 1, b: 2, a: 3, d: 4}
+            {a: 1, b: 2, a: 3, d: 4, e: 5, f: 6}
         "#,
         )
     }

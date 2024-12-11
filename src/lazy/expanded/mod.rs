@@ -1060,6 +1060,12 @@ pub enum ExpandedAnnotationsSource<'top, Encoding: Decoder> {
     Constructed(std::slice::Iter<'top, SymbolRef<'top>>),
 }
 
+impl<Encoding: Decoder> ExpandedAnnotationsSource<'_, Encoding> {
+    pub fn empty() -> Self {
+        Self::Constructed(std::slice::Iter::default())
+    }
+}
+
 pub struct ExpandedAnnotationsIterator<'top, Encoding: Decoder> {
     source: ExpandedAnnotationsSource<'top, Encoding>,
 }

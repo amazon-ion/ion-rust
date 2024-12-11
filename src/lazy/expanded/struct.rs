@@ -2,7 +2,7 @@ use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructUnexpandedFieldsIterator};
 use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, MacroExpansion, MacroExpr, ValueExpr,
+    MacroEvaluator, MacroExpansion, MacroExpr, MacroExprArgsIterator, ValueExpr,
 };
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
@@ -13,7 +13,7 @@ use crate::lazy::expanded::{
     LazyExpandedValue,
 };
 use crate::result::IonFailure;
-use crate::{try_or_some_err, IonResult, RawSymbolRef, SymbolRef};
+use crate::{try_next, try_or_some_err, IonResult, RawSymbolRef, SymbolRef};
 
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
@@ -47,6 +47,10 @@ impl<'top, D: Decoder> LazyExpandedField<'top, D> {
 
     pub fn name(&self) -> LazyExpandedFieldName<'top, D> {
         self.name
+    }
+
+    pub fn unexpanded(&self) -> UnexpandedField<'top, D> {
+        UnexpandedField::NameValue(self.name(), self.value())
     }
 }
 
@@ -107,7 +111,8 @@ pub enum ExpandedStructSource<'top, D: Decoder> {
         TemplateElement<'top>,
         &'top TemplateStructIndex,
     ),
-    // TODO: Constructed
+    // The struct was produced by the `make_struct` macro.
+    Constructed(Environment<'top, D>, MacroExprArgsIterator<'top, D>),
 }
 
 impl<'top, D: Decoder> ExpandedStructSource<'top, D> {
@@ -115,6 +120,7 @@ impl<'top, D: Decoder> ExpandedStructSource<'top, D> {
         match self {
             ExpandedStructSource::ValueLiteral(_) => Environment::empty(),
             ExpandedStructSource::Template(environment, _, _) => *environment,
+            ExpandedStructSource::Constructed(environment, _) => *environment,
         }
     }
 }
@@ -154,18 +160,27 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         Self { source, context }
     }
 
+    pub fn from_constructed(
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+        arguments: MacroExprArgsIterator<'top, D>,
+    ) -> LazyExpandedStruct<'top, D> {
+        let source = ExpandedStructSource::Constructed(environment, arguments);
+        Self { source, context }
+    }
+
     pub fn annotations(&self) -> ExpandedAnnotationsIterator<'top, D> {
-        match &self.source {
-            ExpandedStructSource::ValueLiteral(value) => ExpandedAnnotationsIterator {
-                source: ExpandedAnnotationsSource::ValueLiteral(value.annotations()),
-            },
+        let iter_source = match &self.source {
+            ExpandedStructSource::ValueLiteral(value) => {
+                ExpandedAnnotationsSource::ValueLiteral(value.annotations())
+            }
             ExpandedStructSource::Template(_environment, element, _index) => {
                 let annotations = element.annotations();
-                ExpandedAnnotationsIterator {
-                    source: ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations)),
-                }
+                ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations))
             }
-        }
+            ExpandedStructSource::Constructed(_, _) => ExpandedAnnotationsSource::empty(),
+        };
+        ExpandedAnnotationsIterator::new(iter_source)
     }
 
     pub fn iter(&self) -> ExpandedStructIterator<'top, D> {
@@ -197,6 +212,18 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                     ),
                 )
             }
+            ExpandedStructSource::Constructed(environment, arguments) => {
+                let evaluator = self
+                    .context
+                    .allocator()
+                    .alloc_with(|| MacroEvaluator::new_with_environment(*environment));
+                let current_struct_iter = self.context.allocator().alloc_with(|| None);
+                ExpandedStructIteratorSource::Constructed(
+                    evaluator,
+                    current_struct_iter,
+                    *arguments,
+                )
+            }
         };
         ExpandedStructIterator {
             source,
@@ -214,9 +241,9 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
 
     pub fn find(&self, name: &str) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
         match &self.source {
-            // If we're reading from a struct literal, do a linear scan over its fields until we
-            // encounter one with the requested name.
-            ExpandedStructSource::ValueLiteral(_) => {
+            // If we're reading from a struct literal or `make_struct` call, do a linear scan over
+            // its fields until we encounter one with the requested name.
+            ExpandedStructSource::ValueLiteral(_) | ExpandedStructSource::Constructed(_, _) => {
                 for field_result in self.iter() {
                     let field = field_result?;
                     if field.name().read()?.text() == Some(name) {
@@ -287,7 +314,14 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
         &'top mut MacroEvaluator<'top, D>,
         TemplateStructUnexpandedFieldsIterator<'top, D>,
     ),
-    // TODO: Constructed
+    Constructed(
+        &'top mut MacroEvaluator<'top, D>,
+        // This is `&mut Option<_>` instead of `Option<&mut _>` so we can re-use the allocated space
+        // for each iterator we traverse.
+        &'top mut Option<ExpandedStructIterator<'top, D>>,
+        // Remaining argument expressions
+        MacroExprArgsIterator<'top, D>,
+    ),
 }
 
 impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
@@ -300,13 +334,68 @@ impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
             ExpandedStructIteratorSource::ValueLiteral(_, raw_struct_iter) => {
                 raw_struct_iter.next()
             }
+            ExpandedStructIteratorSource::Constructed(
+                evaluator,
+                maybe_current_struct,
+                arguments,
+            ) => {
+                loop {
+                    // If we're already traversing a struct, see if it has any fields remaining.
+                    if let Some(current_struct) = maybe_current_struct {
+                        match current_struct.next() {
+                            // If we get a field, we're done.
+                            Some(Ok(field)) => return Some(Ok(field.unexpanded())),
+                            Some(Err(e)) => return Some(Err(e)),
+                            // If we get `None`, the iterator is exhausted and we should continue on to the next struct.
+                            None => **maybe_current_struct = None,
+                        }
+                    }
+
+                    // If we reach this point, we don't have a current struct.
+                    // We've either just started evaluation and haven't set one yet or
+                    // we just finished inlining a struct and need to set a new one.
+
+                    // See if the evaluator has an expansion in progress.
+                    let mut next_struct = try_or_some_err!(evaluator.next());
+                    if next_struct.is_none() {
+                        // If we don't get anything from the evaluator, we'll get our struct from the
+                        // next argument expression. If there isn't a next argument expression,
+                        // then evaluation is complete.
+                        next_struct = match try_next!(arguments.next()) {
+                            // If the expression is a value literal, that's our new sequence.
+                            ValueExpr::ValueLiteral(value) => Some(value),
+                            // If the expression is a macro invocation, we'll start evaluating it
+                            // and return to the top of the loop.
+                            ValueExpr::MacroInvocation(invocation) => {
+                                evaluator.push(try_or_some_err!(invocation.expand()));
+                                continue;
+                            }
+                        }
+                    }
+
+                    // At this point, `next_struct` is definitely populated, so we can safely unwrap it.
+                    let next_struct = next_struct.unwrap();
+                    // Set it as our new current struct.
+                    let ExpandedValueRef::Struct(next_struct) =
+                        try_or_some_err!(next_struct.read())
+                    else {
+                        return Some(IonResult::decoding_error(format!(
+                            "`make_struct` only accepts structs, received {next_struct:?}"
+                        )));
+                    };
+                    **maybe_current_struct = Some(next_struct.iter());
+                }
+            }
         }
     }
 
     fn evaluator(&mut self) -> &mut MacroEvaluator<'top, D> {
+        // TODO: Should the evaluator be lifted out of the iterator source?
+        //       It is common to all of the variants.
         match self {
             ExpandedStructIteratorSource::Template(evaluator, _) => evaluator,
             ExpandedStructIteratorSource::ValueLiteral(evaluator, _) => evaluator,
+            ExpandedStructIteratorSource::Constructed(evaluator, _, _) => evaluator,
         }
     }
 }
