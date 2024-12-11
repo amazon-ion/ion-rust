@@ -2834,6 +2834,7 @@ mod tests {
             (:make_struct {a: 1} {})
             (:make_struct {a: 1} {b: 2})
             (:make_struct {a: 1} {b: 2} {a: 3, d: 4})
+            (:make_struct {a: 1} {b: 2} {a: 3, d: 4} (:make_struct {e: 5} {f: 6}))
         "#,
             r#"
             {}
@@ -2841,6 +2842,7 @@ mod tests {
             {a: 1}
             {a: 1, b: 2}
             {a: 1, b: 2, a: 3, d: 4}
+            {a: 1, b: 2, a: 3, d: 4, e: 5, f: 6}
         "#,
         )
     }
