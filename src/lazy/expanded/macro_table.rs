@@ -268,6 +268,29 @@ impl MacroTable {
                 ExpansionAnalysis::application_value_stream(),
             ),
             template("(macro values (x*) (%x))"),
+            template(
+                "(macro default (expr* default_expr*) (.if_none (%expr) (%default_expr) (%expr) ))",
+            ),
+            template("(macro meta (expr*) (.none))"),
+            builtin(
+                "repeat",
+                "(n expr*)",
+                MacroKind::ToDo,
+                ExpansionAnalysis::no_assertions_made(),
+            ),
+            flatten_macro_definition,
+            builtin(
+                "delta",
+                "(deltas*)",
+                MacroKind::ToDo,
+                ExpansionAnalysis::application_value_stream(),
+            ),
+            builtin(
+                "sum",
+                "(a b)",
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Int),
+            ),
             builtin(
                 "annotate",
                 "(annotations* value_to_annotate)",
@@ -287,12 +310,6 @@ impl MacroTable {
                 ExpansionAnalysis::single_application_value(IonType::Symbol),
             ),
             builtin(
-                "make_blob",
-                "(lob_values*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::single_application_value(IonType::Blob),
-            ),
-            builtin(
                 "make_decimal",
                 "(coefficient exponent)",
                 MacroKind::ToDo,
@@ -303,6 +320,12 @@ impl MacroTable {
                 "(year month? day? hour? minute? second? offset_minutes?)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::single_application_value(IonType::Timestamp),
+            ),
+            builtin(
+                "make_blob",
+                "(lob_values*)",
+                MacroKind::ToDo,
+                ExpansionAnalysis::single_application_value(IonType::Blob),
             ),
             template(
                 r#"
@@ -317,10 +340,22 @@ impl MacroTable {
             "#,
             ),
             builtin(
+                "make_field",
+                "(name value)",
+                MacroKind::MakeField,
+                ExpansionAnalysis::single_application_value(IonType::Struct),
+            ),
+            builtin(
                 "make_struct",
                 "(fields*)",
                 MacroKind::MakeStruct,
                 ExpansionAnalysis::single_application_value(IonType::Struct),
+            ),
+            builtin(
+                "parse_ion",
+                "(data*)",
+                MacroKind::ToDo,
+                ExpansionAnalysis::application_value_stream(),
             ),
             template(
                 r#"
@@ -379,41 +414,6 @@ impl MacroTable {
                 "(catalog_key version)",
                 MacroKind::ToDo,
                 ExpansionAnalysis::directive(),
-            ),
-            builtin(
-                "parse_ion",
-                "(data*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::application_value_stream(),
-            ),
-            builtin(
-                "repeat",
-                "(n expr*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::no_assertions_made(),
-            ),
-            builtin(
-                "delta",
-                "(deltas*)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::application_value_stream(),
-            ),
-            flatten_macro_definition,
-            builtin(
-                "sum",
-                "(a b)",
-                MacroKind::ToDo,
-                ExpansionAnalysis::single_application_value(IonType::Int),
-            ),
-            template("(macro meta (expr*) (.none))"),
-            builtin(
-                "make_field",
-                "(name value)",
-                MacroKind::MakeField,
-                ExpansionAnalysis::single_application_value(IonType::Struct),
-            ),
-            template(
-                "(macro default (expr* default_expr*) (.if_none (%expr) (%default_expr) (%expr) ))",
             ),
         ]
     }

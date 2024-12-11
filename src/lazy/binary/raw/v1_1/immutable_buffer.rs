@@ -1275,7 +1275,7 @@ mod tests {
         RawSymbolRef::SymbolId(0),
         RawSymbolRef::Text("encoding"),
     ])]
-    #[case::three_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE9, 0x0D, 0x01, 0x60, 0x01, 0x6A, 0x01, 0xA1], 2, 6, &[
+    #[case::three_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE9, 0x0D, 0x01, 0x60, 0x01, 0x6A, 0x01, 0x98], 2, 6, &[
         RawSymbolRef::SymbolId(0),
         RawSymbolRef::Text("encoding"),
         RawSymbolRef::Text("make_field"),

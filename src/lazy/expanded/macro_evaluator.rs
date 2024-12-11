@@ -1606,7 +1606,7 @@ mod tests {
         bin_stream_eq(
             &[
                 0xEF, // System macro, address follows as 1-byte FixedUInt
-                0x03, // make_string
+                0x09, // make_string
                 0x02, // Argument group
                 0x11, // FlexUInt 8: 8-byte group
                 0x93, // Opcode: 3-byte string follows
@@ -1624,7 +1624,7 @@ mod tests {
         bin_stream_eq(
             &[
                 0xEF, // System macro, address follows as 1-byte FixedUInt
-                0x03, // make_string
+                0x09, // make_string
                 0x02, // Argument group
                 0x01, // FlexUInt 0: delimited group
                 0xF0, // Delimited END
@@ -1635,7 +1635,7 @@ mod tests {
         bin_stream_eq(
             &[
                 0xEF, // System macro, address follows as 1-byte FixedUInt
-                0x03, // make_string
+                0x09, // make_string
                 0x02, // Argument group
                 0x01, // FlexUInt 0: delimited group
                 0x93, // Opcode: 3-byte string follows

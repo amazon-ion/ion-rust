@@ -2931,7 +2931,7 @@ mod tests {
                 args.close()
             },
             &[
-                0xEF, 0x03, // Invoke system macro address 3
+                0xEF, 0x09, // Invoke system macro address 3
                 0xA3, 0x66, 0x6f, 0x6f, // foo
                 0xA3, 0x62, 0x61, 0x72, // bar
                 0xA3, 0x62, 0x61, 0x7a, // baz

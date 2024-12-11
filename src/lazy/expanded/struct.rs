@@ -251,10 +251,11 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
     }
 
     pub fn find(&self, name: &str) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
+        use ExpandedStructSource::*;
         match &self.source {
             // If we're reading from a struct in a template, consult its field index to see if one or
             // more fields with the requested name exist.
-            ExpandedStructSource::Template(environment, element, index) => {
+            Template(environment, element, index) => {
                 let Some(value_expr_addresses) = index.get(name) else {
                     // If the field name is not in the index, it's not in the struct.
                     return Ok(None);
@@ -284,7 +285,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
             }
             // For any other kind of struct, do a linear scan over its fields until we encounter
             // one with the requested name.
-            _ => {
+            ValueLiteral(..) | MakeField(..) | MakeStruct(..) => {
                 for field_result in self.iter() {
                     let field = field_result?;
                     if field.name().read()?.text() == Some(name) {

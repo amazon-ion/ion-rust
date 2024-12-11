@@ -144,28 +144,28 @@ pub(crate) mod system_macros {
 
     pub const NONE: SystemMacroAddress = SystemMacroAddress(0x00);
     pub const VALUES: SystemMacroAddress = SystemMacroAddress(0x01);
-    pub const ANNOTATE: SystemMacroAddress = SystemMacroAddress(0x02);
-    pub const MAKE_STRING: SystemMacroAddress = SystemMacroAddress(0x03);
-    pub const MAKE_SYMBOL: SystemMacroAddress = SystemMacroAddress(0x04);
-    pub const MAKE_BLOB: SystemMacroAddress = SystemMacroAddress(0x05);
-    pub const MAKE_DECIMAL: SystemMacroAddress = SystemMacroAddress(0x06);
-    pub const MAKE_TIMESTAMP: SystemMacroAddress = SystemMacroAddress(0x07);
-    pub const MAKE_LIST: SystemMacroAddress = SystemMacroAddress(0x08);
-    pub const MAKE_SEXP: SystemMacroAddress = SystemMacroAddress(0x09);
-    pub const MAKE_STRUCT: SystemMacroAddress = SystemMacroAddress(0x0A);
-    pub const SET_SYMBOLS: SystemMacroAddress = SystemMacroAddress(0x0B);
-    pub const ADD_SYMBOLS: SystemMacroAddress = SystemMacroAddress(0x0C);
-    pub const SET_MACROS: SystemMacroAddress = SystemMacroAddress(0x0D);
-    pub const ADD_MACROS: SystemMacroAddress = SystemMacroAddress(0x0E);
-    pub const USE: SystemMacroAddress = SystemMacroAddress(0x0F);
-    pub const PARSE_ION: SystemMacroAddress = SystemMacroAddress(0x10);
-    pub const REPEAT: SystemMacroAddress = SystemMacroAddress(0x11);
-    pub const DELTA: SystemMacroAddress = SystemMacroAddress(0x12);
-    pub const FLATTEN: SystemMacroAddress = SystemMacroAddress(0x13);
-    pub const SUM: SystemMacroAddress = SystemMacroAddress(0x14);
-    pub const META: SystemMacroAddress = SystemMacroAddress(0x15);
-    pub const MAKE_FIELD: SystemMacroAddress = SystemMacroAddress(0x16);
-    pub const DEFAULT: SystemMacroAddress = SystemMacroAddress(0x17);
+    pub const DEFAULT: SystemMacroAddress = SystemMacroAddress(0x02);
+    pub const META: SystemMacroAddress = SystemMacroAddress(0x03);
+    pub const REPEAT: SystemMacroAddress = SystemMacroAddress(0x04);
+    pub const FLATTEN: SystemMacroAddress = SystemMacroAddress(0x05);
+    pub const DELTA: SystemMacroAddress = SystemMacroAddress(0x06);
+    pub const SUM: SystemMacroAddress = SystemMacroAddress(0x07);
+    pub const ANNOTATE: SystemMacroAddress = SystemMacroAddress(0x08);
+    pub const MAKE_STRING: SystemMacroAddress = SystemMacroAddress(0x09);
+    pub const MAKE_SYMBOL: SystemMacroAddress = SystemMacroAddress(0x0A);
+    pub const MAKE_DECIMAL: SystemMacroAddress = SystemMacroAddress(0x0B);
+    pub const MAKE_TIMESTAMP: SystemMacroAddress = SystemMacroAddress(0x0C);
+    pub const MAKE_BLOB: SystemMacroAddress = SystemMacroAddress(0x0D);
+    pub const MAKE_LIST: SystemMacroAddress = SystemMacroAddress(0x0E);
+    pub const MAKE_SEXP: SystemMacroAddress = SystemMacroAddress(0x0F);
+    pub const MAKE_FIELD: SystemMacroAddress = SystemMacroAddress(0x10);
+    pub const MAKE_STRUCT: SystemMacroAddress = SystemMacroAddress(0x11);
+    pub const PARSE_ION: SystemMacroAddress = SystemMacroAddress(0x12);
+    pub const SET_SYMBOLS: SystemMacroAddress = SystemMacroAddress(0x13);
+    pub const ADD_SYMBOLS: SystemMacroAddress = SystemMacroAddress(0x14);
+    pub const SET_MACROS: SystemMacroAddress = SystemMacroAddress(0x15);
+    pub const ADD_MACROS: SystemMacroAddress = SystemMacroAddress(0x16);
+    pub const USE: SystemMacroAddress = SystemMacroAddress(0x17);
 }
 
 /// The index at which a value expression can be found within a template's body.
