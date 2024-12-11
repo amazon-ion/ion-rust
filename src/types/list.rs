@@ -78,7 +78,19 @@ impl Display for List {
 
 impl From<Sequence> for List {
     fn from(sequence: Sequence) -> Self {
-        List(sequence)
+        Self(sequence)
+    }
+}
+
+impl From<Vec<Element>> for List {
+    fn from(elements: Vec<Element>) -> Self {
+        Self(elements.into())
+    }
+}
+
+impl FromIterator<Element> for List {
+    fn from_iter<T: IntoIterator<Item = Element>>(iter: T) -> Self {
+        Vec::from_iter(iter).into()
     }
 }
 
@@ -90,7 +102,7 @@ impl From<List> for Sequence {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ion_list, IonResult};
+    use crate::{ion_list, Element, IonResult, List};
 
     #[test]
     fn for_element_in_list() -> IonResult<()> {
@@ -101,6 +113,24 @@ mod tests {
             sum += element.expect_int()?.expect_i64()?;
         }
         assert_eq!(sum, 6i64);
+        Ok(())
+    }
+
+    #[test]
+    fn list_from_vec() -> IonResult<()> {
+        let elements = vec![Element::int(1), Element::int(2), Element::int(3)];
+        let actual: List = elements.into();
+        let expected = ion_list![1, 2, 3];
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn list_from_iter() -> IonResult<()> {
+        let elements = vec![Element::int(1), Element::int(2), Element::int(3)];
+        let actual: List = elements.into_iter().collect();
+        let expected = ion_list![1, 2, 3];
+        assert_eq!(actual, expected);
         Ok(())
     }
 }

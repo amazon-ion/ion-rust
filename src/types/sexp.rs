@@ -82,6 +82,18 @@ impl From<Sequence> for SExp {
     }
 }
 
+impl From<Vec<Element>> for SExp {
+    fn from(elements: Vec<Element>) -> Self {
+        Self(elements.into())
+    }
+}
+
+impl FromIterator<Element> for SExp {
+    fn from_iter<T: IntoIterator<Item = Element>>(iter: T) -> Self {
+        Vec::from_iter(iter).into()
+    }
+}
+
 impl From<SExp> for Sequence {
     fn from(value: SExp) -> Self {
         value.0
@@ -90,7 +102,7 @@ impl From<SExp> for Sequence {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ion_sexp, IonResult};
+    use crate::{ion_sexp, Element, IonResult, SExp};
 
     #[test]
     fn for_element_in_sexp() -> IonResult<()> {
@@ -101,6 +113,24 @@ mod tests {
             sum += element.expect_int()?.expect_i64()?;
         }
         assert_eq!(sum, 6i64);
+        Ok(())
+    }
+
+    #[test]
+    fn sexp_from_vec() -> IonResult<()> {
+        let elements = vec![Element::int(1), Element::int(2), Element::int(3)];
+        let actual: SExp = elements.into();
+        let expected = ion_sexp!(1 2 3);
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn sexp_from_iter() -> IonResult<()> {
+        let elements = vec![Element::int(1), Element::int(2), Element::int(3)];
+        let actual: SExp = elements.into_iter().collect();
+        let expected = ion_sexp!(1 2 3);
+        assert_eq!(actual, expected);
         Ok(())
     }
 }
