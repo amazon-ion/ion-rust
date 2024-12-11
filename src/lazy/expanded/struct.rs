@@ -92,7 +92,7 @@ impl<'top, D: Decoder> LazyExpandedFieldName<'top, D> {
                 name.read()?.resolve("a field name", *context)
             }
             LazyExpandedFieldName::TemplateName(_template_ref, symbol_ref) => Ok(*symbol_ref),
-            LazyExpandedFieldName::MakeField(symbol) => Ok((*symbol).into()),
+            LazyExpandedFieldName::MakeField(symbol) => Ok(*symbol),
         }
     }
 

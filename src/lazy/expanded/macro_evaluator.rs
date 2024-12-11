@@ -1188,7 +1188,7 @@ impl<'top, D: Decoder> MakeFieldExpansion<'top, D> {
             .map_err(|_| {
                 IonError::decoding_error("`make_field`'s first argument must be a text value")
             })
-            .map(|text| SymbolRef::with_text(text))?;
+            .map(SymbolRef::with_text)?;
         let value = value_expr.evaluate_singleton_in(environment)?;
         let field = LazyExpandedField::new(LazyExpandedFieldName::MakeField(name), value);
         let lazy_expanded_struct = LazyExpandedStruct::from_make_field(context, field);
