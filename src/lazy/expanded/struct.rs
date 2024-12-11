@@ -112,7 +112,7 @@ pub enum ExpandedStructSource<'top, D: Decoder> {
         &'top TemplateStructIndex,
     ),
     // The struct was produced by the `make_struct` macro.
-    Constructed(Environment<'top, D>, MacroExprArgsIterator<'top, D>),
+    MakeStruct(Environment<'top, D>, MacroExprArgsIterator<'top, D>),
 }
 
 impl<'top, D: Decoder> ExpandedStructSource<'top, D> {
@@ -120,7 +120,7 @@ impl<'top, D: Decoder> ExpandedStructSource<'top, D> {
         match self {
             ExpandedStructSource::ValueLiteral(_) => Environment::empty(),
             ExpandedStructSource::Template(environment, _, _) => *environment,
-            ExpandedStructSource::Constructed(environment, _) => *environment,
+            ExpandedStructSource::MakeStruct(environment, _) => *environment,
         }
     }
 }
@@ -165,7 +165,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         environment: Environment<'top, D>,
         arguments: MacroExprArgsIterator<'top, D>,
     ) -> LazyExpandedStruct<'top, D> {
-        let source = ExpandedStructSource::Constructed(environment, arguments);
+        let source = ExpandedStructSource::MakeStruct(environment, arguments);
         Self { source, context }
     }
 
@@ -178,7 +178,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                 let annotations = element.annotations();
                 ExpandedAnnotationsSource::Template(SymbolsIterator::new(annotations))
             }
-            ExpandedStructSource::Constructed(_, _) => ExpandedAnnotationsSource::empty(),
+            ExpandedStructSource::MakeStruct(_, _) => ExpandedAnnotationsSource::empty(),
         };
         ExpandedAnnotationsIterator::new(iter_source)
     }
@@ -212,7 +212,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                     ),
                 )
             }
-            ExpandedStructSource::Constructed(environment, arguments) => {
+            ExpandedStructSource::MakeStruct(environment, arguments) => {
                 let evaluator = self
                     .context
                     .allocator()
@@ -243,7 +243,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         match &self.source {
             // If we're reading from a struct literal or `make_struct` call, do a linear scan over
             // its fields until we encounter one with the requested name.
-            ExpandedStructSource::ValueLiteral(_) | ExpandedStructSource::Constructed(_, _) => {
+            ExpandedStructSource::ValueLiteral(_) | ExpandedStructSource::MakeStruct(_, _) => {
                 for field_result in self.iter() {
                     let field = field_result?;
                     if field.name().read()?.text() == Some(name) {
