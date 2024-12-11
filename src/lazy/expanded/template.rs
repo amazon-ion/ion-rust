@@ -8,7 +8,7 @@ use compact_str::CompactString;
 use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
-use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, TemplateExpansion, ValueExpr, ExprGroupExpansion, MakeTextExpansion, FlattenExpansion};
+use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, TemplateExpansion, ValueExpr, ExprGroupExpansion, MakeTextExpansion, FlattenExpansion, ConditionalExpansion};
 use crate::lazy::expanded::macro_table::{Macro, MacroKind};
 use crate::lazy::expanded::r#struct::UnexpandedField;
 use crate::lazy::expanded::sequence::Environment;
@@ -1230,6 +1230,11 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
                 return Ok(MacroExpansion::new(self.context(), new_environment, kind));
             }
             MacroKind::ToDo => todo!("system macro {}", macro_ref.name().unwrap()),
+
+            MacroKind::IfNone => MacroExpansionKind::Conditional(ConditionalExpansion::if_none(arguments)),
+            MacroKind::IfSome => MacroExpansionKind::Conditional(ConditionalExpansion::if_some(arguments)),
+            MacroKind::IfSingle => MacroExpansionKind::Conditional(ConditionalExpansion::if_single(arguments)),
+            MacroKind::IfMulti => MacroExpansionKind::Conditional(ConditionalExpansion::if_multi(arguments)),
         };
         Ok(MacroExpansion::new(
             self.context(),

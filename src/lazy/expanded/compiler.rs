@@ -17,13 +17,14 @@ use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, IonError, IonInput, IonResult, IonType, Macro, MacroTable, Reader, Symbol,
-    SymbolRef,
+    AnyEncoding, EncodingContext, IonError, IonInput, IonResult, IonType, Macro, MacroKind,
+    MacroTable, Reader, Symbol, SymbolRef,
 };
+use phf::phf_set;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 /// Information inferred about a template's expansion at compile time.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -1411,28 +1412,72 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
             }
         };
 
-        // See if it's the special form `literal`.
-        if let ValueRef::Symbol(s) = operation.read()? {
-            if s == "literal" {
-                // If it's `$ion::literal`, it's the special form.
-                if operation.annotations().are(["$ion"])?
-                    // Otherwise, if it has no annotations...
-                    || (!first_expr.has_annotations()
-                    // ...and has not been shadowed by a user-defined macro name...
-                    && tdl_context.pending_macros.macro_with_name("literal").is_none()
-                    && tdl_context.context.macro_table.macro_with_name("literal").is_none())
-                {
-                    // ...then it's the special form.
-                    return Ok(TdlSExpKind::Literal(expressions));
-                }
-            }
+        let operation_name = TemplateCompiler::expect_symbol_text("operation name", operation)?;
+
+        // TDL-only operations that are not in the system macro table.
+        static SPECIAL_FORM_NAMES: phf::Set<&'static str> =
+            phf_set!("literal", "if_none", "if_some", "if_single", "if_multi");
+
+        let is_special_form = SPECIAL_FORM_NAMES.contains(operation_name)
+            // If it's qualified to the system namespace, it's a special form.
+            && (operation.annotations().are(["$ion"])?
+                // Otherwise, if it has no annotations...
+                || (!first_expr.has_annotations()
+                    // ...and has not been shadowed by a user-defined macro name, it's a special form.
+                    && tdl_context.pending_macros.macro_with_name(operation_name).is_none()
+                    && tdl_context.context.macro_table.macro_with_name(operation_name).is_none()));
+
+        if is_special_form {
+            let special_form_macro: &Arc<Macro> = match operation_name {
+                // The 'literal' operation exists only at compile time...
+                "literal" => return Ok(TdlSExpKind::Literal(expressions)),
+                // ...while the cardinality tests are implemented as different flavors of
+                // the `ConditionalExpansion` macro.
+                "if_none" => &IF_NONE_MACRO,
+                "if_some" => &IF_SOME_MACRO,
+                "if_single" => &IF_SINGLE_MACRO,
+                "if_multi" => &IF_MULTI_MACRO,
+                other => unreachable!("unknown name '{}' found in special forms set", other),
+            };
+
+            return Ok(TdlSExpKind::MacroInvocation(
+                Arc::clone(special_form_macro),
+                expressions,
+            ));
         }
 
-        // At this point, we know the sexp must be a macro invocation.
+        // At this point, we know the sexp must be a normal macro invocation.
         // Resolve the macro name or address to the macro it represents.
         let macro_ref = TemplateCompiler::resolve_macro_id_expr(tdl_context, operation)?;
         Ok(TdlSExpKind::MacroInvocation(macro_ref, expressions))
     }
+}
+
+pub static IF_NONE_MACRO: LazyLock<Arc<Macro>> =
+    LazyLock::new(|| initialize_cardinality_test_macro("if_none", MacroKind::IfNone));
+
+pub static IF_SOME_MACRO: LazyLock<Arc<Macro>> =
+    LazyLock::new(|| initialize_cardinality_test_macro("if_some", MacroKind::IfSome));
+
+pub static IF_SINGLE_MACRO: LazyLock<Arc<Macro>> =
+    LazyLock::new(|| initialize_cardinality_test_macro("if_single", MacroKind::IfSingle));
+
+pub static IF_MULTI_MACRO: LazyLock<Arc<Macro>> =
+    LazyLock::new(|| initialize_cardinality_test_macro("if_multi", MacroKind::IfMulti));
+
+fn initialize_cardinality_test_macro(name: &str, kind: MacroKind) -> Arc<Macro> {
+    let context = EncodingContext::empty();
+    let definition = Macro::new(
+        Some(name.into()),
+        TemplateCompiler::compile_signature(
+            context.get_ref(),
+            "(test_expr* true_expr* false_expr*)",
+        )
+        .unwrap(),
+        kind,
+        ExpansionAnalysis::no_assertions_made(),
+    );
+    Arc::new(definition)
 }
 
 #[derive(Copy, Clone)]
