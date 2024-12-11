@@ -833,7 +833,7 @@ mod tests {
                 (Text("$ion_symbol_table"), &[0xE1, 0x03]),
                 (Text("name"), &[0xE1, 0x04]),
                 (SymbolId(6), &[0xE1, 0x06]), // SIDs are written as-is
-                (Text("foo"), &[0xE1, 0x42]), // Text is added to the symbol table and encoded as a SID
+                (Text("foo"), &[0xE1, 0x40]), // Text is added to the symbol table and encoded as a SID
             ],
         )
     }
@@ -916,7 +916,7 @@ mod tests {
                 0x07, // FlexSym SID $3
                 0x09, // FlexSym SID $4
                 0x0D, // FlexSym SID $6
-                0x0A, 0x01, // FlexSym SID $66
+                0x02, 0x01, // FlexSym SID $64
             ],
         )
     }
@@ -1010,12 +1010,12 @@ mod tests {
             FieldNameEncoding::WriteAsSymbolIds,
             &[
                 // New symbols
-                (RawSymbolRef::Text("foo"), &[0x85]), // FlexUInt SID $66,
-                (RawSymbolRef::Text("bar"), &[0x87]), // FlexUInt SID $67,
-                (RawSymbolRef::Text("baz"), &[0x89]), // FlexUInt SID $68,
+                (RawSymbolRef::Text("foo"), &[0x81]), // FlexUInt SID $64,
+                (RawSymbolRef::Text("bar"), &[0x83]), // FlexUInt SID $65,
+                (RawSymbolRef::Text("baz"), &[0x85]), // FlexUInt SID $66,
                 // Symbols that are already in the symbol table
                 (RawSymbolRef::Text("name"), &[0x09]), // FlexUInt SID $4,
-                (RawSymbolRef::Text("foo"), &[0x85]),  // FlexUInt SID $66,
+                (RawSymbolRef::Text("foo"), &[0x81]),  // FlexUInt SID $64,
             ],
         )
     }

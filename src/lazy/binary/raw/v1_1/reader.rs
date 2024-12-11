@@ -349,8 +349,8 @@ mod tests {
             // System symbols
             0xEE, 0x0A, // encoding
             0xEE, 0x0E, // macro_table
-            0xEE, 0x15, // empty text
-            0xEE, 0x41, // make_field
+            0xEE, 0x21, // empty text
+            0xEE, 0x38, // make_field
         ];
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
