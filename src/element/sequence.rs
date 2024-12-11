@@ -157,8 +157,6 @@ impl<'a> IntoIterator for &'a Sequence {
     }
 }
 
-// TODO: This currently clones elements. We should change `Sequence` to wrap a VecDeque so we can
-//       pop from the front.
 impl IntoIterator for Sequence {
     type Item = Element;
     // TODO: Change once `impl Trait` type aliases are stable
