@@ -389,10 +389,14 @@ impl<D: Decoder> Debug for ValueExpr<'_, D> {
 }
 
 impl<'top, D: Decoder> ValueExpr<'top, D> {
+    /// Like [`evaluate_singleton_in`](Self::evaluate_singleton_in), but uses an empty environment.
     pub fn evaluate_singleton(&self) -> IonResult<LazyExpandedValue<'top, D>> {
         self.evaluate_singleton_in(Environment::empty())
     }
 
+    /// Evaluates this `ValueExpr` in the context of the provided `environment`, producing either
+    /// an `Ok` containing the expansion's sole `LazyExpandedValue`, or an `Err` indicating that
+    /// this expression expanded to zero or two+ values.
     pub fn evaluate_singleton_in(
         &self,
         environment: Environment<'top, D>,
