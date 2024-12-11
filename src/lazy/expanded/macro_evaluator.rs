@@ -2693,13 +2693,13 @@ mod tests {
             r#"
             (:add_macros
                 (macro foo (x?)
-                    (.make_string "Hello, " (.default (%x) "World!"))))
+                    (.make_string "Hello, " (.default (%x) "world!"))))
             (:foo "Gary")
             (:foo)
         "#,
             r#"
             "Hello, Gary"
-            "Hello, World!"
+            "Hello, world!"
         "#,
         )
     }
