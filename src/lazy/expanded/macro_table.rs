@@ -114,6 +114,7 @@ pub enum MacroKind {
     ExprGroup,
     MakeString,
     MakeSymbol,
+    MakeField,
     MakeStruct,
     Annotate,
     Flatten,
@@ -408,7 +409,7 @@ impl MacroTable {
             builtin(
                 "make_field",
                 "(name value)",
-                MacroKind::ToDo,
+                MacroKind::MakeField,
                 ExpansionAnalysis::single_application_value(IonType::Struct),
             ),
             template(

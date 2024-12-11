@@ -101,7 +101,7 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
             ExpandedStructSource::Template(env, element, _) => {
                 LazyExpandedValue::from_template(context, env, element)
             }
-            ExpandedStructSource::Constructed(_env, _args) => {
+            _ => {
                 let value_ref = context.allocator().alloc_with(|| ValueRef::Struct(*self));
                 let annotations = &[];
                 LazyExpandedValue::from_constructed(context, annotations, value_ref)

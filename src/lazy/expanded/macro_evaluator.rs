@@ -35,8 +35,8 @@ use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
 use crate::{
-    ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyExpandedStruct, LazyStruct,
-    LazyValue, Span, SymbolRef, ValueRef,
+    ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyExpandedField,
+    LazyExpandedFieldName, LazyExpandedStruct, LazyStruct, LazyValue, Span, SymbolRef, ValueRef,
 };
 
 pub trait IsExhaustedIterator<'top, D: Decoder>:
@@ -389,6 +389,47 @@ impl<D: Decoder> Debug for ValueExpr<'_, D> {
 }
 
 impl<'top, D: Decoder> ValueExpr<'top, D> {
+    /// Like [`evaluate_singleton_in`](Self::evaluate_singleton_in), but uses an empty environment.
+    pub fn evaluate_singleton(&self) -> IonResult<LazyExpandedValue<'top, D>> {
+        self.evaluate_singleton_in(Environment::empty())
+    }
+
+    /// Evaluates this `ValueExpr` in the context of the provided `environment`, producing either
+    /// an `Ok` containing the expansion's sole `LazyExpandedValue`, or an `Err` indicating that
+    /// this expression expanded to zero or two+ values.
+    pub fn evaluate_singleton_in(
+        &self,
+        environment: Environment<'top, D>,
+    ) -> IonResult<LazyExpandedValue<'top, D>> {
+        let invocation = match self {
+            // If it's a single value, we're already done.
+            ValueExpr::ValueLiteral(v) => return Ok(*v),
+            ValueExpr::MacroInvocation(i) => *i,
+        };
+        let expansion = invocation.expand()?;
+        // If it's a macro that we know will produce exactly one value, evaluate it without a stack.
+        if invocation
+            .expansion_analysis()
+            .must_produce_exactly_one_value()
+        {
+            return expansion.expand_singleton();
+        }
+        // Otherwise, use the general case macro evaluator.
+        let mut evaluator = MacroEvaluator::new_with_environment(environment);
+        evaluator.push(expansion);
+        let Some(value) = evaluator.next()? else {
+            return IonResult::decoding_error(
+                "expected macro to produce exactly one value but it produced none",
+            );
+        };
+        if evaluator.next()?.is_some() {
+            return IonResult::decoding_error(
+                "expected macro to produce exactly one value but it produced more than one",
+            );
+        }
+        Ok(value)
+    }
+
     pub fn expect_value_literal(&self) -> IonResult<LazyExpandedValue<'top, D>> {
         match self {
             ValueExpr::ValueLiteral(value) => Ok(*value),
@@ -460,6 +501,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     MakeString(MakeTextExpansion<'top, D>),
     MakeSymbol(MakeTextExpansion<'top, D>),
     MakeStruct(MakeStructExpansion<'top, D>),
+    MakeField(MakeFieldExpansion<'top, D>),
     Annotate(AnnotateExpansion<'top, D>),
     Flatten(FlattenExpansion<'top, D>),
     Template(TemplateExpansion<'top>),
@@ -541,6 +583,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             ExprGroup(expr_group_expansion) => expr_group_expansion.next(context, environment),
             MakeString(make_string_expansion) => make_string_expansion.make_text_value(context),
             MakeSymbol(make_symbol_expansion) => make_symbol_expansion.make_text_value(context),
+            MakeField(make_field_expansion) => make_field_expansion.next(context, environment),
             MakeStruct(make_struct_expansion) => make_struct_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
@@ -558,6 +601,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::ExprGroup(_) => "[internal] expr_group",
             MacroExpansionKind::MakeString(_) => "make_string",
             MacroExpansionKind::MakeSymbol(_) => "make_symbol",
+            MacroExpansionKind::MakeField(_) => "make_field",
             MacroExpansionKind::MakeStruct(_) => "make_struct",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
@@ -1115,6 +1159,50 @@ impl<'top, D: Decoder> ConditionalExpansion<'top, D> {
     }
 }
 
+// ===== Implementation of the `make_field` macro =====
+
+#[derive(Copy, Clone, Debug)]
+pub struct MakeFieldExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+}
+
+impl<'top, D: Decoder> MakeFieldExpansion<'top, D> {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self { arguments }
+    }
+
+    fn next(
+        &mut self,
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        // The parser will have confirmed that two argument expressions
+        // were passed in: a field name and value.
+        let name_expr = self.arguments.next().unwrap()?;
+        let value_expr = self.arguments.next().unwrap()?;
+
+        let name = name_expr
+            .evaluate_singleton_in(environment)?
+            .read_resolved()?
+            .expect_text()
+            .map_err(|_| {
+                IonError::decoding_error("`make_field`'s first argument must be a text value")
+            })
+            .map(SymbolRef::with_text)?;
+        let value = value_expr.evaluate_singleton_in(environment)?;
+        let field = LazyExpandedField::new(LazyExpandedFieldName::MakeField(name), value);
+        let lazy_expanded_struct = LazyExpandedStruct::from_make_field(context, field);
+        let lazy_struct = LazyStruct::new(lazy_expanded_struct);
+        let value_ref = context
+            .allocator()
+            .alloc_with(|| ValueRef::Struct(lazy_struct));
+        let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
+        Ok(MacroExpansionStep::FinalStep(Some(
+            ValueExpr::ValueLiteral(lazy_expanded_value),
+        )))
+    }
+}
+
 // ===== Implementation of the `make_struct` macro =====
 #[derive(Copy, Clone, Debug)]
 pub struct MakeStructExpansion<'top, D: Decoder> {
@@ -1136,7 +1224,7 @@ impl<'top, D: Decoder> MakeStructExpansion<'top, D> {
         // computed) struct. If/when the application tries to iterate over its fields,
         // the iterator will evaluate the field expressions incrementally.
         let lazy_expanded_struct =
-            LazyExpandedStruct::from_constructed(context, environment, self.arguments);
+            LazyExpandedStruct::from_make_struct(context, environment, self.arguments);
         let lazy_struct = LazyStruct::new(lazy_expanded_struct);
         // Store the `Struct` in the bump so it's guaranteed to be around as long as the reader is
         // positioned on this top-level value.
@@ -2843,6 +2931,62 @@ mod tests {
             {a: 1, b: 2}
             {a: 1, b: 2, a: 3, d: 4}
             {a: 1, b: 2, a: 3, d: 4, e: 5, f: 6}
+        "#,
+        )
+    }
+
+    #[test]
+    fn make_field_eexp() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:make_field a 1)
+            (:make_field "a" 1)
+            (:make_field "foo" [1, 2, 3])
+            (:make_field "bar" (:make_field baz 4) )
+        "#,
+            r#"
+            {a: 1}
+            {a: 1}
+            {foo: [1, 2, 3]}
+            {bar: {baz: 4}}
+        "#,
+        )
+    }
+
+    #[test]
+    fn combine_make_struct_with_make_field() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:add_macros
+                (macro new_yorker (name occupation)
+                    (.make_struct
+                        (.make_field "name" (%name))
+                        (.make_field "occupation" (%occupation))
+                        {city: "New York", state: NY})))
+            (:new_yorker "Grace" "Author")
+            (:new_yorker "Ravi" "Painter")
+            (:new_yorker "Otis" "Musician")
+
+        "#,
+            r#"
+            {
+                name: "Grace",
+                occupation: "Author",
+                city: "New York",
+                state: NY,
+            }
+            {
+                name: "Ravi",
+                occupation: "Painter",
+                city: "New York",
+                state: NY,
+            }
+            {
+                name: "Otis",
+                occupation: "Musician",
+                city: "New York",
+                state: NY,
+            }
         "#,
         )
     }
