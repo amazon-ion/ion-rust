@@ -93,12 +93,18 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
     }
 
     pub fn as_value(&self) -> LazyValue<'top, D> {
+        let context = self.expanded_struct.context;
         let expanded_value = match self.expanded_struct.source {
             ExpandedStructSource::ValueLiteral(v) => {
-                LazyExpandedValue::from_literal(self.expanded_struct.context, v.as_value())
+                LazyExpandedValue::from_literal(context, v.as_value())
             }
             ExpandedStructSource::Template(env, element, _) => {
-                LazyExpandedValue::from_template(self.expanded_struct.context, env, element)
+                LazyExpandedValue::from_template(context, env, element)
+            }
+            ExpandedStructSource::Constructed(_env, _args) => {
+                let value_ref = context.allocator().alloc_with(|| ValueRef::Struct(*self));
+                let annotations = &[];
+                LazyExpandedValue::from_constructed(context, annotations, value_ref)
             }
         };
         LazyValue::new(expanded_value)
