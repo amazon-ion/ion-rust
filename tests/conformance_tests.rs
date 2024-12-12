@@ -108,7 +108,6 @@ mod ion_tests {
     use super::*;
 
     #[test_resources("ion-tests/conformance/data_model/null.ion")]
-    // #[test_resources("ion-tests/conformance/core/typed_null.ion")]
     #[test_resources("ion-tests/conformance/core/string_symbol.ion")]
     #[test_resources("ion-tests/conformance/core/empty_document.ion")]
     #[test_resources("ion-tests/conformance/core/toplevel_produces.ion")]
