@@ -127,7 +127,7 @@ impl TryFrom<Clause> for Fragment {
                 }
                 Fragment::Text(text)
             }
-            ClauseType::Bytes => Fragment::Binary(parse_bytes_exp(other.body.iter())?),
+            ClauseType::Binary => Fragment::Binary(parse_bytes_exp(other.body.iter())?),
             ClauseType::Ivm => {
                 // IVM: (ivm <int> <int>)
                 let maj = other

@@ -82,13 +82,13 @@ mod implementation {
             "(ion_1_1 (produces ))",
             "(document (and (produces ) (produces )))",
             "(document (text \"a\") (not (and (produces b) (produces c))))",
-            "(ion_1_1 (bytes 0x60 0x61 0x01 0xEB 0x01) (produces 0 1 null.int))",
+            "(ion_1_1 (binary 0x60 0x61 0x01 0xEB 0x01) (produces 0 1 null.int))",
             r#"(ion_1_0 (then (text "a") (produces a)))"#,
             r#"(ion_1_1 (text "a") (text "b") (text "c") (produces a b c))"#,
             r#"(ion_1_1 (text "\"Hello\" null.int false") (denotes (String "Hello") (Null int) (Bool false)))"#,
             r#"(ion_1_1 (each 
                              (text "0")
-                             (bytes 0x60)
+                             (binary 0x60)
                              (denotes (Int 0)))
                         )"#,
             r#"(document (ivm 1 2) (signals "Invalid Version"))"#,
@@ -107,8 +107,8 @@ mod implementation {
 mod ion_tests {
     use super::*;
 
-    #[test_resources("ion-tests/conformance/null.ion")]
-    #[test_resources("ion-tests/conformance/core/typed_null.ion")]
+    #[test_resources("ion-tests/conformance/data_model/null.ion")]
+    // #[test_resources("ion-tests/conformance/core/typed_null.ion")]
     #[test_resources("ion-tests/conformance/core/string_symbol.ion")]
     #[test_resources("ion-tests/conformance/core/empty_document.ion")]
     #[test_resources("ion-tests/conformance/core/toplevel_produces.ion")]

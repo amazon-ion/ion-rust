@@ -26,7 +26,7 @@ pub(crate) enum ClauseType {
     Text,
     /// Provide a sequence of bytes that is interpreted as binary ion, that will be inserted into
     /// the document.
-    Bytes,
+    Binary,
     /// Provide a major and minor version that will be emitted into the document as an IVM.
     Ivm,
     /// Specify a ion data to be inserted into the document, using inline ion syntax.
@@ -72,7 +72,7 @@ impl FromStr for ClauseType {
             "produces" => Ok(Produces),
             "denotes" => Ok(Denotes),
             "text" => Ok(Text),
-            "bytes" => Ok(Bytes),
+            "binary" => Ok(Binary),
             "and" => Ok(And),
             "not" => Ok(Not),
             "then" => Ok(Then),
@@ -91,7 +91,7 @@ impl ClauseType {
     /// Utility function to test if the Clause is a fragment node.
     pub fn is_fragment(&self) -> bool {
         use ClauseType::*;
-        matches!(self, Text | Bytes | Ivm | TopLevel | Encoding | MacTab)
+        matches!(self, Text | Binary | Ivm | TopLevel | Encoding | MacTab)
     }
 
     /// Utility function to test if the Clause is an expectation node.
