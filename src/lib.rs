@@ -230,6 +230,7 @@ macro_rules! v1_x_reader_writer {
             lazy::expanded::macro_evaluator::ValueExpr,
             lazy::expanded::macro_evaluator::MacroExpr,
             lazy::expanded::macro_evaluator::MacroExprKind,
+            lazy::expanded::macro_evaluator::MacroExprArgsIterator,
         };
     };
 }
@@ -268,6 +269,7 @@ macro_rules! v1_x_tooling_apis {
                 LazyRawAnyStruct, LazyRawStructKind,
                 LazyRawAnyFieldName, LazyRawFieldNameKind,
                 LazyRawAnyEExpression, LazyRawAnyEExpressionKind,
+                AnyEExpArgGroup, AnyEExpArgGroupKind, AnyEExpArgGroupIterator
             },
             lazy::decoder::{
                 LazyRawSequence,

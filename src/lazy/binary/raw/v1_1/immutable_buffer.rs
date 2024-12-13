@@ -497,7 +497,7 @@ impl<'a> BinaryBuffer<'a> {
     /// Reads the value for a delimited struct field, consuming NOPs if present.
     fn peek_delimited_struct_value(
         &self,
-    ) -> IonResult<(Option<LazyRawBinaryValue_1_1<'a>>, BinaryBuffer<'a>)> {
+    ) -> IonResult<(Option<LazyRawValueExpr<'a, v1_1::Binary>>, BinaryBuffer<'a>)> {
         let opcode = self.expect_opcode()?;
         if opcode.is_nop() {
             let after_nops = self.consume_nop_padding(opcode)?.1;
@@ -507,7 +507,7 @@ impl<'a> BinaryBuffer<'a> {
             }
             Ok((None, after_nops))
         } else {
-            self.read_value(opcode).map(|(v, after)| (Some(v), after))
+            self.read_sequence_value_expr()
         }
     }
 
@@ -547,7 +547,7 @@ impl<'a> BinaryBuffer<'a> {
                 return IonResult::incomplete("found field name but no value", after_name.offset());
             }
 
-            let (value, after_value) = match after_name.peek_delimited_struct_value()? {
+            let (field, after_value) = match after_name.peek_delimited_struct_value()? {
                 (None, after) => {
                     if after.is_empty() {
                         return IonResult::incomplete(
@@ -558,16 +558,15 @@ impl<'a> BinaryBuffer<'a> {
                     buffer = after;
                     continue; // No value for this field, loop to try next field.
                 }
-                (Some(value), after) => (value, after),
+                (Some(RawValueExpr::ValueLiteral(value)), after) => {
+                    (LazyRawFieldExpr::NameValue(field_name, value), after)
+                }
+                (Some(RawValueExpr::EExp(eexp)), after) => {
+                    (LazyRawFieldExpr::NameEExp(field_name, eexp), after)
+                }
             };
 
-            let allocator = self.context().allocator();
-            let value_ref = &*allocator.alloc_with(|| value);
-
-            return Ok((
-                Some(LazyRawFieldExpr::NameValue(field_name, value_ref)),
-                after_value,
-            ));
+            return Ok((Some(field), after_value));
         }
     }
 
@@ -619,7 +618,7 @@ impl<'a> BinaryBuffer<'a> {
         let input = self;
         let header = opcode.to_header().ok_or_else(|| {
             IonError::decoding_error(format!(
-                "found a non-value in value position; buffer=<{:X?}>",
+                "found a non-value in value position; buffer=<{:02X?}>",
                 input.bytes_range(0, 16.min(input.bytes().len()))
             ))
         })?;
