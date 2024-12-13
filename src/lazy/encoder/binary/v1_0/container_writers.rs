@@ -66,7 +66,13 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
             };
             symbol_ids.push(symbol_address);
         }
-        self.annotations = Some(symbol_ids);
+        // If this was called with an empty iterator, act as though it was never called at all.
+        // This prevents writing out an empty annotations sequence in binary, which is illegal.
+        self.annotations = if !symbol_ids.is_empty() {
+            Some(symbol_ids)
+        } else {
+            None
+        };
         Ok(self)
     }
 

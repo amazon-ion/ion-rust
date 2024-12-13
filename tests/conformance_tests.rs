@@ -12,34 +12,6 @@ mod implementation {
     use super::*;
 
     #[test]
-    fn test_absent_symbol() {
-        let tests: &[&str] = &[
-            r#"(ion_1_1
-              (toplevel '#$2' {'#$9': '#$8'})
-              (text "")
-              (denotes (Symbol 2) (Struct (9 (Symbol 8))))
-           )"#,
-            r#"(ion_1_0
-              (text '''$ion_symbol_table::{imports:[{name:"abcs", version: 2}]}''')
-              (text "$10 $11")
-              (produces '#$abcs#1' '#$abcs#2')
-           )"#,
-            r#"(ion_1_0
-              (text '''$ion_symbol_table::{imports:[{name:"abcs", version: 2}]}''')
-              (text "$10 $11")
-              (denotes (Symbol (absent "abcs" 1)) (Symbol (absent "abcs" 2)))
-           )"#,
-        ];
-
-        for test in tests {
-            Document::from_str(test)
-                .unwrap_or_else(|e| panic!("Failed to load document:\n{:?}", e))
-                .run()
-                .unwrap_or_else(|e| panic!("Test failed: {:?}", e));
-        }
-    }
-
-    #[test]
     fn test_timestamps() {
         let tests: &[&str] = &[
             r#"(ion_1_1 "Timestamp Year" (text "2023T") (denotes (Timestamp year 2023)))"#,
@@ -107,10 +79,13 @@ mod implementation {
 mod ion_tests {
     use super::*;
 
+    #[test_resources("ion-tests/conformance/core/*")]
+    #[test_resources("ion-tests/conformance/data_model/annotations.ion")]
+    #[test_resources("ion-tests/conformance/data_model/boolean.ion")]
+    #[test_resources("ion-tests/conformance/data_model/integer.ion")]
     #[test_resources("ion-tests/conformance/data_model/null.ion")]
-    #[test_resources("ion-tests/conformance/core/string_symbol.ion")]
-    #[test_resources("ion-tests/conformance/core/empty_document.ion")]
-    #[test_resources("ion-tests/conformance/core/toplevel_produces.ion")]
+    // No support for half-precision floats yet.
+    // #[test_resources("ion-tests/conformance/data_model/float.ion")]
     fn conformance(file_name: &str) {
         println!("Testing: {}", file_name);
         let collection = TestCollection::load(file_name).expect("unable to load test file");
