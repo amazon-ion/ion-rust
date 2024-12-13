@@ -1,14 +1,17 @@
 use std::str::FromStr;
 
-use super::*;
 use super::context::Context;
 use super::continuation::*;
+use super::*;
 
 use ion_rs::{Element, Sequence};
 
 /// Convert a collection of Fragments into a binary encoded ion stream.
-pub(crate) fn to_binary<'a, T: IntoIterator<Item=&'a Fragment>>(ctx: &'a Context, fragments: T) -> InnerResult<Vec<u8>> {
-    let mut bin_encoded = vec!();
+pub(crate) fn to_binary<'a, T: IntoIterator<Item = &'a Fragment>>(
+    ctx: &'a Context,
+    fragments: T,
+) -> InnerResult<Vec<u8>> {
+    let mut bin_encoded = vec![];
     for frag in fragments {
         let bin = frag.to_binary(ctx)?;
         bin_encoded.extend(bin);
@@ -17,8 +20,11 @@ pub(crate) fn to_binary<'a, T: IntoIterator<Item=&'a Fragment>>(ctx: &'a Context
 }
 
 /// Convert a collection of Fragments into a text encoded ion stream.
-pub(crate) fn to_text<'a, T: IntoIterator<Item=&'a Fragment>>(ctx: &'a Context, fragments: T) -> InnerResult<Vec<u8>> {
-    let mut txt_encoded = vec!();
+pub(crate) fn to_text<'a, T: IntoIterator<Item = &'a Fragment>>(
+    ctx: &'a Context,
+    fragments: T,
+) -> InnerResult<Vec<u8>> {
+    let mut txt_encoded = vec![];
     for frag in fragments {
         let txt = frag.to_text(ctx)?;
         txt_encoded.extend(txt);
@@ -47,8 +53,11 @@ impl Document {
     /// Determine the ion encoding (text/binary) of this document based on the fragments defined by
     /// the document.
     fn encoding(&self) -> IonEncoding {
-        match self.fragments.iter().fold((false,false), |acc, f| {
-            (acc.0 || matches!(f, Fragment::Text(_)), acc.1 || matches!(f, Fragment::Binary(_)))
+        match self.fragments.iter().fold((false, false), |acc, f| {
+            (
+                acc.0 || matches!(f, Fragment::Text(_)),
+                acc.1 || matches!(f, Fragment::Binary(_)),
+            )
         }) {
             (true, false) => IonEncoding::Text,
             (false, true) => IonEncoding::Binary,
@@ -76,8 +85,8 @@ impl FromStr for Document {
     type Err = ConformanceError;
 
     fn from_str(other: &str) -> std::result::Result<Self, Self::Err> {
-        let element = Element::read_first(other)?
-            .ok_or(ConformanceErrorKind::ExpectedDocumentClause)?;
+        let element =
+            Element::read_first(other)?.ok_or(ConformanceErrorKind::ExpectedDocumentClause)?;
         let Some(seq) = element.as_sequence() else {
             return Err(ConformanceErrorKind::ExpectedDocumentClause.into());
         };
@@ -90,38 +99,36 @@ impl TryFrom<Sequence> for Document {
 
     fn try_from(other: Sequence) -> InnerResult<Self> {
         let clause: Clause = Clause::try_from(other)?;
-
         let mut doc: Document = parse_document_like(&clause)?;
+
         let continuation = match clause.tpe {
-            ClauseType::Ion1_X => {
-                Continuation::Extensions(vec!(
-                    Continuation::Then(Box::new(Then {
-                        test_name: None,
-                        fragments: [vec!(Fragment::Ivm(1, 0)), doc.fragments.clone()].concat(),
-                        continuation: doc.continuation.clone(),
-                    })),
-                    Continuation::Then(Box::new(Then {
-                        test_name: None,
-                        fragments: [vec!(Fragment::Ivm(1, 1)), doc.fragments].concat(),
-                        continuation: doc.continuation.clone(),
-                    })),
-                ))
-            }
+            ClauseType::Ion1_X => Continuation::Extensions(vec![
+                Continuation::Then(Box::new(Then {
+                    test_name: None,
+                    fragments: [vec![Fragment::Ivm(1, 0)], doc.fragments.clone()].concat(),
+                    continuation: doc.continuation.clone(),
+                })),
+                Continuation::Then(Box::new(Then {
+                    test_name: None,
+                    fragments: [vec![Fragment::Ivm(1, 1)], doc.fragments].concat(),
+                    continuation: doc.continuation.clone(),
+                })),
+            ]),
             ClauseType::Ion1_0 => Continuation::Then(Box::new(Then {
                 test_name: None,
-                fragments: [vec!(Fragment::Ivm(1, 0)), doc.fragments].concat(),
+                fragments: [vec![Fragment::Ivm(1, 0)], doc.fragments].concat(),
                 continuation: doc.continuation.clone(),
             })),
-            ClauseType::Ion1_1 =>  Continuation::Then(Box::new(Then {
+            ClauseType::Ion1_1 => Continuation::Then(Box::new(Then {
                 test_name: None,
-                fragments: [vec!(Fragment::Ivm(1, 1)), doc.fragments].concat(),
+                fragments: [vec![Fragment::Ivm(1, 1)], doc.fragments].concat(),
                 continuation: doc.continuation.clone(),
             })),
             ClauseType::Document => return Ok(doc),
             _ => return Err(ConformanceErrorKind::ExpectedDocumentClause),
         };
         doc.continuation = continuation;
-        doc.fragments = vec!();
+        doc.fragments = vec![];
         Ok(doc)
     }
 }

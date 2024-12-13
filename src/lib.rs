@@ -294,7 +294,7 @@ macro_rules! v1_x_tooling_apis {
                 LazyExpandedField,
                 LazyExpandedFieldName
             },
-            lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator},
+            lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator, EExpArgGroup, EExpArgGroupIterator},
             lazy::expanded::sequence::{Environment, ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
             lazy::expanded::{ExpandedStreamItem, LazyExpandedValue, ExpandingReader, ExpandedValueSource, ExpandedAnnotationsSource, ExpandedValueRef},
             lazy::system_stream_item::SystemStreamItem,

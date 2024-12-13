@@ -20,12 +20,11 @@
 //! so that symbols from the Produces continuation can be evaluated for unknown symbol notation as
 //! well.
 
+use super::context::Context;
+use super::*;
 use ion_rs::{ion_seq, v1_0, v1_1, Encoding, WriteConfig};
 use ion_rs::{Element, SExp, Sequence, Struct, Symbol};
 use ion_rs::{RawSymbolRef, SequenceWriter, StructWriter, ValueWriter, WriteAsIon, Writer};
-
-use super::context::Context;
-use super::*;
 
 /// Shared functionality for Fragments.
 trait FragmentImpl {
@@ -127,7 +126,7 @@ impl TryFrom<Clause> for Fragment {
                 }
                 Fragment::Text(text)
             }
-            ClauseType::Bytes => Fragment::Binary(parse_bytes_exp(other.body.iter())?),
+            ClauseType::Binary => Fragment::Binary(parse_bytes_exp(other.body.iter())?),
             ClauseType::Ivm => {
                 // IVM: (ivm <int> <int>)
                 let maj = other
@@ -193,8 +192,7 @@ pub(crate) struct ProxyElement<'a>(pub &'a Element, pub &'a Context<'a>);
 
 impl ProxyElement<'_> {
     fn write_struct<V: ValueWriter>(&self, val: &Struct, writer: V) -> ion_rs::IonResult<()> {
-        let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
-        let annot_writer = writer.with_annotations(annotations)?;
+        let annot_writer = writer.with_annotations(self.0.annotations())?;
         let mut strukt = annot_writer.struct_writer()?;
 
         for (name, value) in val.fields() {
@@ -342,30 +340,33 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
 
 impl WriteAsIon for ProxyElement<'_> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> ion_rs::IonResult<()> {
-        match self.0.ion_type() {
-            IonType::Symbol => self.write_symbol(writer),
-            IonType::Struct => {
-                if !self.0.is_null() {
-                    self.write_struct(self.0.as_struct().unwrap(), writer)
-                } else {
-                    writer.write(self.0)
-                }
-            }
-            IonType::List => {
-                let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
-                let annot_writer = writer.with_annotations(annotations)?;
+        use ion_rs::Value::*;
+        match self.0.value() {
+            Symbol(_) => self.write_symbol(writer),
+            Struct(strukt) => self.write_struct(strukt, writer),
+            List(list) => {
+                let annot_writer = writer.with_annotations(self.0.annotations())?;
                 let mut list_writer = annot_writer.list_writer()?;
-                for elem in self.0.as_sequence().unwrap() {
+                for elem in list {
                     list_writer.write(ProxyElement(elem, self.1))?;
                 }
                 list_writer.close()?;
                 Ok(())
             }
-            IonType::SExp => {
-                let annotations: Vec<&Symbol> = self.0.annotations().iter().collect();
-                let annot_writer = writer.with_annotations(annotations)?;
+            SExp(sexp) => {
+                match sexp.get(0).map(Element::value) {
+                    Some(Symbol(symbol)) if symbol.text().is_some() => {
+                        let text = symbol.text().unwrap();
+                        if text.starts_with("#$:") {
+                            todo!("e-expression transcription")
+                        }
+                    }
+                    _ => {}
+                }
+
+                let annot_writer = writer.with_annotations(self.0.annotations())?;
                 let mut sexp_writer = annot_writer.sexp_writer()?;
-                for elem in self.0.as_sequence().unwrap() {
+                for elem in sexp {
                     sexp_writer.write(ProxyElement(elem, self.1))?;
                 }
                 sexp_writer.close()?;

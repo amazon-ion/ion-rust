@@ -100,6 +100,7 @@ macro_rules! impl_type_and_ref_expectation {
 
 impl_type_and_ref_expectation!(Int, IonType::Int);
 impl_type_expectation!(i64, "i64 value");
+impl_type_expectation!(usize, "usize value");
 impl_type_expectation!(f64, IonType::Float);
 impl_type_and_ref_expectation!(Decimal, IonType::Decimal);
 impl_type_and_ref_expectation!(Timestamp, IonType::Timestamp);

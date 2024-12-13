@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 
 use crate::raw_symbol_ref::SystemSymbol_1_1;
-use crate::{RawSymbolRef, SymbolId};
+use crate::{Annotations, RawSymbolRef, SymbolId};
 
 /// A sequence of annotations.
 ///
@@ -121,6 +121,16 @@ impl<'a, T, const N: usize> AnnotationSeq<'a> for &'a [T; N]
 where
     for<'b> &'b T: Into<RawSymbolRef<'b>>,
 {
+    fn into_annotations_vec(self) -> AnnotationsVec<'a> {
+        let mut annotations = AnnotationsVec::new();
+        for token in self {
+            annotations.push(token.into());
+        }
+        annotations
+    }
+}
+
+impl<'a> AnnotationSeq<'a> for &'a Annotations {
     fn into_annotations_vec(self) -> AnnotationsVec<'a> {
         let mut annotations = AnnotationsVec::new();
         for token in self {

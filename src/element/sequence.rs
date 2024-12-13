@@ -138,6 +138,12 @@ impl AsRef<[Element]> for Sequence {
     }
 }
 
+impl From<Sequence> for Vec<Element> {
+    fn from(value: Sequence) -> Self {
+        value.elements
+    }
+}
+
 // This is more efficient than Sequence::new(), which will iterate over and convert each value to
 // an Element for better ergonomics.
 impl From<Vec<Element>> for Sequence {

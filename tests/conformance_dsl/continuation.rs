@@ -2,11 +2,11 @@
 //! of the test document when read) and Extensions (clauses that allow the chaining, or
 //! permutations for document creation).
 
-use super::*;
 use super::context::Context;
 use super::model::{compare_values, ModelValue};
+use super::*;
 
-use ion_rs::{Element, Sequence};
+use ion_rs::{Element, ElementReader, Sequence};
 
 #[derive(Clone, Debug)]
 pub(crate) enum Continuation {
@@ -60,39 +60,36 @@ impl Continuation {
             }
             Continuation::Each(branches, continuation) => {
                 for branch in branches {
-                    let frags = vec!(branch.fragment.clone());
+                    let frags = vec![branch.fragment.clone()];
                     let mut new_context = Context::extend(ctx, &frags);
                     new_context.set_encoding(branch.fragment.required_encoding());
                     continuation.evaluate(&new_context)?;
                 }
                 Ok(())
             }
-            Continuation::Signals(msg) => {
-                match ctx.read_all(ctx.encoding()) {
-                    Err(_e) => Ok(()),
-                    Ok(_) => Err(ConformanceErrorKind::ExpectedSignal(msg.to_owned()))?,
-                }
-            }
+            Continuation::Signals(msg) => match ctx.read_all(ctx.encoding()) {
+                Err(_e) => Ok(()),
+                Ok(_) => Err(ConformanceErrorKind::ExpectedSignal(msg.to_owned()))?,
+            },
         }
     }
-
 }
 
 impl Default for Continuation {
     fn default() -> Self {
-        Continuation::Produces(Produces { elems: vec!() })
+        Continuation::Produces(Produces { elems: vec![] })
     }
 }
 
 /// Parses a clause known to be a continuation into a proper Continuation instance.
 pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
     let continuation = match clause.tpe {
-        ClauseType::Produces => {
-            Continuation::Produces(Produces { elems: clause.body.clone() })
-        }
+        ClauseType::Produces => Continuation::Produces(Produces {
+            elems: clause.body.clone(),
+        }),
         ClauseType::And => {
             if !clause.body.is_empty() {
-                let mut args = vec!();
+                let mut args = vec![];
                 for elem in clause.body {
                     if let Some(seq) = elem.as_sequence() {
                         let clause = Clause::try_from(seq)?;
@@ -108,7 +105,7 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
                 }
                 Continuation::And(args)
             } else {
-                return Err(ConformanceErrorKind::ExpectedExpectation)
+                return Err(ConformanceErrorKind::ExpectedExpectation);
             }
         }
         ClauseType::Not => {
@@ -129,21 +126,17 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
             Continuation::Then(Box::new(then))
         }
         ClauseType::Denotes => {
-            let mut values: Vec<ModelValue> = vec!();
+            let mut values: Vec<ModelValue> = vec![];
             for elem in clause.body {
-                if let Some(seq) = elem.as_sequence() {
-                    let model_value = ModelValue::try_from(seq)?;
-                    values.push(model_value);
-                } else {
-                    return Err(ConformanceErrorKind::ExpectedModelValue);
-                }
+                let model_value = ModelValue::try_from(&elem)?;
+                values.push(model_value);
             }
             Continuation::Denotes(Denotes { model: values })
         }
         ClauseType::Each => {
             let mut parsing_branches = true;
             let mut sequence_idx = 0;
-            let mut branches: Vec<EachBranch> = vec!();
+            let mut branches: Vec<EachBranch> = vec![];
             loop {
                 if sequence_idx >= clause.body.len() {
                     return Err(ConformanceErrorKind::ExpectedClause);
@@ -152,12 +145,18 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
                     let mut name: Option<String> = None;
                     // Branch: name-string? fragment
                     // Check for name-string..
-                    if let Some(elem) = clause.body.get(sequence_idx).filter(|e| e.ion_type() == IonType::String) {
+                    if let Some(elem) = clause
+                        .body
+                        .get(sequence_idx)
+                        .filter(|e| e.ion_type() == IonType::String)
+                    {
                         name = elem.as_string().map(|s| s.to_string());
                         sequence_idx += 1;
                     }
 
-                    let seq = clause.body.get(sequence_idx)
+                    let seq = clause
+                        .body
+                        .get(sequence_idx)
                         .and_then(|e| e.as_sequence())
                         .ok_or(ConformanceErrorKind::ExpectedModelValue)?;
                     let seq_iter = seq.iter().peekable();
@@ -170,12 +169,11 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
                         }
                         Err(x) => return Err(x),
                     };
-                    branches.push(EachBranch {
-                        name,
-                        fragment,
-                    });
+                    branches.push(EachBranch { name, fragment });
                 } else {
-                    let seq = clause.body.get(sequence_idx)
+                    let seq = clause
+                        .body
+                        .get(sequence_idx)
                         .and_then(|e| e.as_sequence())
                         .ok_or(ConformanceErrorKind::ExpectedModelValue)?;
                     let clause = Clause::try_from(seq.clone())?;
@@ -188,7 +186,9 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
             }
         }
         ClauseType::Signals => {
-            let msg = clause.body.first()
+            let msg = clause
+                .body
+                .first()
                 .and_then(|e| e.as_string())
                 .ok_or(ConformanceErrorKind::ExpectedString)?
                 .to_string();
@@ -196,7 +196,6 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
         }
         _ => unreachable!(),
     };
-
 
     Ok(continuation)
 }
@@ -219,7 +218,7 @@ impl Produces {
     /// Creates a reader using the provided context, and compares the read values from the input
     /// document with the elements specified in the associated Produces clause for equality.
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
-        use ion_rs::{Decoder, AnyEncoding};
+        use ion_rs::{AnyEncoding, Decoder};
         let (input, _encoding) = ctx.input(ctx.encoding())?;
         let mut reader = ion_rs::Reader::new(AnyEncoding.with_catalog(ctx.build_catalog()), input)?;
 
@@ -227,11 +226,11 @@ impl Produces {
         let mut elem_iter = self.elems.iter();
 
         while is_equal {
-            let (actual_value, expected_elem) = (reader.next()?, elem_iter.next());
+            let (actual_value, expected_elem) = (reader.read_next_element()?, elem_iter.next());
             match (actual_value, expected_elem) {
                 (None, None) => break,
                 (Some(actual_value), Some(expected_elem)) => {
-                    is_equal &= super::fragment::ProxyElement(expected_elem, ctx) == actual_value
+                    is_equal &= expected_elem.eq(&actual_value);
                 }
                 _ => is_equal = false,
             }
@@ -253,7 +252,7 @@ pub(crate) struct Denotes {
 
 impl Denotes {
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
-        use ion_rs::{Decoder, AnyEncoding};
+        use ion_rs::{AnyEncoding, Decoder};
         let (input, _encoding) = ctx.input(ctx.encoding())?;
         let mut reader = ion_rs::Reader::new(AnyEncoding.with_catalog(ctx.build_catalog()), input)?;
         let mut elem_iter = self.model.iter();
@@ -262,8 +261,9 @@ impl Denotes {
         while is_equal {
             let (read_value, expected_element) = (reader.next()?, elem_iter.next());
             is_equal = match (read_value, expected_element) {
-                (Some(actual), Some(expected)) =>
-                    is_equal && compare_values(ctx, expected, &actual)?,
+                (Some(actual), Some(expected)) => {
+                    is_equal && compare_values(ctx, expected, &actual)?
+                }
                 (None, None) => break,
                 _ => false,
             }
@@ -299,7 +299,10 @@ impl Then {
 
     /// Determine the encoding (text/binary) of the fragments contained within this Then clause.
     fn fragment_encoding(&self) -> IonEncoding {
-        let enc = self.fragments.iter().find(|f| matches!(f, Fragment::Text(_) | Fragment::Binary(_)));
+        let enc = self
+            .fragments
+            .iter()
+            .find(|f| matches!(f, Fragment::Text(_) | Fragment::Binary(_)));
         match enc {
             Some(Fragment::Text(_)) => IonEncoding::Text,
             Some(Fragment::Binary(_)) => IonEncoding::Binary,
