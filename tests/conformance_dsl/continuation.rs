@@ -230,7 +230,6 @@ impl Produces {
             match (actual_value, expected_elem) {
                 (None, None) => break,
                 (Some(actual_value), Some(expected_elem)) => {
-                    // is_equal &= super::fragment::ProxyElement(expected_elem, ctx) == actual_value
                     is_equal &= expected_elem.eq(&actual_value);
                 }
                 _ => is_equal = false,
