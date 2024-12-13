@@ -138,6 +138,7 @@ impl TryFrom<&ModelValue> for Element {
             ModelValue::Decimal(d) => (*d).into(),
             ModelValue::Timestamp(t) => (*t).into(),
             ModelValue::String(s) => s.to_owned().into(),
+            // TODO: Logic is needed to identify escaped symbols and resolve them.
             ModelValue::Symbol(s) => s.as_symbol_ref().to_owned().into(),
             ModelValue::List(values) => {
                 let elements = values
@@ -356,7 +357,7 @@ pub(crate) fn compare_values<T: ion_rs::Decoder>(
 
             let (expected_txt, expected_id) = match symbol_token {
                 SymbolToken::Text(txt) => return Ok(symbol_text == txt),
-                SymbolToken::Address(id) => (String::from(""), *id as usize),
+                SymbolToken::Address(id) => (String::from(""), *id),
                 SymbolToken::Absent(symtab, id) => {
                     match ctx.get_symbol_from_table(symtab, *id as usize) {
                         None => (String::from(""), 0_usize),
