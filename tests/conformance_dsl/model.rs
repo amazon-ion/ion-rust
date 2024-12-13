@@ -339,7 +339,6 @@ pub(crate) fn compare_values<T: ion_rs::Decoder>(
     model: &ModelValue,
     other: &ion_rs::LazyValue<'_, T>,
 ) -> InnerResult<bool> {
-    println!("comparing {model:?} and {other:?}");
     match model {
         ModelValue::Symbol(symbol_token) => {
             let Some(raw_symbol) = other.raw().map(|r| r.read()) else {

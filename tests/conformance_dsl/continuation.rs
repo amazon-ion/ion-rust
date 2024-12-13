@@ -227,7 +227,6 @@ impl Produces {
 
         while is_equal {
             let (actual_value, expected_elem) = (reader.read_next_element()?, elem_iter.next());
-            println!("actual={actual_value:?} expected={expected_elem:?}");
             match (actual_value, expected_elem) {
                 (None, None) => break,
                 (Some(actual_value), Some(expected_elem)) => {
@@ -256,7 +255,6 @@ impl Denotes {
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
         use ion_rs::{AnyEncoding, Decoder};
         let (input, _encoding) = ctx.input(ctx.encoding())?;
-        println!("input: {input:02x?}");
         let mut reader = ion_rs::Reader::new(AnyEncoding.with_catalog(ctx.build_catalog()), input)?;
         let mut elem_iter = self.model.iter();
 

@@ -99,11 +99,7 @@ impl TryFrom<Sequence> for Document {
 
     fn try_from(other: Sequence) -> InnerResult<Self> {
         let clause: Clause = Clause::try_from(other)?;
-
-        println!("{clause:#?}");
         let mut doc: Document = parse_document_like(&clause)?;
-
-        println!("doc name {:?}", &doc.name);
 
         let continuation = match clause.tpe {
             ClauseType::Ion1_X => Continuation::Extensions(vec![
