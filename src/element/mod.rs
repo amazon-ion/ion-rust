@@ -522,6 +522,21 @@ impl Element {
         }
     }
 
+    pub fn as_usize(&self) -> Option<usize> {
+        match &self.value {
+            Value::Int(i) => i.as_usize(),
+            _ => None,
+        }
+    }
+
+    pub fn expect_usize(&self) -> IonResult<usize> {
+        self.expected(self.as_usize())
+    }
+
+    pub fn try_into_usize(self) -> ConversionOperationResult<Element, usize> {
+        self.as_usize().ok_or_else(|| self.into())
+    }
+
     pub fn as_float(&self) -> Option<f64> {
         match &self.value {
             Value::Float(f) => Some(*f),

@@ -47,9 +47,7 @@ impl TryFrom<&Element> for SymbolToken {
     fn try_from(other: &Element) -> InnerResult<Self> {
         match other.ion_type() {
             IonType::String => Ok(SymbolToken::Text(other.as_string().unwrap().to_owned())),
-            IonType::Int => Ok(SymbolToken::Address(
-                other.as_int().unwrap().as_usize().unwrap(),
-            )),
+            IonType::Int => Ok(SymbolToken::Address(other.as_usize().unwrap())),
             IonType::SExp => {
                 let clause: Clause = other.as_sequence().unwrap().try_into()?;
 
@@ -233,7 +231,7 @@ impl TryFrom<&Sequence> for ModelValue {
                         value.as_string().unwrap().to_owned(),
                     ))),
                     IonType::Int => Ok(ModelValue::Symbol(SymbolToken::Address(
-                        value.as_int().unwrap().as_usize().unwrap(),
+                        value.as_usize().unwrap(),
                     ))),
                     IonType::SExp => {
                         let clause: Clause = value.as_sequence().unwrap().try_into()?;
