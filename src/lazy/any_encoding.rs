@@ -280,6 +280,12 @@ pub struct AnyEExpArgGroup<'top> {
     kind: AnyEExpArgGroupKind<'top>,
 }
 
+impl<'a> AnyEExpArgGroup<'a> {
+    pub fn kind(&self) -> AnyEExpArgGroupKind<'a> {
+        self.kind
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum AnyEExpArgGroupKind<'top> {
     Text_1_1(TextEExpArgGroup<'top>),

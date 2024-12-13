@@ -451,6 +451,11 @@ impl<'top> BinaryEExpArgGroup<'top> {
         self.delimited_values = Some(delimited_values);
         self
     }
+
+    pub fn header_span(&self) -> Span<'_> {
+        let header_input = self.input.slice(0, self.header_size as usize);
+        Span::from(header_input)
+    }
 }
 
 impl HasRange for BinaryEExpArgGroup<'_> {
