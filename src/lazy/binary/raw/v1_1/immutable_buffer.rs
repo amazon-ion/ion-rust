@@ -51,7 +51,7 @@ pub struct BinaryBuffer<'a> {
 
 impl Debug for BinaryBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BinaryBuffer {{")?;
+        write!(f, "BinaryBuffer @ offset={} {{", self.offset)?;
         for byte in self.bytes().iter().take(16) {
             write!(f, "{:x?} ", *byte)?;
         }
@@ -244,7 +244,7 @@ impl<'a> BinaryBuffer<'a> {
         };
 
         if self.len() < size_in_bytes {
-            return IonResult::incomplete("reading a flex_uint value", self.offset());
+            return IonResult::incomplete("a flex_uint value", self.offset());
         }
         // XXX: This *doesn't* slice `self` because FlexUInt::read() is faster if the input
         //      is at least the size of a u64.
@@ -544,16 +544,13 @@ impl<'a> BinaryBuffer<'a> {
             };
 
             if after_name.is_empty() {
-                return IonResult::incomplete("found field name but no value", after_name.offset());
+                return IonResult::incomplete("a struct field value", after_name.offset());
             }
 
             let (field, after_value) = match after_name.peek_delimited_struct_value()? {
                 (None, after) => {
                     if after.is_empty() {
-                        return IonResult::incomplete(
-                            "found field name but no value",
-                            after.offset(),
-                        );
+                        return IonResult::incomplete("a struct field value", after.offset());
                     }
                     buffer = after;
                     continue; // No value for this field, loop to try next field.
@@ -653,10 +650,7 @@ impl<'a> BinaryBuffer<'a> {
             };
 
         if total_length > input.len() {
-            return IonResult::incomplete(
-                "the stream ended unexpectedly in the middle of a value",
-                header_offset,
-            );
+            return IonResult::incomplete("a value", header_offset);
         }
 
         let encoded_value = EncodedValue {
@@ -748,7 +742,7 @@ impl<'a> BinaryBuffer<'a> {
                 let sequence_length = flex_uint.value() as usize;
                 if input_after_header.len() < sequence_length {
                     return IonResult::incomplete(
-                        "reading an annotations sequence",
+                        "an annotations sequence",
                         input_after_header.offset(),
                     );
                 }
@@ -835,7 +829,7 @@ impl<'a> BinaryBuffer<'a> {
                 let sequence_length = flex_uint.value() as usize;
                 if input_after_header.len() < sequence_length {
                     return IonResult::incomplete(
-                        "reading an annotations sequence",
+                        "an annotations sequence",
                         input_after_header.offset(),
                     );
                 }
@@ -875,7 +869,7 @@ impl<'a> BinaryBuffer<'a> {
             ),
             EExpressionWith12BitAddress => {
                 if self.len() < 2 {
-                    return IonResult::incomplete("parsing a 12-bit e-exp address", self.offset);
+                    return IonResult::incomplete("a 12-bit e-exp address", self.offset);
                 }
 
                 let bias = ((opcode.byte as usize & 0x0F) << 8) + 64;
@@ -885,7 +879,7 @@ impl<'a> BinaryBuffer<'a> {
             }
             EExpressionWith20BitAddress => {
                 if self.len() < 3 {
-                    return IonResult::incomplete("parsing a 20-bit e-exp address", self.offset);
+                    return IonResult::incomplete("a 20-bit e-exp address", self.offset);
                 }
                 let bias = ((opcode.byte as usize & 0x0F) << 16) + 4160;
                 let (fixed_uint, input_after_opcode) = self.consume(1).read_fixed_uint(2)?;
@@ -897,7 +891,7 @@ impl<'a> BinaryBuffer<'a> {
             SystemEExpression => {
                 // The next byte is the system macro address; make sure we have another byte available
                 if self.len() < 2 {
-                    return IonResult::incomplete("parsing a system macro address", self.offset);
+                    return IonResult::incomplete("a system macro address", self.offset);
                 }
                 let address = self.bytes()[1] as usize;
                 let system_macro_address = SystemMacroAddress::new(address).ok_or_else(|| {
@@ -913,6 +907,7 @@ impl<'a> BinaryBuffer<'a> {
             }
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
+
         self.read_eexp_with_id(input_after_address, macro_id)
     }
 
@@ -934,7 +929,7 @@ impl<'a> BinaryBuffer<'a> {
                 #[inline(never)]
                 || {
                     IonError::decoding_error(format!(
-                        "invocation of macro at unknown ID '{macro_id:?}'"
+                        "invocation of macro at unknown ID '{macro_id:?}', buffer: {self:?}"
                     ))
                 },
             )?
@@ -1012,6 +1007,9 @@ impl<'a> BinaryBuffer<'a> {
         let args_length = args_length_flex_uint.value() as usize;
 
         let total_length = header_length + args_length;
+        if self.len() < total_length {
+            return IonResult::incomplete("a length-prefixed e-expression", self.offset);
+        }
         let matched_bytes = self.slice(0, total_length);
         let macro_ref = self
             .context
@@ -1044,16 +1042,16 @@ impl<'a> BinaryBuffer<'a> {
     }
 
     fn read_eexp_bitmap(self, bitmap_size_in_bytes: usize) -> ParseResult<'a, u64> {
-        let bitmap_bytes = self.peek_n_bytes(bitmap_size_in_bytes).ok_or_else(|| {
-            IonError::incomplete("parsing an e-exp arg grouping bitmap", self.offset)
-        })?;
+        let bitmap_bytes = self
+            .peek_n_bytes(bitmap_size_in_bytes)
+            .ok_or_else(|| IonError::incomplete("an e-exp arg grouping bitmap", self.offset))?;
         if bitmap_size_in_bytes == 1 {
             return Ok((bitmap_bytes[0] as u64, self.consume(1)));
         }
         let mut buffer = [0u8; size_of::<u64>()];
-        let bitmap_bytes = self.peek_n_bytes(bitmap_size_in_bytes).ok_or_else(|| {
-            IonError::incomplete("parsing an e-exp arg grouping bitmap", self.offset)
-        })?;
+        let bitmap_bytes = self
+            .peek_n_bytes(bitmap_size_in_bytes)
+            .ok_or_else(|| IonError::incomplete("an e-exp arg grouping bitmap", self.offset))?;
         buffer[..bitmap_size_in_bytes].copy_from_slice(bitmap_bytes);
         let bitmap_u64 = u64::from_le_bytes(buffer);
         Ok((bitmap_u64, self.consume(bitmap_size_in_bytes)))

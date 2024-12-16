@@ -1113,7 +1113,16 @@ impl TemplateCompiler {
             Some(Err(e)) => return Err(e),
             Some(Ok(value)) => value,
         };
-        Self::resolve_macro_id_expr(tdl_context, value)
+        Self::expect_macro_id_expr(tdl_context, value)
+    }
+
+    fn expect_macro_id_expr<D: Decoder>(
+        tdl_context: TdlContext<'_>,
+        id_expr: LazyValue<'_, D>,
+    ) -> IonResult<Arc<Macro>> {
+        Self::resolve_macro_id_expr(tdl_context, id_expr)?.ok_or_else(|| {
+            IonError::decoding_error(format!("could not resolve macro id {:?}", id_expr))
+        })
     }
 
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
@@ -1121,7 +1130,7 @@ impl TemplateCompiler {
     fn resolve_macro_id_expr<D: Decoder>(
         tdl_context: TdlContext<'_>,
         id_expr: LazyValue<'_, D>,
-    ) -> IonResult<Arc<Macro>> {
+    ) -> IonResult<Option<Arc<Macro>>> {
         let macro_id = match id_expr.read()? {
             ValueRef::Symbol(s) => {
                 if let Some(name) = s.text() {
@@ -1144,27 +1153,20 @@ impl TemplateCompiler {
         };
 
         let mut annotations = id_expr.annotations();
-        if let Some(module_name) = annotations.next().transpose()? {
+        let maybe_macro = if let Some(module_name) = annotations.next().transpose()? {
             Self::resolve_qualified_macro_id(
                 tdl_context.context,
                 module_name.expect_text()?,
                 macro_id,
             )
-            .ok_or_else(|| {
-                IonError::decoding_error(format!(
-                    "macro '{module_name:?}::{macro_id}' has not been defined (yet?)"
-                ))
-            })
         } else {
             Self::resolve_unqualified_macro_id(
                 tdl_context.context,
                 tdl_context.pending_macros,
                 macro_id,
             )
-            .ok_or_else(|| {
-                IonError::decoding_error(format!("macro '{macro_id}' has not been defined (yet?)"))
-            })
-        }
+        };
+        Ok(maybe_macro)
     }
 
     /// Visits all of the arguments to a `(literal ...)` operation, adding them to the `TemplateBody`
@@ -1412,44 +1414,62 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
             }
         };
 
-        let operation_name = TemplateCompiler::expect_symbol_text("operation name", operation)?;
+        // In most cases, an expression in this position is a macro ID. Try to resolve it.
+        if let Some(macro_ref) = TemplateCompiler::resolve_macro_id_expr(tdl_context, operation)? {
+            return Ok(TdlSExpKind::MacroInvocation(macro_ref, expressions));
+        }
 
+        // If look-up fails to resolve to a macro, it might be a special form.
+        Self::expect_special_form(tdl_context, operation, expressions)
+    }
+
+    fn expect_special_form(
+        tdl_context: TdlContext<'_>,
+        operation: LazyValue<'top, D>,
+        expressions: SExpIterator<'top, D>,
+    ) -> IonResult<TdlSExpKind<'top, D>> {
         // TDL-only operations that are not in the system macro table.
         static SPECIAL_FORM_NAMES: phf::Set<&'static str> =
             phf_set!("literal", "if_none", "if_some", "if_single", "if_multi");
 
+        let ValueRef::Symbol(operation_name_symbol) = operation.read()? else {
+            return IonResult::decoding_error(format!("could not resolve macro ID {operation:?}"));
+        };
+        let operation_name = operation_name_symbol
+            .text()
+            .ok_or_else(|| IonError::decoding_error("found operation name with no text"))?;
+
         let is_special_form = SPECIAL_FORM_NAMES.contains(operation_name)
             // If it's qualified to the system namespace, it's a special form.
             && (operation.annotations().are(["$ion"])?
-                // Otherwise, if it has no annotations...
-                || (!first_expr.has_annotations()
-                    // ...and has not been shadowed by a user-defined macro name, it's a special form.
-                    && tdl_context.pending_macros.macro_with_name(operation_name).is_none()
-                    && tdl_context.context.macro_table.macro_with_name(operation_name).is_none()));
+            // Otherwise, if it has no annotations...
+            || (!operation.has_annotations()
+            // ...and has not been shadowed by a user-defined macro name, it's a special form.
+            && tdl_context.pending_macros.macro_with_name(operation_name).is_none()
+            && tdl_context.context.macro_table.macro_with_name(operation_name).is_none()));
 
-        if is_special_form {
-            let special_form_macro: &Arc<Macro> = match operation_name {
-                // The 'literal' operation exists only at compile time...
-                "literal" => return Ok(TdlSExpKind::Literal(expressions)),
-                // ...while the cardinality tests are implemented as different flavors of
-                // the `ConditionalExpansion` macro.
-                "if_none" => &IF_NONE_MACRO,
-                "if_some" => &IF_SOME_MACRO,
-                "if_single" => &IF_SINGLE_MACRO,
-                "if_multi" => &IF_MULTI_MACRO,
-                other => unreachable!("unknown name '{}' found in special forms set", other),
-            };
-
-            return Ok(TdlSExpKind::MacroInvocation(
-                Arc::clone(special_form_macro),
-                expressions,
+        if !is_special_form {
+            return IonResult::decoding_error(format!(
+                "could not resolve macro ID {operation_name:?}"
             ));
         }
 
-        // At this point, we know the sexp must be a normal macro invocation.
-        // Resolve the macro name or address to the macro it represents.
-        let macro_ref = TemplateCompiler::resolve_macro_id_expr(tdl_context, operation)?;
-        Ok(TdlSExpKind::MacroInvocation(macro_ref, expressions))
+        let special_form_macro: &Arc<Macro> = match operation_name {
+            // The 'literal' operation exists only at compile time...
+            "literal" => return Ok(TdlSExpKind::Literal(expressions)),
+            // ...while the cardinality tests are implemented as different flavors of
+            // the `ConditionalExpansion` macro.
+            "if_none" => &IF_NONE_MACRO,
+            "if_some" => &IF_SOME_MACRO,
+            "if_single" => &IF_SINGLE_MACRO,
+            "if_multi" => &IF_MULTI_MACRO,
+            other => unreachable!("unknown name '{}' found in special forms set", other),
+        };
+
+        Ok(TdlSExpKind::MacroInvocation(
+            Arc::clone(special_form_macro),
+            expressions,
+        ))
     }
 }
 
