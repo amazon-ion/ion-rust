@@ -248,16 +248,6 @@ impl MacroTable {
             macro_ref
         };
 
-        // `make_sexp` and `make_list` depend on `flatten`, which happens to be defined later in the
-        // table. We define it in advance so it will already be in the context when `make_sexp` and
-        // `make_list` are defined.
-        let flatten_macro_definition = builtin(
-            "flatten",
-            "(sequences*)",
-            MacroKind::Flatten,
-            ExpansionAnalysis::application_value_stream(),
-        );
-
         // Macro definitions in the system table are encoded in **Ion 1.0** because it does not
         // require the Ion 1.1 system macros to exist.
         vec![
@@ -278,7 +268,12 @@ impl MacroTable {
                 MacroKind::ToDo,
                 ExpansionAnalysis::no_assertions_made(),
             ),
-            flatten_macro_definition,
+            builtin(
+                "flatten",
+                "(sequences*)",
+                MacroKind::Flatten,
+                ExpansionAnalysis::application_value_stream(),
+            ),
             builtin(
                 "delta",
                 "(deltas*)",
