@@ -1098,33 +1098,6 @@ impl TemplateCompiler {
         Ok(())
     }
 
-    fn resolve_maybe_macro_id_expr<D: Decoder>(
-        tdl_context: TdlContext<'_>,
-        id_expr: Option<IonResult<LazyValue<'_, D>>>,
-    ) -> IonResult<Arc<Macro>> {
-        // Get the name or address from the `Option<IonResult<LazyValue<_>>>` if possible, or
-        // surface an appropriate error message.
-        let value = match id_expr {
-            None => {
-                return IonResult::decoding_error(
-                    "found an empty s-expression in an unquoted context",
-                )
-            }
-            Some(Err(e)) => return Err(e),
-            Some(Ok(value)) => value,
-        };
-        Self::expect_macro_id_expr(tdl_context, value)
-    }
-
-    fn expect_macro_id_expr<D: Decoder>(
-        tdl_context: TdlContext<'_>,
-        id_expr: LazyValue<'_, D>,
-    ) -> IonResult<Arc<Macro>> {
-        Self::resolve_macro_id_expr(tdl_context, id_expr)?.ok_or_else(|| {
-            IonError::decoding_error(format!("could not resolve macro id {:?}", id_expr))
-        })
-    }
-
     /// Given a `LazyValue` that represents a macro ID (name or address), attempts to resolve the
     /// ID to a macro reference.
     fn resolve_macro_id_expr<D: Decoder>(
