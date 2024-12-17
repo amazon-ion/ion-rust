@@ -114,7 +114,7 @@ where
 #[derive(Copy, Clone)]
 pub struct MacroExpr<'top, D: Decoder> {
     kind: MacroExprKind<'top, D>,
-    variable: Option<TemplateVariableReference<'top>>,
+    pub(crate) variable: Option<TemplateVariableReference<'top>>,
 }
 
 impl<D: Decoder> Debug for MacroExpr<'_, D> {
@@ -137,8 +137,8 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         }
     }
 
-    pub fn via_variable(mut self, variable_ref: TemplateVariableReference<'top>) -> Self {
-        self.variable = Some(variable_ref);
+    pub fn via_variable(mut self, variable_ref: Option<TemplateVariableReference<'top>>) -> Self {
+        self.variable = variable_ref;
         self
     }
 
@@ -149,6 +149,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
             MacroExprKind::EExp(e) => e.expand(),
             MacroExprKind::EExpArgGroup(g) => g.expand(),
         }
+        .map(|expansion| expansion.via_variable(self.variable))
     }
 }
 
@@ -389,6 +390,19 @@ impl<D: Decoder> Debug for ValueExpr<'_, D> {
 }
 
 impl<'top, D: Decoder> ValueExpr<'top, D> {
+    pub fn via_variable(
+        self,
+        template_variable_ref: Option<TemplateVariableReference<'top>>,
+    ) -> Self {
+        use ValueExpr::*;
+        match self {
+            ValueLiteral(value) => ValueLiteral(value.via_variable(template_variable_ref)),
+            MacroInvocation(invocation) => {
+                MacroInvocation(invocation.via_variable(template_variable_ref))
+            }
+        }
+    }
+
     /// Like [`evaluate_singleton_in`](Self::evaluate_singleton_in), but uses an empty environment.
     pub fn evaluate_singleton(&self) -> IonResult<LazyExpandedValue<'top, D>> {
         self.evaluate_singleton_in(Environment::empty())
@@ -522,9 +536,15 @@ pub struct MacroExpansion<'top, D: Decoder> {
     kind: MacroExpansionKind<'top, D>,
     environment: Environment<'top, D>,
     is_complete: bool,
+    variable_ref: Option<TemplateVariableReference<'top>>,
 }
 
 impl<'top, D: Decoder> MacroExpansion<'top, D> {
+    pub fn via_variable(mut self, variable_ref: Option<TemplateVariableReference<'top>>) -> Self {
+        self.variable_ref = variable_ref;
+        self
+    }
+
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
@@ -565,6 +585,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             kind,
             context,
             is_complete: false,
+            variable_ref: None,
         }
     }
 
@@ -591,6 +612,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
+        .map(|expansion| expansion.via_variable(self.variable_ref))
     }
 }
 
@@ -634,6 +656,15 @@ impl<'top, D: Decoder> MacroExpansionStep<'top, D> {
 
     pub fn is_final(&self) -> bool {
         matches!(self, MacroExpansionStep::FinalStep(_))
+    }
+
+    pub fn via_variable(mut self, variable_ref: Option<TemplateVariableReference<'top>>) -> Self {
+        use MacroExpansionStep::*;
+        match &mut self {
+            Step(expr) => Step(expr.via_variable(variable_ref)),
+            FinalStep(Some(expr)) => FinalStep(Some(expr.via_variable(variable_ref))),
+            FinalStep(None) => FinalStep(None),
+        }
     }
 }
 

@@ -887,8 +887,11 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
-    pub(crate) fn via_variable(mut self, variable_ref: TemplateVariableReference<'top>) -> Self {
-        self.variable = Some(variable_ref);
+    pub(crate) fn via_variable(
+        mut self,
+        variable_ref: Option<TemplateVariableReference<'top>>,
+    ) -> Self {
+        self.variable = variable_ref;
         self
     }
 

@@ -703,14 +703,11 @@ impl TemplateBodyExpr {
                 ))
             }
             TemplateBodyExprKind::Variable(variable_ref) => {
-                let mut expr = environment.require_expr(variable_ref.signature_index());
+                let expr = environment.require_expr(variable_ref.signature_index());
+                let template_variable_ref = variable_ref.resolve(host_template.macro_ref());
                 // If this is a value (and therefore needs no further evaluation), tag it as having
                 // come from this variable in the template body.
-                if let ValueExpr::ValueLiteral(ref mut value) = expr {
-                    *value =
-                        value.via_variable(variable_ref.resolve(host_template.macro_ref()))
-                }
-                expr
+                expr.via_variable(Some(template_variable_ref))
             }
             TemplateBodyExprKind::ExprGroup(parameter) => {
                 let template_arg_group = TemplateExprGroup::new(
