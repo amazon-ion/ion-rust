@@ -752,7 +752,7 @@ mod tooling {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::{v1_1, Int, MacroExprKind, Reader, ValueRef};
+        use crate::{v1_1, Element, MacroExprKind, Reader};
 
         #[test]
         fn field_kinds() -> IonResult<()> {
@@ -780,7 +780,7 @@ mod tooling {
             fn expect_name_value<'top, D: Decoder>(
                 fields: &mut impl Iterator<Item = IonResult<FieldSource<'top, D>>>,
                 expected_name: &str,
-                expected_value: impl Into<Int>,
+                expected_value: impl Into<Element>,
             ) -> IonResult<()> {
                 let field = fields.next().unwrap()?;
                 let expected_value = expected_value.into();
@@ -789,7 +789,7 @@ mod tooling {
                         field,
                         FieldSource::NameValue(name, value)
                             if name.read()?.text() == Some(expected_name)
-                            && value.read_resolved()? == ValueRef::Int(expected_value)
+                            && Element::try_from(value.read_resolved()?)? == expected_value,
                     ),
                     "{field:?} did not match name={expected_name:?}, value={expected_value:?}"
                 );
@@ -813,6 +813,8 @@ mod tooling {
             expect_name_value(fields, "dog", 1)?;
             expect_name_value(fields, "cat", 2)?;
             expect_name_value(fields, "mouse", 3)?;
+            expect_name_value(fields, "quux", true)?;
+            assert!(fields.next().is_none());
             Ok(())
         }
     }

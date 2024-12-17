@@ -459,6 +459,34 @@ impl<'top, D: Decoder> TemplateSequenceIterator<'top, D> {
             index: 0,
         }
     }
+
+    /// Returns one of:
+    /// * The next value literal from the stream (when the evaluator is empty)
+    /// * The next value produced by continuing the evaluation of a macro in progress (when the evaluator is not empty)
+    /// * The next macro invocation from the stream (when the evaluator is empty)
+    /// * `None` when the stream and evaluator are both exhausted
+    pub fn next_value_expr(&mut self) -> Option<IonResult<ValueExpr<'top, D>>> {
+        // If the evaluator's stack is not empty, give it the opportunity to yield a value.
+        if let Some(value) = try_or_some_err!(self.evaluator.next()) {
+            return Some(Ok(ValueExpr::ValueLiteral(value)));
+        }
+        // The stack did not produce values and is empty, pull the next expression from `self.value_expressions`
+        // and start expanding it.
+        let current_expr = self.value_expressions.get(self.index)?;
+        let environment = self.evaluator.environment();
+        self.index += current_expr.num_expressions();
+
+        let value_expr = current_expr.to_value_expr(self.context, environment, self.template);
+
+        // If it's a macro invocation...
+        if let ValueExpr::MacroInvocation(invocation) = value_expr {
+            // ...push it onto the evaluator's stack so it begins expanding on the next call.
+            let new_expansion = try_or_some_err!(invocation.expand());
+            self.evaluator.push(new_expansion);
+        }
+
+        Some(Ok(value_expr))
+    }
 }
 
 impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
