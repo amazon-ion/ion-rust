@@ -4,6 +4,7 @@ use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpr, MacroExprArgsIterator, ValueExpr,
 };
+use crate::lazy::expanded::r#struct::tooling::FieldSourceIterator;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     TemplateElement, TemplateMacroRef, TemplateStructFieldSourceIterator, TemplateStructIndex,
@@ -49,7 +50,7 @@ impl<'top, D: Decoder> LazyExpandedField<'top, D> {
         self.name
     }
 
-    pub fn unexpanded(&self) -> FieldSource<'top, D> {
+    pub fn to_field_source(&self) -> FieldSource<'top, D> {
         FieldSource::NameValue(self.name(), self.value())
     }
 }
@@ -242,6 +243,15 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         }
     }
 
+    #[cfg(feature = "experimental-tooling-apis")]
+    fn field_source_iter(&self) -> FieldSourceIterator<'top, D> {
+        // The field source iterator has the same data as the regular iterator, it just uses it differently.
+        // Since the regular iterator's initialization process is non-trivial, we'll just make a regular iterator
+        // and use it for parts.
+        let ExpandedStructIterator { source, state } = self.iter();
+        FieldSourceIterator { source, state }
+    }
+
     fn environment(&self) -> Environment<'top, D> {
         self.source.environment()
     }
@@ -349,7 +359,7 @@ impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
             }
             ExpandedStructIteratorSource::MakeField(maybe_field) => {
                 let field = maybe_field.take()?;
-                Some(Ok(field.unexpanded()))
+                Some(Ok(field.to_field_source()))
             }
             ExpandedStructIteratorSource::MakeStruct(
                 evaluator,
@@ -361,7 +371,7 @@ impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
                     if let Some(current_struct) = maybe_current_struct {
                         match current_struct.next() {
                             // If we get a field, we're done.
-                            Some(Ok(field)) => return Some(Ok(field.unexpanded())),
+                            Some(Ok(field)) => return Some(Ok(field.to_field_source())),
                             Some(Err(e)) => return Some(Err(e)),
                             // If we get `None`, the iterator is exhausted and we should continue on to the next struct.
                             None => **maybe_current_struct = None,
@@ -505,7 +515,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                             //     {a: 1, (:make_struct b 2 c 3), d: 4}
                             // expands to:
                             //     {a: 1, b: 2, c: 3, d: 4}
-                            try_or_some_err!(Self::begin_inlining_struct_from_macro(
+                            try_or_some_err!(begin_inlining_struct_from_macro(
                                 state,
                                 source.evaluator(),
                                 invocation,
@@ -580,34 +590,230 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         // is needed to get our next field.
         None
     }
+}
 
-    /// Pulls the next value from the evaluator, confirms that it's a struct, and then switches
-    /// the iterator state to `InliningAStruct` so it can begin merging its fields.
-    fn begin_inlining_struct_from_macro<'a, 'name: 'top>(
-        state: &mut ExpandedStructIteratorState<'top, D>,
-        evaluator: &mut MacroEvaluator<'top, D>,
-        invocation: MacroExpr<'top, D>,
-    ) -> IonResult<()> {
-        let expansion = invocation.expand()?;
-        evaluator.push(expansion);
-        let expanded_value = match evaluator.next()? {
-            Some(item) => item,
-            None => {
-                // The macro produced an empty stream; return to reading from input.
-                return Ok(());
+/// Pulls the next value from the evaluator, confirms that it's a struct, and then switches
+/// the iterator state to `InliningAStruct` so it can begin merging its fields.
+fn begin_inlining_struct_from_macro<'top, D: Decoder>(
+    state: &mut ExpandedStructIteratorState<'top, D>,
+    evaluator: &mut MacroEvaluator<'top, D>,
+    invocation: MacroExpr<'top, D>,
+) -> IonResult<()> {
+    let expansion = invocation.expand()?;
+    evaluator.push(expansion);
+    let Some(struct_) = next_struct_from_macro(evaluator)? else {
+        // If the invocation didn't produce anything, don't bother switching states.
+        return Ok(());
+    };
+    // Otherwise, save the resulting struct's iterator and remember that we're inlining it.
+    let iter: &'top mut ExpandedStructIterator<'top, D> = struct_.bump_iter();
+    *state = ExpandedStructIteratorState::InliningAStruct(iter);
+    Ok(())
+}
+
+fn next_struct_from_macro<'top, D: Decoder>(
+    evaluator: &mut MacroEvaluator<'top, D>,
+) -> IonResult<Option<LazyExpandedStruct<'top, D>>> {
+    let Some(expanded_value) = evaluator.next()? else {
+        // The macro produced an empty stream; return to reading from input.
+        return Ok(None);
+    };
+    let value_ref = expanded_value.read()?;
+    let ExpandedValueRef::Struct(struct_) = value_ref else {
+        return IonResult::decoding_error(format!(
+            "macros in field name position must produce structs; found: {:?}",
+            value_ref
+        ));
+    };
+    Ok(Some(struct_))
+}
+
+#[cfg(feature = "experimental-tooling-apis")]
+mod tooling {
+    use super::*;
+
+    /// Like the [`ExpandedStructIterator`], but also yields the expressions that back the fields.
+    ///
+    /// Given this Ion stream:
+    /// ```ion
+    /// {
+    ///   bar: (:values 1 2 3),
+    /// }
+    /// ```
+    /// An `ExpandedStructIterator` would yield a `LazyExpandedField` representing each
+    /// of the name/values pairs in the expansion: `(bar, 1)`, `(bar, 2)`, and `(bar, 3)`.
+    ///
+    /// In contrast, the `FieldSourceIterator` would yield a `FieldSource` for the name/macro
+    /// field expression (`NameMacro("foo", MacroExpr)`) followed by a `FieldSource` for each of
+    /// the fields in the expansion `NameValue(bar, 1)`, `NameValue(bar, 2)`, and `NameValue(bar, 3)`.
+    pub struct FieldSourceIterator<'top, D: Decoder> {
+        // Each variant of 'source' below holds its own encoding context reference
+        pub(crate) source: ExpandedStructIteratorSource<'top, D>,
+        // Stores information about any operations that are still in progress.
+        pub(crate) state: ExpandedStructIteratorState<'top, D>,
+    }
+
+    impl<'top, D: Decoder> Iterator for FieldSourceIterator<'top, D> {
+        type Item = IonResult<FieldSource<'top, D>>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let Self {
+                ref mut source,
+                ref mut state,
+            } = *self;
+
+            loop {
+                use ExpandedStructIteratorState::*;
+                match state {
+                    // This is the initial state. We're reading a field expression from our source
+                    // iterator.
+                    ReadingFieldFromSource => {
+                        use FieldSource::*;
+                        let field = try_or_some_err!(source.next_field()?);
+                        match field {
+                            // It's a regular field, no special handling required.
+                            NameValue(..) => {}
+                            // It's a name/macro pair. We'll push the macro on the stack and record
+                            // the field name so we can emit it with each value this macro eventually
+                            // produces.
+                            NameMacro(name, invocation) => {
+                                let expansion = try_or_some_err!(invocation.expand());
+                                source.evaluator().push(expansion);
+                                *state = ExpandingValueExpr(name);
+                            }
+                            // It's a macro in field name position. Start evaluating the macro until
+                            // we get our first struct, then save that struct's iterator.
+                            Macro(invocation) => {
+                                try_or_some_err!(begin_inlining_struct_from_macro(
+                                    state,
+                                    source.evaluator(),
+                                    invocation
+                                ));
+                            }
+                        };
+                        return Some(Ok(field));
+                    }
+                    // The iterator previously encountered a macro in field-name position. That macro
+                    // yielded a struct, and now we're merging that expanded struct's fields into our
+                    // own one at a time.
+                    InliningAStruct(struct_iter) => {
+                        if let Some(inlined_field) =
+                            try_or_some_err!(struct_iter.next().transpose())
+                        {
+                            // We pulled another field from the struct we're inlining.
+                            return Some(Ok(inlined_field.to_field_source()));
+                        } else {
+                            // We're done inlining this struct. Try to get another one.
+                            match try_or_some_err!(next_struct_from_macro(source.evaluator())) {
+                                Some(struct_) => {
+                                    // If there is one, save its iterator and continue on.
+                                    let iter: &'top mut ExpandedStructIterator<'top, D> =
+                                        struct_.bump_iter();
+                                    *state = InliningAStruct(iter);
+                                }
+                                None => {
+                                    // If there isn't another one, switch back to reading from the source.
+                                    *state = ReadingFieldFromSource;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    // The iterator previously encountered a (name, macro) pair. We're evaluating the
+                    // macro in field value position, emitting (name, value) pairs for each value
+                    // in the expansion, one at a time.
+                    ExpandingValueExpr(field_name) => {
+                        // Get the next expression from our source's macro evaluator.
+                        let evaluator = source.evaluator();
+                        match try_or_some_err!(evaluator.next()) {
+                            Some(next_value) => {
+                                let field_name = *field_name;
+                                if evaluator.is_empty() {
+                                    // The evaluator is empty, so we should return to reading from
+                                    // source.
+                                    *state = ReadingFieldFromSource;
+                                }
+                                // We got another value from the macro we're evaluating. Emit
+                                // it as another field using the same field_name.
+                                return Some(Ok(FieldSource::NameValue(field_name, next_value)));
+                            }
+                            None => {
+                                // The macro in the value position is no longer emitting values. Switch
+                                // back to reading from the source.
+                                *state = ReadingFieldFromSource;
+                            }
+                        }
+                    }
+                }
             }
-        };
-        let struct_ = match expanded_value.read()? {
-            ExpandedValueRef::Struct(s) => s,
-            other => {
-                return IonResult::decoding_error(format!(
-                    "macros in field name position must produce structs; '{:?}' produced: {:?}",
-                    invocation, other
-                ))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::{v1_1, Int, MacroExprKind, Reader, ValueRef};
+
+        #[test]
+        fn field_kinds() -> IonResult<()> {
+            let source = r#"
+                $ion_1_1
+                (:add_macros
+                    (macro three_values ()
+                        (.values 1 2 3)
+                    )
+                    (macro three_structs ()
+                        (.values {dog: 1} {cat: 2} {mouse: 3})
+                    )
+                )
+                {
+                    foo: 0,
+                    bar: (:three_values),
+                    (:three_structs),
+                    quux: true,
+                }
+            "#;
+            let mut reader = Reader::new(v1_1::Text, source)?;
+            let struct_ = reader.expect_next()?.read()?.expect_struct()?;
+            let fields = &mut struct_.expanded_struct.field_source_iter();
+
+            fn expect_name_value<'top, D: Decoder>(
+                fields: &mut impl Iterator<Item = IonResult<FieldSource<'top, D>>>,
+                expected_name: &str,
+                expected_value: impl Into<Int>,
+            ) -> IonResult<()> {
+                let field = fields.next().unwrap()?;
+                let expected_value = expected_value.into();
+                assert!(
+                    matches!(
+                        field,
+                        FieldSource::NameValue(name, value)
+                            if name.read()?.text() == Some(expected_name)
+                            && value.read_resolved()? == ValueRef::Int(expected_value)
+                    ),
+                    "{field:?} did not match name={expected_name:?}, value={expected_value:?}"
+                );
+                Ok(())
             }
-        };
-        let iter: &'top mut ExpandedStructIterator<'top, D> = struct_.bump_iter();
-        *state = ExpandedStructIteratorState::InliningAStruct(iter);
-        Ok(())
+
+            expect_name_value(fields, "foo", 0)?;
+            assert!(matches!(
+                fields.next().unwrap()?,
+                FieldSource::NameMacro(name, invocation)
+                    if name.read()?.text() == Some("bar") && matches!(invocation.kind(), MacroExprKind::EExp(eexp) if eexp.invoked_macro.name() == Some("three_values"))
+            ));
+            expect_name_value(fields, "bar", 1)?;
+            expect_name_value(fields, "bar", 2)?;
+            expect_name_value(fields, "bar", 3)?;
+            assert!(matches!(
+                fields.next().unwrap()?,
+                FieldSource::Macro(invocation)
+                    if matches!(invocation.kind(), MacroExprKind::EExp(eexp) if eexp.invoked_macro.name() == Some("three_structs"))
+            ));
+            expect_name_value(fields, "dog", 1)?;
+            expect_name_value(fields, "cat", 2)?;
+            expect_name_value(fields, "mouse", 3)?;
+            Ok(())
+        }
     }
 }
