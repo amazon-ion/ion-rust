@@ -1,12 +1,12 @@
 use crate::element::iterators::SymbolsIterator;
-use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructUnexpandedFieldsIterator};
+use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructFieldSourceIterator};
 use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, MacroExpansion, MacroExpr, MacroExprArgsIterator, ValueExpr,
+    MacroEvaluator, MacroExpr, MacroExprArgsIterator, ValueExpr,
 };
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    TemplateElement, TemplateMacroRef, TemplateStructIndex, TemplateStructUnexpandedFieldsIterator,
+    TemplateElement, TemplateMacroRef, TemplateStructFieldSourceIterator, TemplateStructIndex,
 };
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
@@ -18,11 +18,11 @@ use crate::{try_next, try_or_some_err, IonResult, RawSymbolRef, SymbolRef};
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
 // LazyRawStruct implementations have a `unexpanded_fields` method that lifts its raw fields into
-// `UnexpandedField` instances. Similarly, the `TemplateStructUnexpandedFieldsIterator` turns a
-// template's struct body into `UnexpandedField` instances. The `ExpandedStructIterator` unpacks
+// `FieldSource` instances. Similarly, the `TemplateStructFieldSourceIterator` turns a
+// template's struct body into `FieldSource` instances. The `ExpandedStructIterator` unpacks
 // and expands the field as part of its iteration process.
 #[derive(Debug, Clone, Copy)]
-pub enum UnexpandedField<'top, D: Decoder> {
+pub enum FieldSource<'top, D: Decoder> {
     NameValue(LazyExpandedFieldName<'top, D>, LazyExpandedValue<'top, D>),
     NameMacro(LazyExpandedFieldName<'top, D>, MacroExpr<'top, D>),
     Macro(MacroExpr<'top, D>),
@@ -49,8 +49,8 @@ impl<'top, D: Decoder> LazyExpandedField<'top, D> {
         self.name
     }
 
-    pub fn unexpanded(&self) -> UnexpandedField<'top, D> {
-        UnexpandedField::NameValue(self.name(), self.value())
+    pub fn unexpanded(&self) -> FieldSource<'top, D> {
+        FieldSource::NameValue(self.name(), self.value())
     }
 }
 
@@ -214,7 +214,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                 let template = element.template();
                 ExpandedStructIteratorSource::Template(
                     evaluator,
-                    TemplateStructUnexpandedFieldsIterator::new(
+                    TemplateStructFieldSourceIterator::new(
                         self.context,
                         *environment,
                         template,
@@ -318,13 +318,13 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
         // Giving the struct iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
         &'top mut MacroEvaluator<'top, D>,
-        RawStructUnexpandedFieldsIterator<'top, D>,
+        RawStructFieldSourceIterator<'top, D>,
     ),
     // The struct we're iterating over is a value in a TDL template. It may contain macro
     // invocations that need to be evaluated.
     Template(
         &'top mut MacroEvaluator<'top, D>,
-        TemplateStructUnexpandedFieldsIterator<'top, D>,
+        TemplateStructFieldSourceIterator<'top, D>,
     ),
     MakeField(Option<LazyExpandedField<'top, D>>),
     MakeStruct(
@@ -338,7 +338,7 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
-    fn next_field(&mut self) -> Option<IonResult<UnexpandedField<'top, D>>> {
+    fn next_field(&mut self) -> Option<IonResult<FieldSource<'top, D>>> {
         // Get the next unexpanded field from our source's iterator.
         match self {
             ExpandedStructIteratorSource::Template(_, template_iterator) => {
@@ -480,10 +480,10 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         loop {
             use ExpandedStructIteratorState::*;
             match state {
-                // This is the initial state. We're reading a raw field expression from our source
+                // This is the initial state. We're reading a field expression from our source
                 // iterator.
                 ReadingFieldFromSource => {
-                    use UnexpandedField::*;
+                    use FieldSource::*;
                     match try_or_some_err!(source.next_field()?) {
                         NameValue(name, value) => {
                             return Some(Ok(LazyExpandedField::new(name, value)))
@@ -563,7 +563,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         field_name: LazyExpandedFieldName<'top, D>,
         invocation: MacroExpr<'top, D>,
     ) -> Option<IonResult<LazyExpandedField<'top, D>>> {
-        let expansion = try_or_some_err!(MacroExpansion::initialize(invocation));
+        let expansion = try_or_some_err!(invocation.expand());
         // If the macro is guaranteed to expand to exactly one value, we can evaluate it
         // in place.
         if invocation
@@ -588,7 +588,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
         evaluator: &mut MacroEvaluator<'top, D>,
         invocation: MacroExpr<'top, D>,
     ) -> IonResult<()> {
-        let expansion = MacroExpansion::initialize(invocation)?;
+        let expansion = invocation.expand()?;
         evaluator.push(expansion);
         let expanded_value = match evaluator.next()? {
             Some(item) => item,
