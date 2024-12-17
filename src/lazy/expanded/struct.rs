@@ -1,13 +1,13 @@
 use crate::element::iterators::SymbolsIterator;
-use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructFieldSourceIterator};
+use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructFieldExprIterator};
 use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpr, MacroExprArgsIterator, ValueExpr,
 };
-use crate::lazy::expanded::r#struct::tooling::FieldSourceIterator;
+use crate::lazy::expanded::r#struct::tooling::FieldExprIterator;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
-    TemplateElement, TemplateMacroRef, TemplateStructFieldSourceIterator, TemplateStructIndex,
+    TemplateElement, TemplateMacroRef, TemplateStructFieldExprIterator, TemplateStructIndex,
 };
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, ExpandedValueRef,
@@ -19,11 +19,11 @@ use crate::{try_next, try_or_some_err, IonResult, RawSymbolRef, SymbolRef};
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
 // LazyRawStruct implementations have a `unexpanded_fields` method that lifts its raw fields into
-// `FieldSource` instances. Similarly, the `TemplateStructFieldSourceIterator` turns a
-// template's struct body into `FieldSource` instances. The `ExpandedStructIterator` unpacks
+// `FieldExpr` instances. Similarly, the `TemplateStructFieldExprIterator` turns a
+// template's struct body into `FieldExpr` instances. The `ExpandedStructIterator` unpacks
 // and expands the field as part of its iteration process.
 #[derive(Debug, Clone, Copy)]
-pub enum FieldSource<'top, D: Decoder> {
+pub enum FieldExpr<'top, D: Decoder> {
     NameValue(LazyExpandedFieldName<'top, D>, LazyExpandedValue<'top, D>),
     NameMacro(LazyExpandedFieldName<'top, D>, MacroExpr<'top, D>),
     Macro(MacroExpr<'top, D>),
@@ -50,8 +50,8 @@ impl<'top, D: Decoder> LazyExpandedField<'top, D> {
         self.name
     }
 
-    pub fn to_field_source(&self) -> FieldSource<'top, D> {
-        FieldSource::NameValue(self.name(), self.value())
+    pub fn to_field_source(&self) -> FieldExpr<'top, D> {
+        FieldExpr::NameValue(self.name(), self.value())
     }
 }
 
@@ -208,14 +208,14 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         let source = match &self.source {
             ValueLiteral(raw_struct) => ExpandedStructIteratorSource::ValueLiteral(
                 evaluator,
-                raw_struct.unexpanded_fields(self.context),
+                raw_struct.field_exprs(self.context),
             ),
             Template(environment, element, _index) => {
                 evaluator.set_root_environment(*environment);
                 let template = element.template();
                 ExpandedStructIteratorSource::Template(
                     evaluator,
-                    TemplateStructFieldSourceIterator::new(
+                    TemplateStructFieldExprIterator::new(
                         self.context,
                         *environment,
                         template,
@@ -244,12 +244,12 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
-    fn field_source_iter(&self) -> FieldSourceIterator<'top, D> {
+    fn field_source_iter(&self) -> FieldExprIterator<'top, D> {
         // The field source iterator has the same data as the regular iterator, it just uses it differently.
         // Since the regular iterator's initialization process is non-trivial, we'll just make a regular iterator
         // and use it for parts.
         let ExpandedStructIterator { source, state } = self.iter();
-        FieldSourceIterator { source, state }
+        FieldExprIterator { source, state }
     }
 
     fn environment(&self) -> Environment<'top, D> {
@@ -328,13 +328,13 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
         // Giving the struct iterator its own evaluator means that we can abandon the iterator
         // at any time without impacting the evaluation state of its parent container.
         &'top mut MacroEvaluator<'top, D>,
-        RawStructFieldSourceIterator<'top, D>,
+        RawStructFieldExprIterator<'top, D>,
     ),
     // The struct we're iterating over is a value in a TDL template. It may contain macro
     // invocations that need to be evaluated.
     Template(
         &'top mut MacroEvaluator<'top, D>,
-        TemplateStructFieldSourceIterator<'top, D>,
+        TemplateStructFieldExprIterator<'top, D>,
     ),
     MakeField(Option<LazyExpandedField<'top, D>>),
     MakeStruct(
@@ -348,7 +348,7 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
-    fn next_field(&mut self) -> Option<IonResult<FieldSource<'top, D>>> {
+    fn next_field(&mut self) -> Option<IonResult<FieldExpr<'top, D>>> {
         // Get the next unexpanded field from our source's iterator.
         match self {
             ExpandedStructIteratorSource::Template(_, template_iterator) => {
@@ -493,7 +493,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                 // This is the initial state. We're reading a field expression from our source
                 // iterator.
                 ReadingFieldFromSource => {
-                    use FieldSource::*;
+                    use FieldExpr::*;
                     match try_or_some_err!(source.next_field()?) {
                         NameValue(name, value) => {
                             return Some(Ok(LazyExpandedField::new(name, value)))
@@ -643,18 +643,18 @@ mod tooling {
     /// An `ExpandedStructIterator` would yield a `LazyExpandedField` representing each
     /// of the name/values pairs in the expansion: `(bar, 1)`, `(bar, 2)`, and `(bar, 3)`.
     ///
-    /// In contrast, the `FieldSourceIterator` would yield a `FieldSource` for the name/macro
-    /// field expression (`NameMacro("foo", MacroExpr)`) followed by a `FieldSource` for each of
+    /// In contrast, the `FieldExprIterator` would yield a `FieldExpr` for the name/macro
+    /// field expression (`NameMacro("foo", MacroExpr)`) followed by a `FieldExpr` for each of
     /// the fields in the expansion `NameValue(bar, 1)`, `NameValue(bar, 2)`, and `NameValue(bar, 3)`.
-    pub struct FieldSourceIterator<'top, D: Decoder> {
+    pub struct FieldExprIterator<'top, D: Decoder> {
         // Each variant of 'source' below holds its own encoding context reference
         pub(crate) source: ExpandedStructIteratorSource<'top, D>,
         // Stores information about any operations that are still in progress.
         pub(crate) state: ExpandedStructIteratorState<'top, D>,
     }
 
-    impl<'top, D: Decoder> Iterator for FieldSourceIterator<'top, D> {
-        type Item = IonResult<FieldSource<'top, D>>;
+    impl<'top, D: Decoder> Iterator for FieldExprIterator<'top, D> {
+        type Item = IonResult<FieldExpr<'top, D>>;
 
         fn next(&mut self) -> Option<Self::Item> {
             let Self {
@@ -668,7 +668,7 @@ mod tooling {
                     // This is the initial state. We're reading a field expression from our source
                     // iterator.
                     ReadingFieldFromSource => {
-                        use FieldSource::*;
+                        use FieldExpr::*;
                         let field = try_or_some_err!(source.next_field()?);
                         match field {
                             // It's a regular field, no special handling required.
@@ -735,7 +735,7 @@ mod tooling {
                                 }
                                 // We got another value from the macro we're evaluating. Emit
                                 // it as another field using the same field_name.
-                                return Some(Ok(FieldSource::NameValue(field_name, next_value)));
+                                return Some(Ok(FieldExpr::NameValue(field_name, next_value)));
                             }
                             None => {
                                 // The macro in the value position is no longer emitting values. Switch
@@ -778,7 +778,7 @@ mod tooling {
             let fields = &mut struct_.expanded_struct.field_source_iter();
 
             fn expect_name_value<'top, D: Decoder>(
-                fields: &mut impl Iterator<Item = IonResult<FieldSource<'top, D>>>,
+                fields: &mut impl Iterator<Item = IonResult<FieldExpr<'top, D>>>,
                 expected_name: &str,
                 expected_value: impl Into<Element>,
             ) -> IonResult<()> {
@@ -787,7 +787,7 @@ mod tooling {
                 assert!(
                     matches!(
                         field,
-                        FieldSource::NameValue(name, value)
+                        FieldExpr::NameValue(name, value)
                             if name.read()?.text() == Some(expected_name)
                             && Element::try_from(value.read_resolved()?)? == expected_value,
                     ),
@@ -799,7 +799,7 @@ mod tooling {
             expect_name_value(fields, "foo", 0)?;
             assert!(matches!(
                 fields.next().unwrap()?,
-                FieldSource::NameMacro(name, invocation)
+                FieldExpr::NameMacro(name, invocation)
                     if name.read()?.text() == Some("bar") && matches!(invocation.kind(), MacroExprKind::EExp(eexp) if eexp.invoked_macro.name() == Some("three_values"))
             ));
             expect_name_value(fields, "bar", 1)?;
@@ -807,7 +807,7 @@ mod tooling {
             expect_name_value(fields, "bar", 3)?;
             assert!(matches!(
                 fields.next().unwrap()?,
-                FieldSource::Macro(invocation)
+                FieldExpr::Macro(invocation)
                     if matches!(invocation.kind(), MacroExprKind::EExp(eexp) if eexp.invoked_macro.name() == Some("three_structs"))
             ));
             expect_name_value(fields, "dog", 1)?;

@@ -10,7 +10,7 @@ use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, TemplateExpansion, ValueExpr, ExprGroupExpansion, MakeTextExpansion, FlattenExpansion, ConditionalExpansion, MakeStructExpansion, MakeFieldExpansion};
 use crate::lazy::expanded::macro_table::{Macro, MacroKind};
-use crate::lazy::expanded::r#struct::FieldSource;
+use crate::lazy::expanded::r#struct::FieldExpr;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
     EncodingContextRef,  LazyExpandedValue, TemplateVariableReference,
@@ -527,10 +527,10 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
     }
 }
 
-/// An iterator that pulls expressions from a template body and wraps them in a [`FieldSource`] to
+/// An iterator that pulls expressions from a template body and wraps them in a [`FieldExpr`] to
 /// mimic reading them from input. The [`LazyExpandedStruct`](crate::lazy::expanded::struct::LazyExpandedStruct) handles
 /// evaluating any macro invocations that this yields.
-pub struct TemplateStructFieldSourceIterator<'top, D: Decoder> {
+pub struct TemplateStructFieldExprIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     environment: Environment<'top, D>,
     template: TemplateMacroRef<'top>,
@@ -538,13 +538,13 @@ pub struct TemplateStructFieldSourceIterator<'top, D: Decoder> {
     index: usize,
 }
 
-impl<'top, D: Decoder> TemplateStructFieldSourceIterator<'top, D> {
+impl<'top, D: Decoder> TemplateStructFieldExprIterator<'top, D> {
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
 }
 
-impl<'top, D: Decoder> TemplateStructFieldSourceIterator<'top, D> {
+impl<'top, D: Decoder> TemplateStructFieldExprIterator<'top, D> {
     pub fn new(
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
@@ -561,8 +561,8 @@ impl<'top, D: Decoder> TemplateStructFieldSourceIterator<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Iterator for TemplateStructFieldSourceIterator<'top, D> {
-    type Item = IonResult<FieldSource<'top, D>>;
+impl<'top, D: Decoder> Iterator for TemplateStructFieldExprIterator<'top, D> {
+    type Item = IonResult<FieldExpr<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let name_expr_address = self.index;
@@ -585,11 +585,11 @@ impl<'top, D: Decoder> Iterator for TemplateStructFieldSourceIterator<'top, D> {
         let field_name = LazyExpandedFieldName::TemplateName(self.template, name);
         let value_expr = field_value_tdl_expr.to_value_expr(self.context, self.environment, self.template);
         let unexpanded_field = match value_expr {
-            ValueExpr::ValueLiteral(lazy_expanded_value) => FieldSource::NameValue(
+            ValueExpr::ValueLiteral(lazy_expanded_value) => FieldExpr::NameValue(
                 field_name,
                 lazy_expanded_value
             ),
-            ValueExpr::MacroInvocation(invocation) => FieldSource::NameMacro(
+            ValueExpr::MacroInvocation(invocation) => FieldExpr::NameMacro(
                 field_name,
                 invocation,
             ),

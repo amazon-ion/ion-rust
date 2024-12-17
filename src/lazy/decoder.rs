@@ -382,7 +382,7 @@ impl<D: Decoder> HasRange for LazyRawFieldExpr<'_, D> {
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
     use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
-    use crate::lazy::expanded::r#struct::FieldSource;
+    use crate::lazy::expanded::r#struct::FieldExpr;
     use crate::lazy::expanded::EncodingContextRef;
     use crate::{try_next, try_or_some_err, IonResult, LazyExpandedValue, LazyRawFieldName};
 
@@ -398,41 +398,41 @@ pub(crate) mod private {
         /// Creates an iterator that converts each raw struct field into an `UnexpandedField`, a
         /// common representation for both raw fields and template fields that is used in the
         /// expansion process.
-        fn unexpanded_fields(
+        fn field_exprs(
             &self,
             context: EncodingContextRef<'top>,
-        ) -> RawStructFieldSourceIterator<'top, D>;
+        ) -> RawStructFieldExprIterator<'top, D>;
     }
 
-    pub struct RawStructFieldSourceIterator<'top, D: Decoder> {
+    pub struct RawStructFieldExprIterator<'top, D: Decoder> {
         context: EncodingContextRef<'top>,
         raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
     }
 
-    impl<'top, D: Decoder> RawStructFieldSourceIterator<'top, D> {
+    impl<'top, D: Decoder> RawStructFieldExprIterator<'top, D> {
         pub fn context(&self) -> EncodingContextRef<'top> {
             self.context
         }
     }
 
-    impl<'top, D: Decoder> Iterator for RawStructFieldSourceIterator<'top, D> {
-        type Item = IonResult<FieldSource<'top, D>>;
+    impl<'top, D: Decoder> Iterator for RawStructFieldExprIterator<'top, D> {
+        type Item = IonResult<FieldExpr<'top, D>>;
 
         fn next(&mut self) -> Option<Self::Item> {
             let field: LazyRawFieldExpr<'top, D> = try_next!(self.raw_fields.next());
             use LazyRawFieldExpr::*;
             let unexpanded_field = match field {
-                NameValue(name, value) => FieldSource::NameValue(
+                NameValue(name, value) => FieldExpr::NameValue(
                     name.resolve(self.context),
                     LazyExpandedValue::from_literal(self.context, value),
                 ),
                 NameEExp(name, raw_eexp) => {
                     let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
-                    FieldSource::NameMacro(name.resolve(self.context), MacroExpr::from_eexp(eexp))
+                    FieldExpr::NameMacro(name.resolve(self.context), MacroExpr::from_eexp(eexp))
                 }
                 EExp(raw_eexp) => {
                     let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
-                    FieldSource::Macro(MacroExpr::from_eexp(eexp))
+                    FieldExpr::Macro(MacroExpr::from_eexp(eexp))
                 }
             };
             Some(Ok(unexpanded_field))
@@ -443,12 +443,12 @@ pub(crate) mod private {
     where
         S: LazyRawStruct<'top, D>,
     {
-        fn unexpanded_fields(
+        fn field_exprs(
             &self,
             context: EncodingContextRef<'top>,
-        ) -> RawStructFieldSourceIterator<'top, D> {
+        ) -> RawStructFieldExprIterator<'top, D> {
             let raw_fields = <Self as LazyRawStruct<'top, D>>::iter(self);
-            RawStructFieldSourceIterator {
+            RawStructFieldExprIterator {
                 context,
                 raw_fields,
             }
