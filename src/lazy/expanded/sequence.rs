@@ -4,7 +4,6 @@ use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression, Val
 use crate::lazy::expanded::template::{TemplateElement, TemplateSequenceIterator};
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, LazyExpandedValue,
-    TemplateVariableReference,
 };
 use crate::{try_or_some_err, IonResult, IonType};
 use std::fmt::Debug;
@@ -457,6 +456,7 @@ impl<'top, D: Decoder> Iterator for ExpandedSequenceIterator<'top, D> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "experimental-tooling-apis")]
 mod tests {
     use super::*;
     use crate::{v1_1, ExpandedValueRef, Int, MacroExprKind, Reader};
