@@ -236,7 +236,6 @@ impl<'top, D: Decoder> Iterator for ListValueExprIterator<'top, D> {
 pub struct SExpValueExprIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     source: ExpandedSExpIteratorSource<'top, D>,
-    variable_ref: Option<TemplateVariableReference<'top>>,
 }
 
 impl<'top, D: Decoder> Iterator for SExpValueExprIterator<'top, D> {
@@ -270,7 +269,6 @@ pub enum ExpandedSExpSource<'top, D: Decoder> {
 pub struct LazyExpandedSExp<'top, D: Decoder> {
     pub(crate) source: ExpandedSExpSource<'top, D>,
     pub(crate) context: EncodingContextRef<'top>,
-    pub(crate) variable_ref: Option<TemplateVariableReference<'top>>,
 }
 
 impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
@@ -321,11 +319,7 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn value_exprs(&self) -> SExpValueExprIterator<'top, D> {
         let ExpandedSExpIterator { context, source } = self.iter();
-        SExpValueExprIterator {
-            context,
-            source,
-            variable_ref: self.variable_ref,
-        }
+        SExpValueExprIterator { context, source }
     }
 
     pub fn from_literal(
@@ -333,11 +327,7 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
         sexp: D::SExp<'top>,
     ) -> LazyExpandedSExp<'top, D> {
         let source = ExpandedSExpSource::ValueLiteral(sexp);
-        Self {
-            source,
-            context,
-            variable_ref: None,
-        }
+        Self { source, context }
     }
 
     pub fn from_template(
@@ -346,11 +336,7 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
         element: TemplateElement<'top>,
     ) -> LazyExpandedSExp<'top, D> {
         let source = ExpandedSExpSource::Template(environment, element);
-        Self {
-            source,
-            context,
-            variable_ref: None,
-        }
+        Self { source, context }
     }
 }
 
