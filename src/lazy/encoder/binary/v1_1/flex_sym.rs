@@ -95,7 +95,7 @@ impl<'top> FlexSym<'top> {
             Ordering::Equal => {
                 // Get the first byte following the leading FlexInt
                 let flex_int_len = value.size_in_bytes();
-                if input.len() < flex_int_len {
+                if input.len() <= flex_int_len {
                     return IonResult::incomplete("reading a FlexSym", offset);
                 }
                 let byte = input[flex_int_len];

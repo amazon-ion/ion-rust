@@ -115,6 +115,10 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
         self.is_null()
     }
 
+    fn is_delimited(&self) -> bool {
+        false
+    }
+
     fn has_annotations(&self) -> bool {
         self.has_annotations()
     }
@@ -220,6 +224,19 @@ pub trait EncodedBinaryValue<'top, D: Decoder>: LazyRawValue<'top, D> {
         let body_length = self.body_length();
         let body_bytes = &value_span.bytes()[value_span.len() - body_length..];
         Span::with_offset(value_span.range().end - body_length, body_bytes)
+    }
+
+    fn delimited_end_span(&self) -> Span<'top> {
+        let bytes = self.span().bytes();
+        let end = bytes.len();
+        let range = if !self.is_delimited() {
+            end..end
+        } else {
+            debug_assert!(bytes[end - 1] == 0xF0);
+            end - 1..end
+        };
+        let end_bytes = bytes.get(range).unwrap();
+        Span::with_offset(self.range().end - end_bytes.len(), end_bytes)
     }
 }
 

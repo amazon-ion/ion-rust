@@ -114,7 +114,7 @@ where
 #[derive(Copy, Clone)]
 pub struct MacroExpr<'top, D: Decoder> {
     kind: MacroExprKind<'top, D>,
-    variable: Option<TemplateVariableReference<'top>>,
+    pub(crate) variable: Option<TemplateVariableReference<'top>>,
 }
 
 impl<D: Decoder> Debug for MacroExpr<'_, D> {
@@ -137,8 +137,8 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         }
     }
 
-    pub fn via_variable(mut self, variable_ref: TemplateVariableReference<'top>) -> Self {
-        self.variable = Some(variable_ref);
+    pub fn via_variable(mut self, variable_ref: Option<TemplateVariableReference<'top>>) -> Self {
+        self.variable = variable_ref;
         self
     }
 
@@ -149,6 +149,30 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
             MacroExprKind::EExp(e) => e.expand(),
             MacroExprKind::EExpArgGroup(g) => g.expand(),
         }
+        .map(|expansion| expansion.via_variable(self.variable))
+    }
+
+    pub fn range(&self) -> Option<Range<usize>> {
+        self.span().as_ref().map(Span::range)
+    }
+
+    /// If this `ValueExpr` represents an entity encoded in the data stream, returns `Some(range)`.
+    /// If it represents an ephemeral value produced by a macro evaluation, returns `None`.
+    pub fn span(&self) -> Option<Span<'top>> {
+        use MacroExprKind::*;
+        match self.kind {
+            TemplateMacro(_) | TemplateArgGroup(_) => None,
+            EExp(eexp) => Some(eexp.span()),
+            EExpArgGroup(group) => Some(group.span()),
+        }
+    }
+
+    pub fn is_eexp(&self) -> bool {
+        matches!(self.kind, MacroExprKind::EExp(_))
+    }
+
+    pub fn is_tdl_macro(&self) -> bool {
+        matches!(self.kind, MacroExprKind::TemplateMacro(_))
     }
 }
 
@@ -389,6 +413,19 @@ impl<D: Decoder> Debug for ValueExpr<'_, D> {
 }
 
 impl<'top, D: Decoder> ValueExpr<'top, D> {
+    pub fn via_variable(
+        self,
+        template_variable_ref: Option<TemplateVariableReference<'top>>,
+    ) -> Self {
+        use ValueExpr::*;
+        match self {
+            ValueLiteral(value) => ValueLiteral(value.via_variable(template_variable_ref)),
+            MacroInvocation(invocation) => {
+                MacroInvocation(invocation.via_variable(template_variable_ref))
+            }
+        }
+    }
+
     /// Like [`evaluate_singleton_in`](Self::evaluate_singleton_in), but uses an empty environment.
     pub fn evaluate_singleton(&self) -> IonResult<LazyExpandedValue<'top, D>> {
         self.evaluate_singleton_in(Environment::empty())
@@ -475,7 +512,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
             ValueExpr::ValueLiteral(value) => {
                 use ExpandedValueSource::*;
                 match value.source {
-                    SingletonEExp(_) => todo!(),
+                    SingletonEExp(eexp) => Some(eexp.span()),
                     ValueLiteral(literal) => Some(literal.span()),
                     Template(_, _) | Constructed(_, _) => None,
                 }
@@ -522,9 +559,15 @@ pub struct MacroExpansion<'top, D: Decoder> {
     kind: MacroExpansionKind<'top, D>,
     environment: Environment<'top, D>,
     is_complete: bool,
+    variable_ref: Option<TemplateVariableReference<'top>>,
 }
 
 impl<'top, D: Decoder> MacroExpansion<'top, D> {
+    pub fn via_variable(mut self, variable_ref: Option<TemplateVariableReference<'top>>) -> Self {
+        self.variable_ref = variable_ref;
+        self
+    }
+
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
@@ -565,6 +608,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             kind,
             context,
             is_complete: false,
+            variable_ref: None,
         }
     }
 
@@ -591,6 +635,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
+        .map(|expansion| expansion.via_variable(self.variable_ref))
     }
 }
 
@@ -634,6 +679,15 @@ impl<'top, D: Decoder> MacroExpansionStep<'top, D> {
 
     pub fn is_final(&self) -> bool {
         matches!(self, MacroExpansionStep::FinalStep(_))
+    }
+
+    pub fn via_variable(mut self, variable_ref: Option<TemplateVariableReference<'top>>) -> Self {
+        use MacroExpansionStep::*;
+        match &mut self {
+            Step(expr) => Step(expr.via_variable(variable_ref)),
+            FinalStep(Some(expr)) => FinalStep(Some(expr.via_variable(variable_ref))),
+            FinalStep(None) => FinalStep(None),
+        }
     }
 }
 
@@ -768,7 +822,7 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
     }
 
     pub fn for_macro_expr(macro_expr: MacroExpr<'top, D>) -> IonResult<Self> {
-        let expansion = MacroExpansion::initialize(macro_expr)?;
+        let expansion = macro_expr.expand()?;
         Ok(Self::for_expansion(expansion))
     }
 
@@ -889,7 +943,7 @@ impl<'top, D: Decoder> StackedMacroEvaluator<'top, D> {
     /// current encoding context and push the resulting `MacroExpansion` onto the stack.
     pub fn push(&mut self, invocation: impl Into<MacroExpr<'top, D>>) -> IonResult<()> {
         let macro_expr = invocation.into();
-        let expansion = match MacroExpansion::initialize(macro_expr) {
+        let expansion = match macro_expr.expand() {
             Ok(expansion) => expansion,
             Err(e) => return Err(e),
         };

@@ -167,6 +167,12 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
             source,
         }
     }
+
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn value_exprs(&self) -> ListValueExprIterator<'top, D> {
+        let ExpandedListIterator { context, source } = self.iter();
+        ListValueExprIterator { context, source }
+    }
 }
 
 /// The source of child values iterated over by an [`ExpandedListIterator`].
@@ -179,7 +185,6 @@ pub enum ExpandedListIteratorSource<'top, D: Decoder> {
         <D::List<'top> as LazyRawSequence<'top, D>>::Iterator,
     ),
     Template(TemplateSequenceIterator<'top, D>),
-    // TODO: Constructed
 }
 
 /// Iterates over the child values of a [`LazyExpandedList`].
@@ -198,6 +203,50 @@ impl<'top, D: Decoder> Iterator for ExpandedListIterator<'top, D> {
                 expand_next_sequence_value(self.context, evaluator, iter)
             }
             ExpandedListIteratorSource::Template(iter) => iter.next(),
+        }
+    }
+}
+
+/// Like an [`ExpandedListIterator`], but will yield macro invocations before also yielding
+/// that macro's expansion.
+#[derive(Debug)]
+pub struct ListValueExprIterator<'top, D: Decoder> {
+    context: EncodingContextRef<'top>,
+    source: ExpandedListIteratorSource<'top, D>,
+}
+
+impl<'top, D: Decoder> Iterator for ListValueExprIterator<'top, D> {
+    type Item = IonResult<ValueExpr<'top, D>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use ExpandedListIteratorSource::*;
+        match &mut self.source {
+            ValueLiteral(evaluator, iter) => {
+                expand_next_sequence_value_expr(self.context, evaluator, iter)
+            }
+            Template(iter) => iter.next_value_expr(),
+        }
+    }
+}
+
+/// Like an [`ExpandedSExpIterator`], but will yield macro invocations before also yielding
+/// that macro's expansion.
+#[derive(Debug)]
+pub struct SExpValueExprIterator<'top, D: Decoder> {
+    context: EncodingContextRef<'top>,
+    source: ExpandedSExpIteratorSource<'top, D>,
+}
+
+impl<'top, D: Decoder> Iterator for SExpValueExprIterator<'top, D> {
+    type Item = IonResult<ValueExpr<'top, D>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use ExpandedSExpIteratorSource::*;
+        match &mut self.source {
+            ValueLiteral(evaluator, iter) => {
+                expand_next_sequence_value_expr(self.context, evaluator, iter)
+            }
+            Template(iter) => iter.next_value_expr(),
         }
     }
 }
@@ -266,6 +315,12 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
         }
     }
 
+    #[cfg(feature = "experimental-tooling-apis")]
+    pub fn value_exprs(&self) -> SExpValueExprIterator<'top, D> {
+        let ExpandedSExpIterator { context, source } = self.iter();
+        SExpValueExprIterator { context, source }
+    }
+
     pub fn from_literal(
         context: EncodingContextRef<'top>,
         sexp: D::SExp<'top>,
@@ -317,6 +372,26 @@ impl<'top, D: Decoder> Iterator for ExpandedSExpIterator<'top, D> {
             Template(iter) => iter.next(),
         }
     }
+}
+
+fn expand_next_sequence_value_expr<'top, D: Decoder>(
+    context: EncodingContextRef<'top>,
+    evaluator: &mut MacroEvaluator<'top, D>,
+    iter: &mut impl Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>,
+) -> Option<IonResult<ValueExpr<'top, D>>> {
+    if let Some(value) = try_or_some_err!(evaluator.next()) {
+        return Some(Ok(ValueExpr::ValueLiteral(value)));
+    }
+
+    // At this point, the evaluator is empty.
+
+    let value_expr = try_or_some_err!(iter.next()?.and_then(|raw_expr| raw_expr.resolve(context)));
+
+    if let ValueExpr::MacroInvocation(invocation) = value_expr {
+        evaluator.push(try_or_some_err!(invocation.expand()));
+    }
+
+    Some(Ok(value_expr))
 }
 
 /// For both lists and s-expressions, yields the next sequence value by either continuing a macro
@@ -377,5 +452,95 @@ impl<'top, D: Decoder> Iterator for ExpandedSequenceIterator<'top, D> {
             List(l) => l.next(),
             SExp(s) => s.next(),
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "experimental-tooling-apis")]
+mod tests {
+    use super::*;
+    use crate::{v1_1, ExpandedValueRef, Int, MacroExprKind, Reader};
+
+    fn expect_int<'top, D: Decoder>(
+        value_exprs: &mut impl Iterator<Item = IonResult<ValueExpr<'top, D>>>,
+        expected_value: impl Into<Int>,
+    ) -> IonResult<()> {
+        assert!(matches!(
+            value_exprs.next().unwrap()?,
+            ValueExpr::ValueLiteral(v) if v.read()? == ExpandedValueRef::Int(expected_value.into())
+        ));
+        Ok(())
+    }
+
+    fn expect_eexp<'top, D: Decoder>(
+        value_exprs: &mut impl Iterator<Item = IonResult<ValueExpr<'top, D>>>,
+        expected_macro_name: &str,
+    ) -> IonResult<()> {
+        assert!(matches!(
+            value_exprs.next().unwrap()?,
+            ValueExpr::MacroInvocation(i) if matches!(
+                i.kind(),
+                MacroExprKind::EExp(e) if e.invoked_macro.name() == Some(expected_macro_name)
+            )
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn list_iter_value_expr() -> IonResult<()> {
+        let source = r#"
+                $ion_1_1
+                (:add_macros
+                    (macro three_values ()
+                        (.values 1 2 3)
+                    )
+                )
+                [0, (:three_values), 4, (:flatten (5 6)), 7]
+            "#;
+        let mut reader = Reader::new(v1_1::Text, source)?;
+        let list = reader.expect_next()?.read()?.expect_list()?;
+        let value_exprs = &mut list.expanded_list.value_exprs();
+
+        expect_int(value_exprs, 0)?;
+        expect_eexp(value_exprs, "three_values")?;
+        expect_int(value_exprs, 1)?;
+        expect_int(value_exprs, 2)?;
+        expect_int(value_exprs, 3)?;
+        expect_int(value_exprs, 4)?;
+        expect_eexp(value_exprs, "flatten")?;
+        expect_int(value_exprs, 5)?;
+        expect_int(value_exprs, 6)?;
+        expect_int(value_exprs, 7)?;
+        assert!(value_exprs.next().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn sexp_iter_value_expr() -> IonResult<()> {
+        let source = r#"
+                $ion_1_1
+                (:add_macros
+                    (macro three_values ()
+                        (.values 1 2 3)
+                    )
+                )
+                (0 (:three_values) 4 (:flatten (5 6)) 7)
+            "#;
+        let mut reader = Reader::new(v1_1::Text, source)?;
+        let sexp = reader.expect_next()?.read()?.expect_sexp()?;
+        let value_exprs = &mut sexp.expanded_sexp.value_exprs();
+
+        expect_int(value_exprs, 0)?;
+        expect_eexp(value_exprs, "three_values")?;
+        expect_int(value_exprs, 1)?;
+        expect_int(value_exprs, 2)?;
+        expect_int(value_exprs, 3)?;
+        expect_int(value_exprs, 4)?;
+        expect_eexp(value_exprs, "flatten")?;
+        expect_int(value_exprs, 5)?;
+        expect_int(value_exprs, 6)?;
+        expect_int(value_exprs, 7)?;
+        assert!(value_exprs.next().is_none());
+        Ok(())
     }
 }

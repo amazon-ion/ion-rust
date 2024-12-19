@@ -46,9 +46,7 @@ use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
-use crate::lazy::expanded::macro_evaluator::{
-    MacroEvaluator, MacroExpansion, MacroExpr, RawEExpression,
-};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
 use crate::lazy::expanded::macro_table::{Macro, MacroTable, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
@@ -887,8 +885,11 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
-    pub(crate) fn via_variable(mut self, variable_ref: TemplateVariableReference<'top>) -> Self {
-        self.variable = Some(variable_ref);
+    pub(crate) fn via_variable(
+        mut self,
+        variable_ref: Option<TemplateVariableReference<'top>>,
+    ) -> Self {
+        self.variable = variable_ref;
         self
     }
 
@@ -978,7 +979,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         &self,
         eexp: &EExpression<'top, Encoding>,
     ) -> IonResult<ValueRef<'top, Encoding>> {
-        let new_expansion = MacroExpansion::initialize(MacroExpr::from_eexp(*eexp))?;
+        let new_expansion = MacroExpr::from_eexp(*eexp).expand()?;
         new_expansion.expand_singleton()?.read_resolved()
     }
 

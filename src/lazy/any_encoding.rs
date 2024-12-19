@@ -65,6 +65,7 @@ use crate::lazy::text::value::{
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
 use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0, SYSTEM_SYMBOLS_1_1};
+use crate::LazyRawValueKind::{Binary_1_0, Binary_1_1, Text_1_0, Text_1_1};
 use crate::{try_next, Encoding, IonResult, IonType, RawStreamItem, RawSymbolRef};
 
 /// An implementation of the `LazyDecoder` trait that can read any encoding of Ion.
@@ -1044,6 +1045,15 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             Binary_1_0(v) => v.is_null(),
             Text_1_1(v) => v.is_null(),
             Binary_1_1(v) => v.is_null(),
+        }
+    }
+
+    fn is_delimited(&self) -> bool {
+        match &self.encoding {
+            Text_1_0(v) => v.is_delimited(),
+            Binary_1_0(v) => v.is_delimited(),
+            Text_1_1(v) => v.is_delimited(),
+            Binary_1_1(v) => v.is_delimited(),
         }
     }
 
