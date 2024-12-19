@@ -151,6 +151,29 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         }
         .map(|expansion| expansion.via_variable(self.variable))
     }
+
+    pub fn range(&self) -> Option<Range<usize>> {
+        self.span().as_ref().map(Span::range)
+    }
+
+    /// If this `ValueExpr` represents an entity encoded in the data stream, returns `Some(range)`.
+    /// If it represents an ephemeral value produced by a macro evaluation, returns `None`.
+    pub fn span(&self) -> Option<Span<'top>> {
+        use MacroExprKind::*;
+        match self.kind {
+            TemplateMacro(_) | TemplateArgGroup(_) => None,
+            EExp(eexp) => Some(eexp.span()),
+            EExpArgGroup(group) => Some(group.span()),
+        }
+    }
+
+    pub fn is_eexp(&self) -> bool {
+        matches!(self.kind, MacroExprKind::EExp(_))
+    }
+
+    pub fn is_tdl_macro(&self) -> bool {
+        matches!(self.kind, MacroExprKind::TemplateMacro(_))
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -489,7 +512,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
             ValueExpr::ValueLiteral(value) => {
                 use ExpandedValueSource::*;
                 match value.source {
-                    SingletonEExp(_) => todo!(),
+                    SingletonEExp(eexp) => Some(eexp.span()),
                     ValueLiteral(literal) => Some(literal.span()),
                     Template(_, _) | Constructed(_, _) => None,
                 }

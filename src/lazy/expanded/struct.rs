@@ -14,7 +14,8 @@ use crate::lazy::expanded::{
     LazyExpandedValue,
 };
 use crate::result::IonFailure;
-use crate::{try_next, try_or_some_err, IonResult, RawSymbolRef, SymbolRef};
+use crate::{try_next, try_or_some_err, EExpression, HasRange, IonResult, RawSymbolRef, SymbolRef};
+use std::ops::Range;
 
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
@@ -26,7 +27,48 @@ use crate::{try_next, try_or_some_err, IonResult, RawSymbolRef, SymbolRef};
 pub enum FieldExpr<'top, D: Decoder> {
     NameValue(LazyExpandedFieldName<'top, D>, LazyExpandedValue<'top, D>),
     NameMacro(LazyExpandedFieldName<'top, D>, MacroExpr<'top, D>),
-    Macro(MacroExpr<'top, D>),
+    EExp(EExpression<'top, D>),
+}
+
+impl<'top, D: Decoder> FieldExpr<'top, D> {
+    pub fn name(&self) -> Option<&LazyExpandedFieldName<'top, D>> {
+        use FieldExpr::*;
+        let name = match self {
+            NameValue(name, _) | NameMacro(name, _) => name,
+            EExp(_) => return None,
+        };
+        Some(name)
+    }
+
+    pub fn name_is(&self, text: &str) -> IonResult<bool> {
+        let Some(field_name) = self.name() else {
+            return Ok(false);
+        };
+        Ok(field_name.read()?.text() == Some(text))
+    }
+
+    pub fn range(&self) -> Option<Range<usize>> {
+        use FieldExpr::*;
+        let range = match self {
+            NameValue(name, value) => name.range()?.start..value.range()?.end,
+            NameMacro(name, invocation) => name.range()?.start..invocation.range()?.end,
+            EExp(invocation) => invocation.range(),
+        };
+        Some(range)
+    }
+
+    pub fn expect_expanded(self) -> IonResult<LazyExpandedField<'top, D>> {
+        use FieldExpr::*;
+        match self {
+            NameValue(name, value) => Ok(LazyExpandedField::new(name, value)),
+            NameMacro(..) => IonResult::decoding_error(
+                "expected an expanded field, found an unexpanded (name, macro) field expr",
+            ),
+            EExp(..) => IonResult::decoding_error(
+                "expected an expanded field, found an unexpanded e-expression field expr",
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,7 +92,7 @@ impl<'top, D: Decoder> LazyExpandedField<'top, D> {
         self.name
     }
 
-    pub fn to_field_source(&self) -> FieldExpr<'top, D> {
+    pub fn to_field_expr(&self) -> FieldExpr<'top, D> {
         FieldExpr::NameValue(self.name(), self.value())
     }
 }
@@ -87,7 +129,12 @@ pub enum LazyExpandedFieldName<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> LazyExpandedFieldName<'top, D> {
-    pub(crate) fn read(&self) -> IonResult<SymbolRef<'top>> {
+    pub fn is_ephemeral(&self) -> bool {
+        // If it isn't backed by a field name literal, it's ephemeral.
+        !matches!(self, LazyExpandedFieldName::RawName(..))
+    }
+
+    pub fn read(&self) -> IonResult<SymbolRef<'top>> {
         match self {
             LazyExpandedFieldName::RawName(context, name) => {
                 name.read()?.resolve("a field name", *context)
@@ -97,11 +144,26 @@ impl<'top, D: Decoder> LazyExpandedFieldName<'top, D> {
         }
     }
 
+    pub fn raw(&self) -> Option<&D::FieldName<'top>> {
+        let LazyExpandedFieldName::RawName(_, raw_name) = self else {
+            return None;
+        };
+        Some(raw_name)
+    }
+
     pub(crate) fn read_raw(&self) -> IonResult<RawSymbolRef<'top>> {
         match self {
             LazyExpandedFieldName::RawName(_, name) => name.read(),
             LazyExpandedFieldName::TemplateName(_, name) => Ok((*name).into()),
             LazyExpandedFieldName::MakeField(name) => Ok((*name).into()),
+        }
+    }
+
+    pub fn range(&self) -> Option<Range<usize>> {
+        use LazyExpandedFieldName::*;
+        match self {
+            RawName(_context, name) => Some(name.range()),
+            TemplateName(..) | MakeField(..) => None,
         }
     }
 }
@@ -244,12 +306,12 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
-    fn field_source_iter(&self) -> FieldExprIterator<'top, D> {
+    pub fn field_exprs(&self) -> FieldExprIterator<'top, D> {
         // The field source iterator has the same data as the regular iterator, it just uses it differently.
         // Since the regular iterator's initialization process is non-trivial, we'll just make a regular iterator
         // and use it for parts.
         let ExpandedStructIterator { source, state } = self.iter();
-        FieldExprIterator { source, state }
+        FieldExprIterator::new(source, state)
     }
 
     fn environment(&self) -> Environment<'top, D> {
@@ -359,7 +421,7 @@ impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
             }
             ExpandedStructIteratorSource::MakeField(maybe_field) => {
                 let field = maybe_field.take()?;
-                Some(Ok(field.to_field_source()))
+                Some(Ok(field.to_field_expr()))
             }
             ExpandedStructIteratorSource::MakeStruct(
                 evaluator,
@@ -371,7 +433,7 @@ impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
                     if let Some(current_struct) = maybe_current_struct {
                         match current_struct.next() {
                             // If we get a field, we're done.
-                            Some(Ok(field)) => return Some(Ok(field.to_field_source())),
+                            Some(Ok(field)) => return Some(Ok(field.to_field_expr())),
                             Some(Err(e)) => return Some(Err(e)),
                             // If we get `None`, the iterator is exhausted and we should continue on to the next struct.
                             None => **maybe_current_struct = None,
@@ -437,7 +499,7 @@ pub struct ExpandedStructIterator<'top, D: Decoder> {
 
 /// Ion 1.1's struct is very versatile, and supports a variety of expansion operations. This
 /// types indicates which operation is in the process of being carried out.
-enum ExpandedStructIteratorState<'top, D: Decoder> {
+pub(crate) enum ExpandedStructIteratorState<'top, D: Decoder> {
     // The iterator is not performing any operations. It is ready to pull the next field from its
     // source.
     ReadingFieldFromSource,
@@ -509,7 +571,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                                 None => continue,
                             }
                         }
-                        Macro(invocation) => {
+                        EExp(eexp) => {
                             // The next expression from the iterator was a macro. We expect it to expand to a
                             // single struct whose fields will be merged into the one we're iterating over. For example:
                             //     {a: 1, (:make_struct b 2 c 3), d: 4}
@@ -518,7 +580,7 @@ impl<'top, D: Decoder> ExpandedStructIterator<'top, D> {
                             try_or_some_err!(begin_inlining_struct_from_macro(
                                 state,
                                 source.evaluator(),
-                                invocation,
+                                eexp.into(),
                             ))
                         }
                     };
@@ -648,9 +710,18 @@ mod tooling {
     /// the fields in the expansion `NameValue(bar, 1)`, `NameValue(bar, 2)`, and `NameValue(bar, 3)`.
     pub struct FieldExprIterator<'top, D: Decoder> {
         // Each variant of 'source' below holds its own encoding context reference
-        pub(crate) source: ExpandedStructIteratorSource<'top, D>,
+        source: ExpandedStructIteratorSource<'top, D>,
         // Stores information about any operations that are still in progress.
-        pub(crate) state: ExpandedStructIteratorState<'top, D>,
+        state: ExpandedStructIteratorState<'top, D>,
+    }
+
+    impl<'top, D: Decoder> FieldExprIterator<'top, D> {
+        pub(crate) fn new(
+            source: ExpandedStructIteratorSource<'top, D>,
+            state: ExpandedStructIteratorState<'top, D>,
+        ) -> Self {
+            Self { source, state }
+        }
     }
 
     impl<'top, D: Decoder> Iterator for FieldExprIterator<'top, D> {
@@ -683,11 +754,11 @@ mod tooling {
                             }
                             // It's a macro in field name position. Start evaluating the macro until
                             // we get our first struct, then save that struct's iterator.
-                            Macro(invocation) => {
+                            EExp(invocation) => {
                                 try_or_some_err!(begin_inlining_struct_from_macro(
                                     state,
                                     source.evaluator(),
-                                    invocation
+                                    invocation.into()
                                 ));
                             }
                         };
@@ -701,7 +772,7 @@ mod tooling {
                             try_or_some_err!(struct_iter.next().transpose())
                         {
                             // We pulled another field from the struct we're inlining.
-                            return Some(Ok(inlined_field.to_field_source()));
+                            return Some(Ok(inlined_field.to_field_expr()));
                         } else {
                             // We're done inlining this struct. Try to get another one.
                             match try_or_some_err!(next_struct_from_macro(source.evaluator())) {
@@ -775,7 +846,7 @@ mod tooling {
             "#;
             let mut reader = Reader::new(v1_1::Text, source)?;
             let struct_ = reader.expect_next()?.read()?.expect_struct()?;
-            let fields = &mut struct_.expanded_struct.field_source_iter();
+            let fields = &mut struct_.expanded_struct.field_exprs();
 
             fn expect_name_value<'top, D: Decoder>(
                 fields: &mut impl Iterator<Item = IonResult<FieldExpr<'top, D>>>,
@@ -807,9 +878,8 @@ mod tooling {
             expect_name_value(fields, "bar", 3)?;
             assert!(matches!(
                 fields.next().unwrap()?,
-                FieldExpr::Macro(invocation)
-                    if matches!(invocation.kind(), MacroExprKind::EExp(eexp) if eexp.invoked_macro.name() == Some("three_structs"))
-            ));
+                FieldExpr::EExp(eexp)
+                    if eexp.invoked_macro.name() == Some("three_structs")));
             expect_name_value(fields, "dog", 1)?;
             expect_name_value(fields, "cat", 2)?;
             expect_name_value(fields, "mouse", 3)?;

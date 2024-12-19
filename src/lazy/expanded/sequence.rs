@@ -4,6 +4,7 @@ use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression, Val
 use crate::lazy::expanded::template::{TemplateElement, TemplateSequenceIterator};
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource, LazyExpandedValue,
+    TemplateVariableReference,
 };
 use crate::{try_or_some_err, IonResult, IonType};
 use std::fmt::Debug;
@@ -169,7 +170,7 @@ impl<'top, D: Decoder> LazyExpandedList<'top, D> {
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
-    pub fn iter_value_expr(&self) -> ListValueExprIterator<'top, D> {
+    pub fn value_exprs(&self) -> ListValueExprIterator<'top, D> {
         let ExpandedListIterator { context, source } = self.iter();
         ListValueExprIterator { context, source }
     }
@@ -235,6 +236,7 @@ impl<'top, D: Decoder> Iterator for ListValueExprIterator<'top, D> {
 pub struct SExpValueExprIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     source: ExpandedSExpIteratorSource<'top, D>,
+    variable_ref: Option<TemplateVariableReference<'top>>,
 }
 
 impl<'top, D: Decoder> Iterator for SExpValueExprIterator<'top, D> {
@@ -268,6 +270,7 @@ pub enum ExpandedSExpSource<'top, D: Decoder> {
 pub struct LazyExpandedSExp<'top, D: Decoder> {
     pub(crate) source: ExpandedSExpSource<'top, D>,
     pub(crate) context: EncodingContextRef<'top>,
+    pub(crate) variable_ref: Option<TemplateVariableReference<'top>>,
 }
 
 impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
@@ -316,9 +319,13 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
-    pub fn iter_value_expr(&self) -> SExpValueExprIterator<'top, D> {
+    pub fn value_exprs(&self) -> SExpValueExprIterator<'top, D> {
         let ExpandedSExpIterator { context, source } = self.iter();
-        SExpValueExprIterator { context, source }
+        SExpValueExprIterator {
+            context,
+            source,
+            variable_ref: self.variable_ref,
+        }
     }
 
     pub fn from_literal(
@@ -326,7 +333,11 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
         sexp: D::SExp<'top>,
     ) -> LazyExpandedSExp<'top, D> {
         let source = ExpandedSExpSource::ValueLiteral(sexp);
-        Self { source, context }
+        Self {
+            source,
+            context,
+            variable_ref: None,
+        }
     }
 
     pub fn from_template(
@@ -335,7 +346,11 @@ impl<'top, D: Decoder> LazyExpandedSExp<'top, D> {
         element: TemplateElement<'top>,
     ) -> LazyExpandedSExp<'top, D> {
         let source = ExpandedSExpSource::Template(environment, element);
-        Self { source, context }
+        Self {
+            source,
+            context,
+            variable_ref: None,
+        }
     }
 }
 
@@ -498,7 +513,7 @@ mod tests {
             "#;
         let mut reader = Reader::new(v1_1::Text, source)?;
         let list = reader.expect_next()?.read()?.expect_list()?;
-        let value_exprs = &mut list.expanded_list.iter_value_expr();
+        let value_exprs = &mut list.expanded_list.value_exprs();
 
         expect_int(value_exprs, 0)?;
         expect_eexp(value_exprs, "three_values")?;
@@ -527,7 +542,7 @@ mod tests {
             "#;
         let mut reader = Reader::new(v1_1::Text, source)?;
         let sexp = reader.expect_next()?.read()?.expect_sexp()?;
-        let value_exprs = &mut sexp.expanded_sexp.iter_value_expr();
+        let value_exprs = &mut sexp.expanded_sexp.value_exprs();
 
         expect_int(value_exprs, 0)?;
         expect_eexp(value_exprs, "three_values")?;

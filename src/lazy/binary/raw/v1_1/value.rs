@@ -144,6 +144,10 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         self.encoded_value.header().is_null()
     }
 
+    fn is_delimited(&self) -> bool {
+        !self.delimited_contents.is_none()
+    }
+
     fn has_annotations(&self) -> bool {
         self.encoded_value.has_annotations()
     }
