@@ -4,7 +4,6 @@ use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpr, MacroExprArgsIterator, ValueExpr,
 };
-use crate::lazy::expanded::r#struct::tooling::FieldExprIterator;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     TemplateElement, TemplateMacroRef, TemplateStructFieldExprIterator, TemplateStructIndex,
@@ -16,6 +15,9 @@ use crate::lazy::expanded::{
 use crate::result::IonFailure;
 use crate::{try_next, try_or_some_err, EExpression, HasRange, IonResult, RawSymbolRef, SymbolRef};
 use std::ops::Range;
+
+#[cfg(feature = "experimental-tooling-apis")]
+use crate::lazy::expanded::r#struct::tooling::FieldExprIterator;
 
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
