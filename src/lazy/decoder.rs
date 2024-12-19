@@ -411,7 +411,7 @@ pub(crate) mod private {
     }
 
     pub trait LazyRawStructPrivate<'top, D: Decoder> {
-        /// Creates an iterator that converts each raw struct field into an `UnexpandedField`, a
+        /// Creates an iterator that converts each raw struct field into an `FieldExpr`, a
         /// common representation for both raw fields and template fields that is used in the
         /// expansion process.
         fn field_exprs(
