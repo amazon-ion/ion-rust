@@ -486,8 +486,8 @@ pub trait SequenceWriter: MakeValueWriter {
 #[cfg(feature = "experimental-reader-writer")]
 mod tests {
     use crate::symbol_ref::AsSymbolRef;
-    use crate::IonResult;
-    use crate::{ion_seq, v1_1, Element, SequenceWriter, Writer};
+    use crate::{ion_seq, v1_1, Element, IntoAnnotatedElement, SequenceWriter, Writer};
+    use crate::{AnnotatableWriter, IonResult, ValueWriter};
     #[test]
     fn save_and_reuse_symbol_id() -> IonResult<()> {
         let mut writer = Writer::new(v1_1::Binary, vec![])?;
@@ -497,15 +497,20 @@ mod tests {
             .sid_for("name")
             .unwrap();
         writer
+            // Write the symbol twice using its ID
             .write_symbol(name_symbol)?
             .write_symbol(name_symbol)?
+            // Use the ID again as an annotation...
+            .value_writer()
+            .with_annotations(name_symbol)?
+            // ...when writing the symbol once more.
             .write_symbol(name_symbol)?;
         let bytes = writer.close()?;
         let actual = Element::read_all(&bytes)?;
         let expected = ion_seq!(
             "name".as_symbol_ref()
             "name".as_symbol_ref()
-            "name".as_symbol_ref()
+            "name".as_symbol_ref().with_annotations(["name"])
         );
         assert_eq!(actual, expected);
         Ok(())
