@@ -157,10 +157,10 @@ impl Encoding for BinaryEncoding_1_0 {
 
     fn default_value_writer_config() -> ValueWriterConfig {
         ValueWriterConfig::binary()
-            .with_field_name_encoding(FieldNameEncoding::WriteAsSymbolIds)
-            .with_annotations_encoding(AnnotationsEncoding::WriteAsSymbolIds)
+            .with_field_name_encoding(FieldNameEncoding::SymbolIds)
+            .with_annotations_encoding(AnnotationsEncoding::SymbolIds)
             .with_container_encoding(ContainerEncoding::LengthPrefixed)
-            .with_symbol_value_encoding(SymbolValueEncoding::WriteAsSymbolIds)
+            .with_symbol_value_encoding(SymbolValueEncoding::SymbolIds)
     }
 }
 impl Encoding for BinaryEncoding_1_1 {
@@ -206,10 +206,10 @@ impl Encoding for TextEncoding_1_0 {
     }
     fn default_value_writer_config() -> ValueWriterConfig {
         ValueWriterConfig::text()
-            .with_field_name_encoding(FieldNameEncoding::WriteAsInlineText)
-            .with_annotations_encoding(AnnotationsEncoding::WriteAsInlineText)
+            .with_field_name_encoding(FieldNameEncoding::InlineText)
+            .with_annotations_encoding(AnnotationsEncoding::InlineText)
             .with_container_encoding(ContainerEncoding::Delimited)
-            .with_symbol_value_encoding(SymbolValueEncoding::WriteAsInlineText)
+            .with_symbol_value_encoding(SymbolValueEncoding::InlineText)
     }
 }
 impl Encoding for TextEncoding_1_1 {

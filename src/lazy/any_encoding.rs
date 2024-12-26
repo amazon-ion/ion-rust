@@ -726,7 +726,6 @@ pub struct LazyRawAnyValue<'top> {
 
 impl<'top> LazyRawAnyValue<'top> {
     /// Returns an enum indicating the encoding that backs this lazy value.
-    #[cfg(feature = "experimental-tooling-apis")]
     pub fn kind(&self) -> LazyRawValueKind<'top> {
         self.encoding
     }
