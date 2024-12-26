@@ -482,15 +482,14 @@ pub trait SequenceWriter: MakeValueWriter {
     }
 }
 
-#[cfg(test)]
-#[cfg(feature = "experimental-reader-writer")]
+#[cfg(all(test, feature = "experimental-reader-writer"))]
 mod tests {
     use crate::symbol_ref::AsSymbolRef;
-    use crate::{ion_seq, v1_1, Element, IntoAnnotatedElement, SequenceWriter, Writer};
+    use crate::{ion_seq, v1_0, Element, IntoAnnotatedElement, SequenceWriter, Writer};
     use crate::{AnnotatableWriter, IonResult, ValueWriter};
     #[test]
     fn save_and_reuse_symbol_id() -> IonResult<()> {
-        let mut writer = Writer::new(v1_1::Binary, vec![])?;
+        let mut writer = Writer::new(v1_0::Binary, vec![])?;
         let name_symbol = writer
             .value_writer()
             .symbol_table()
