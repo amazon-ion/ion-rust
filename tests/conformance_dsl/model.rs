@@ -365,7 +365,7 @@ pub(crate) fn compare_values<T: ion_rs::Decoder>(
                             let shared_text = shared_symbol.text().unwrap_or("");
                             (
                                 shared_text.to_string(),
-                                other.symbol_table().sid_for(&shared_text).unwrap_or(0),
+                                other.symbol_table().sid_for(shared_text).unwrap_or(0),
                             )
                         }
                     }

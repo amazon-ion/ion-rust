@@ -26,7 +26,7 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::io;
 
-use crate::{ion_data, Decimal, Int, IonResult, IonType, Str, Symbol, Timestamp};
+use crate::{ion_data, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp};
 use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::element::builders::{SequenceBuilder, StructBuilder};
@@ -248,6 +248,12 @@ impl From<Str> for Value {
 impl From<Symbol> for Value {
     fn from(sym_val: Symbol) -> Self {
         Value::Symbol(sym_val)
+    }
+}
+
+impl From<SymbolRef<'_>> for Value {
+    fn from(sym_val: SymbolRef<'_>) -> Self {
+        Value::Symbol(sym_val.to_owned())
     }
 }
 

@@ -125,6 +125,18 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(self.output)
     }
 
+    #[cfg(feature = "experimental-reader-writer")]
+    #[inline]
+    pub fn symbol_table(&self) -> &SymbolTable {
+        &self.context.symbol_table
+    }
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    #[inline]
+    pub(crate) fn symbol_table(&self) -> &SymbolTable {
+        &self.context.symbol_table
+    }
+
     /// Helper method to encode an LST append containing pending symbols.
     fn write_lst_append(&mut self) -> IonResult<()> {
         let Self {
@@ -235,8 +247,20 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
         }
     }
 
-    fn symbol_table(&mut self) -> &mut SymbolTable {
+    fn symbol_table_mut(&mut self) -> &mut SymbolTable {
         &mut self.encoding.symbol_table
+    }
+
+    #[cfg(feature = "experimental-reader-writer")]
+    #[inline]
+    pub fn symbol_table(&self) -> &SymbolTable {
+        &self.encoding.symbol_table
+    }
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    #[inline]
+    pub(crate) fn symbol_table(&self) -> &SymbolTable {
+        &self.encoding.symbol_table
     }
 }
 
@@ -326,7 +350,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
-                    let sid = match self.symbol_table().sid_for(&text) {
+                    let sid = match self.symbol_table().sid_for(text) {
                         Some(sid) => {
                             //...that was already in the symbol table.
                             sid
@@ -334,7 +358,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                         None => {
                             // ...that we need to add to the symbol table.
                             self.encoding.num_pending_symbols += 1;
-                            self.symbol_table().add_symbol_for_text(text)
+                            self.symbol_table_mut().add_symbol_for_text(text)
                         }
                     };
                     *annotation = RawSymbolRef::SymbolId(sid);
@@ -389,7 +413,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
-                    match self.symbol_table().sid_for(&text) {
+                    match self.symbol_table_mut().sid_for(text) {
                         Some(sid) => {
                             //...that was already in the symbol table.
                             *annotation = RawSymbolRef::SymbolId(sid);
@@ -454,7 +478,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                 match value_writer_config.symbol_value_encoding() {
                     WriteAsSymbolIds => {
                         // Map the text to a symbol ID.
-                        match encoding.symbol_table.sid_for(&text) {
+                        match encoding.symbol_table.sid_for(text) {
                             // If it's already in the symbol table, use that SID.
                             Some(symbol_id) => SymbolId(symbol_id),
                             // Otherwise, add it to the symbol table.
@@ -466,7 +490,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                     }
                     WriteNewSymbolsAsInlineText => {
                         // If the text is in the symbol table, use the symbol ID. Otherwise, use the text itself.
-                        match encoding.symbol_table.sid_for(&text) {
+                        match encoding.symbol_table.sid_for(text) {
                             Some(symbol_id) => SymbolId(symbol_id),
                             None => Text(text),
                         }
@@ -590,7 +614,7 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
         }
 
         // Otherwise, see if the symbol is already in the symbol table.
-        let token: RawSymbolRef<'_> = match self.encoding.symbol_table.sid_for(&text) {
+        let token: RawSymbolRef<'_> = match self.encoding.symbol_table.sid_for(text) {
             // If so, use the existing ID.
             Some(sid) => sid.into(),
             // If it's not but the struct writer is configured to intern new text, add it to the
