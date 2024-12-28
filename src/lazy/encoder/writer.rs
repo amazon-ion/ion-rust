@@ -125,6 +125,18 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(self.output)
     }
 
+    #[cfg(feature = "experimental-reader-writer")]
+    #[inline]
+    pub fn symbol_table(&self) -> &SymbolTable {
+        &self.context.symbol_table
+    }
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    #[inline]
+    pub(crate) fn symbol_table(&self) -> &SymbolTable {
+        &self.context.symbol_table
+    }
+
     /// Helper method to encode an LST append containing pending symbols.
     fn write_lst_append(&mut self) -> IonResult<()> {
         let Self {
@@ -235,8 +247,20 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
         }
     }
 
-    fn symbol_table(&mut self) -> &mut SymbolTable {
+    fn symbol_table_mut(&mut self) -> &mut SymbolTable {
         &mut self.encoding.symbol_table
+    }
+
+    #[cfg(feature = "experimental-reader-writer")]
+    #[inline]
+    pub fn symbol_table(&self) -> &SymbolTable {
+        &self.encoding.symbol_table
+    }
+
+    #[cfg(not(feature = "experimental-reader-writer"))]
+    #[inline]
+    pub(crate) fn symbol_table(&self) -> &SymbolTable {
+        &self.encoding.symbol_table
     }
 }
 
@@ -281,15 +305,15 @@ impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
     {
         let mut annotations = annotations.into_annotations_vec();
         match self.value_writer_config.annotations_encoding() {
-            AnnotationsEncoding::WriteAsSymbolIds => {
+            AnnotationsEncoding::SymbolIds => {
                 // Intern all text so everything we write is a symbol ID
                 self.intern_all_annotations(&mut annotations)?
             }
-            AnnotationsEncoding::WriteAsInlineText => {
+            AnnotationsEncoding::InlineText => {
                 // Validate the symbol IDs, write the text as-is
                 self.validate_all_symbol_ids(&mut annotations)?
             }
-            AnnotationsEncoding::WriteNewSymbolsAsInlineText => {
+            AnnotationsEncoding::NewSymbolsAsInlineText => {
                 // Map all known strings to symbol IDs, leave new text as is.
                 self.map_known_symbols_to_symbol_ids(&mut annotations)?
             }
@@ -326,7 +350,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
-                    let sid = match self.symbol_table().sid_for(&text) {
+                    let sid = match self.symbol_table().sid_for(text) {
                         Some(sid) => {
                             //...that was already in the symbol table.
                             sid
@@ -334,7 +358,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                         None => {
                             // ...that we need to add to the symbol table.
                             self.encoding.num_pending_symbols += 1;
-                            self.symbol_table().add_symbol_for_text(text)
+                            self.symbol_table_mut().add_symbol_for_text(text)
                         }
                     };
                     *annotation = RawSymbolRef::SymbolId(sid);
@@ -389,7 +413,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
-                    match self.symbol_table().sid_for(&text) {
+                    match self.symbol_table_mut().sid_for(text) {
                         Some(sid) => {
                             //...that was already in the symbol table.
                             *annotation = RawSymbolRef::SymbolId(sid);
@@ -452,9 +476,9 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             SystemSymbol_1_1(symbol) => SystemSymbol_1_1(symbol),
             Text(text) => {
                 match value_writer_config.symbol_value_encoding() {
-                    WriteAsSymbolIds => {
+                    SymbolIds => {
                         // Map the text to a symbol ID.
-                        match encoding.symbol_table.sid_for(&text) {
+                        match encoding.symbol_table.sid_for(text) {
                             // If it's already in the symbol table, use that SID.
                             Some(symbol_id) => SymbolId(symbol_id),
                             // Otherwise, add it to the symbol table.
@@ -464,15 +488,15 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                             }
                         }
                     }
-                    WriteNewSymbolsAsInlineText => {
+                    NewSymbolsAsInlineText => {
                         // If the text is in the symbol table, use the symbol ID. Otherwise, use the text itself.
-                        match encoding.symbol_table.sid_for(&text) {
+                        match encoding.symbol_table.sid_for(text) {
                             Some(symbol_id) => SymbolId(symbol_id),
                             None => Text(text),
                         }
                     }
                     // We have text and we want to write text. Nothing to do.
-                    WriteAsInlineText => Text(text),
+                    InlineText => Text(text),
                 }
             }
         };
@@ -585,18 +609,18 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
         // From here on, we're dealing with text.
 
         // If the struct writer is configured to write field names as text, do that.
-        if self.value_writer_config.field_name_encoding() == FieldNameEncoding::WriteAsInlineText {
+        if self.value_writer_config.field_name_encoding() == FieldNameEncoding::InlineText {
             return self.raw_struct_writer.encode_field_name(text);
         }
 
         // Otherwise, see if the symbol is already in the symbol table.
-        let token: RawSymbolRef<'_> = match self.encoding.symbol_table.sid_for(&text) {
+        let token: RawSymbolRef<'_> = match self.encoding.symbol_table.sid_for(text) {
             // If so, use the existing ID.
             Some(sid) => sid.into(),
             // If it's not but the struct writer is configured to intern new text, add it to the
             // symbol table.
             None if self.value_writer_config.field_name_encoding()
-                == FieldNameEncoding::WriteAsSymbolIds =>
+                == FieldNameEncoding::SymbolIds =>
             {
                 self.encoding.num_pending_symbols += 1;
                 self.encoding.symbol_table.add_symbol_for_text(text).into()
@@ -828,7 +852,7 @@ mod tests {
     fn intern_new_symbol_values() -> IonResult<()> {
         use RawSymbolRef::*;
         symbol_value_encoding_test(
-            SymbolValueEncoding::WriteAsSymbolIds,
+            SymbolValueEncoding::SymbolIds,
             [
                 (Text("$ion_symbol_table"), &[0xE1, 0x03]),
                 (Text("name"), &[0xE1, 0x04]),
@@ -842,7 +866,7 @@ mod tests {
     fn do_not_intern_new_symbol_values() -> IonResult<()> {
         use RawSymbolRef::*;
         symbol_value_encoding_test(
-            SymbolValueEncoding::WriteNewSymbolsAsInlineText,
+            SymbolValueEncoding::NewSymbolsAsInlineText,
             [
                 // Known text symbols are written as SIDs
                 (Text("$ion_symbol_table"), &[0xE1, 0x03]),
@@ -860,7 +884,7 @@ mod tests {
     fn encode_all_text_as_is() -> IonResult<()> {
         use RawSymbolRef::*;
         symbol_value_encoding_test(
-            SymbolValueEncoding::WriteAsInlineText,
+            SymbolValueEncoding::InlineText,
             [
                 // Known text symbols are written as inline text
                 (Text("name"), &[0xA4, 0x6E, 0x61, 0x6D, 0x65]),
@@ -903,7 +927,7 @@ mod tests {
     fn intern_new_annotations() -> IonResult<()> {
         use RawSymbolRef::*;
         annotations_sequence_encoding_test(
-            AnnotationsEncoding::WriteAsSymbolIds,
+            AnnotationsEncoding::SymbolIds,
             &[
                 Text("$ion_symbol_table"),
                 Text("name"),
@@ -925,7 +949,7 @@ mod tests {
     fn write_new_annotations_as_text() -> IonResult<()> {
         use RawSymbolRef::*;
         annotations_sequence_encoding_test(
-            AnnotationsEncoding::WriteNewSymbolsAsInlineText,
+            AnnotationsEncoding::NewSymbolsAsInlineText,
             &[
                 Text("$ion_symbol_table"),
                 Text("name"),
@@ -950,7 +974,7 @@ mod tests {
     fn write_text_annotations_as_is() -> IonResult<()> {
         use RawSymbolRef::*;
         annotations_sequence_encoding_test(
-            AnnotationsEncoding::WriteAsInlineText,
+            AnnotationsEncoding::InlineText,
             &[Text("name"), SymbolId(6), Text("foo")],
             &[
                 0xE9, // Opcode: FlexUInt follows with byte length of sequence
@@ -1007,7 +1031,7 @@ mod tests {
     #[test]
     fn intern_all_field_names() -> IonResult<()> {
         struct_field_encoding_test(
-            FieldNameEncoding::WriteAsSymbolIds,
+            FieldNameEncoding::SymbolIds,
             &[
                 // New symbols
                 (RawSymbolRef::Text("foo"), &[0x81]), // FlexUInt SID $64,
@@ -1023,7 +1047,7 @@ mod tests {
     #[test]
     fn write_all_field_names_as_text() -> IonResult<()> {
         struct_field_encoding_test(
-            FieldNameEncoding::WriteAsInlineText,
+            FieldNameEncoding::InlineText,
             &[
                 // New symbols
                 (RawSymbolRef::Text("foo"), &[0xFB, 0x66, 0x6F, 0x6F]), // FlexSym -3, "foo"
@@ -1038,7 +1062,7 @@ mod tests {
     #[test]
     fn write_new_field_names_as_text() -> IonResult<()> {
         struct_field_encoding_test(
-            FieldNameEncoding::WriteNewSymbolsAsInlineText,
+            FieldNameEncoding::NewSymbolsAsInlineText,
             &[
                 // New symbols
                 (RawSymbolRef::Text("foo"), &[0xFB, 0x66, 0x6F, 0x6F]), // FlexSym -3, "foo"

@@ -38,13 +38,13 @@ pub enum ContainerEncoding {
 pub enum SymbolValueEncoding {
     /// Add all symbol values to the symbol table and encode them as symbol IDs.
     #[default]
-    WriteAsSymbolIds,
+    SymbolIds,
     /// Do not add symbol values to the symbol table; write their text inline.
     /// Symbol values specified as symbol IDs will not be mapped to text.
-    WriteAsInlineText,
+    InlineText,
     /// If a symbol value is already in the symbol table, encode it as a symbol ID.
     /// If it is not already in the symbol table, encode its text inline.
-    WriteNewSymbolsAsInlineText,
+    NewSymbolsAsInlineText,
 }
 
 /// Configuration options for encoding an annotations sequence.
@@ -53,28 +53,29 @@ pub enum SymbolValueEncoding {
 pub enum AnnotationsEncoding {
     /// Add all annotations to the symbol table and encode them as symbol IDs.
     #[default]
-    WriteAsSymbolIds,
+    SymbolIds,
     /// Do not add annotations to the symbol table; write their text inline.
     /// Annotations specified as symbol IDs will not be mapped to text.
-    WriteAsInlineText,
+    InlineText,
     /// If an annotation is already in the symbol table, encode it as a symbol ID.
     /// If it is not already in the symbol table, encode its text inline.
-    WriteNewSymbolsAsInlineText,
+    NewSymbolsAsInlineText,
 }
 
 /// Configuration options for encoding a struct field name.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 #[non_exhaustive]
+#[allow(clippy::enum_variant_names)]
 pub enum FieldNameEncoding {
     /// Add all field names to the symbol table and encode them as symbol IDs.
     #[default]
-    WriteAsSymbolIds,
+    SymbolIds,
     /// Do not add field names to the symbol table; write their text inline.
     /// Field names specified as symbol IDs will not be mapped to text.
-    WriteAsInlineText,
+    InlineText,
     /// If a field name is already in the symbol table, encode it as a symbol ID.
     /// If it is not already in the symbol table, encode its text inline.
-    WriteNewSymbolsAsInlineText,
+    NewSymbolsAsInlineText,
 }
 
 impl ValueWriterConfig {
@@ -82,9 +83,9 @@ impl ValueWriterConfig {
     pub const fn text() -> Self {
         ValueWriterConfig {
             container_encoding: ContainerEncoding::Delimited,
-            symbol_value_encoding: SymbolValueEncoding::WriteAsInlineText,
-            annotations_encoding: AnnotationsEncoding::WriteAsInlineText,
-            field_name_encoding: FieldNameEncoding::WriteAsInlineText,
+            symbol_value_encoding: SymbolValueEncoding::InlineText,
+            annotations_encoding: AnnotationsEncoding::InlineText,
+            field_name_encoding: FieldNameEncoding::InlineText,
         }
     }
 
@@ -92,9 +93,9 @@ impl ValueWriterConfig {
     pub const fn binary() -> Self {
         ValueWriterConfig {
             container_encoding: ContainerEncoding::LengthPrefixed,
-            symbol_value_encoding: SymbolValueEncoding::WriteAsSymbolIds,
-            annotations_encoding: AnnotationsEncoding::WriteAsSymbolIds,
-            field_name_encoding: FieldNameEncoding::WriteAsSymbolIds,
+            symbol_value_encoding: SymbolValueEncoding::SymbolIds,
+            annotations_encoding: AnnotationsEncoding::SymbolIds,
+            field_name_encoding: FieldNameEncoding::SymbolIds,
         }
     }
 

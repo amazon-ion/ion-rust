@@ -204,7 +204,7 @@ impl SymbolTable {
     }
 
     /// If defined, returns the Symbol ID associated with the provided text.
-    pub fn sid_for<A: AsRef<str>>(&self, text: &A) -> Option<SymbolId> {
+    pub fn sid_for<A: AsRef<str>>(&self, text: A) -> Option<SymbolId> {
         self.ids_by_text.get(text.as_ref()).copied()
     }
 

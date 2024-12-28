@@ -61,7 +61,7 @@ impl BinaryValueWriter_1_1<'_, '_> {
     pub fn with_inline_symbol_text(mut self) -> Self {
         self.value_writer_config = self
             .value_writer_config
-            .with_symbol_value_encoding(SymbolValueEncoding::WriteAsInlineText);
+            .with_symbol_value_encoding(SymbolValueEncoding::InlineText);
         self
     }
 
