@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use nom::character::streaming::satisfy;
+use winnow::character::streaming::satisfy;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{

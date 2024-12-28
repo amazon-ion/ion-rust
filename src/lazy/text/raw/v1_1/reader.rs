@@ -24,7 +24,7 @@ use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::{v1_1, Encoding, IonResult, IonType, RawSymbolRef};
 use bumpalo::collections::Vec as BumpVec;
-use nom::character::streaming::satisfy;
+use winnow::character::streaming::satisfy;
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: &'data [u8],

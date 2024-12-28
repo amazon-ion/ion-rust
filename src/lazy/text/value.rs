@@ -248,7 +248,7 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
 
         // Match the first annotation in the input. In order for this iterator to be created,
         // the parser already successfully matched this input once before, so we know it will succeed.
-        use nom::Parser;
+        use winnow::Parser;
         let (remaining, (symbol, span)) = TextBuffer::match_annotation
             .parse(self.input)
             .expect("annotations were already matched successfully by this parser");

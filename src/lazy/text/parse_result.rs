@@ -5,24 +5,24 @@
 //! typical parse will require creating large numbers of short-lived error values.
 //!
 //! This module defines `IonParseError`, a custom error type that can capture more information than is
-//! supported by [`nom::error::Error`]. It also defines `IonParseResult`, a type alias for an
+//! supported by [`winnow::error::Error`]. It also defines `IonParseResult`, a type alias for an
 //! [`IResult`] that parses `TextBuffer`s and produces `IonParseError`s if something goes wrong.
 
 use crate::lazy::text::buffer::TextBuffer;
 use crate::position::Position;
 use crate::result::{DecodingError, IonFailure};
 use crate::{IonError, IonResult};
-use nom::error::{Error as NomError, ErrorKind, ParseError};
-use nom::{Err, IResult};
 use std::borrow::Cow;
 use std::fmt::{Debug, Display};
+use winnow::error::{Error as NomError, ErrorKind, ParseError};
+use winnow::{Err, IResult};
 
 /// A type alias for a [`IResult`] whose input is a `TextBuffer` and whose error type is an
 /// [`InvalidInputError`]. All of the Ion parsers in the `text::parsers` module return an
 /// [`IonParseResult`].
 ///
 /// If the parser is successful, it will return `Ok(output_value)`. If it encounters a problem,
-/// it will return a `nom::Err<IonParseError>`. [nom::Err] is a generic enum with three possible
+/// it will return a `winnow::Err<IonParseError>`. [winnow::Err] is a generic enum with three possible
 /// variants:
 /// 1. `Incomplete(_)` indicates that there wasn't enough input data to determine whether the
 ///    parser should match or not.
@@ -38,7 +38,7 @@ use std::fmt::{Debug, Display};
 pub(crate) type IonParseResult<'a, O> = IResult<TextBuffer<'a>, O, IonParseError<'a>>;
 // Functions that return IonParseResult parse TextBuffer-^   ^     ^
 //                            ...return a value of type `O` -----+     |
-//         ...or a nom::Err<IonParseError> if something goes wrong ----+
+//         ...or a winnow::Err<IonParseError> if something goes wrong ----+
 
 /// As above, but for parsers that simply identify (i.e. 'match') a slice of the input as a
 /// particular item.
@@ -55,8 +55,8 @@ pub enum IonParseError<'data> {
 /// Describes a problem that occurred while trying to parse a given input `TextBuffer`.
 ///
 /// When returned as part of an `IonParseResult`, an `IonParseError` is always wrapped in
-/// a [nom::Err] (see `IonParseResult`'s documentation for details). If the `nom::Err` is
-/// a non-fatal `Error`, the `IonParseError`'s `description` will be `None`. If the `nom::Err` is
+/// a [winnow::Err] (see `IonParseResult`'s documentation for details). If the `winnow::Err` is
+/// a non-fatal `Error`, the `IonParseError`'s `description` will be `None`. If the `winnow::Err` is
 /// a fatal `Failure`, the `description` will be `Some(String)`. In this way, using an
 /// `IonParseError` only incurs heap allocation costs when parsing is coming to an end.
 #[derive(Debug, PartialEq)]
@@ -196,12 +196,13 @@ impl From<InvalidInputError<'_>> for IonError {
     }
 }
 
-impl<'data> From<nom::Err<IonParseError<'data>>> for IonParseError<'data> {
+impl<'data> From<winnow::Err<IonParseError<'data>>> for IonParseError<'data> {
     fn from(value: Err<IonParseError<'data>>) -> Self {
+        use winnow::error::ErrMode::*;
         match value {
-            Err::Incomplete(_) => IonParseError::Incomplete,
-            Err::Error(e) => e,
-            Err::Failure(e) => e,
+            Incomplete(_) => IonParseError::Incomplete,
+            Backtrack(e) => e,
+            Cut(e) => e,
         }
     }
 }
@@ -216,11 +217,11 @@ impl<'data> From<(TextBuffer<'data>, ErrorKind)> for IonParseError<'data> {
     }
 }
 
-/// Allows a [nom::error::Error] to be converted into an [IonParseError] by calling `.into()`.
+/// Allows a [winnow::error::Error] to be converted into an [IonParseError] by calling `.into()`.
 impl<'data> From<NomError<TextBuffer<'data>>> for IonParseError<'data> {
     fn from(nom_error: NomError<TextBuffer<'data>>) -> Self {
         InvalidInputError::new(nom_error.input)
-            .with_nom_error_kind(nom_error.code)
+            .with_nom_error_kind(nom_error.kind)
             .into()
     }
 }
@@ -233,11 +234,11 @@ impl<'data> ParseError<TextBuffer<'data>> for IonParseError<'data> {
             .into()
     }
 
-    fn append(_input: TextBuffer<'data>, _kind: ErrorKind, other: Self) -> Self {
+    fn append(self, input: TextBuffer<'data>, _kind: ErrorKind) -> Self {
         // When an error stack is being built, this method is called to give the error
         // type an opportunity to aggregate the errors into a collection or a more descriptive
         // message. For now, we simply allow the most recent error to take precedence.
-        other
+        IonParseError::Invalid(InvalidInputError::new(input))
     }
 }
 
@@ -259,7 +260,7 @@ impl<'data, T> ToIteratorOutput<'data, T> for IonResult<(TextBuffer<'data>, Opti
 }
 
 /// Converts the output of a text Ion parser (any of `IonParseResult`, `IonParseError`,
-/// or `nom::Err<IonParseError>`) into a general-purpose `IonResult`. If the implementing type
+/// or `winnow::Err<IonParseError>`) into a general-purpose `IonResult`. If the implementing type
 /// does not have its own `label` and `input`, the specified values will be used.
 pub(crate) trait AddContext<'data, T> {
     fn with_context<'a>(
@@ -271,7 +272,7 @@ pub(crate) trait AddContext<'data, T> {
         'data: 'a;
 }
 
-impl<'data, T> AddContext<'data, T> for nom::Err<IonParseError<'data>> {
+impl<'data, T> AddContext<'data, T> for winnow::Err<IonParseError<'data>> {
     fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,
@@ -326,13 +327,13 @@ impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
     }
 }
 
-/// Constructs a `nom::Err::Failure` that contains an `IonParseError` describing the problem
+/// Constructs a `winnow::error::ErrMode::Cut` that contains an `IonParseError` describing the problem
 /// that was encountered.
 pub(crate) fn fatal_parse_error<D: Into<Cow<'static, str>>, O>(
     input: TextBuffer<'_>,
     description: D,
 ) -> IonParseResult<'_, O> {
-    Err(nom::Err::Failure(
+    Err(winnow::error::ErrMode::Cut(
         InvalidInputError::new(input)
             .with_description(description)
             .into(),

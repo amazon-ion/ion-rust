@@ -26,13 +26,14 @@ use std::str::FromStr;
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
-use nom::branch::alt;
-use nom::bytes::streaming::tag;
-use nom::character::is_hex_digit;
-use nom::sequence::preceded;
-use nom::{AsBytes, AsChar, Parser};
 use num_traits::Zero;
 use smallvec::SmallVec;
+use winnow::branch::alt;
+use winnow::bytes::streaming::tag;
+use winnow::character::is_hex_digit;
+use winnow::sequence::preceded;
+use winnow::stream::{AsBytes, AsChar};
+use winnow::Parser;
 
 use crate::decimal::coefficient::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
@@ -1102,7 +1103,7 @@ impl MatchedBlob {
                 .filter(|b| !b.is_ascii_whitespace());
             sanitized_base64_text.extend(non_whitespaces_bytes);
             base64::decode_config_slice(
-                sanitized_base64_text.as_bytes(),
+                sanitized_base64_text.as_slice(),
                 base64::STANDARD,
                 decoding_buffer.as_mut_slice(),
             )

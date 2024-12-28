@@ -4,22 +4,24 @@ use std::ops::{Range, RangeFrom, RangeTo};
 use std::slice::Iter;
 use std::str::FromStr;
 
-use nom::branch::alt;
-use nom::bytes::complete::{
+use winnow::branch::alt;
+use winnow::bytes::complete::{
     is_a as complete_is_a, is_not as complete_is_not, tag as complete_tag,
     take_while as complete_take_while,
 };
-use nom::bytes::streaming::{is_a, tag, take_until, take_while_m_n};
-use nom::character::complete::{
+use winnow::bytes::streaming::{is_a, tag, take_until, take_while_m_n};
+use winnow::character::complete::{
     char as complete_char, digit0 as complete_digit0, digit1 as complete_digit1,
     one_of as complete_one_of,
 };
-use nom::character::streaming::{alphanumeric1, char, digit1, one_of, satisfy};
-use nom::combinator::{consumed, eof, map, not, opt, peek, recognize, success, value};
-use nom::error::{ErrorKind, ParseError};
-use nom::multi::{fold_many1, fold_many_m_n, many0_count, many1_count};
-use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
-use nom::{CompareResult, IResult, InputLength, InputTake, Needed, Parser};
+use winnow::character::streaming::{alphanumeric1, char, digit1, one_of, satisfy};
+use winnow::combinator::{consumed, eof, map, not, opt, peek, recognize, success, value};
+use winnow::error::Needed;
+use winnow::error::{ErrorKind, ParseError};
+use winnow::multi::{fold_many1, fold_many_m_n, many0_count, many1_count};
+use winnow::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
+use winnow::stream::{CompareResult, SliceLen};
+use winnow::Parser;
 
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
@@ -229,7 +231,7 @@ impl<'top> TextBuffer<'top> {
     // This method is useful for parsers that need to match an optional construct but don't want
     // to return an Option<_>. For an example, see its use in `match_optional_whitespace`.
     fn match_nothing(self) -> IonMatchResult<'top> {
-        // Use nom's `success` parser to return an empty slice from the head position
+        // use winnow's `success` parser to return an empty slice from the head position
         success(self.slice(0, 0))(self)
     }
 
@@ -313,13 +315,13 @@ impl<'top> TextBuffer<'top> {
             let error = InvalidInputError::new(matched_major)
                 .with_label("parsing an IVM major version")
                 .with_description("value did not fit in an unsigned byte");
-            nom::Err::Failure(IonParseError::Invalid(error))
+            winnow::error::ErrMode::Cut(IonParseError::Invalid(error))
         })?;
         let minor_version = u8::from_str(matched_minor.as_text().unwrap()).map_err(|_| {
             let error = InvalidInputError::new(matched_minor)
                 .with_label("parsing an IVM minor version")
                 .with_description("value did not fit in an unsigned byte");
-            nom::Err::Failure(IonParseError::Invalid(error))
+            winnow::error::ErrMode::Cut(IonParseError::Invalid(error))
         })?;
         let marker =
             LazyRawTextVersionMarker::<E>::new(matched_marker, major_version, minor_version);
@@ -334,7 +336,9 @@ impl<'top> TextBuffer<'top> {
             let error = InvalidInputError::new(matched)
                 .with_description("the maximum supported annotations sequence length is 65KB")
                 .with_label("parsing annotations");
-            Err(nom::Err::Error(IonParseError::Invalid(error)))
+            Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+                error,
+            )))
         } else {
             Ok((remaining, matched))
         }
@@ -620,7 +624,7 @@ impl<'top> TextBuffer<'top> {
         // a keyword and then ends, that's incomplete input. We do this check ahead of regular
         // parsing because `match_symbol` will reject keywords as invalid (not incomplete).
         if terminated(Self::match_keyword, eof)(self).is_ok() {
-            return Err(nom::Err::Incomplete(Needed::Unknown));
+            return Err(winnow::Err::Incomplete(Needed::Unknown));
         }
         consumed(alt((
             Self::match_string.map(MatchedFieldNameSyntax::String),
@@ -808,7 +812,9 @@ impl<'top> TextBuffer<'top> {
         // If it doesn't start with [, it isn't a list.
         if self.bytes().first() != Some(&b'[') {
             let error = InvalidInputError::new(self);
-            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+                error,
+            )));
         }
         // Scan ahead to find the end of this list.
         let list_body = self.slice_to_end(1);
@@ -816,7 +822,7 @@ impl<'top> TextBuffer<'top> {
         let span = match sequence_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -824,7 +830,7 @@ impl<'top> TextBuffer<'top> {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a list")
                         .with_description(format!("{}", e));
-                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                    Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
                 }
             }
         };
@@ -852,7 +858,9 @@ impl<'top> TextBuffer<'top> {
         // If it doesn't start with [, it isn't a list.
         if self.bytes().first() != Some(&b'[') {
             let error = InvalidInputError::new(self);
-            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+                error,
+            )));
         }
         // Scan ahead to find the end of this list.
         let list_body = self.slice_to_end(1);
@@ -865,7 +873,7 @@ impl<'top> TextBuffer<'top> {
         {
             Ok((span, child_exprs)) => (span, child_exprs),
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -873,7 +881,7 @@ impl<'top> TextBuffer<'top> {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a v1.1 list")
                         .with_description(format!("couldn't match span: {}", e));
-                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                    Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
                 }
             }
         };
@@ -896,7 +904,9 @@ impl<'top> TextBuffer<'top> {
     > {
         if self.bytes().first() != Some(&b'(') {
             let error = InvalidInputError::new(self);
-            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+                error,
+            )));
         }
         // Scan ahead to find the end of this sexp
         let sexp_body = self.slice_to_end(1);
@@ -905,7 +915,9 @@ impl<'top> TextBuffer<'top> {
             match TextSExpSpanFinder_1_1::new(self.context.allocator(), sexp_iter).find_span(1) {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
                 // If the complete container isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+                Err(IonError::Incomplete(_)) => {
+                    return Err(winnow::Err::Incomplete(Needed::Unknown))
+                }
                 // If invalid syntax was encountered, return a failure to prevent nom from trying
                 // other parser kinds.
                 Err(e) => {
@@ -913,7 +925,7 @@ impl<'top> TextBuffer<'top> {
                         let error = InvalidInputError::new(self)
                             .with_label("matching a 1.1 sexp")
                             .with_description(format!("{}", e));
-                        Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                        Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
                     }
                 }
             };
@@ -988,7 +1000,9 @@ impl<'top> TextBuffer<'top> {
     pub fn match_sexp(self) -> IonMatchResult<'top> {
         if self.bytes().first() != Some(&b'(') {
             let error = InvalidInputError::new(self);
-            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+                error,
+            )));
         }
         // Scan ahead to find the end of this sexp
         let sexp_body = self.slice_to_end(1);
@@ -996,7 +1010,7 @@ impl<'top> TextBuffer<'top> {
         let span = match sexp_iter.find_span(1) {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -1004,7 +1018,7 @@ impl<'top> TextBuffer<'top> {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a sexp")
                         .with_description(format!("{}", e));
-                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                    Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
                 }
             }
         };
@@ -1021,7 +1035,9 @@ impl<'top> TextBuffer<'top> {
         // If it doesn't start with {, it isn't a struct.
         if self.bytes().first() != Some(&b'{') {
             let error = InvalidInputError::new(self);
-            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+                error,
+            )));
         }
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
@@ -1029,7 +1045,7 @@ impl<'top> TextBuffer<'top> {
         let span = match struct_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -1037,7 +1053,7 @@ impl<'top> TextBuffer<'top> {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a struct")
                         .with_description(format!("{}", e));
-                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                    Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
                 }
             }
         };
@@ -1060,7 +1076,9 @@ impl<'top> TextBuffer<'top> {
         // If it doesn't start with {, it isn't a struct.
         if self.bytes().first() != Some(&b'{') {
             let error = InvalidInputError::new(self);
-            return Err(nom::Err::Error(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+                error,
+            )));
         }
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
@@ -1073,7 +1091,7 @@ impl<'top> TextBuffer<'top> {
         {
             Ok((span, fields)) => (span, fields),
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -1081,7 +1099,7 @@ impl<'top> TextBuffer<'top> {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a v1.1 struct")
                         .with_description(format!("{}", e));
-                    Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                    Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
                 }
             }
         };
@@ -1137,7 +1155,9 @@ impl<'top> TextBuffer<'top> {
             {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
                 // If the complete group isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+                Err(IonError::Incomplete(_)) => {
+                    return Err(winnow::Err::Incomplete(Needed::Unknown))
+                }
                 // If invalid syntax was encountered, return a failure to prevent nom from trying
                 // other parser kinds.
                 Err(e) => {
@@ -1145,7 +1165,7 @@ impl<'top> TextBuffer<'top> {
                         let error = InvalidInputError::new(self)
                             .with_label("matching an e-expression argument group")
                             .with_description(format!("{}", e));
-                        Err(nom::Err::Failure(IonParseError::Invalid(error)))
+                        Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
                     }
                 }
             };
@@ -1227,7 +1247,7 @@ impl<'top> TextBuffer<'top> {
         if input_after_id.is_empty() {
             // Unlike a symbol value with identifier syntax, an e-expression identifier cannot be
             // the last thing in the stream.
-            return Err(nom::Err::Incomplete(Needed::Unknown));
+            return Err(winnow::Err::Incomplete(Needed::Unknown));
         };
         Ok((input_after_id, id))
     }
@@ -1245,7 +1265,7 @@ impl<'top> TextBuffer<'top> {
             .macro_table()
             .macro_with_id(id)
             .ok_or_else(|| {
-                nom::Err::Failure(IonParseError::Invalid(
+                winnow::error::ErrMode::Cut(IonParseError::Invalid(
                     InvalidInputError::new(self)
                         .with_description(format!("could not find macro with id {:?}", id)),
                 ))
@@ -1275,7 +1295,7 @@ impl<'top> TextBuffer<'top> {
         }
         let (remaining, _end_of_eexp) = match whitespace_and_then(tag(")")).parse(remaining) {
             Ok(result) => result,
-            Err(nom::Err::Incomplete(needed)) => return Err(nom::Err::Incomplete(needed)),
+            Err(winnow::Err::Incomplete(needed)) => return Err(winnow::Err::Incomplete(needed)),
             Err(_e) => {
                 return fatal_parse_error(
                     remaining,
@@ -1420,7 +1440,7 @@ impl<'top> TextBuffer<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
         if self.match_empty_arg_group(parameter).is_ok() {
-            return Err(nom::Err::Failure(IonParseError::Invalid(
+            return Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(
                 InvalidInputError::new(self).with_description(format!(
                     "parameter '{}' is one-or-more (`+`) and cannot accept an empty stream",
                     parameter.name()
@@ -1436,7 +1456,7 @@ impl<'top> TextBuffer<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         if parameter.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
-            return Err(nom::Err::Error(IonParseError::Invalid(
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
                 InvalidInputError::new(self)
                     .with_description("parameter does not support rest syntax"),
             )));
@@ -1550,7 +1570,7 @@ impl<'top> TextBuffer<'top> {
             // One or more digits
             pair(
                 one_of("01"),
-                many0_count(nom::character::complete::one_of("01")),
+                many0_count(winnow::character::complete::one_of("01")),
             ),
         ))(self)
     }
@@ -1957,7 +1977,9 @@ impl<'top> TextBuffer<'top> {
             // If the next thing in input is the terminator, report success.
             match peek(&mut terminator)(remaining) {
                 Ok(_) => return Ok((remaining, matched)),
-                Err(nom::Err::Incomplete(_)) => return Err(nom::Err::Incomplete(Needed::Unknown)),
+                Err(winnow::Err::Incomplete(_)) => {
+                    return Err(winnow::Err::Incomplete(Needed::Unknown))
+                }
                 _ => {
                     // no match
                 }
@@ -1968,7 +1990,7 @@ impl<'top> TextBuffer<'top> {
                 return incomplete();
             }
 
-            Err(nom::Err::Error(IonParseError::Invalid(
+            Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
                 InvalidInputError::new(remaining).with_label(label),
             )))
         }
@@ -2026,7 +2048,7 @@ impl<'top> TextBuffer<'top> {
         // If the buffer is a single quote and then EOF, it's not known whether this was a
         // partial long string segment or a partial quoted symbol.
         if self.bytes() == b"'" {
-            return Err(nom::Err::Incomplete(Needed::Unknown));
+            return Err(winnow::Err::Incomplete(Needed::Unknown));
         }
         delimited(
             complete_tag("'''"),
@@ -2112,7 +2134,7 @@ impl<'top> TextBuffer<'top> {
             Self::identifier_terminator,
         ))(self)?;
         if identifier_text.match_keyword().is_ok() {
-            return Err(nom::Err::Error(IonParseError::Invalid(
+            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
                 InvalidInputError::new(self),
             )));
         }
@@ -2135,7 +2157,7 @@ impl<'top> TextBuffer<'top> {
     fn identifier_trailing_character(self) -> IonParseResult<'top, Self> {
         recognize(alt((
             complete_one_of("$_"),
-            nom::character::complete::satisfy(|c| c.is_ascii_alphanumeric()),
+            winnow::character::complete::satisfy(|c| c.is_ascii_alphanumeric()),
         )))(self)
     }
 
@@ -2207,7 +2229,7 @@ impl<'top> TextBuffer<'top> {
                 }
             }
         }
-        Err(nom::Err::Incomplete(Needed::Unknown))
+        Err(winnow::Err::Incomplete(Needed::Unknown))
     }
 
     #[cold]
@@ -2220,12 +2242,12 @@ impl<'top> TextBuffer<'top> {
         if byte == b'\n' && !allow_unescaped_newlines {
             let error = InvalidInputError::new(self.slice_to_end(index))
                 .with_description("unescaped newlines are not allowed in short string literals");
-            return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)));
         }
         if !WHITESPACE_CHARACTERS_AS_STR.as_bytes().contains(&byte) {
             let error = InvalidInputError::new(self.slice_to_end(index))
                 .with_description("unescaped control characters are not allowed in text literals");
-            return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+            return Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)));
         }
         Ok((self.slice_to_end(1), ()))
     }
@@ -2538,7 +2560,7 @@ impl<'top> TextBuffer<'top> {
             if !Self::byte_is_legal_clob_ascii(byte) {
                 let message = format!("found an illegal byte '{:0x}' in clob", byte);
                 let error = InvalidInputError::new(self).with_description(message);
-                return Err(nom::Err::Failure(IonParseError::Invalid(error)));
+                return Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)));
             }
         }
         // Return success without consuming
@@ -2582,53 +2604,93 @@ impl<'top> TextBuffer<'top> {
 // As `TextBuffer` is just a wrapper around a `&[u8]`, these implementations mostly delegate
 // to the existing trait impls for `&[u8]`.
 
-impl nom::InputTake for TextBuffer<'_> {
-    fn take(&self, count: usize) -> Self {
-        self.slice(0, count)
-    }
+// impl winnow::InputTake for TextBuffer<'_> {
+//     fn take(&self, count: usize) -> Self {
+//         self.slice(0, count)
+//     }
+//
+//     fn take_split(&self, count: usize) -> (Self, Self) {
+//         let (before, after) = self.data.split_at(count);
+//         let buffer_before = TextBuffer::new_with_offset(self.context, before, self.offset());
+//         let buffer_after = TextBuffer::new_with_offset(self.context, after, self.offset() + count);
+//         // Nom's convention is to place the remaining portion of the buffer first, which leads to
+//         // a potentially surprising reversed tuple order.
+//         (buffer_after, buffer_before)
+//     }
+// }
 
-    fn take_split(&self, count: usize) -> (Self, Self) {
-        let (before, after) = self.data.split_at(count);
-        let buffer_before = TextBuffer::new_with_offset(self.context, before, self.offset());
-        let buffer_after = TextBuffer::new_with_offset(self.context, after, self.offset() + count);
-        // Nom's convention is to place the remaining portion of the buffer first, which leads to
-        // a potentially surprising reversed tuple order.
-        (buffer_after, buffer_before)
-    }
-}
+// impl winnow::InputLength for TextBuffer<'_> {
+//     fn input_len(&self) -> usize {
+//         self.len()
+//     }
+// }
 
-impl nom::InputLength for TextBuffer<'_> {
-    fn input_len(&self) -> usize {
+impl SliceLen for TextBuffer<'_> {
+    fn slice_len(&self) -> usize {
         self.len()
     }
 }
 
-impl<'data> nom::InputIter for TextBuffer<'data> {
-    type Item = u8;
-    type Iter = Enumerate<Self::IterElem>;
-    type IterElem = Copied<Iter<'data, u8>>;
+impl<'data> winnow::stream::Stream for TextBuffer<'data> {
+    type Token = u8;
+    type Slice = Self;
+    type IterOffsets = <&'data [u8] as winnow::stream::Stream>::IterOffsets;
 
-    fn iter_indices(&self) -> Self::Iter {
-        self.iter_elements().enumerate()
+    fn iter_offsets(&self) -> Self::IterOffsets {
+        self.data.iter_offsets()
     }
 
-    fn iter_elements(&self) -> Self::IterElem {
-        self.data.iter().copied()
+    fn eof_offset(&self) -> usize {
+        self.data.eof_offset()
     }
 
-    fn position<P>(&self, predicate: P) -> Option<usize>
+    fn next_token(&self) -> Option<(Self, Self::Token)> {
+        let first_byte = *self.data.first()?;
+        Some((self.slice_to_end(1), first_byte))
+    }
+
+    fn offset_for<P>(&self, predicate: P) -> Option<usize>
     where
-        P: Fn(Self::Item) -> bool,
+        P: Fn(Self::Token) -> bool,
     {
-        self.data.iter().position(|b| predicate(*b))
+        self.data.offset_for(predicate)
     }
 
-    fn slice_index(&self, count: usize) -> Result<usize, Needed> {
-        self.data.slice_index(count)
+    fn offset_at(&self, tokens: usize) -> Result<usize, Needed> {
+        self.data.offset_at(tokens)
+    }
+
+    fn next_slice(&self, offset: usize) -> (Self, Self::Slice) {
+        (self.slice_to_end(offset), self.slice(0, offset))
     }
 }
-
-impl<'a> nom::Compare<&'a str> for TextBuffer<'_> {
+//
+// impl<'data> winnow::InputIter for TextBuffer<'data> {
+//     type Item = u8;
+//     type Iter = Enumerate<Self::IterElem>;
+//     type IterElem = Copied<Iter<'data, u8>>;
+//
+//     fn iter_indices(&self) -> Self::Iter {
+//         self.iter_elements().enumerate()
+//     }
+//
+//     fn iter_elements(&self) -> Self::IterElem {
+//         self.data.iter().copied()
+//     }
+//
+//     fn position<P>(&self, predicate: P) -> Option<usize>
+//     where
+//         P: Fn(Self::Item) -> bool,
+//     {
+//         self.data.iter().position(|b| predicate(*b))
+//     }
+//
+//     fn slice_index(&self, count: usize) -> Result<usize, Needed> {
+//         self.data.slice_index(count)
+//     }
+// }
+//
+impl<'a> winnow::stream::Compare<&'a str> for TextBuffer<'_> {
     fn compare(&self, t: &'a str) -> CompareResult {
         self.data.compare(t.as_bytes())
     }
@@ -2638,98 +2700,98 @@ impl<'a> nom::Compare<&'a str> for TextBuffer<'_> {
     }
 }
 
-impl nom::Offset for TextBuffer<'_> {
-    fn offset(&self, second: &Self) -> usize {
-        self.data.offset(second.data)
+impl winnow::stream::Offset for TextBuffer<'_> {
+    fn offset_to(&self, second: &Self) -> usize {
+        second.offset - self.offset
     }
 }
 
-impl nom::Slice<RangeFrom<usize>> for TextBuffer<'_> {
-    fn slice(&self, range: RangeFrom<usize>) -> Self {
-        self.slice_to_end(range.start)
+// impl winnow::Slice<RangeFrom<usize>> for TextBuffer<'_> {
+//     fn slice(&self, range: RangeFrom<usize>) -> Self {
+//         self.slice_to_end(range.start)
+//     }
+// }
+
+// impl winnow::Slice<RangeTo<usize>> for TextBuffer<'_> {
+//     fn slice(&self, range: RangeTo<usize>) -> Self {
+//         self.slice(0, range.end)
+//     }
+// }
+
+impl winnow::stream::FindSlice<&str> for TextBuffer<'_> {
+    fn find_slice(&self, slice: &str) -> Option<usize> {
+        self.data.find_slice(slice)
     }
 }
 
-impl nom::Slice<RangeTo<usize>> for TextBuffer<'_> {
-    fn slice(&self, range: RangeTo<usize>) -> Self {
-        self.slice(0, range.end)
-    }
-}
-
-impl nom::FindSubstring<&str> for TextBuffer<'_> {
-    fn find_substring(&self, substr: &str) -> Option<usize> {
-        self.data.find_substring(substr)
-    }
-}
-
-impl nom::InputTakeAtPosition for TextBuffer<'_> {
-    type Item = u8;
-
-    fn split_at_position<P, E: ParseError<Self>>(&self, predicate: P) -> IResult<Self, Self, E>
-    where
-        P: Fn(Self::Item) -> bool,
-    {
-        match self.data.iter().position(|c| predicate(*c)) {
-            Some(i) => Ok(self.take_split(i)),
-            None => Err(nom::Err::Incomplete(Needed::new(1))),
-        }
-    }
-
-    fn split_at_position1<P, E: ParseError<Self>>(
-        &self,
-        predicate: P,
-        e: ErrorKind,
-    ) -> IResult<Self, Self, E>
-    where
-        P: Fn(Self::Item) -> bool,
-    {
-        match self.data.iter().position(|c| predicate(*c)) {
-            Some(0) => Err(nom::Err::Error(E::from_error_kind(*self, e))),
-            Some(i) => Ok(self.take_split(i)),
-            None => Err(nom::Err::Incomplete(Needed::new(1))),
-        }
-    }
-
-    fn split_at_position_complete<P, E: ParseError<Self>>(
-        &self,
-        predicate: P,
-    ) -> IResult<Self, Self, E>
-    where
-        P: Fn(Self::Item) -> bool,
-    {
-        match self.data.iter().position(|c| predicate(*c)) {
-            Some(i) => Ok(self.take_split(i)),
-            None => Ok(self.take_split(self.input_len())),
-        }
-    }
-
-    fn split_at_position1_complete<P, E: ParseError<Self>>(
-        &self,
-        predicate: P,
-        e: ErrorKind,
-    ) -> IResult<Self, Self, E>
-    where
-        P: Fn(Self::Item) -> bool,
-    {
-        match self.data.iter().position(|c| predicate(*c)) {
-            Some(0) => Err(nom::Err::Error(E::from_error_kind(*self, e))),
-            Some(i) => Ok(self.take_split(i)),
-            None => {
-                if self.is_empty() {
-                    Err(nom::Err::Error(E::from_error_kind(*self, e)))
-                } else {
-                    Ok(self.take_split(self.input_len()))
-                }
-            }
-        }
-    }
-}
+// impl winnow::InputTakeAtPosition for TextBuffer<'_> {
+//     type Item = u8;
+//
+//     fn split_at_position<P, E: ParseError<Self>>(&self, predicate: P) -> IResult<Self, Self, E>
+//     where
+//         P: Fn(Self::Item) -> bool,
+//     {
+//         match self.data.iter().position(|c| predicate(*c)) {
+//             Some(i) => Ok(self.take_split(i)),
+//             None => Err(winnow::Err::Incomplete(Needed::new(1))),
+//         }
+//     }
+//
+//     fn split_at_position1<P, E: ParseError<Self>>(
+//         &self,
+//         predicate: P,
+//         e: ErrorKind,
+//     ) -> IResult<Self, Self, E>
+//     where
+//         P: Fn(Self::Item) -> bool,
+//     {
+//         match self.data.iter().position(|c| predicate(*c)) {
+//             Some(0) => Err(winnow::error::ErrMode::Backtrack(E::from_error_kind(*self, e))),
+//             Some(i) => Ok(self.take_split(i)),
+//             None => Err(winnow::Err::Incomplete(Needed::new(1))),
+//         }
+//     }
+//
+//     fn split_at_position_complete<P, E: ParseError<Self>>(
+//         &self,
+//         predicate: P,
+//     ) -> IResult<Self, Self, E>
+//     where
+//         P: Fn(Self::Item) -> bool,
+//     {
+//         match self.data.iter().position(|c| predicate(*c)) {
+//             Some(i) => Ok(self.take_split(i)),
+//             None => Ok(self.take_split(self.input_len())),
+//         }
+//     }
+//
+//     fn split_at_position1_complete<P, E: ParseError<Self>>(
+//         &self,
+//         predicate: P,
+//         e: ErrorKind,
+//     ) -> IResult<Self, Self, E>
+//     where
+//         P: Fn(Self::Item) -> bool,
+//     {
+//         match self.data.iter().position(|c| predicate(*c)) {
+//             Some(0) => Err(winnow::error::ErrMode::Backtrack(E::from_error_kind(*self, e))),
+//             Some(i) => Ok(self.take_split(i)),
+//             None => {
+//                 if self.is_empty() {
+//                     Err(winnow::error::ErrMode::Backtrack(E::from_error_kind(*self, e)))
+//                 } else {
+//                     Ok(self.take_split(self.input_len()))
+//                 }
+//             }
+//         }
+//     }
+// }
 
 // === end of `nom` trait implementations
 
 /// Convenience function to construct a nom `Incomplete` and wrap it in an `IonParseResult`
 fn incomplete<'a, T>() -> IonParseResult<'a, T> {
-    Err(nom::Err::Incomplete(Needed::Unknown))
+    Err(winnow::Err::Incomplete(Needed::Unknown))
 }
 
 /// Takes a given parser and returns a new one that accepts any amount of leading whitespace before
