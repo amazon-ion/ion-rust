@@ -231,6 +231,7 @@ pub struct RawTextAnnotationsIterator<'data> {
 
 impl<'top> RawTextAnnotationsIterator<'top> {
     pub(crate) fn new(input: TextBuffer<'top>) -> Self {
+        debug_assert!(input.is_final_data());
         RawTextAnnotationsIterator {
             input,
             has_returned_error: false,
@@ -249,8 +250,7 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
         // Match the first annotation in the input. In order for this iterator to be created,
         // the parser already successfully matched this input once before, so we know it will succeed.
         use winnow::Parser;
-        let (remaining, (symbol, span)) = TextBuffer::match_annotation
-            .parse(self.input)
+        let (remaining, (symbol, span)) = dbg!(TextBuffer::match_annotation.parse_next(self.input))
             .expect("annotations were already matched successfully by this parser");
         let matched_input = self
             .input
@@ -279,7 +279,7 @@ mod tests {
         fn test(input: &str) -> IonResult<()> {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let input = TextBuffer::new(context, input.as_bytes());
+            let input = TextBuffer::new(context, input.as_bytes(), true);
             let mut iter = RawTextAnnotationsIterator::new(input);
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("foo"));
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("bar"));

@@ -48,14 +48,16 @@ const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 pub struct RawReaderState<'a> {
     data: &'a [u8],
     offset: usize,
+    is_final_data: bool,
     encoding: IonEncoding,
 }
 
 impl<'a> RawReaderState<'a> {
-    pub fn new(data: &'a [u8], offset: usize, encoding: IonEncoding) -> Self {
+    pub fn new(data: &'a [u8], offset: usize, is_final_data: bool, encoding: IonEncoding) -> Self {
         Self {
             data,
             offset,
+            is_final_data,
             encoding,
         }
     }
@@ -64,12 +66,20 @@ impl<'a> RawReaderState<'a> {
         self.data
     }
 
+    pub fn is_final_data(&self) -> bool {
+        self.is_final_data
+    }
+
     pub fn offset(&self) -> usize {
         self.offset
     }
 
     pub fn encoding(&self) -> IonEncoding {
         self.encoding
+    }
+
+    pub(crate) fn set_encoding(&mut self, encoding: IonEncoding) {
+        self.encoding = encoding;
     }
 }
 
@@ -118,12 +128,18 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         self.read_next(context, /*is_peek=*/ true)
     }
 
+    fn input_is_streaming(&self) -> bool {
+        unsafe { &*self.input.get() }.is_streaming()
+    }
+
     fn read_next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
         is_peek: bool,
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
-        let mut input_source_exhausted = false;
+        // If the input is a stream, we assume there may be more data available.
+        // If it's a fixed slice, we know it's already complete.
+        let mut input_source_exhausted = !self.input_is_streaming();
         loop {
             // If the input buffer is empty, try to pull more data from the source before proceeding.
             // It's important that we do this _before_ reading from the buffer; any item returned
@@ -134,18 +150,21 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             }
 
             let available_bytes = unsafe { &*self.input.get() }.buffer();
+            let state = RawReaderState::new(
+                available_bytes,
+                self.stream_position,
+                input_source_exhausted,
+                self.encoding(),
+            );
             let unsafe_cell_reader = UnsafeCell::new(<Encoding::Reader<'top> as LazyRawReader<
                 'top,
                 Encoding,
-            >>::resume_at_offset(
-                available_bytes,
-                self.stream_position,
-                self.encoding(),
-            ));
+            >>::resume(context, state));
             let slice_reader = unsafe { &mut *unsafe_cell_reader.get() };
             let starting_position = slice_reader.position();
             let old_encoding = slice_reader.encoding();
-            let result = slice_reader.next(context);
+            let result = slice_reader.next();
+
             // We're done modifying `slice_reader`, but we need to read some of its fields. These
             // fields are _not_ the data to which `result` holds a reference. We have to circumvent
             // the borrow checker's limitation (described in a comment on the StreamingRawReader type)
@@ -161,14 +180,17 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                 result,
                 Err(IonError::Incomplete(_)) | Ok(LazyRawStreamItem::<Encoding>::EndOfStream(_))
             ) {
-                // ...try to pull more data from the data source. It's ok to modify the buffer in
-                // this case because `result` (which holds a reference to the buffer) will be
-                // discarded.
-                if input.fill_buffer()? > 0 {
-                    // If we get more data, try again.
+                if input_source_exhausted {
+                    // There's no more data, so the result is final.
+                } else {
+                    // ...try to pull more data from the data source. It's ok to modify the buffer in
+                    // this case because `result` (which holds a reference to the buffer) will be
+                    // discarded.
+                    if input.fill_buffer()? == 0 {
+                        input_source_exhausted = true;
+                    }
                     continue;
                 }
-                // If there's nothing available, return the result we got.
             } else if let Ok(ref item) = result {
                 // We have successfully read something from the buffer.
                 //
@@ -255,6 +277,9 @@ pub trait IonDataSource {
     /// Marks `number_of_bytes` in the buffer as having been read. The caller is responsible for
     /// confirming that the buffer contains at least `number_of_bytes` bytes.
     fn consume(&mut self, number_of_bytes: usize);
+
+    /// If `true`, the current contents of the buffer may not be the complete stream.
+    fn is_streaming(&self) -> bool;
 }
 
 /// A fixed slice of Ion data that does not grow; it wraps an implementation of `AsRef<[u8]>` such
@@ -310,6 +335,11 @@ impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
             self.stream_bytes().len(),
             self.buffer()
         );
+    }
+
+    #[inline(always)]
+    fn is_streaming(&self) -> bool {
+        false
     }
 }
 
@@ -384,6 +414,11 @@ impl<R: Read> IonDataSource for IonStream<R> {
     fn consume(&mut self, number_of_bytes: usize) {
         self.position += number_of_bytes;
         debug_assert!(self.position <= self.limit);
+    }
+
+    #[inline(always)]
+    fn is_streaming(&self) -> bool {
+        true
     }
 }
 

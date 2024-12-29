@@ -1,26 +1,17 @@
 use std::fmt::{Debug, Formatter};
-use std::iter::{Copied, Enumerate};
-use std::ops::{Range, RangeFrom, RangeTo};
-use std::slice::Iter;
+use std::ops::Range;
 use std::str::FromStr;
 
 use winnow::branch::alt;
-use winnow::bytes::complete::{
-    is_a as complete_is_a, is_not as complete_is_not, tag as complete_tag,
-    take_while as complete_take_while,
+use winnow::bytes::{
+    one_of, tag, take_till1, take_until0, take_while0, take_while1, take_while_m_n,
 };
-use winnow::bytes::streaming::{is_a, tag, take_until, take_while_m_n};
-use winnow::character::complete::{
-    char as complete_char, digit0 as complete_digit0, digit1 as complete_digit1,
-    one_of as complete_one_of,
-};
-use winnow::character::streaming::{alphanumeric1, char, digit1, one_of, satisfy};
-use winnow::combinator::{consumed, eof, map, not, opt, peek, recognize, success, value};
-use winnow::error::Needed;
-use winnow::error::{ErrorKind, ParseError};
-use winnow::multi::{fold_many1, fold_many_m_n, many0_count, many1_count};
-use winnow::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
-use winnow::stream::{CompareResult, SliceLen};
+use winnow::character::alphanumeric1;
+use winnow::combinator::{eof, not, opt, peek, success};
+use winnow::error::{ErrMode, Needed};
+use winnow::multi::{fold_many1, fold_many_m_n, many0, many1};
+use winnow::sequence::{delimited, preceded, separated_pair, terminated};
+use winnow::stream::{CompareResult, SliceLen, StreamIsPartial};
 use winnow::Parser;
 
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
@@ -55,14 +46,15 @@ use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use bumpalo::collections::Vec as BumpVec;
+use winnow::character::{digit0, digit1};
 
 impl Debug for TextBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         const CHARS_TO_SHOW: usize = 64;
-        write!(f, "TextBuffer {{")?;
+        write!(f, "Buf {{")?;
         // Try to read the next several bytes from the buffer as UTF-8...
         let text_result = std::str::from_utf8(self.data);
-        // ...if it works, print the first 32 unicode scalars...
+        // ...if it works, print the first 64 Unicode scalars...
         if let Ok(text) = text_result {
             write!(
                 f,
@@ -116,6 +108,7 @@ pub struct TextBuffer<'top> {
     data: &'top [u8],
     offset: usize,
     pub(crate) context: EncodingContextRef<'top>,
+    is_final_data: bool,
 }
 
 impl PartialEq for TextBuffer<'_> {
@@ -127,8 +120,12 @@ impl PartialEq for TextBuffer<'_> {
 impl<'top> TextBuffer<'top> {
     /// Constructs a new `TextBuffer` that wraps `data`, setting the view's `offset` to zero.
     #[inline]
-    pub fn new(context: EncodingContextRef<'top>, data: &'top [u8]) -> TextBuffer<'top> {
-        Self::new_with_offset(context, data, 0)
+    pub fn new(
+        context: EncodingContextRef<'top>,
+        data: &'top [u8],
+        is_final_data: bool,
+    ) -> TextBuffer<'top> {
+        Self::new_with_offset(context, data, 0, is_final_data)
     }
 
     /// Constructs a new `TextBuffer` that wraps `data`, setting the view's `offset` to the
@@ -139,11 +136,13 @@ impl<'top> TextBuffer<'top> {
         context: EncodingContextRef<'top>,
         data: &'top [u8],
         offset: usize,
+        is_final_data: bool,
     ) -> TextBuffer<'top> {
         TextBuffer {
             context,
             data,
             offset,
+            is_final_data,
         }
     }
 
@@ -151,15 +150,17 @@ impl<'top> TextBuffer<'top> {
         self.context
     }
 
-    pub fn local_lifespan<'a>(self) -> TextBuffer<'a>
-    where
-        'top: 'a,
-    {
-        self.slice_to_end(0)
+    fn incomplete<T>(&self, label: &'static str) -> IonParseResult<'top, T> {
+        if self.is_final_data {
+            fatal_parse_error(*self, format!("ran out of data while parsing {label}"))
+        } else {
+            Err(ErrMode::Incomplete(Needed::Unknown))
+        }
     }
 
     /// Returns a subslice of the [`TextBuffer`] that starts at `offset` and continues for
-    /// `length` bytes.
+    /// `length` bytes. The subslice is considered to be 'final' data (i.e. not a potentially
+    /// incomplete buffer).
     ///
     /// Note that `offset` is relative to the beginning of the buffer, not the beginning of the
     /// larger stream of which the buffer is a piece.
@@ -167,7 +168,8 @@ impl<'top> TextBuffer<'top> {
         TextBuffer {
             data: &self.data[offset..offset + length],
             offset: self.offset + offset,
-            context: self.context,
+            is_final_data: true,
+            ..*self
         }
     }
 
@@ -180,7 +182,7 @@ impl<'top> TextBuffer<'top> {
         TextBuffer {
             data: &self.data[offset..],
             offset: self.offset + offset,
-            context: self.context,
+            ..*self
         }
     }
 
@@ -224,7 +226,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     pub fn match_whitespace(self) -> IonMatchResult<'top> {
-        complete_is_a(WHITESPACE_CHARACTERS_AS_STR)(self)
+        take_while1(WHITESPACE_CHARACTERS_AS_STR).parse_next(self)
     }
 
     /// Always succeeds and consumes none of the input. Returns an empty slice of the buffer.
@@ -245,10 +247,7 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches any amount of contiguous comments and whitespace, including none.
     pub fn match_optional_comments_and_whitespace(self) -> IonMatchResult<'top> {
-        recognize(many0_count(alt((
-            Self::match_whitespace,
-            Self::match_comment,
-        ))))(self)
+        zero_or_more(alt((Self::match_whitespace, Self::match_comment))).parse_next(self)
     }
 
     /// Matches a single
@@ -271,15 +270,15 @@ impl<'top> TextBuffer<'top> {
             // If there isn't a first '/', the input will be rejected.
             // If the buffer is empty after the first '/', the input will be considered incomplete.
             // If the next character in input isn't a second '/', the input will be rejected.
-            recognize(pair(complete_tag("/"), tag("/"))),
+            tag("//"),
             // ...followed by either...
             alt((
                 // '//' can appear at the end of the stream
-                peek(recognize(eof)),
+                peek(eof),
                 // ...one or more non-EOL characters...
-                complete_is_not("\r\n"),
+                take_till1("\r\n"),
                 // ...or any EOL character.
-                peek(recognize(complete_one_of("\r\n"))),
+                peek(one_of("\r\n").recognize()),
                 // In either case, the line ending will not be consumed.
             )),
         )(self)
@@ -287,29 +286,30 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a single multiline comment.
     fn match_multiline_comment(self) -> IonMatchResult<'top> {
-        recognize(delimited(
+        delimited(
             // Matches a leading "/*"...
-            complete_tag("/*"),
+            tag("/*"),
             // ...any number of non-"*/" characters...
-            take_until("*/"),
+            take_until0("*/"),
             // ...and then a closing "*/"
-            complete_tag("*/"),
-        ))(self)
+            tag("*/"),
+        )
+        .recognize()
+        .parse_next(self)
     }
 
     /// Matches an Ion version marker (e.g. `$ion_1_0` or `$ion_1_1`.)
     pub fn match_ivm<E: TextEncoding<'top>>(
         self,
     ) -> IonParseResult<'top, LazyRawTextVersionMarker<'top, E>> {
-        let (remaining, (matched_marker, (matched_major, matched_minor))) = consumed(terminated(
-            preceded(
-                complete_tag("$ion_"),
-                separated_pair(complete_digit1, complete_tag("_"), complete_digit1),
-            ),
+        let (remaining, ((matched_major, matched_minor), matched_marker)) = terminated(
+            preceded(tag("$ion_"), separated_pair(digit1, tag("_"), digit1)),
             // Look ahead to make sure the IVM isn't followed by a '::'. If it is, then it's not
             // an IVM, it's an annotation.
-            peek(whitespace_and_then(not(complete_tag(":")))),
-        ))(self)?;
+            peek(whitespace_and_then(not(tag(":")))),
+        )
+        .with_recognized()
+        .parse_next(self)?;
         // `major` and `minor` are base 10 digits. Turning them into `&str`s is guaranteed to succeed.
         let major_version = u8::from_str(matched_major.as_text().unwrap()).map_err(|_| {
             let error = InvalidInputError::new(matched_major)
@@ -331,14 +331,12 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches one or more annotations.
     pub fn match_annotations(self) -> IonMatchResult<'top> {
-        let (remaining, matched) = recognize(many1_count(Self::match_annotation))(self)?;
+        let (remaining, matched) = one_or_more(Self::match_annotation).parse_next(self)?;
         if matched.len() > u16::MAX as usize {
             let error = InvalidInputError::new(matched)
                 .with_description("the maximum supported annotations sequence length is 65KB")
                 .with_label("parsing annotations");
-            Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
-                error,
-            )))
+            Err(ErrMode::Cut(IonParseError::Invalid(error)))
         } else {
             Ok((remaining, matched))
         }
@@ -349,16 +347,7 @@ impl<'top> TextBuffer<'top> {
         terminated(
             whitespace_and_then(match_and_span(Self::match_symbol)),
             whitespace_and_then(terminated(
-                // The `complete_tag`/`tag` pair below allows the parser to recognize that:
-                //
-                //     foo::bar::baz:
-                //
-                // is incomplete while:
-                //
-                //     foo::bar::baz
-                //
-                // is a symbol with two annotations.
-                pair(complete_tag(":"), tag(":")),
+                tag("::"),
                 Self::match_optional_comments_and_whitespace,
             )),
         )(self)
@@ -367,8 +356,8 @@ impl<'top> TextBuffer<'top> {
     /// Matches an optional annotations sequence and a value, including operators.
     pub fn match_sexp_value(self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
         whitespace_and_then(alt((
-            value(None, tag(")")),
-            pair(
+            tag(")").value(None),
+            (
                 opt(Self::match_annotations),
                 // We need the s-expression parser to recognize the input `--3` as the operator `--` and the
                 // int `3` while recognizing the input `-3` as the int `-3`. If `match_operator` runs before
@@ -376,10 +365,10 @@ impl<'top> TextBuffer<'top> {
                 // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
                 whitespace_and_then(alt((Self::match_value, Self::match_operator))),
             )
-            .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
-            .map(Some),
+                .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
+                .map(Some),
         )))
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches either:
@@ -390,8 +379,8 @@ impl<'top> TextBuffer<'top> {
     ) -> IonParseResult<'top, Option<LazyRawValueExpr<'top, TextEncoding_1_1>>> {
         whitespace_and_then(alt((
             Self::match_e_expression.map(|matched| Some(RawValueExpr::EExp(matched))),
-            value(None, peek(tag(")"))),
-            pair(
+            peek(tag(")")).value(None),
+            (
                 opt(Self::match_annotations),
                 // We need the s-expression parser to recognize the input `--3` as the operator `--` and the
                 // int `3` while recognizing the input `-3` as the int `-3`. If `match_operator` runs before
@@ -399,11 +388,11 @@ impl<'top> TextBuffer<'top> {
                 // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
                 whitespace_and_then(alt((Self::match_value_1_1, Self::match_operator))),
             )
-            .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
-            .map(RawValueExpr::ValueLiteral)
-            .map(Some),
+                .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
+                .map(RawValueExpr::ValueLiteral)
+                .map(Some),
         )))
-        .parse(self)
+        .parse_next(self)
     }
 
     fn apply_annotations<E: TextEncoding<'top>>(
@@ -441,7 +430,7 @@ impl<'top> TextBuffer<'top> {
         let (input_including_field_name, _ws) = self.match_optional_comments_and_whitespace()?;
         alt((
             // If the next thing in the input is a `}`, return `None`.
-            value(None, Self::match_struct_end),
+            Self::match_struct_end.value(None),
             // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
             Self::match_struct_field_name_and_value.map(move |(matched_field_name, value)| {
                 let field_name = LazyRawTextFieldName_1_0::new(matched_field_name);
@@ -454,7 +443,7 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches any amount of whitespace followed by a closing `}`.
     fn match_struct_end(self) -> IonMatchResult<'top> {
-        whitespace_and_then(peek(tag("}"))).parse(self)
+        whitespace_and_then(peek(tag("}"))).parse_next(self)
     }
 
     /// Matches a field name/value pair. Returns the syntax used for the field name, the range of
@@ -542,22 +531,22 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches an optional annotation sequence and a trailing value.
     pub fn match_annotated_value(self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
-        pair(
+        (
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value),
         )
-        .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
-        .parse(self)
+            .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
+            .parse_next(self)
     }
 
     /// Matches an optional annotation sequence and a trailing v1.1 value.
     pub fn match_annotated_value_1_1(self) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
-        pair(
+        (
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value_1_1),
         )
-        .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
-        .parse(self)
+            .map(|(maybe_annotations, value)| self.apply_annotations(maybe_annotations, value))
+            .parse_next(self)
     }
 
     /// Constructs a parser that reads an optional annotations sequence and a value read using the provided
@@ -565,17 +554,18 @@ impl<'top> TextBuffer<'top> {
     fn match_annotated_value_parser(
         value_parser: impl Parser<Self, EncodedTextValue<'top, v1_1::Text>, IonParseError<'top>>,
     ) -> impl Parser<Self, LazyRawTextValue_1_1<'top>, IonParseError<'top>> {
-        consumed(pair(
+        (
             opt(Self::match_annotations),
             whitespace_and_then(value_parser),
-        ))
-        .map(|(matched_input, (maybe_annotations, encoded_value))| {
-            let value = LazyRawTextValue_1_1 {
-                encoded_value,
-                input: matched_input,
-            };
-            matched_input.apply_annotations(maybe_annotations, value)
-        })
+        )
+            .with_recognized()
+            .map(|((maybe_annotations, encoded_value), matched_input)| {
+                let value = LazyRawTextValue_1_1 {
+                    encoded_value,
+                    input: matched_input,
+                };
+                matched_input.apply_annotations(maybe_annotations, value)
+            })
     }
 
     /// In the context of a list, long-form strings need to be parsed differently to properly detect incomplete
@@ -600,7 +590,7 @@ impl<'top> TextBuffer<'top> {
         Self::match_annotated_value_parser(
             Self::match_long_string_in_list.map(|s| EncodedTextValue::new(MatchedValue::String(s))),
         )
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Like `match_annotated_long_string_in_list` above, but for structs.
@@ -611,7 +601,7 @@ impl<'top> TextBuffer<'top> {
             Self::match_long_string_in_struct
                 .map(|s| EncodedTextValue::new(MatchedValue::String(s))),
         )
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a struct field name. That is:
@@ -624,14 +614,15 @@ impl<'top> TextBuffer<'top> {
         // a keyword and then ends, that's incomplete input. We do this check ahead of regular
         // parsing because `match_symbol` will reject keywords as invalid (not incomplete).
         if terminated(Self::match_keyword, eof)(self).is_ok() {
-            return Err(winnow::Err::Incomplete(Needed::Unknown));
+            return Err(ErrMode::Incomplete(Needed::Unknown));
         }
-        consumed(alt((
+        alt((
             Self::match_string.map(MatchedFieldNameSyntax::String),
             Self::match_symbol.map(MatchedFieldNameSyntax::Symbol),
-        )))
-        .map(|(matched_input, syntax)| MatchedFieldName::new(matched_input, syntax))
-        .parse(self)
+        ))
+        .with_recognized()
+        .map(|(syntax, matched_input)| MatchedFieldName::new(matched_input, syntax))
+        .parse_next(self)
     }
 
     /// Matches a single top-level value, an IVM, or the end of the stream.
@@ -688,121 +679,100 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a single scalar value or the beginning of a container.
     pub fn match_value(self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
-        consumed(alt((
+        alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
-            map(Self::match_null, |ion_type| {
-                EncodedTextValue::new(MatchedValue::Null(ion_type))
-            }),
-            map(Self::match_bool, |value| {
-                EncodedTextValue::new(MatchedValue::Bool(value))
-            }),
+            Self::match_null.map(|ion_type| EncodedTextValue::new(MatchedValue::Null(ion_type))),
+            Self::match_bool.map(|value| EncodedTextValue::new(MatchedValue::Bool(value))),
             // For `int` and the other types, we use `match` and store the partially-processed input in the
             // `matched_value` field of the `EncodedTextValue` we return.
-            map(Self::match_int, |matched_int| {
-                EncodedTextValue::new(MatchedValue::Int(matched_int))
-            }),
-            map(Self::match_float, |matched_float| {
-                EncodedTextValue::new(MatchedValue::Float(matched_float))
-            }),
-            map(Self::match_decimal, |matched_decimal| {
+            Self::match_int
+                .map(|matched_int| EncodedTextValue::new(MatchedValue::Int(matched_int))),
+            Self::match_float
+                .map(|matched_float| EncodedTextValue::new(MatchedValue::Float(matched_float))),
+            Self::match_decimal.map(|matched_decimal| {
                 EncodedTextValue::new(MatchedValue::Decimal(matched_decimal))
             }),
-            map(Self::match_timestamp, |matched_timestamp| {
+            Self::match_timestamp.map(|matched_timestamp| {
                 EncodedTextValue::new(MatchedValue::Timestamp(matched_timestamp))
             }),
-            map(Self::match_string, |matched_string| {
-                EncodedTextValue::new(MatchedValue::String(matched_string))
-            }),
-            map(Self::match_symbol, |matched_symbol| {
-                EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))
-            }),
-            map(Self::match_blob, |matched_blob| {
-                EncodedTextValue::new(MatchedValue::Blob(matched_blob))
-            }),
-            map(Self::match_clob, |matched_clob| {
-                EncodedTextValue::new(MatchedValue::Clob(matched_clob))
-            }),
-            map(Self::match_list, |_matched_list| {
+            Self::match_string
+                .map(|matched_string| EncodedTextValue::new(MatchedValue::String(matched_string))),
+            Self::match_symbol
+                .map(|matched_symbol| EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))),
+            Self::match_blob
+                .map(|matched_blob| EncodedTextValue::new(MatchedValue::Blob(matched_blob))),
+            Self::match_clob
+                .map(|matched_clob| EncodedTextValue::new(MatchedValue::Clob(matched_clob))),
+            Self::match_list.map(|_matched_list| {
                 // TODO: Cache child expressions found in 1.0 list
                 let not_yet_used_in_1_0 =
                     bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::List(not_yet_used_in_1_0))
             }),
-            map(Self::match_sexp, |_matched_sexp| {
+            Self::match_sexp.map(|_matched_sexp| {
                 // TODO: Cache child expressions found in 1.0 sexp
                 let not_yet_used_in_1_0 =
                     bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::SExp(not_yet_used_in_1_0))
             }),
-            map(Self::match_struct, |_matched_struct| {
+            Self::match_struct.map(|_matched_struct| {
                 // TODO: Cache child expressions found in 1.0 struct
                 let not_yet_used_in_1_0 =
                     bumpalo::collections::Vec::new_in(self.context.allocator()).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
             }),
-        )))
-        .map(|(input, encoded_value)| LazyRawTextValue_1_0 {
+        ))
+        .with_recognized()
+        .map(|(encoded_value, input)| LazyRawTextValue_1_0 {
             encoded_value,
             input,
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     pub fn match_value_1_1(self) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
-        consumed(alt((
+        alt((
             // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
             // parsing to be done.
-            map(Self::match_null, |ion_type| {
-                EncodedTextValue::new(MatchedValue::Null(ion_type))
-            }),
-            map(Self::match_bool, |value| {
-                EncodedTextValue::new(MatchedValue::Bool(value))
-            }),
+            Self::match_null.map(|ion_type| EncodedTextValue::new(MatchedValue::Null(ion_type))),
+            Self::match_bool.map(|value| EncodedTextValue::new(MatchedValue::Bool(value))),
             // For `int` and the other types, we use `match` and store the partially-processed input in the
             // `matched_value` field of the `EncodedTextValue` we return.
-            map(Self::match_int, |matched_int| {
-                EncodedTextValue::new(MatchedValue::Int(matched_int))
-            }),
-            map(Self::match_float, |matched_float| {
-                EncodedTextValue::new(MatchedValue::Float(matched_float))
-            }),
-            map(Self::match_decimal, |matched_decimal| {
+            Self::match_int
+                .map(|matched_int| EncodedTextValue::new(MatchedValue::Int(matched_int))),
+            Self::match_float
+                .map(|matched_float| EncodedTextValue::new(MatchedValue::Float(matched_float))),
+            Self::match_decimal.map(|matched_decimal| {
                 EncodedTextValue::new(MatchedValue::Decimal(matched_decimal))
             }),
-            map(Self::match_timestamp, |matched_timestamp| {
+            Self::match_timestamp.map(|matched_timestamp| {
                 EncodedTextValue::new(MatchedValue::Timestamp(matched_timestamp))
             }),
-            map(Self::match_string, |matched_string| {
-                EncodedTextValue::new(MatchedValue::String(matched_string))
-            }),
-            map(Self::match_symbol, |matched_symbol| {
-                EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))
-            }),
-            map(Self::match_blob, |matched_blob| {
-                EncodedTextValue::new(MatchedValue::Blob(matched_blob))
-            }),
-            map(Self::match_clob, |matched_clob| {
-                EncodedTextValue::new(MatchedValue::Clob(matched_clob))
-            }),
-            map(Self::match_list_1_1, |(_matched_list, child_expr_cache)| {
+            Self::match_string
+                .map(|matched_string| EncodedTextValue::new(MatchedValue::String(matched_string))),
+            Self::match_symbol
+                .map(|matched_symbol| EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))),
+            Self::match_blob
+                .map(|matched_blob| EncodedTextValue::new(MatchedValue::Blob(matched_blob))),
+            Self::match_clob
+                .map(|matched_clob| EncodedTextValue::new(MatchedValue::Clob(matched_clob))),
+            Self::match_list_1_1.map(|(_matched_list, child_expr_cache)| {
                 EncodedTextValue::new(MatchedValue::List(child_expr_cache))
             }),
-            map(Self::match_sexp_1_1, |(_matched_sexp, child_expr_cache)| {
+            Self::match_sexp_1_1.map(|(_matched_sexp, child_expr_cache)| {
                 EncodedTextValue::new(MatchedValue::SExp(child_expr_cache))
             }),
-            map(
-                Self::match_struct_1_1,
-                |(_matched_struct, field_expr_cache)| {
-                    EncodedTextValue::new(MatchedValue::Struct(field_expr_cache))
-                },
-            ),
-        )))
-        .map(|(input, encoded_value)| LazyRawTextValue_1_1 {
+            Self::match_struct_1_1.map(|(_matched_struct, field_expr_cache)| {
+                EncodedTextValue::new(MatchedValue::Struct(field_expr_cache))
+            }),
+        ))
+        .with_recognized()
+        .map(|(encoded_value, input)| LazyRawTextValue_1_1 {
             encoded_value,
             input,
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a list.
@@ -822,7 +792,10 @@ impl<'top> TextBuffer<'top> {
         let span = match sequence_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) if self.is_final_data => {
+                return fatal_parse_error(self, "found an incomplete list")
+            }
+            Err(IonError::Incomplete(_)) => return Err(ErrMode::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -873,7 +846,10 @@ impl<'top> TextBuffer<'top> {
         {
             Ok((span, child_exprs)) => (span, child_exprs),
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) if self.is_final_data => {
+                return fatal_parse_error(self, "found an incomplete list (v1.1)")
+            }
+            Err(IonError::Incomplete(_)) => return Err(ErrMode::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -915,9 +891,10 @@ impl<'top> TextBuffer<'top> {
             match TextSExpSpanFinder_1_1::new(self.context.allocator(), sexp_iter).find_span(1) {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
                 // If the complete container isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => {
-                    return Err(winnow::Err::Incomplete(Needed::Unknown))
+                Err(IonError::Incomplete(_)) if self.is_final_data => {
+                    return fatal_parse_error(self, "found an incomplete s-expression (v1.1)");
                 }
+                Err(IonError::Incomplete(_)) => return Err(ErrMode::Incomplete(Needed::Unknown)),
                 // If invalid syntax was encountered, return a failure to prevent nom from trying
                 // other parser kinds.
                 Err(e) => {
@@ -946,7 +923,7 @@ impl<'top> TextBuffer<'top> {
             Self::match_optional_comments_and_whitespace,
             // ...followed by either the end of the list...
             alt((
-                value(None, tag("]")),
+                tag("]").value(None),
                 // ...or a value...
                 terminated(
                     Self::match_annotated_value.map(Some),
@@ -969,7 +946,7 @@ impl<'top> TextBuffer<'top> {
                 Self::match_delimiter_after_list_value,
             )
             .map(|matched| Some(RawValueExpr::EExp(matched))),
-            value(None, tag("]")),
+            tag("]").value(None),
             terminated(
                 Self::match_annotated_long_string_in_list.map(Some),
                 Self::match_delimiter_after_list_value,
@@ -982,7 +959,7 @@ impl<'top> TextBuffer<'top> {
             )
             .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
         )))
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches syntax that is expected to follow a value in a list: any amount of whitespace and/or
@@ -1009,8 +986,11 @@ impl<'top> TextBuffer<'top> {
         let sexp_iter = RawTextSExpIterator_1_0::new(sexp_body);
         let span = match sexp_iter.find_span(1) {
             Ok(span) => span,
+            Err(IonError::Incomplete(_)) if self.is_final_data => {
+                return fatal_parse_error(self, "found an incomplete s-expression");
+            }
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return Err(ErrMode::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -1035,9 +1015,7 @@ impl<'top> TextBuffer<'top> {
         // If it doesn't start with {, it isn't a struct.
         if self.bytes().first() != Some(&b'{') {
             let error = InvalidInputError::new(self);
-            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
-                error,
-            )));
+            return Err(ErrMode::Backtrack(IonParseError::Invalid(error)));
         }
         // Scan ahead to find the end of this struct.
         let struct_body = self.slice_to_end(1);
@@ -1045,7 +1023,7 @@ impl<'top> TextBuffer<'top> {
         let span = match struct_iter.find_span() {
             Ok(span) => span,
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return self.incomplete("a struct"),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -1091,7 +1069,7 @@ impl<'top> TextBuffer<'top> {
         {
             Ok((span, fields)) => (span, fields),
             // If the complete container isn't available, return an incomplete.
-            Err(IonError::Incomplete(_)) => return Err(winnow::Err::Incomplete(Needed::Unknown)),
+            Err(IonError::Incomplete(_)) => return Err(ErrMode::Incomplete(Needed::Unknown)),
             // If invalid syntax was encountered, return a failure to prevent nom from trying
             // other parser kinds.
             Err(e) => {
@@ -1099,7 +1077,7 @@ impl<'top> TextBuffer<'top> {
                     let error = InvalidInputError::new(self)
                         .with_label("matching a v1.1 struct")
                         .with_description(format!("{}", e));
-                    Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)))
+                    Err(ErrMode::Cut(IonParseError::Invalid(error)))
                 }
             }
         };
@@ -1139,8 +1117,9 @@ impl<'top> TextBuffer<'top> {
             // An arg group that is not trivially empty, though it may only contain whitespace:
             //   (:: )
             //   (:: 1 2 3)
-            recognize(pair(tag("(::"), Self::match_optional_whitespace)),
-        ))(self)?;
+            (tag("(::"), Self::match_optional_whitespace).recognize(),
+        ))
+        .parse_next(self)?;
 
         // The rest of the group uses s-expression syntax. Scan ahead to find the end of this
         // group.
@@ -1155,9 +1134,7 @@ impl<'top> TextBuffer<'top> {
             {
                 Ok((span, child_expr_cache)) => (span, child_expr_cache),
                 // If the complete group isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => {
-                    return Err(winnow::Err::Incomplete(Needed::Unknown))
-                }
+                Err(IonError::Incomplete(_)) => return Err(ErrMode::Incomplete(Needed::Unknown)),
                 // If invalid syntax was encountered, return a failure to prevent nom from trying
                 // other parser kinds.
                 Err(e) => {
@@ -1178,8 +1155,8 @@ impl<'top> TextBuffer<'top> {
     }
 
     pub fn match_e_expression_name(self) -> IonParseResult<'top, MacroIdRef<'top>> {
-        let (exp_body_after_id, (macro_id_bytes, matched_symbol)) =
-            consumed(Self::match_identifier)(self)?;
+        let (exp_body_after_id, (matched_symbol, macro_id_bytes)) =
+            Self::match_identifier.with_recognized().parse_next(self)?;
         let name = match matched_symbol
             .read(self.context.allocator(), macro_id_bytes)
             .expect("matched identifier but failed to read its bytes")
@@ -1198,18 +1175,19 @@ impl<'top> TextBuffer<'top> {
     }
 
     pub fn match_system_eexp_id(self) -> IonParseResult<'top, MacroIdRef<'top>> {
-        let (after_system_annotation, _matched_system_annotation) = recognize(tuple((
+        let (after_system_annotation, _matched_system_annotation) = (
             tag("$ion"),
             whitespace_and_then(tag("::")),
             Self::match_optional_whitespace,
-        )))
-        .parse(self)?;
+        )
+            .recognize()
+            .parse_next(self)?;
 
         let (remaining, id) = alt((
             Self::match_e_expression_address,
             Self::match_e_expression_name,
         ))
-        .parse(after_system_annotation)?;
+        .parse_next(after_system_annotation)?;
         let system_id = match id {
             MacroIdRef::LocalName(name) => {
                 let Some(macro_address) = ION_1_1_SYSTEM_MACROS.address_for_name(name) else {
@@ -1244,11 +1222,6 @@ impl<'top> TextBuffer<'top> {
             Self::match_e_expression_address,
         ))(self)?;
 
-        if input_after_id.is_empty() {
-            // Unlike a symbol value with identifier syntax, an e-expression identifier cannot be
-            // the last thing in the stream.
-            return Err(winnow::Err::Incomplete(Needed::Unknown));
-        };
         Ok((input_after_id, id))
     }
 
@@ -1265,7 +1238,7 @@ impl<'top> TextBuffer<'top> {
             .macro_table()
             .macro_with_id(id)
             .ok_or_else(|| {
-                winnow::error::ErrMode::Cut(IonParseError::Invalid(
+                ErrMode::Cut(IonParseError::Invalid(
                     InvalidInputError::new(self)
                         .with_description(format!("could not find macro with id {:?}", id)),
                 ))
@@ -1293,9 +1266,9 @@ impl<'top> TextBuffer<'top> {
                 }
             }
         }
-        let (remaining, _end_of_eexp) = match whitespace_and_then(tag(")")).parse(remaining) {
+        let (remaining, _end_of_eexp) = match whitespace_and_then(tag(")")).parse_next(remaining) {
             Ok(result) => result,
-            Err(winnow::Err::Incomplete(needed)) => return Err(winnow::Err::Incomplete(needed)),
+            Err(ErrMode::Incomplete(_)) => return self.incomplete("an e-expression"),
             Err(_e) => {
                 return fatal_parse_error(
                     remaining,
@@ -1326,6 +1299,7 @@ impl<'top> TextBuffer<'top> {
                     self.context,
                     EMPTY_ARG_TEXT.as_bytes(),
                     last_explicit_arg_end,
+                    self.is_final_data(),
                 );
                 arg_expr_cache.push(EExpArg::new(
                     parameter,
@@ -1375,7 +1349,7 @@ impl<'top> TextBuffer<'top> {
         }
         let (remaining, maybe_expr) = Self::match_sexp_value_1_1
             .map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from))
-            .parse(after_ws)?;
+            .parse_next(after_ws)?;
         match maybe_expr {
             Some(expr) => Ok((remaining, EExpArg::new(parameter, expr))),
             None => fatal_parse_error(
@@ -1392,12 +1366,13 @@ impl<'top> TextBuffer<'top> {
         self,
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, EExpArg<'top, TextEncoding_1_1>> {
-        recognize(pair(tag("(::"), whitespace_and_then(tag(")"))))
+        (tag("(::"), whitespace_and_then(tag(")")))
+            .recognize()
             .map(|matched_expr| {
                 let arg_group = TextEExpArgGroup::new(parameter, matched_expr, &[]);
                 EExpArg::new(parameter, EExpArgExpr::ArgGroup(arg_group))
             })
-            .parse(self)
+            .parse_next(self)
     }
 
     pub fn match_zero_or_one(
@@ -1413,7 +1388,7 @@ impl<'top> TextBuffer<'top> {
                 })
             }),
         )))
-        .parse(self)
+        .parse_next(self)
     }
 
     pub fn match_zero_or_more(
@@ -1429,7 +1404,7 @@ impl<'top> TextBuffer<'top> {
                     expr.map(EExpArgExpr::from)
                         .map(|expr| EExpArg::new(parameter, expr))
                 }),
-                value(None, peek(tag(")"))),
+                peek(tag(")")).value(None),
             )),
         )(self)?;
         Ok((remaining, maybe_expr))
@@ -1456,7 +1431,7 @@ impl<'top> TextBuffer<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         if parameter.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
-            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+            return Err(ErrMode::Backtrack(IonParseError::Invalid(
                 InvalidInputError::new(self)
                     .with_description("parameter does not support rest syntax"),
             )));
@@ -1465,10 +1440,10 @@ impl<'top> TextBuffer<'top> {
         let mut cache = BumpVec::new_in(self.context().allocator());
         loop {
             let (remaining_after_expr, maybe_expr) = alt((
-                value(None, whitespace_and_then(peek(tag(")")))),
+                whitespace_and_then(peek(tag(")"))).value(None),
                 Self::match_sexp_value_1_1,
             ))
-            .parse(remaining)?;
+            .parse_next(remaining)?;
             if let Some(expr) = maybe_expr {
                 remaining = remaining_after_expr;
                 cache.push(expr);
@@ -1484,10 +1459,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches and returns a boolean value.
     pub fn match_bool(self) -> IonParseResult<'top, bool> {
         terminated(
-            alt((
-                value(true, complete_tag("true")),
-                value(false, complete_tag("false")),
-            )),
+            alt((tag("true").value(true), tag("false").value(false))),
             Self::peek_stop_character,
         )(self)
     }
@@ -1496,41 +1468,41 @@ impl<'top> TextBuffer<'top> {
     pub fn match_null(self) -> IonParseResult<'top, IonType> {
         terminated(
             alt((
-                pair(complete_tag("null."), Self::match_ion_type).map(|(_, ion_type)| ion_type),
-                complete_tag("null").map(|_| IonType::Null),
+                (tag("null."), Self::match_ion_type).map(|(_, ion_type)| ion_type),
+                tag("null").value(IonType::Null),
             )),
             Self::peek_stop_character,
         )
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches and returns an Ion type.
     fn match_ion_type(self) -> IonParseResult<'top, IonType> {
         alt((
-            value(IonType::Null, tag("null")),
-            value(IonType::Bool, tag("bool")),
-            value(IonType::Int, tag("int")),
-            value(IonType::Float, tag("float")),
-            value(IonType::Decimal, tag("decimal")),
-            value(IonType::Timestamp, tag("timestamp")),
-            value(IonType::Symbol, tag("symbol")),
-            value(IonType::String, tag("string")),
-            value(IonType::Clob, tag("clob")),
-            value(IonType::Blob, tag("blob")),
-            value(IonType::List, tag("list")),
-            value(IonType::SExp, tag("sexp")),
-            value(IonType::Struct, tag("struct")),
+            tag("null").value(IonType::Null),
+            tag("bool").value(IonType::Bool),
+            tag("int").value(IonType::Int),
+            tag("float").value(IonType::Float),
+            tag("decimal").value(IonType::Decimal),
+            tag("timestamp").value(IonType::Timestamp),
+            tag("symbol").value(IonType::Symbol),
+            tag("string").value(IonType::String),
+            tag("clob").value(IonType::Clob),
+            tag("blob").value(IonType::Blob),
+            tag("list").value(IonType::List),
+            tag("sexp").value(IonType::SExp),
+            tag("struct").value(IonType::Struct),
         ))(self)
     }
 
     /// Matches any one of Ion's stop characters.
     fn match_stop_character(self) -> IonMatchResult<'top> {
-        alt((eof, recognize(one_of("{}[](),\"' \t\n\r\u{0b}\u{0c}"))))(self)
+        alt((eof, one_of("{}[](),\"' \t\n\r\u{0b}\u{0c}").recognize()))(self)
     }
 
     /// Matches--but does not consume--any one of Ion's stop characters.
     fn peek_stop_character(self) -> IonMatchResult<'top> {
-        peek(Self::match_stop_character).parse(self)
+        peek(Self::match_stop_character).parse_next(self)
     }
 
     /// Matches the three parts of an int--its base, its sign, and its digits--without actually
@@ -1552,37 +1524,36 @@ impl<'top> TextBuffer<'top> {
     /// partially parsed value as a [`MatchedInt`].
     fn match_base_2_int(self) -> IonParseResult<'top, MatchedInt> {
         separated_pair(
-            opt(char('-')),
-            alt((complete_tag("0b"), complete_tag("0B"))),
+            opt(one_of('-')),
+            alt((tag("0b"), tag("0B"))),
             Self::match_base_2_int_digits,
         )
         .map(|(maybe_sign, digits)| {
             MatchedInt::new(2, maybe_sign.is_some(), digits.offset() - self.offset())
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches the digits of a base-2 integer.
     fn match_base_2_int_digits(self) -> IonMatchResult<'top> {
-        recognize(terminated(
+        terminated(
             // Zero or more digits-followed-by-underscores
-            many0_count(pair(complete_is_a("01"), complete_tag("_"))),
+            many0::<_, _, usize, _, _>((take_while1("01"), tag("_"))),
             // One or more digits
-            pair(
-                one_of("01"),
-                many0_count(winnow::character::complete::one_of("01")),
-            ),
-        ))(self)
+            many1::<_, _, usize, _, _>(one_of("01")),
+        )
+        .recognize()
+        .parse_next(self)
     }
 
     /// Matches a base-10 notation integer (e.g. `0`, `255`, or `-1_024`) and returns the partially
     /// parsed value as a [`MatchedInt`].
     fn match_base_10_int(self) -> IonParseResult<'top, MatchedInt> {
-        pair(opt(char('-')), Self::match_base_10_int_digits)
+        (opt(one_of('-')), Self::match_base_10_int_digits)
             .map(|(maybe_sign, digits)| {
                 MatchedInt::new(10, maybe_sign.is_some(), digits.offset() - self.offset())
             })
-            .parse(self)
+            .parse_next(self)
     }
 
     /// Matches the digits of a base-10 integer. (i.e. An integer without a sign.)
@@ -1596,18 +1567,19 @@ impl<'top> TextBuffer<'top> {
     fn match_base_10_digits_before_dot(self) -> IonMatchResult<'top> {
         alt((
             // The number is either a zero...
-            complete_tag("0"),
+            tag("0"),
             // Or it's a non-zero followed by some number of '_'-separated digits
-            recognize(pair(
+            (
                 Self::match_base_10_leading_digit,
                 Self::match_base_10_trailing_digits,
-            )),
+            )
+                .recognize(),
         ))(self)
     }
 
     /// Matches the first digit of a multi-digit base-10 integer. (i.e. Any digit but zero.)
     fn match_base_10_leading_digit(self) -> IonMatchResult<'top> {
-        recognize(one_of("123456789"))(self)
+        one_of("123456789").recognize().parse_next(self)
     }
 
     /// Matches any number of digits with underscores optionally appearing in the middle.
@@ -1615,47 +1587,52 @@ impl<'top> TextBuffer<'top> {
     /// of a number.
     fn match_base_10_trailing_digits(self) -> IonMatchResult<'top> {
         // A sequence of zero or more...
-        recognize(many0_count(alt((
+        zero_or_more(alt((
             //...underscore-followed-by-a-digit...
-            recognize(preceded(complete_tag("_"), satisfy(|c| c.is_ascii_digit()))),
-            //...or a digit.
-            complete_digit1,
-        ))))(self)
+            (tag("_"), one_of(|b: u8| b.is_ascii_digit())).recognize(),
+            //...or one or more digits.
+            digit1,
+        )))
+        .parse_next(self)
     }
 
     /// Matches a base-10 notation integer (e.g. `0x0`, `0X20`, or `-0xCAFE`) and returns the
     /// partially parsed value as a [`MatchedInt`].
     fn match_base_16_int(self) -> IonParseResult<'top, MatchedInt> {
         separated_pair(
-            opt(char('-')),
-            alt((complete_tag("0x"), complete_tag("0X"))),
+            opt(one_of('-')),
+            alt((tag("0x"), tag("0X"))),
             Self::match_base_16_int_trailing_digits,
         )
         .map(|(maybe_sign, digits)| {
             MatchedInt::new(16, maybe_sign.is_some(), digits.offset() - self.offset())
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches the digits that follow the '0x' or '0X' in a base-16 integer
     fn match_base_16_int_trailing_digits(self) -> IonMatchResult<'top> {
-        recognize(terminated(
+        terminated(
             // Zero or more digits-followed-by-underscores
-            many0_count(pair(Self::take_base_16_digits1, complete_tag("_"))),
+            zero_or_more((Self::take_base_16_digits1, tag("_"))),
             // One or more digits
             Self::take_base_16_digits1,
-        ))(self)
+        )
+        .recognize()
+        .parse_next(self)
     }
 
     /// Recognizes 1 or more consecutive base-16 digits.
     // This function's "1" suffix is a style borrowed from `nom`.
     fn take_base_16_digits1(self) -> IonMatchResult<'top> {
-        recognize(pair(
+        (
             // We need at least one digit; if input's empty, this is Incomplete.
-            satisfy(|c: char| c.is_ascii_hexdigit()),
+            one_of(|b: u8| b.is_ascii_hexdigit()),
             // After we have our digit, take digits until we find a non-digit (including EOF).
-            complete_take_while(|b: u8| b.is_ascii_hexdigit()),
-        ))(self)
+            take_while0(|b: u8| b.is_ascii_hexdigit()),
+        )
+            .recognize()
+            .parse_next(self)
     }
 
     /// Matches `n` consecutive hex digits.
@@ -1666,14 +1643,15 @@ impl<'top> TextBuffer<'top> {
         // specifying an operation to perform on each match. In our case, we just need the parser
         // to run 'n' times exactly so `recognize` can return the accepted slice; our operation
         // is a no-op.
-        recognize(fold_many_m_n(
+        fold_many_m_n(
             count,
             count,
-            satisfy(|c| c.is_ascii_hexdigit()),
+            one_of(|b: u8| b.is_ascii_hexdigit()),
             || 0,
             // no-op
             |accum, _item| accum,
-        ))
+        )
+        .recognize()
     }
 
     /// Matches an Ion float of any syntax
@@ -1690,20 +1668,21 @@ impl<'top> TextBuffer<'top> {
     /// Matches special IEEE-754 values, including +/- infinity and NaN.
     fn match_float_special_value(self) -> IonParseResult<'top, MatchedFloat> {
         alt((
-            value(MatchedFloat::NotANumber, complete_tag("nan")),
-            value(MatchedFloat::PositiveInfinity, tag("+inf")),
-            value(MatchedFloat::NegativeInfinity, tag("-inf")),
+            tag("nan").value(MatchedFloat::NotANumber),
+            tag("+inf").value(MatchedFloat::PositiveInfinity),
+            tag("-inf").value(MatchedFloat::NegativeInfinity),
         ))(self)
     }
 
     /// Matches numeric IEEE-754 floating point values.
     fn match_float_numeric_value(self) -> IonParseResult<'top, MatchedFloat> {
-        recognize(pair(
+        (
             Self::match_number_with_optional_dot_and_digits,
             Self::match_float_exponent_marker_and_digits,
-        ))
-        .map(|_matched| MatchedFloat::Numeric)
-        .parse(self)
+        )
+            .recognize()
+            .value(MatchedFloat::Numeric)
+            .parse_next(self)
     }
 
     /// Matches a number that may or may not have a decimal place and trailing fractional digits.
@@ -1713,86 +1692,81 @@ impl<'top> TextBuffer<'top> {
     ///   1000.559
     ///   -25.2
     fn match_number_with_optional_dot_and_digits(self) -> IonMatchResult<'top> {
-        recognize(tuple((
-            opt(complete_tag("-")),
+        (
+            opt(tag("-")),
             Self::match_base_10_digits_before_dot,
             opt(Self::match_dot_followed_by_base_10_digits),
-        )))(self)
+        )
+            .recognize()
+            .parse_next(self)
     }
 
     /// In a float or decimal, matches the digits that are permitted before the decimal point.
     /// This includes either a single zero, or a non-zero followed by any sequence of digits.
     fn match_digits_before_dot(self) -> IonMatchResult<'top> {
         alt((
-            complete_tag("0"),
-            recognize(pair(Self::match_leading_digit, Self::match_trailing_digits)),
+            tag("0"),
+            (Self::match_leading_digit, Self::match_trailing_digits).recognize(),
         ))(self)
     }
 
     /// Matches a single non-zero base 10 digit.
     fn match_leading_digit(self) -> IonMatchResult<'top> {
-        recognize(one_of("123456789"))(self)
+        one_of("123456789").recognize().parse_next(self)
     }
 
     /// Matches any number of base 10 digits, allowing underscores at any position except the end.
     fn match_trailing_digits(self) -> IonMatchResult<'top> {
-        recognize(many0_count(preceded(
-            opt(complete_char('_')),
-            complete_digit1,
-        )))(self)
+        zero_or_more(preceded(opt(tag("_")), digit1)).parse_next(self)
     }
 
     /// Recognizes a decimal point followed by any number of base-10 digits.
     fn match_dot_followed_by_base_10_digits(self) -> IonMatchResult<'top> {
-        recognize(preceded(
-            complete_tag("."),
-            opt(Self::match_zero_or_more_digits_after_dot),
-        ))(self)
+        (tag("."), opt(Self::match_zero_or_more_digits_after_dot))
+            .recognize()
+            .parse_next(self)
     }
 
     /// Like `match_digits_before_dot`, but allows leading zeros.
     fn match_one_or_more_digits_after_dot(self) -> IonMatchResult<'top> {
-        recognize(terminated(
+        (
             // Any number of digit-sequence-with-trailing-underscores...
-            many0_count(pair(complete_digit1, complete_char('_'))),
+            zero_or_more((digit1, tag("_"))),
             // ...and at least one trailing digit. Inputs that don't have any underscores
             // will be handled by this parser branch.
-            pair(satisfy(|c| c.is_ascii_digit()), complete_digit0),
-            // Note: ^-- We use this `pair(satisfy(...), complete_digit0)` to guarantee a subtle
-            //       behavior. At the end of the buffer, an empty input to this parser must be
-            //       considered 'incomplete' instead of 'invalid'. In contrast, an input of a single
-            //       digit would be considered complete even though the buffer could get more data later.
-            //       (If the buffer gets more data, it's the StreamingRawReader's responsibility to
-            //       discard the `1.1` and try again.)
-        ))(self)
+            (one_of(|b: u8| b.is_ascii_digit()), digit0),
+        )
+            .recognize()
+            .parse_next(self)
     }
 
     /// Like `match_digits_before_dot`, but allows leading zeros.
     fn match_zero_or_more_digits_after_dot(self) -> IonMatchResult<'top> {
-        recognize(terminated(
+        terminated(
             // Zero or more digits-followed-by-underscores.
-            many0_count(pair(
-                complete_digit1,
+            zero_or_more((
+                digit1,
                 terminated(
                     // The digit sequence can be followed by an underscore...
-                    complete_char('_'),
+                    one_of('_'),
                     // ...as long as the character after the underscore is another digit.
-                    peek(satisfy(|c| c.is_ascii_digit())),
+                    peek(one_of(|b: u8| b.is_ascii_digit())),
                 ),
             )),
-            // ...and zero or more trailing digits. This parser branch handles:
-            //   * inputs that don't have any underscores
-            //   * empty inputs
-            complete_digit0,
-        ))(self)
+            // ...and one or more trailing digits. This parser branch handles
+            // inputs that don't have any underscores.
+            digit1,
+        )
+        .recognize()
+        .parse_next(self)
     }
 
     /// Matches an `e` or `E` followed by an optional sign (`+` or `-`) followed by one or more
     /// base 10 digits.
     fn match_float_exponent_marker_and_digits(self) -> IonMatchResult<'top> {
         preceded(
-            complete_one_of("eE"),
-            recognize(Self::match_exponent_sign_and_one_or_more_digits),
+            one_of("eE"),
+            Self::match_exponent_sign_and_one_or_more_digits.recognize(),
         )(self)
     }
 
@@ -1806,23 +1780,24 @@ impl<'top> TextBuffer<'top> {
     /// Returns a boolean indicating whether the sign was negative (vs absent or positive)
     /// and the buffer slice containing the digits.
     fn match_exponent_sign_and_one_or_more_digits(self) -> IonParseResult<'top, (bool, Self)> {
-        pair(
+        (
             // Optional leading sign; if there's no sign, it's not negative.
-            opt(Self::match_any_sign).map(|s| s == Some('-')),
+            opt(Self::match_any_sign).map(|s| s == Some(b'-')),
             Self::match_one_or_more_digits_after_dot,
-        )(self)
+        )
+            .parse_next(self)
     }
 
     /// Matches `-` OR `+`.
     ///
     /// This is used for matching exponent signs; most places in Ion do not allow `+`.
-    pub fn match_any_sign(self) -> IonParseResult<'top, std::primitive::char> {
-        complete_one_of("-+")(self)
+    pub fn match_any_sign(self) -> IonParseResult<'top, std::primitive::u8> {
+        one_of("-+").parse_next(self)
     }
 
     pub fn match_decimal_exponent(self) -> IonParseResult<'top, (bool, TextBuffer<'top>)> {
         preceded(
-            complete_one_of("dD"),
+            one_of("dD"),
             Self::match_exponent_sign_and_one_or_more_digits,
         )(self)
     }
@@ -1831,36 +1806,40 @@ impl<'top> TextBuffer<'top> {
     /// decimal point (if present).
     pub fn match_decimal(self) -> IonParseResult<'top, MatchedDecimal> {
         terminated(
-            tuple((
-                opt(complete_tag("-")),
+            (
+                opt(tag("-")),
                 Self::match_digits_before_dot,
                 alt((
-                    tuple((
-                        complete_tag("."),
+                    (
+                        tag("."),
                         opt(Self::match_zero_or_more_digits_after_dot),
                         opt(Self::match_decimal_exponent),
-                    ))
-                    .map(|(dot, maybe_digits_after_dot, maybe_exponent)| {
-                        let digits_after_dot = match maybe_digits_after_dot {
-                            Some(digits) => digits,
-                            None => dot.slice(1, 0),
-                        };
-                        let (exp_is_negative, exp_digits) = match maybe_exponent {
-                            Some(exponent) => exponent,
-                            None => (false, digits_after_dot.slice(digits_after_dot.len(), 0)),
-                        };
-                        (digits_after_dot, exp_is_negative, exp_digits)
-                    }),
+                    )
+                        .map(
+                            |(dot, maybe_digits_after_dot, maybe_exponent)| {
+                                let digits_after_dot = match maybe_digits_after_dot {
+                                    Some(digits) => digits,
+                                    None => dot.slice(1, 0),
+                                };
+                                let (exp_is_negative, exp_digits) = match maybe_exponent {
+                                    Some(exponent) => exponent,
+                                    None => {
+                                        (false, digits_after_dot.slice(digits_after_dot.len(), 0))
+                                    }
+                                };
+                                (digits_after_dot, exp_is_negative, exp_digits)
+                            },
+                        ),
                     // or just a d/D and exponent
-                    consumed(Self::match_decimal_exponent).map(
-                        |(matched, (exp_is_negative, exp_digits))| {
+                    Self::match_decimal_exponent.with_recognized().map(
+                        |((exp_is_negative, exp_digits), matched)| {
                             // Make an empty slice to represent the (absent) digits after dot
                             let digits_after_dot = matched.slice(0, 0);
                             (digits_after_dot, exp_is_negative, exp_digits)
                         },
                     ),
                 )),
-            )),
+            ),
             Self::peek_stop_character,
         )
         .map(
@@ -1892,7 +1871,7 @@ impl<'top> TextBuffer<'top> {
                 )
             },
         )
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches short- or long-form string.
@@ -1902,7 +1881,7 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a short string. For example: `"foo"`
     pub(crate) fn match_short_string(self) -> IonParseResult<'top, MatchedString> {
-        delimited(char('"'), Self::match_short_string_body, char('"'))
+        delimited(one_of('"'), Self::match_short_string_body, one_of('"'))
             .map(|(_matched, contains_escaped_chars)| {
                 if contains_escaped_chars {
                     MatchedString::ShortWithEscapes
@@ -1910,7 +1889,7 @@ impl<'top> TextBuffer<'top> {
                     MatchedString::ShortWithoutEscapes
                 }
             })
-            .parse(self)
+            .parse_next(self)
     }
 
     /// Returns a matched buffer and a boolean indicating whether any escaped characters were
@@ -1967,19 +1946,17 @@ impl<'top> TextBuffer<'top> {
     /// If not, it will return an `Err` that includes the provided `label`.
     pub fn match_only_complete_if_terminated<Output, Output2, Output3: Debug>(
         label: &'static str,
-        mut parser: impl FnMut(Self) -> IonParseResult<'top, Output> + 'top,
+        mut parser: impl Parser<Self, Output, IonParseError<'top>>,
         mut terminator: impl FnMut(Self) -> IonParseResult<'top, Output3>,
         mut partial: impl FnMut(Self) -> IonParseResult<'top, Output2>,
     ) -> impl FnMut(Self) -> IonParseResult<'top, Output> {
         move |input: Self| {
             // If the parser raises an error, bubble it up.
-            let (remaining, matched) = parser(input)?;
+            let (remaining, matched) = parser.parse_next(input)?;
             // If the next thing in input is the terminator, report success.
             match peek(&mut terminator)(remaining) {
                 Ok(_) => return Ok((remaining, matched)),
-                Err(winnow::Err::Incomplete(_)) => {
-                    return Err(winnow::Err::Incomplete(Needed::Unknown))
-                }
+                Err(ErrMode::Incomplete(_)) => return remaining.incomplete(label),
                 _ => {
                     // no match
                 }
@@ -1987,10 +1964,10 @@ impl<'top> TextBuffer<'top> {
             // Otherwise, see if the next thing in input is an indication that the input was
             // incomplete.
             if peek(&mut partial)(remaining).is_ok() {
-                return incomplete();
+                return remaining.incomplete(label);
             }
 
-            Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+            Err(ErrMode::Backtrack(IonParseError::Invalid(
                 InvalidInputError::new(remaining).with_label(label),
             )))
         }
@@ -2020,7 +1997,7 @@ impl<'top> TextBuffer<'top> {
                 _ => MatchedString::Long,
             },
         )
-        .parse(self)
+        .parse_next(self)
     }
 
     /// In the context of a list or s-expression, a truncated long-form string makes it impossible
@@ -2039,7 +2016,7 @@ impl<'top> TextBuffer<'top> {
     /// If an error is encountered while traversing a list or struct, this method can be used to
     /// see if the problematic data was the beginning of another string segment.
     pub fn match_partial_long_string_delimiter(self) -> IonMatchResult<'top> {
-        whitespace_and_then(terminated(tag("''"), eof)).parse(self)
+        whitespace_and_then(terminated(tag("''"), eof)).parse_next(self)
     }
 
     /// Matches a single long string segment enclosed by `'''` delimiters.
@@ -2048,13 +2025,9 @@ impl<'top> TextBuffer<'top> {
         // If the buffer is a single quote and then EOF, it's not known whether this was a
         // partial long string segment or a partial quoted symbol.
         if self.bytes() == b"'" {
-            return Err(winnow::Err::Incomplete(Needed::Unknown));
+            return self.incomplete("a long string segment");
         }
-        delimited(
-            complete_tag("'''"),
-            Self::match_long_string_segment_body,
-            tag("'''"),
-        )(self)
+        delimited(tag("'''"), Self::match_long_string_segment_body, tag("'''"))(self)
     }
 
     /// Matches all input up to (but not including) the first unescaped instance of `'''`.
@@ -2067,12 +2040,12 @@ impl<'top> TextBuffer<'top> {
     fn match_operator<E: TextEncoding<'top>>(
         self,
     ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
-        is_a("!#%&*+-./;<=>?@^`|~")
+        take_while1("!#%&*+-./;<=>?@^`|~")
             .map(|text: TextBuffer<'_>| LazyRawTextValue {
                 input: text,
                 encoded_value: EncodedTextValue::new(MatchedValue::Symbol(MatchedSymbol::Operator)),
             })
-            .parse(self)
+            .parse_next(self)
     }
 
     /// Matches a symbol ID (`$28`), an identifier (`foo`), or a quoted symbol (`'foo'`).
@@ -2086,9 +2059,9 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a symbol ID (`$28`).
     fn match_symbol_id(self) -> IonParseResult<'top, MatchedSymbol> {
-        recognize(preceded(tag("$"), Self::match_address))
-            .map(|_matched| MatchedSymbol::SymbolId)
-            .parse(self)
+        (tag("$"), Self::match_address)
+            .value(MatchedSymbol::SymbolId)
+            .parse_next(self)
     }
 
     /// Matches the integer portion of a symbol ID or a macro address.
@@ -2102,39 +2075,34 @@ impl<'top> TextBuffer<'top> {
         // We do this to make sure that input like `$1_02` gets parsed like an identifier;
         // If we didn't check for a trailing underscore, it would be a SID (`$1`) and an
         // identifier (`_02`).
-        terminated(complete_digit1, peek(not(complete_tag("_"))))
+        terminated(digit1, peek(not(tag("_"))))
             .map(|buffer: TextBuffer<'_>| {
                 // The matched buffer is ascii base 10 digits, parsing must succeed
                 usize::from_str(buffer.as_utf8(self.offset()).unwrap()).unwrap()
             })
-            .parse(self)
+            .parse_next(self)
     }
 
     /// Matches items that match the syntactic definition of an identifier but which have special
     /// meaning. (`true`, `false`, `nan`, `null`)
     pub(crate) fn match_keyword(self) -> IonMatchResult<'top> {
         terminated(
-            alt((
-                complete_tag("true"),
-                complete_tag("false"),
-                complete_tag("null"),
-                complete_tag("nan"),
-            )),
+            alt((tag("true"), tag("false"), tag("null"), tag("nan"))),
             Self::identifier_terminator,
         )(self)
     }
 
     /// Matches an identifier (`foo`).
     pub(crate) fn match_identifier(self) -> IonParseResult<'top, MatchedSymbol> {
-        let (remaining, identifier_text) = recognize(terminated(
-            pair(
-                Self::identifier_initial_character,
-                Self::identifier_trailing_characters,
-            ),
+        let (remaining, identifier_text) = (
+            Self::identifier_initial_character,
+            Self::identifier_trailing_characters,
             Self::identifier_terminator,
-        ))(self)?;
+        )
+            .recognize()
+            .parse_next(self)?;
         if identifier_text.match_keyword().is_ok() {
-            return Err(winnow::error::ErrMode::Backtrack(IonParseError::Invalid(
+            return Err(ErrMode::Backtrack(IonParseError::Invalid(
                 InvalidInputError::new(self),
             )));
         }
@@ -2142,33 +2110,33 @@ impl<'top> TextBuffer<'top> {
     }
 
     fn identifier_terminator(self) -> IonMatchResult<'top> {
-        alt((
-            eof,
-            recognize(peek(not(Self::identifier_trailing_character))),
-        ))(self)
+        peek(not(Self::identifier_trailing_character))
+            .recognize()
+            .parse_next(self)
     }
 
     /// Matches any character that can appear at the start of an identifier.
     fn identifier_initial_character(self) -> IonParseResult<'top, Self> {
-        recognize(alt((one_of("$_"), satisfy(|c| c.is_ascii_alphabetic()))))(self)
+        alt((one_of("$_"), one_of(|b: u8| b.is_ascii_alphabetic())))
+            .recognize()
+            .parse_next(self)
     }
 
     /// Matches any character that is legal in an identifier, though not necessarily at the beginning.
     fn identifier_trailing_character(self) -> IonParseResult<'top, Self> {
-        recognize(alt((
-            complete_one_of("$_"),
-            winnow::character::complete::satisfy(|c| c.is_ascii_alphanumeric()),
-        )))(self)
+        alt((one_of("$_"), one_of(|c: u8| c.is_ascii_alphanumeric())))
+            .recognize()
+            .parse_next(self)
     }
 
     /// Matches characters that are legal in an identifier, though not necessarily at the beginning.
     fn identifier_trailing_characters(self) -> IonParseResult<'top, Self> {
-        complete_take_while(|c: u8| c.is_ascii_alphanumeric() || b"$_".contains(&c))(self)
+        take_while0(|b: u8| b.is_ascii_alphanumeric() || b"$_".contains(&b))(self)
     }
 
     /// Matches a quoted symbol (`'foo'`).
     fn match_quoted_symbol(self) -> IonParseResult<'top, MatchedSymbol> {
-        delimited(complete_tag("'"), Self::match_quoted_symbol_body, tag("'"))
+        delimited(tag("'"), Self::match_quoted_symbol_body, tag("'"))
             .map(|(_matched, contains_escaped_chars)| {
                 if contains_escaped_chars {
                     MatchedSymbol::QuotedWithEscapes
@@ -2176,7 +2144,7 @@ impl<'top> TextBuffer<'top> {
                     MatchedSymbol::QuotedWithoutEscapes
                 }
             })
-            .parse(self)
+            .parse_next(self)
     }
 
     /// Returns a matched buffer and a boolean indicating whether any escaped characters were
@@ -2229,7 +2197,7 @@ impl<'top> TextBuffer<'top> {
                 }
             }
         }
-        Err(winnow::Err::Incomplete(Needed::Unknown))
+        self.incomplete("a text value without closing delimiter")
     }
 
     #[cold]
@@ -2287,8 +2255,8 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches a single base-10 digit, 0-9.
-    fn match_any_digit(self) -> IonParseResult<'top, std::primitive::char> {
-        satisfy(|c| c.is_ascii_digit())(self)
+    fn match_any_digit(self) -> IonParseResult<'top, std::primitive::u8> {
+        one_of(|b: u8| b.is_ascii_digit())(self)
     }
 
     /// Matches a timestamp of any precision.
@@ -2307,77 +2275,77 @@ impl<'top> TextBuffer<'top> {
     fn match_timestamp_y(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
             Self::match_timestamp_year,
-            pair(tag("T"), Self::peek_stop_character),
+            (tag("T"), Self::peek_stop_character),
         )
         .map(|_year| MatchedTimestamp::new(TimestampPrecision::Year))
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a timestamp with month precision.
     fn match_timestamp_ym(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
-            pair(Self::match_timestamp_year, Self::match_timestamp_month),
-            pair(tag("T"), Self::peek_stop_character),
+            (Self::match_timestamp_year, Self::match_timestamp_month),
+            (tag("T"), Self::peek_stop_character),
         )
         .map(|(_year, _month)| MatchedTimestamp::new(TimestampPrecision::Month))
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a timestamp with day precision.
     fn match_timestamp_ymd(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
-            tuple((
+            (
                 Self::match_timestamp_year,
                 Self::match_timestamp_month,
                 Self::match_timestamp_day,
-            )),
-            pair(opt(complete_tag("T")), Self::peek_stop_character),
+            ),
+            (opt(tag("T")), Self::peek_stop_character),
         )
         .map(|_| MatchedTimestamp::new(TimestampPrecision::Day))
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a timestamp with hour-and-minute precision.
     fn match_timestamp_ymd_hm(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
-            tuple((
+            (
                 Self::match_timestamp_year,
                 Self::match_timestamp_month,
                 Self::match_timestamp_day,
                 Self::match_timestamp_hour_and_minute,
                 Self::match_timestamp_offset,
-            )),
+            ),
             Self::peek_stop_character,
         )
         .map(|(_y, _m, _d, _hm, offset)| {
             MatchedTimestamp::new(TimestampPrecision::HourAndMinute).with_offset(offset)
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a timestamp with second precision.
     fn match_timestamp_ymd_hms(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
-            tuple((
+            (
                 Self::match_timestamp_year,
                 Self::match_timestamp_month,
                 Self::match_timestamp_day,
                 Self::match_timestamp_hour_and_minute,
                 Self::match_timestamp_seconds,
                 Self::match_timestamp_offset,
-            )),
+            ),
             Self::peek_stop_character,
         )
         .map(|(_y, _m, _d, _hm, _s, offset)| {
             MatchedTimestamp::new(TimestampPrecision::Second).with_offset(offset)
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a timestamp with second precision, including a fractional seconds component.
     fn match_timestamp_ymd_hms_fractional(self) -> IonParseResult<'top, MatchedTimestamp> {
         terminated(
-            tuple((
+            (
                 Self::match_timestamp_year,
                 Self::match_timestamp_month,
                 Self::match_timestamp_day,
@@ -2385,40 +2353,47 @@ impl<'top> TextBuffer<'top> {
                 Self::match_timestamp_seconds,
                 Self::match_timestamp_fractional_seconds,
                 Self::match_timestamp_offset,
-            )),
+            ),
             Self::peek_stop_character,
         )
         .map(|(_y, _m, _d, _hm, _s, _f, offset)| {
             MatchedTimestamp::new(TimestampPrecision::Second).with_offset(offset)
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches the year component of a timestamp.
     fn match_timestamp_year(self) -> IonMatchResult<'top> {
-        recognize(take_while_m_n(4, 4, |c: u8| c.is_ascii_digit()))(self)
+        take_while_m_n(4, 4, |c: u8| c.is_ascii_digit())(self)
     }
 
     /// Matches the month component of a timestamp, including a leading `-`.
     fn match_timestamp_month(self) -> IonMatchResult<'top> {
         preceded(
-            complete_tag("-"),
-            recognize(alt((
-                pair(char('0'), one_of("123456789")),
-                pair(char('1'), one_of("012")),
-            ))),
+            tag("-"),
+            alt((
+                (one_of('0'), one_of("123456789")),
+                (one_of('1'), one_of("012")),
+            ))
+            .recognize(),
         )(self)
+    }
+
+    fn match_timestamp_day2(self) -> IonMatchResult<'top> {
+        tag("123").parse_next(self)
     }
 
     /// Matches the day component of a timestamp, including a leading `-`.
     fn match_timestamp_day(self) -> IonMatchResult<'top> {
         preceded(
             tag("-"),
-            recognize(alt((
-                pair(char('0'), one_of("123456789")),
-                pair(one_of("12"), Self::match_any_digit),
-                pair(char('3'), one_of("01")),
-            ))),
+            alt((
+                (tag(b"0"), one_of(b"123456789".as_slice())),
+                // pair(one_of([b'1' as u8, b'2' as u8]), Self::match_any_digit),
+                (one_of(b"12".as_slice()).recognize(), Self::match_any_digit),
+                (tag(b"3"), one_of(b"01".as_slice())),
+            ))
+            .recognize(),
         )(self)
     }
 
@@ -2431,14 +2406,15 @@ impl<'top> TextBuffer<'top> {
             tag("T"),
             separated_pair(
                 // Hour
-                recognize(alt((
-                    pair(one_of("01"), Self::match_any_digit),
-                    pair(char('2'), one_of("0123")),
-                ))),
+                alt((
+                    (one_of("01").recognize(), Self::match_any_digit),
+                    (tag(b"2"), one_of("0123")),
+                ))
+                .recognize(),
                 // Delimiter
                 tag(":"),
                 // Minutes
-                recognize(pair(one_of("012345"), Self::match_any_digit)),
+                (one_of("012345"), Self::match_any_digit).recognize(),
             ),
         )(self)
     }
@@ -2447,7 +2423,7 @@ impl<'top> TextBuffer<'top> {
     fn match_timestamp_seconds(self) -> IonMatchResult<'top> {
         preceded(
             tag(":"),
-            recognize(pair(one_of("012345"), Self::match_any_digit)),
+            (one_of("012345"), Self::match_any_digit).recognize(),
         )(self)
     }
 
@@ -2459,13 +2435,12 @@ impl<'top> TextBuffer<'top> {
     /// Matches a timestamp offset of any format.
     fn match_timestamp_offset(self) -> IonParseResult<'top, MatchedTimestampOffset> {
         alt((
-            value(MatchedTimestampOffset::Zulu, tag("Z")),
-            value(MatchedTimestampOffset::Zulu, tag("+00:00")),
-            value(MatchedTimestampOffset::Unknown, tag("-00:00")),
-            map(
-                pair(one_of("-+"), Self::match_timestamp_offset_hours_and_minutes),
+            tag("Z").value(MatchedTimestampOffset::Zulu),
+            tag("+00:00").value(MatchedTimestampOffset::Zulu),
+            tag("-00:00").value(MatchedTimestampOffset::Unknown),
+            (one_of("-+"), Self::match_timestamp_offset_hours_and_minutes).map(
                 |(sign, (_hours, _minutes))| {
-                    if sign == '-' {
+                    if sign == b'-' {
                         MatchedTimestampOffset::NegativeHoursAndMinutes
                     } else {
                         MatchedTimestampOffset::PositiveHoursAndMinutes
@@ -2480,45 +2455,41 @@ impl<'top> TextBuffer<'top> {
     fn match_timestamp_offset_hours_and_minutes(self) -> IonParseResult<'top, (Self, Self)> {
         separated_pair(
             // Hour
-            recognize(alt((
-                pair(one_of("01"), Self::match_any_digit),
-                pair(char('2'), one_of("0123")),
-            ))),
+            alt((
+                (one_of("01").recognize(), Self::match_any_digit),
+                (tag(b"2"), one_of("0123")),
+            ))
+            .recognize(),
             // Delimiter
             tag(":"),
             // Minutes
-            recognize(pair(one_of("012345"), Self::match_any_digit)),
+            (one_of("012345"), Self::match_any_digit).recognize(),
         )(self)
     }
 
     /// Matches a complete blob, including the opening `{{` and closing `}}`.
     pub fn match_blob(self) -> IonParseResult<'top, MatchedBlob> {
         delimited(
-            complete_tag("{{"),
+            tag("{{"),
             // Only whitespace (not comments) can appear within the blob
-            recognize(Self::match_base64_content),
+            Self::match_base64_content,
             preceded(Self::match_optional_whitespace, tag("}}")),
         )
         .map(|base64_data| {
             MatchedBlob::new(base64_data.offset() - self.offset(), base64_data.len())
         })
-        .parse(self)
+        .parse_next(self)
     }
 
     /// Matches a clob of either short- or long-form syntax.
     pub fn match_clob(self) -> IonParseResult<'top, MatchedClob> {
         delimited(
-            complete_tag("{{"),
+            tag("{{"),
             preceded(
                 Self::match_optional_whitespace,
                 alt((
-                    value(MatchedClob::Short, Self::match_short_clob_body),
-                    value(
-                        MatchedClob::Long,
-                        // Look ahead to make sure there's a complete triple quote following the `{{`.
-                        // If there isn't, the input is incomplete.
-                        preceded(peek(tag("'''")), Self::match_long_clob_body),
-                    ),
+                    Self::match_short_clob_body.value(MatchedClob::Short),
+                    preceded(peek(tag("'''")), Self::match_long_clob_body).value(MatchedClob::Long),
                 )),
             ),
             preceded(Self::match_optional_whitespace, tag("}}")),
@@ -2527,7 +2498,9 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches the body (inside the `{{` and `}}`) of a short-form clob.
     fn match_short_clob_body(self) -> IonMatchResult<'top> {
-        let (remaining, (body, _matched_string)) = consumed(Self::match_short_string)(self)?;
+        let (remaining, (_matched_string, body)) = Self::match_short_string
+            .with_recognized()
+            .parse_next(self)?;
         body.validate_clob_text()?;
         Ok((remaining, body))
     }
@@ -2536,10 +2509,11 @@ impl<'top> TextBuffer<'top> {
     fn match_long_clob_body(self) -> IonMatchResult<'top> {
         let (remaining, body) = Self::match_only_complete_if_terminated(
             "reading a long-form clob",
-            recognize(many1_count(preceded(
+            one_or_more(preceded(
                 Self::match_optional_whitespace,
                 Self::match_long_clob_body_segment,
-            ))),
+            ))
+            .recognize(),
             preceded(Self::match_optional_whitespace, tag(r#"}}"#)),
             preceded(Self::match_optional_whitespace, tag("''")),
         )(self)?;
@@ -2549,7 +2523,9 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a single segment of a long-form clob's content.
     fn match_long_clob_body_segment(self) -> IonMatchResult<'top> {
-        let (remaining, (body, _matched_string)) = consumed(Self::match_long_string_segment)(self)?;
+        let (remaining, (_matched_string, body)) = Self::match_long_string_segment
+            .with_recognized()
+            .parse_next(self)?;
         body.validate_clob_text()?;
         Ok((remaining, body))
     }
@@ -2560,7 +2536,7 @@ impl<'top> TextBuffer<'top> {
             if !Self::byte_is_legal_clob_ascii(byte) {
                 let message = format!("found an illegal byte '{:0x}' in clob", byte);
                 let error = InvalidInputError::new(self).with_description(message);
-                return Err(winnow::error::ErrMode::Cut(IonParseError::Invalid(error)));
+                return Err(ErrMode::Cut(IonParseError::Invalid(error)));
             }
         }
         // Return success without consuming
@@ -2581,16 +2557,22 @@ impl<'top> TextBuffer<'top> {
     /// whitespace, so the matched input region may need to be stripped of whitespace before
     /// the data can be decoded.
     fn match_base64_content(self) -> IonMatchResult<'top> {
-        recognize(terminated(
-            many0_count(preceded(
+        (
+            zero_or_more((
                 Self::match_optional_whitespace,
-                alt((alphanumeric1, is_a("+/"))),
+                alt((alphanumeric1, take_while1("+/"))),
             )),
             opt(preceded(
                 Self::match_optional_whitespace,
                 alt((tag("=="), tag("="))),
             )),
-        ))(self)
+        )
+            .recognize()
+            .parse_next(self)
+    }
+
+    pub fn is_final_data(&self) -> bool {
+        self.is_final_data
     }
 }
 
@@ -2664,6 +2646,24 @@ impl<'data> winnow::stream::Stream for TextBuffer<'data> {
         (self.slice_to_end(offset), self.slice(0, offset))
     }
 }
+
+impl StreamIsPartial for TextBuffer<'_> {
+    type PartialState = ();
+
+    fn complete(&mut self) -> Self::PartialState {}
+
+    fn restore_partial(&mut self, _state: Self::PartialState) {
+        // No-op.
+    }
+
+    fn is_partial_supported() -> bool {
+        true
+    }
+
+    fn is_partial(&self) -> bool {
+        !self.is_final_data
+    }
+}
 //
 // impl<'data> winnow::InputIter for TextBuffer<'data> {
 //     type Item = u8;
@@ -2700,6 +2700,26 @@ impl<'a> winnow::stream::Compare<&'a str> for TextBuffer<'_> {
     }
 }
 
+impl<'a> winnow::stream::Compare<&'a [u8]> for TextBuffer<'_> {
+    fn compare(&self, t: &'a [u8]) -> CompareResult {
+        self.data.compare(t)
+    }
+
+    fn compare_no_case(&self, t: &'a [u8]) -> CompareResult {
+        self.data.compare_no_case(t)
+    }
+}
+
+impl<'a, const N: usize> winnow::stream::Compare<&'a [u8; N]> for TextBuffer<'_> {
+    fn compare(&self, t: &'a [u8; N]) -> CompareResult {
+        self.data.compare(t.as_slice())
+    }
+
+    fn compare_no_case(&self, t: &'a [u8; N]) -> CompareResult {
+        self.data.compare_no_case(t.as_slice())
+    }
+}
+
 impl winnow::stream::Offset for TextBuffer<'_> {
     fn offset_to(&self, second: &Self) -> usize {
         second.offset - self.offset
@@ -2733,7 +2753,7 @@ impl winnow::stream::FindSlice<&str> for TextBuffer<'_> {
 //     {
 //         match self.data.iter().position(|c| predicate(*c)) {
 //             Some(i) => Ok(self.take_split(i)),
-//             None => Err(winnow::Err::Incomplete(Needed::new(1))),
+//             None => Err(ErrMode::Incomplete(Needed::new(1))),
 //         }
 //     }
 //
@@ -2748,7 +2768,7 @@ impl winnow::stream::FindSlice<&str> for TextBuffer<'_> {
 //         match self.data.iter().position(|c| predicate(*c)) {
 //             Some(0) => Err(winnow::error::ErrMode::Backtrack(E::from_error_kind(*self, e))),
 //             Some(i) => Ok(self.take_split(i)),
-//             None => Err(winnow::Err::Incomplete(Needed::new(1))),
+//             None => Err(ErrMode::Incomplete(Needed::new(1))),
 //         }
 //     }
 //
@@ -2789,11 +2809,6 @@ impl winnow::stream::FindSlice<&str> for TextBuffer<'_> {
 
 // === end of `nom` trait implementations
 
-/// Convenience function to construct a nom `Incomplete` and wrap it in an `IonParseResult`
-fn incomplete<'a, T>() -> IonParseResult<'a, T> {
-    Err(winnow::Err::Incomplete(Needed::Unknown))
-}
-
 /// Takes a given parser and returns a new one that accepts any amount of leading whitespace before
 /// calling the original parser.
 pub fn whitespace_and_then<'data, P, O>(
@@ -2803,6 +2818,24 @@ where
     P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
 {
     preceded(TextBuffer::match_optional_comments_and_whitespace, parser)
+}
+
+pub fn zero_or_more<'data, P, O>(
+    parser: P,
+) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
+where
+    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+{
+    many0::<_, _, usize, _, _>(parser).recognize()
+}
+
+pub fn one_or_more<'data, P, O>(
+    parser: P,
+) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
+where
+    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+{
+    many1::<_, _, usize, _, _>(parser).recognize()
 }
 
 /// Augments a given parser such that it returns the matched value and the number of input bytes
@@ -2815,7 +2848,7 @@ where
 {
     move |input: TextBuffer<'data>| {
         let offset_before = input.offset();
-        let (remaining, matched) = match parser.parse(input) {
+        let (remaining, matched) = match parser.parse_next(input) {
             Ok((remaining, matched)) => (remaining, matched),
             Err(e) => return Err(e),
         };
@@ -2835,7 +2868,7 @@ where
 {
     move |input: TextBuffer<'data>| {
         let offset_before = input.offset();
-        let (remaining, matched) = match parser.parse(input) {
+        let (remaining, matched) = match parser.parse_next(input) {
             Ok((remaining, matched)) => (remaining, matched),
             Err(e) => return Err(e),
         };
@@ -2895,8 +2928,8 @@ mod tests {
         where
             P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
         {
-            let buffer = TextBuffer::new(self.context.get_ref(), self.input.as_bytes());
-            match_length(parser).parse(buffer)
+            let buffer = TextBuffer::new(self.context.get_ref(), self.input.as_bytes(), true);
+            match_length(parser).parse_next(buffer)
         }
 
         fn expect_match<'data, P, O>(&'data self, parser: P)
@@ -3076,12 +3109,10 @@ mod tests {
             "nullify",
             "null..int",
             "string.null",
-        ],
-        expect_incomplete: [
             "null.timestam",
             "null.strin",
             "null.nul"
-        ]
+        ],
     }
 
     matcher_tests! {
@@ -3122,11 +3153,9 @@ mod tests {
             "_123",        // Leading underscore
             "0x0x5",       // Multiple 0x prefixes
             "0xx5",        // Multiple Xs after 0
-        ],
-        expect_incomplete: [
             "0x",          // Base 16 prefix w/no number
             "0b",          // Base 2 prefix w/no number
-        ]
+        ],
     }
 
     matcher_tests! {
@@ -3143,8 +3172,6 @@ mod tests {
             "0305e1",   // Leading zero
             "+305e1",   // Leading plus sign
             "--305e1",  // Multiple negative signs
-        ],
-        expect_incomplete: [
             "305e",     // Has exponent delimiter but no exponent
         ]
     }
@@ -3173,8 +3200,6 @@ mod tests {
             "2023-08-18T14:35:52.Z",         // Dot but no fractional
             "2023-08-18T14:35:52.000+24:30", // Out of bounds offset hour
             "2023-08-18T14:35:52.000+00:60", // Out of bounds offset minute
-        ],
-        expect_incomplete: [
             "2023",                          // No 'T'; it's an int
             "2023-08",                       // No 'T'; it's incomplete
             "2023-08-18T14:00",              // No offset
@@ -3214,8 +3239,6 @@ mod tests {
             r#"
             hello"
             "#,
-        ],
-        expect_incomplete: [
             // Missing a closing quote
             r#"
             "hello
@@ -3241,12 +3264,10 @@ mod tests {
             "$bar",
             "_baz_quux",
         ],
-        expect_incomplete: [
-            "'hello",    // No closing quote
-            "'hello\\'", // Closing quote is escaped
-        ],
         expect_mismatch: [
             "$-8",       // Negative SID
+            "'hello",    // No closing quote
+            "'hello\\'", // Closing quote is escaped
         ],
     }
 
@@ -3261,8 +3282,7 @@ mod tests {
             "foo::bar::baz::quux::quuz::5",
             "foo::'bar'::baz::$10::5",
         ],
-        expect_incomplete: ["foo::"],
-        expect_mismatch: ["foo:bar", "foo:::bar"],
+        expect_mismatch: ["foo::", "foo:bar", "foo:::bar"],
     }
 
     matcher_tests! {
@@ -3273,8 +3293,6 @@ mod tests {
         ],
         expect_mismatch: [
             "123._456", "5", "05d", "-5.0+0",
-        ],
-        expect_incomplete: [
             "5d",
             "-5d",
             "5.d",
@@ -3301,8 +3319,7 @@ mod tests {
             "((()))",
             "(1 (2 (3 4) 5) 6)",
         ],
-        expect_mismatch: ["foo", "1"],
-        expect_incomplete: ["(", "(1 2 (3 4 5)"]
+        expect_mismatch: ["foo", "1", "(", "(1 2 (3 4 5)"]
     }
 
     matcher_tests_with_macro! {
@@ -3323,8 +3340,7 @@ mod tests {
             "(1 (2 (3 4) 5) 6)",
             "(1 (:foo 2 3))",
         ],
-        expect_mismatch: ["foo", "1"],
-        expect_incomplete: ["(", "(1 2 (3 4 5)"]
+        expect_mismatch: ["foo", "1", "(", "(1 2 (3 4 5)"]
     }
 
     matcher_tests! {
@@ -3333,10 +3349,10 @@ mod tests {
             "[]", "[1]", "[1, 2]", "[[]]", "[([])]",
         ],
         expect_mismatch: [
-            "foo", "1",
-        ],
-        expect_incomplete: [
-            "[", "[1, 2, [3, 4]",
+            "foo",
+            "1",
+            "[",
+            "[1, 2, [3, 4]",
         ]
     }
 
@@ -3348,9 +3364,7 @@ mod tests {
             "[]", "[1]", "[1, 2]", "[[]]", "[([])]", "[1, (:foo 2 3)]"
         ],
         expect_mismatch: [
-            "foo", "1"
-        ],
-        expect_incomplete: [
+            "foo", "1",
             "[", "[1, 2, [3, 4]"
         ]
     }
@@ -3381,10 +3395,8 @@ mod tests {
             "(5)",   // No `:` after opening paren
             "(:0x5)",   // Hexadecimal not allowed
             "(:5_000)", // Underscores not allowed
-        ],
-        expect_incomplete: [
-            "(:foo",
-            "(:5"
+            "(:foo", // Incomplete
+            "(:5"    // Incomplete
         ]
     }
 
@@ -3490,8 +3502,6 @@ mod tests {
             "{{=aGVsbG8}}",
             // too much padding
             "{{aGVsbG8===}}",
-        ],
-        expect_incomplete: [
             "{{aGVsbG8h",
             "{{aGVsbG8h}"
         ]
@@ -3520,8 +3530,6 @@ mod tests {
             r#"{{'''foo''' /*hi!*/ '''bar'''}}"#, // Interleaved comments
             r#"{{'''foo''' "bar"}}"#,             // Mixed quote style
             r#"{{"😎🙂🙃"}}"#,                    // Contains unescaped non-ascii characters
-        ],
-        expect_incomplete: [
             r#"{{"foo}}"#,     // Missing closing quote
             r#"{{"foo"}"#,     // Missing closing brace
             r#"{{'''foo'''}"#, // Missing closing brace
@@ -3531,7 +3539,7 @@ mod tests {
     fn test_match_text_until_unescaped_str() {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let input = TextBuffer::new(context, r" foo bar \''' baz''' quux ".as_bytes());
+        let input = TextBuffer::new(context, r" foo bar \''' baz''' quux ".as_bytes(), true);
         let (_remaining, (matched, contains_escapes)) =
             input.match_text_until_unescaped_str(r#"'''"#).unwrap();
         assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");

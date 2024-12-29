@@ -3,8 +3,7 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-
-use winnow::character::streaming::satisfy;
+use winnow::bytes::one_of;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
@@ -127,7 +126,7 @@ impl RawTextListIterator_1_0<'_> {
                 .match_optional_comments_and_whitespace()
                 .with_context("skipping a list's trailing comma", input_after_ws)?;
         }
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == ']')(input_after_ws)
+        let (input_after_end, _end_delimiter) = one_of(|c| c == b']')(input_after_ws)
             .with_context("seeking the closing delimiter of a list", input_after_ws)?;
         let end = input_after_end.offset();
         Ok(start..end)
@@ -218,7 +217,7 @@ impl<'top> RawTextSExpIterator_1_0<'top> {
         let (input_after_ws, _ws) = input_after_last
             .match_optional_comments_and_whitespace()
             .with_context("seeking the end of a list", input_after_last)?;
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == ')')(input_after_ws)
+        let (input_after_end, _end_delimiter) = one_of(|c| c == b')')(input_after_ws)
             .with_context("seeking the closing delimiter of a sexp", input_after_ws)?;
         let end = input_after_end.offset();
         Ok(start..end)
@@ -309,8 +308,8 @@ mod tests {
     fn expect_sequence_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
-        let value = reader.next(context)?.expect_value()?;
+        let reader = &mut LazyRawTextReader_1_0::new(context, ion_data.as_bytes(), true);
+        let value = reader.next()?.expect_value()?;
         let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,

@@ -29,10 +29,9 @@ use ice_code::ice as cold_path;
 use num_traits::Zero;
 use smallvec::SmallVec;
 use winnow::branch::alt;
-use winnow::bytes::streaming::tag;
-use winnow::character::is_hex_digit;
+use winnow::bytes::tag;
 use winnow::sequence::preceded;
-use winnow::stream::{AsBytes, AsChar};
+use winnow::stream::AsChar;
 use winnow::Parser;
 
 use crate::decimal::coefficient::Coefficient;
@@ -693,7 +692,7 @@ fn decode_hex_digits_escape<'data>(
         .iter()
         .take(num_digits)
         .copied()
-        .all(is_hex_digit);
+        .all(AsChar::is_hex_digit);
     if !all_are_hex_digits {
         return Err(IonError::Decoding(
             DecodingError::new(format!(
@@ -758,7 +757,7 @@ fn complete_surrogate_pair<'data>(
             preceded(tag("U"), TextBuffer::match_n_hex_digits(8)),
         )),
     );
-    let (remaining, hex_digits) = match match_next_codepoint.parse(input) {
+    let (remaining, hex_digits) = match match_next_codepoint.parse_next(input) {
         Ok((remaining, hex_digits)) => (remaining, hex_digits),
         Err(_) => {
             return {
@@ -1236,7 +1235,7 @@ mod tests {
             let expected: Int = expected.into();
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes(), true);
             let (_remaining, matched) = buffer.match_int().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1271,7 +1270,7 @@ mod tests {
             let data = format!("{data} "); // Append a space
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes(), true);
             let (_remaining, matched) = buffer.match_timestamp().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1374,7 +1373,7 @@ mod tests {
         fn expect_decimal(data: &str, expected: Decimal) {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes(), true);
             let result = buffer.match_decimal();
             assert!(
                 result.is_ok(),
@@ -1457,7 +1456,7 @@ mod tests {
             let data = format!("{data} "); // Append a space
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes(), true);
             let (_remaining, matched) = buffer.match_blob().unwrap();
             let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
@@ -1496,7 +1495,7 @@ mod tests {
             let data = format!("{data}\n0");
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes(), true);
             let (_remaining, matched) = buffer.match_string().unwrap();
             let matched_input = buffer.slice(0, buffer.len() - 2);
             let actual = matched.read(context.allocator(), matched_input).unwrap();
@@ -1535,7 +1534,7 @@ mod tests {
             context: EncodingContextRef<'a>,
             data: &'a str,
         ) -> IonResult<BytesRef<'a>> {
-            let buffer = TextBuffer::new(context, data.as_bytes());
+            let buffer = TextBuffer::new(context, data.as_bytes(), true);
             // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
             // call to `match_clob()`.
             let (_remaining, matched) = buffer.match_clob().unwrap();

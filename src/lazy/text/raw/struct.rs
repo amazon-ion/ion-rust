@@ -1,9 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::ops::Range;
-
-use winnow::character::streaming::satisfy;
-
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
@@ -16,6 +12,8 @@ use crate::lazy::text::matched::MatchedFieldName;
 use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
 use crate::{IonResult, RawSymbolRef};
+use std::ops::Range;
+use winnow::bytes::one_of;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RawTextStructIterator_1_0<'top> {
@@ -54,7 +52,7 @@ impl<'top> RawTextStructIterator_1_0<'top> {
                 .match_optional_comments_and_whitespace()
                 .with_context("skipping a list's trailing comma", input_after_ws)?;
         }
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == '}')(input_after_ws)
+        let (input_after_end, _end_delimiter) = one_of(|c| c == b'}')(input_after_ws)
             .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
         let end = input_after_end.offset();
         Ok(start..end)
@@ -165,8 +163,8 @@ mod tests {
     fn expect_struct_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
-        let value = reader.next(context)?.expect_value()?;
+        let reader = &mut LazyRawTextReader_1_0::new(context, ion_data.as_bytes(), true);
+        let value = reader.next()?.expect_value()?;
         let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,
@@ -233,12 +231,8 @@ mod tests {
         for (input, field_name_ranges) in tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let mut reader = LazyRawTextReader_1_0::new(input.as_bytes());
-            let struct_ = reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_struct()?;
+            let mut reader = LazyRawTextReader_1_0::new(context, input.as_bytes(), true);
+            let struct_ = reader.next()?.expect_value()?.read()?.expect_struct()?;
             for (field_result, (expected_name, expected_range)) in
                 struct_.iter().zip(field_name_ranges.iter())
             {

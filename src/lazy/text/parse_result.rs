@@ -14,8 +14,8 @@ use crate::result::{DecodingError, IonFailure};
 use crate::{IonError, IonResult};
 use std::borrow::Cow;
 use std::fmt::{Debug, Display};
-use winnow::error::{Error as NomError, ErrorKind, ParseError};
-use winnow::{Err, IResult};
+use winnow::error::{ErrMode, Error as NomError, ErrorKind, ParseError};
+use winnow::IResult;
 
 /// A type alias for a [`IResult`] whose input is a `TextBuffer` and whose error type is an
 /// [`InvalidInputError`]. All of the Ion parsers in the `text::parsers` module return an
@@ -196,8 +196,8 @@ impl From<InvalidInputError<'_>> for IonError {
     }
 }
 
-impl<'data> From<winnow::Err<IonParseError<'data>>> for IonParseError<'data> {
-    fn from(value: Err<IonParseError<'data>>) -> Self {
+impl<'data> From<ErrMode<IonParseError<'data>>> for IonParseError<'data> {
+    fn from(value: ErrMode<IonParseError<'data>>) -> Self {
         use winnow::error::ErrMode::*;
         match value {
             Incomplete(_) => IonParseError::Incomplete,
@@ -272,7 +272,7 @@ pub(crate) trait AddContext<'data, T> {
         'data: 'a;
 }
 
-impl<'data, T> AddContext<'data, T> for winnow::Err<IonParseError<'data>> {
+impl<'data, T> AddContext<'data, T> for ErrMode<IonParseError<'data>> {
     fn with_context<'a>(
         self,
         label: impl Into<Cow<'static, str>>,

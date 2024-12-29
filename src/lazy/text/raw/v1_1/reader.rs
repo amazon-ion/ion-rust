@@ -24,56 +24,54 @@ use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
 use crate::{v1_1, Encoding, IonResult, IonType, RawSymbolRef};
 use bumpalo::collections::Vec as BumpVec;
-use winnow::character::streaming::satisfy;
+use winnow::bytes::one_of;
 
 pub struct LazyRawTextReader_1_1<'data> {
-    input: &'data [u8],
-    // The offset from the beginning of the overall stream at which the `input` slice begins
-    stream_offset: usize,
-    // The offset from the beginning of `input` at which the reader is positioned
-    local_offset: usize,
+    input: TextBuffer<'data>,
+}
+
+impl<'data> LazyRawTextReader_1_1<'data> {
+    pub fn context(&self) -> EncodingContextRef<'data> {
+        self.input.context
+    }
 }
 
 impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'data> {
-    fn resume_at_offset(
-        data: &'data [u8],
-        offset: usize,
-        // This argument is ignored by all raw readers except LazyRawAnyReader
-        _encoding_hint: IonEncoding,
-    ) -> Self {
+    fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self {
+        Self::resume(
+            context,
+            RawReaderState::new(data, 0, is_final_data, IonEncoding::Text_1_1),
+        )
+    }
+
+    fn resume(context: EncodingContextRef<'data>, saved_state: RawReaderState<'data>) -> Self {
         LazyRawTextReader_1_1 {
-            input: data,
-            // `data` begins at position `offset` within some larger stream. If `data` contains
-            // the entire stream, this will be zero.
-            stream_offset: offset,
-            // Start reading from the beginning of the slice `data`
-            local_offset: 0,
+            input: TextBuffer::new_with_offset(
+                context,
+                saved_state.data(),
+                saved_state.offset(),
+                saved_state.is_final_data(),
+            ),
         }
     }
 
     fn save_state(&self) -> RawReaderState<'data> {
         RawReaderState::new(
-            &self.input[self.local_offset..],
+            self.input.bytes(),
             self.position(),
+            self.input.is_final_data(),
             self.encoding(),
         )
     }
 
-    fn next<'top>(
-        &'top mut self,
-        context: EncodingContextRef<'top>,
-    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_1>>
-    where
-        'data: 'top,
-    {
-        let input = TextBuffer::new_with_offset(
-            context,
-            &self.input[self.local_offset..],
-            self.stream_offset + self.local_offset,
-        );
-        let (buffer_after_whitespace, _whitespace) = input
+    fn next(&mut self) -> IonResult<LazyRawStreamItem<'data, TextEncoding_1_1>> {
+        let (buffer_after_whitespace, _whitespace) = self
+            .input
             .match_optional_comments_and_whitespace()
-            .with_context("reading v1.1 whitespace/comments at the top level", input)?;
+            .with_context(
+                "reading v1.1 whitespace/comments at the top level",
+                self.input,
+            )?;
         if buffer_after_whitespace.is_empty() {
             return Ok(RawStreamItem::EndOfStream(EndPosition::new(
                 TextEncoding_1_1.encoding(),
@@ -96,12 +94,12 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
 
         // Since we successfully matched the next value, we'll update the buffer
         // so a future call to `next()` will resume parsing the remaining input.
-        self.local_offset = buffer_after_trailing_ws.offset() - self.stream_offset;
+        self.input = buffer_after_trailing_ws;
         Ok(matched_item)
     }
 
     fn position(&self) -> usize {
-        self.stream_offset + self.local_offset
+        self.input.offset()
     }
 
     fn encoding(&self) -> IonEncoding {
@@ -349,7 +347,7 @@ impl<'top> TextListSpanFinder_1_1<'top> {
                 .match_optional_comments_and_whitespace()
                 .with_context("skipping a v1.1 list's trailing comma", input_after_ws)?;
         }
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == ']')(input_after_ws)
+        let (input_after_end, _end_delimiter) = one_of(|c: u8| c == b']')(input_after_ws)
             .with_context("seeking the closing delimiter of a list", input_after_ws)?;
         let end = input_after_end.offset();
 
@@ -505,7 +503,7 @@ impl<'top> TextSExpSpanFinder_1_1<'top> {
         let (input_after_ws, _ws) = input_after_last_expr
             .match_optional_comments_and_whitespace()
             .with_context("seeking the end of a sexp", input_after_last_expr)?;
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == ')')(input_after_ws)
+        let (input_after_end, _end_delimiter) = one_of(|c| c == b')')(input_after_ws)
             .with_context("seeking the closing delimiter of a sexp", input_after_ws)?;
         let end = input_after_end.offset();
 
@@ -824,7 +822,7 @@ impl<'top> TextStructSpanFinder_1_1<'top> {
                 .match_optional_comments_and_whitespace()
                 .with_context("skipping a struct's trailing comma", input_after_ws)?;
         }
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == b'}' as char)(input_after_ws)
+        let (input_after_end, _end_delimiter) = one_of(|c: u8| c == b'}')(input_after_ws)
             .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
         let end = input_after_end.offset();
         Ok((start..end, child_expr_cache.into_bump_slice()))
@@ -841,13 +839,12 @@ mod tests {
 
     use super::*;
 
-    fn expect_next<'top, 'data: 'top>(
-        context: EncodingContextRef<'top>,
-        reader: &'top mut LazyRawTextReader_1_1<'data>,
-        expected: RawValueRef<'top, TextEncoding_1_1>,
+    fn expect_next<'data>(
+        reader: &mut LazyRawTextReader_1_1<'data>,
+        expected: RawValueRef<'data, TextEncoding_1_1>,
     ) {
         let lazy_value = reader
-            .next(context)
+            .next()
             .expect("advancing the reader failed")
             .expect_value()
             .expect("expected a value");
@@ -875,21 +872,16 @@ mod tests {
         let macro_quux =
             TemplateCompiler::compile_from_source(context.get_ref(), "(macro quux (x) null)")?;
         context.macro_table.add_template_macro(macro_quux)?;
-        let reader = &mut LazyRawTextReader_1_1::new(data.as_bytes());
-        let context = context.get_ref();
+        let reader = &mut LazyRawTextReader_1_1::new(context.get_ref(), data.as_bytes(), true);
 
         // $ion_1_1
-        assert_eq!(reader.next(context)?.expect_ivm()?.major_minor(), (1, 1));
+        assert_eq!(reader.next()?.expect_ivm()?.major_minor(), (1, 1));
         // "foo"
-        expect_next(context, reader, RawValueRef::String("foo".into()));
+        expect_next(reader, RawValueRef::String("foo".into()));
         // bar
-        expect_next(context, reader, RawValueRef::Symbol("bar".into()));
+        expect_next(reader, RawValueRef::Symbol("bar".into()));
         // (baz null.string)
-        let sexp = reader
-            .next(context)?
-            .expect_value()?
-            .read()?
-            .expect_sexp()?;
+        let sexp = reader.next()?.expect_value()?.read()?.expect_sexp()?;
         let mut children = sexp.iter();
         assert_eq!(
             children.next().unwrap()?.expect_value()?.read()?,
@@ -901,10 +893,10 @@ mod tests {
         );
         assert!(children.next().is_none());
         // (:quux quuz)
-        let macro_invocation = reader.next(context)?.expect_eexp()?;
+        let macro_invocation = reader.next()?.expect_eexp()?;
         assert_eq!(macro_invocation.id, MacroIdRef::LocalName("quux"));
-        expect_next(context, reader, RawValueRef::Int(77.into()));
-        expect_next(context, reader, RawValueRef::Bool(false));
+        expect_next(reader, RawValueRef::Int(77.into()));
+        expect_next(reader, RawValueRef::Bool(false));
         Ok(())
     }
 }
