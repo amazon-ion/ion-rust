@@ -23,6 +23,12 @@ pub struct Bytes {
     data: Vec<u8>,
 }
 
+impl From<Bytes> for Vec<u8> {
+    fn from(data: Bytes) -> Self {
+        data.data
+    }
+}
+
 impl IonEq for Bytes {
     fn ion_eq(&self, other: &Self) -> bool {
         self == other
