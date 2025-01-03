@@ -8,7 +8,8 @@ use winnow::combinator::{
 };
 use winnow::error::{ErrMode, Needed};
 use winnow::stream::{
-    Accumulate, CompareResult, FindSlice, Location, SliceLen, Stream, StreamIsPartial,
+    Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
+    StreamIsPartial,
 };
 use winnow::token::{one_of, take_till, take_until, take_while};
 use winnow::Parser;
@@ -238,6 +239,7 @@ impl<'top> TextBuffer<'top> {
     /// Always succeeds and consumes none of the input. Returns an empty slice of the buffer.
     // This method is useful for parsers that need to match an optional construct but don't want
     // to return an Option<_>. For an example, see its use in `match_optional_whitespace`.
+    #[inline]
     fn match_nothing(&mut self) -> IonMatchResult<'top> {
         // use winnow's `empty` parser to return an empty slice from the head position
         empty.take().parse_next(self)
@@ -254,8 +256,19 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches any amount of contiguous comments and whitespace, including none.
-    pub fn match_optional_comments_and_whitespace(&mut self) -> IonMatchResult<'top> {
+    pub fn full_match_optional_comments_and_whitespace(&mut self) -> IonMatchResult<'top> {
         zero_or_more(alt((Self::match_whitespace1, Self::match_comment))).parse_next(self)
+    }
+
+    /// Matches any amount of contiguous comments and whitespace, including none.
+    #[inline]
+    pub fn match_optional_comments_and_whitespace(&mut self) -> IonMatchResult<'top> {
+        if let Some(&byte) = self.bytes().first() {
+            if WHITESPACE_BYTES.contains_token(byte) || byte == b'/' {
+                return self.full_match_optional_comments_and_whitespace();
+            }
+        }
+        self.match_nothing()
     }
 
     /// Matches a single
@@ -323,16 +336,27 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches one or more annotations.
+    #[inline]
     pub fn match_annotations(&mut self) -> IonMatchResult<'top> {
-        let matched = one_or_more(Self::match_annotation).parse_next(self)?;
-        if matched.len() > u16::MAX as usize {
-            let error = InvalidInputError::new(matched)
-                .with_description("the maximum supported annotations sequence length is 65KB")
-                .with_label("parsing annotations");
-            Err(ErrMode::Cut(IonParseError::Invalid(error)))
-        } else {
-            Ok(matched)
+        #[inline(never)]
+        fn full_match_annotations<'t>(input: &mut TextBuffer<'t>) -> IonMatchResult<'t> {
+            let matched = one_or_more(TextBuffer::match_annotation).parse_next(input)?;
+            if matched.len() > u16::MAX as usize {
+                let error = InvalidInputError::new(matched)
+                    .with_description("the maximum supported annotations sequence length is 65KB")
+                    .with_label("parsing annotations");
+                Err(ErrMode::Cut(IonParseError::Invalid(error)))
+            } else {
+                Ok(matched)
+            }
         }
+
+        if let Some(&byte) = self.bytes().first() {
+            if [b'\'', b'$', b'_'].contains(&byte) || byte.is_ascii_alphabetic() {
+                return full_match_annotations(self);
+            }
+        };
+        self.match_nothing()
     }
 
     /// Matches an annotation (symbol token) and a terminating '::'.
@@ -395,12 +419,19 @@ impl<'top> TextBuffer<'top> {
         result
     }
 
+    #[inline]
     fn apply_annotations<E: TextEncoding<'top>>(
         &self,
         maybe_annotations: Option<TextBuffer<'top>>,
         mut value: LazyRawTextValue<'top, E>,
     ) -> LazyRawTextValue<'top, E> {
-        if let Some(annotations) = maybe_annotations {
+        // This is a separately defined function so the common case (no annotations) is more readily
+        // inlined.
+        fn full_apply_annotations<'t, T: TextEncoding<'t>>(
+            input: &TextBuffer<'t>,
+            annotations: &TextBuffer<'t>,
+            value: &mut LazyRawTextValue<'t, T>,
+        ) {
             let annotations_length =
                 u16::try_from(annotations.len()).expect("already length checked");
             // Update the encoded value's record of how many bytes of annotations precede the data.
@@ -409,10 +440,14 @@ impl<'top> TextBuffer<'top> {
                 .with_annotations_sequence(annotations_length);
             let unannotated_value_length = value.input.len();
             // Rewind the value's input to include the annotations sequence.
-            value.input = self.slice(
-                annotations.offset() - self.offset(),
+            value.input = input.slice(
+                annotations.offset() - input.offset(),
                 annotations_length as usize + unannotated_value_length,
             );
+        }
+
+        if let Some(annotations) = maybe_annotations {
+            full_apply_annotations(self, &annotations, &mut value);
         }
         value
     }
@@ -615,7 +650,10 @@ impl<'top> TextBuffer<'top> {
             Self::match_symbol.map(MatchedFieldNameSyntax::Symbol),
         ))
         .with_taken()
-        .map(|(syntax, matched_input)| MatchedFieldName::new(matched_input, syntax))
+        .map(
+            #[inline]
+            |(syntax, matched_input)| MatchedFieldName::new(matched_input, syntax),
+        )
         .parse_next(self)
     }
 
@@ -1329,7 +1367,7 @@ impl<'top> TextBuffer<'top> {
         if self.bytes().starts_with(b"(::") {
             return fatal_parse_error(
                 *self,
-                format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name())
+                format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name()),
             );
         }
         let maybe_expr = Self::match_sexp_value_1_1
@@ -2255,16 +2293,30 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches a timestamp of any precision.
+    #[inline]
     pub fn match_timestamp(&mut self) -> IonParseResult<'top, MatchedTimestamp> {
-        alt((
-            Self::match_timestamp_y,
-            Self::match_timestamp_ym,
-            Self::match_timestamp_ymd,
-            Self::match_timestamp_ymd_hm,
-            Self::match_timestamp_ymd_hms,
-            Self::match_timestamp_ymd_hms_fractional,
-        ))
-        .parse_next(self)
+        #[inline(never)]
+        pub fn full_match_timestamp<'t>(
+            input: &mut TextBuffer<'t>,
+        ) -> IonParseResult<'t, MatchedTimestamp> {
+            alt((
+                TextBuffer::match_timestamp_y,
+                TextBuffer::match_timestamp_ym,
+                TextBuffer::match_timestamp_ymd,
+                TextBuffer::match_timestamp_ymd_hm,
+                TextBuffer::match_timestamp_ymd_hms,
+                TextBuffer::match_timestamp_ymd_hms_fractional,
+            ))
+            .parse_next(input)
+        }
+
+        match self.bytes().first() {
+            Some(byte) if byte.is_ascii_digit() => full_match_timestamp(self),
+            Some(_) => Err(ErrMode::Backtrack(IonParseError::Invalid(
+                InvalidInputError::new(self.clone()),
+            ))),
+            None => self.incomplete("a timestamp"),
+        }
     }
 
     /// Matches a timestamp with year precision.
