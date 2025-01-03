@@ -478,7 +478,7 @@ impl MatchedString {
         matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
-        let body = matched_input.slice(1, dbg!(matched_input.len()) - 2);
+        let body = matched_input.slice(1, matched_input.len() - 2);
         // There are no escaped characters, so we can just validate the string in-place.
         let text = body.as_text()?;
         let str_ref = StrRef::from(text);
@@ -1490,8 +1490,8 @@ mod tests {
             // our fabricated value off of the input before reading.
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, dbg!(data).as_bytes(), true);
-            let matched = dbg!(buffer.clone().match_string().unwrap());
+            let buffer = TextBuffer::new(context, data.as_bytes(), true);
+            let matched = buffer.clone().match_string().unwrap();
             let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
                 actual, expected,
@@ -1511,37 +1511,6 @@ mod tests {
             (r"'''\U00002764\U0000FE0F'''", "❤️"),
             // In short strings, carriage returns are not normalized.
             ("\"foo\rbar\rbaz\"", "foo\rbar\rbaz"),
-            // In long-form strings, all unescaped newlines are converted to `\n`.
-            ("'''foo\rbar\r\nbaz'''", "foo\nbar\nbaz"),
-        ];
-
-        for (input, expected) in tests {
-            expect_string(input, expected);
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn read_strings_foo() -> IonResult<()> {
-        fn expect_string(data: &str, expected: &str) {
-            // Ordinarily the reader is responsible for indicating that the input is complete.
-            // For the sake of these tests, we're going to append one more value (`0`) to the input
-            // stream so the parser knows that the long-form strings are complete. We then trim
-            // our fabricated value off of the input before reading.
-            let encoding_context = EncodingContext::empty();
-            let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, dbg!(data).as_bytes(), true);
-            let matched = dbg!(buffer.clone().match_string().unwrap());
-            let actual = matched.read(context.allocator(), buffer).unwrap();
-            assert_eq!(
-                actual, expected,
-                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
-                data, actual, expected
-            );
-        }
-
-        let tests = [
             // In long-form strings, all unescaped newlines are converted to `\n`.
             ("'''foo\rbar\r\nbaz'''", "foo\nbar\nbaz"),
         ];

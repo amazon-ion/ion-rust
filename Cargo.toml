@@ -57,7 +57,7 @@ compact_str = "0.8.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 delegate = "0.12.0"
 thiserror = "1.0"
-winnow = "0.6"
+winnow = { version = "0.6", features = ["simd"] }
 num-integer = "0.1.44"
 num-traits = "0.2"
 arrayvec = "0.7"
