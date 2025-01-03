@@ -505,7 +505,6 @@ mod tests {
             // ...when writing the symbol once more.
             .write_symbol(name_symbol)?;
         let bytes = writer.close()?;
-        println!("bytes: {bytes:#02x?}");
         let actual = Element::read_all(&bytes)?;
         let expected = ion_seq!(
             "name".as_symbol_ref()

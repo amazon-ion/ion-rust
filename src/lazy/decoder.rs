@@ -18,8 +18,9 @@ use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    v1_0, v1_1, Catalog, Encoding, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
-    LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr, ValueRef,
+    v1_0, v1_1, Catalog, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName,
+    LazyExpandedValue, LazyRawAnyFieldName, LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr,
+    ValueRef,
 };
 
 pub trait HasSpan<'top>: HasRange {
@@ -257,6 +258,21 @@ pub enum LazyRawFieldExpr<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> LazyRawFieldExpr<'top, D> {
+    pub fn resolve(self, context: EncodingContextRef<'top>) -> IonResult<FieldExpr<'top, D>> {
+        use LazyRawFieldExpr::*;
+        let field = match self {
+            NameValue(name, value) => FieldExpr::NameValue(
+                name.resolve(context),
+                LazyExpandedValue::from_literal(context, value),
+            ),
+            NameEExp(name, eexp) => {
+                FieldExpr::NameMacro(name.resolve(context), eexp.resolve(context)?.into())
+            }
+            EExp(eexp) => FieldExpr::EExp(eexp.resolve(context)?),
+        };
+        Ok(field)
+    }
+
     pub fn expect_name_value(self) -> IonResult<(D::FieldName<'top>, D::Value<'top>)> {
         let LazyRawFieldExpr::NameValue(name, value) = self else {
             return IonResult::decoding_error(format!(
@@ -381,8 +397,8 @@ impl<D: Decoder> HasRange for LazyRawFieldExpr<'_, D> {
 // internal code that is defined in terms of `LazyRawField` to call the private `into_value()`
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
-    use crate::lazy::expanded::macro_evaluator::{MacroExpr, RawEExpression};
-    use crate::lazy::expanded::r#struct::UnexpandedField;
+    use crate::lazy::expanded::macro_evaluator::RawEExpression;
+    use crate::lazy::expanded::r#struct::FieldExpr;
     use crate::lazy::expanded::EncodingContextRef;
     use crate::{try_next, try_or_some_err, IonResult, LazyExpandedValue, LazyRawFieldName};
 
@@ -395,47 +411,44 @@ pub(crate) mod private {
     }
 
     pub trait LazyRawStructPrivate<'top, D: Decoder> {
-        /// Creates an iterator that converts each raw struct field into an `UnexpandedField`, a
+        /// Creates an iterator that converts each raw struct field into an `FieldExpr`, a
         /// common representation for both raw fields and template fields that is used in the
         /// expansion process.
-        fn unexpanded_fields(
+        fn field_exprs(
             &self,
             context: EncodingContextRef<'top>,
-        ) -> RawStructUnexpandedFieldsIterator<'top, D>;
+        ) -> RawStructFieldExprIterator<'top, D>;
     }
 
-    pub struct RawStructUnexpandedFieldsIterator<'top, D: Decoder> {
+    pub struct RawStructFieldExprIterator<'top, D: Decoder> {
         context: EncodingContextRef<'top>,
         raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
     }
 
-    impl<'top, D: Decoder> RawStructUnexpandedFieldsIterator<'top, D> {
+    impl<'top, D: Decoder> RawStructFieldExprIterator<'top, D> {
         pub fn context(&self) -> EncodingContextRef<'top> {
             self.context
         }
     }
 
-    impl<'top, D: Decoder> Iterator for RawStructUnexpandedFieldsIterator<'top, D> {
-        type Item = IonResult<UnexpandedField<'top, D>>;
+    impl<'top, D: Decoder> Iterator for RawStructFieldExprIterator<'top, D> {
+        type Item = IonResult<FieldExpr<'top, D>>;
 
         fn next(&mut self) -> Option<Self::Item> {
             let field: LazyRawFieldExpr<'top, D> = try_next!(self.raw_fields.next());
             use LazyRawFieldExpr::*;
             let unexpanded_field = match field {
-                NameValue(name, value) => UnexpandedField::NameValue(
+                NameValue(name, value) => FieldExpr::NameValue(
                     name.resolve(self.context),
                     LazyExpandedValue::from_literal(self.context, value),
                 ),
                 NameEExp(name, raw_eexp) => {
                     let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
-                    UnexpandedField::NameMacro(
-                        name.resolve(self.context),
-                        MacroExpr::from_eexp(eexp),
-                    )
+                    FieldExpr::NameMacro(name.resolve(self.context), eexp.into())
                 }
                 EExp(raw_eexp) => {
                     let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
-                    UnexpandedField::Macro(MacroExpr::from_eexp(eexp))
+                    FieldExpr::EExp(eexp)
                 }
             };
             Some(Ok(unexpanded_field))
@@ -446,12 +459,12 @@ pub(crate) mod private {
     where
         S: LazyRawStruct<'top, D>,
     {
-        fn unexpanded_fields(
+        fn field_exprs(
             &self,
             context: EncodingContextRef<'top>,
-        ) -> RawStructUnexpandedFieldsIterator<'top, D> {
+        ) -> RawStructFieldExprIterator<'top, D> {
             let raw_fields = <Self as LazyRawStruct<'top, D>>::iter(self);
-            RawStructUnexpandedFieldsIterator {
+            RawStructFieldExprIterator {
                 context,
                 raw_fields,
             }
@@ -591,6 +604,8 @@ pub trait LazyRawValue<'top, D: Decoder>:
 {
     fn ion_type(&self) -> IonType;
     fn is_null(&self) -> bool;
+
+    fn is_delimited(&self) -> bool;
     fn has_annotations(&self) -> bool;
     fn annotations(&self) -> D::AnnotationsIterator<'top>;
     fn read(&self) -> IonResult<RawValueRef<'top, D>>;
@@ -666,7 +681,7 @@ pub trait LazyRawStruct<'top, D: Decoder>:
 }
 
 pub trait LazyRawFieldName<'top, D: Decoder<FieldName<'top> = Self>>:
-    HasSpan<'top> + Copy + Debug + Clone
+    Into<LazyRawAnyFieldName<'top>> + HasSpan<'top> + Copy + Debug + Clone
 {
     fn read(&self) -> IonResult<RawSymbolRef<'top>>;
 

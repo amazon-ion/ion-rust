@@ -423,6 +423,21 @@ impl Element {
         &self.value
     }
 
+    /// Consumes self and returns this [Element]'s [Value].
+    pub fn into_value(self) -> Value {
+        self.value
+    }
+
+    /// Consumes self and returns this [Element]'s [Annotations].
+    pub fn into_annotations(self) -> Annotations {
+        self.annotations
+    }
+
+    /// Consumes self and returns this [Element]'s [Annotations] and [Value].
+    pub fn into_parts(self) -> (Annotations, Value) {
+        (self.annotations, self.value)
+    }
+
     pub fn null(null_type: IonType) -> Element {
         null_type.into()
     }
@@ -974,7 +989,7 @@ mod tests {
     use ElemOp::*;
 
     use crate::element::annotations::IntoAnnotations;
-    use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol, Timestamp};
+    use crate::{ion_list, ion_sexp, ion_struct, Decimal, Int, IonType, Symbol, Timestamp, Value};
     use crate::{Annotations, Element, IntoAnnotatedElement, Struct};
 
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
@@ -1412,6 +1427,14 @@ mod tests {
             owned_asserts: vec![
                 assert_pass_try_into!(try_into_lob),
                 assert_pass_try_into!(try_into_blob),
+                Box::new(|e: Element| {
+                    if let Value::Blob(bytes) = e.into_value() {
+                        let data: Vec<_> = bytes.into();
+                        assert_eq!(b"hello", data.as_slice());
+                    } else {
+                        panic!("expected blob");
+                    }
+                }),
             ],
         }
     }
@@ -1429,6 +1452,14 @@ mod tests {
             owned_asserts: vec![
                 assert_pass_try_into!(try_into_lob),
                 assert_pass_try_into!(try_into_clob),
+                Box::new(|e: Element| {
+                    if let Value::Clob(bytes) = e.into_value() {
+                        let data: Vec<_> = bytes.into();
+                        assert_eq!(b"goodbye", data.as_slice());
+                    } else {
+                        panic!("expected clob");
+                    }
+                }),
             ],
         }
     }
@@ -1583,6 +1614,18 @@ mod tests {
         // construct an element to test
         assert_eq!(input_case.ion_type, input_case.elem.ion_type());
 
+        // assert value & annotation accessors
+        let val_ref = input_case.elem.value();
+        let ann_ref = input_case.elem.annotations();
+        let val_owned = input_case.elem.clone().into_value();
+        let ann_owned = input_case.elem.clone().into_annotations();
+        let (ann_owned2, val_owned2) = input_case.elem.clone().into_parts();
+        assert_eq!(val_ref, &val_owned);
+        assert_eq!(val_owned, val_owned2);
+        assert_eq!(ann_ref, &ann_owned);
+        assert_eq!(ann_owned, ann_owned2);
+
+        // assert element operations
         for assert in op_assertions {
             assert(&input_case.elem);
         }
