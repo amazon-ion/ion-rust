@@ -234,7 +234,7 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         if let ValueRef::SExp(s) = self {
             Ok(s)
         } else {
-            IonResult::decoding_error("expected a sexp")
+            IonResult::decoding_error(format!("expected an s-expression but found a(n) {self:?}"))
         }
     }
 

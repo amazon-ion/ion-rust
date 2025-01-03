@@ -1,9 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::ops::Range;
-
-use nom::character::streaming::satisfy;
-
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
@@ -13,9 +9,13 @@ use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::matched::MatchedFieldName;
-use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
+use crate::lazy::text::parse_result::AddContext;
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
 use crate::{IonResult, RawSymbolRef};
+use std::ops::Range;
+use winnow::combinator::opt;
+use winnow::token::one_of;
+use winnow::Parser;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RawTextStructIterator_1_0<'top> {
@@ -35,7 +35,7 @@ impl<'top> RawTextStructIterator_1_0<'top> {
         // The input has already skipped past the opening delimiter.
         let start = self.input.offset() - 1;
         // We need to find the input slice containing the closing delimiter. It's either...
-        let input_after_last = if let Some(field_result) = self.last() {
+        let mut input = if let Some(field_result) = self.last() {
             let field = field_result?;
             self.input
                 .slice_to_end(field.range().end - self.input.offset())
@@ -43,20 +43,17 @@ impl<'top> RawTextStructIterator_1_0<'top> {
             // ...or there aren't fields, so it's just the input after the opening delimiter.
             self.input
         };
-        let (mut input_after_ws, _ws) =
-            input_after_last
-                .match_optional_comments_and_whitespace()
-                .with_context("seeking the end of a struct", input_after_last)?;
+        let _ws = input
+            .match_optional_comments_and_whitespace()
+            .with_context("seeking the end of a struct", input)?;
         // Skip an optional comma and more whitespace
-        if input_after_ws.bytes().first() == Some(&b',') {
-            (input_after_ws, _) = input_after_ws
-                .slice_to_end(1)
-                .match_optional_comments_and_whitespace()
-                .with_context("skipping a list's trailing comma", input_after_ws)?;
-        }
-        let (input_after_end, _end_delimiter) = satisfy(|c| c == '}')(input_after_ws)
-            .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
-        let end = input_after_end.offset();
+        let _ = (opt(","), TextBuffer::match_optional_comments_and_whitespace)
+            .parse_next(&mut input)
+            .with_context("skipping a struct field's trailing comma", input)?;
+        let _end_delimiter = one_of(|c| c == b'}')
+            .parse_next(&mut input)
+            .with_context("seeking the closing delimiter of a struct", input)?;
+        let end = input.offset();
         Ok(start..end)
     }
 }
@@ -69,11 +66,8 @@ impl<'top> Iterator for RawTextStructIterator_1_0<'top> {
             return None;
         }
         match self.input.match_struct_field() {
-            Ok((remaining_input, Some(field))) => {
-                self.input = remaining_input;
-                Some(Ok(field))
-            }
-            Ok((_, None)) => None,
+            Ok(Some(field)) => Some(Ok(field)),
+            Ok(None) => None,
             Err(e) => {
                 self.has_returned_error = true;
                 e.with_context("reading the next struct field", self.input)
@@ -165,8 +159,8 @@ mod tests {
     fn expect_struct_range(ion_data: &str, expected: Range<usize>) -> IonResult<()> {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let reader = &mut LazyRawTextReader_1_0::new(ion_data.as_bytes());
-        let value = reader.next(context)?.expect_value()?;
+        let reader = &mut LazyRawTextReader_1_0::new(context, ion_data.as_bytes(), true);
+        let value = reader.next()?.expect_value()?;
         let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,
@@ -233,12 +227,8 @@ mod tests {
         for (input, field_name_ranges) in tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let mut reader = LazyRawTextReader_1_0::new(input.as_bytes());
-            let struct_ = reader
-                .next(context)?
-                .expect_value()?
-                .read()?
-                .expect_struct()?;
+            let mut reader = LazyRawTextReader_1_0::new(context, input.as_bytes(), true);
+            let struct_ = reader.next()?.expect_value()?.read()?.expect_struct()?;
             for (field_result, (expected_name, expected_range)) in
                 struct_.iter().zip(field_name_ranges.iter())
             {

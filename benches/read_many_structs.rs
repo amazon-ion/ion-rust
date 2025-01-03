@@ -444,12 +444,12 @@ mod benchmark {
             b.iter(|| {
                 // We don't have an API for doing this with the application-level reader yet, so
                 // for now we use a manually configured context and a raw reader.
-                let mut reader = LazyRawBinaryReader_1_1::new(binary_1_1_data);
+                let mut reader = LazyRawBinaryReader_1_1::new(context_ref, binary_1_1_data);
                 let mut num_top_level_values: usize = 0;
                 // Skip past the IVM
-                reader.next(context_ref).unwrap().expect_ivm().unwrap();
+                reader.next().unwrap().expect_ivm().unwrap();
                 // Expect every top-level item to be an e-expression.
-                while let RawStreamItem::EExp(raw_eexp) = reader.next(context_ref).unwrap() {
+                while let RawStreamItem::EExp(raw_eexp) = reader.next().unwrap() {
                     num_top_level_values += 1;
                     // Look up the e-expression's invoked macro ID in the encoding context.
                     let eexp = raw_eexp.resolve(context_ref).unwrap();
