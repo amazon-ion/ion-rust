@@ -283,7 +283,7 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
                                                 let shared_symbol_txt =
                                                     shared_symbol.text().unwrap_or("");
                                                 let shared_id = symbol_table
-                                                    .sid_for(&shared_symbol_txt)
+                                                    .sid_for(shared_symbol_txt)
                                                     .unwrap_or(0);
                                                 actual_field.matches_sid_or_text(
                                                     shared_id,
