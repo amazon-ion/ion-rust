@@ -178,6 +178,10 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
         self.encoded_value.is_null()
     }
 
+    fn is_delimited(&self) -> bool {
+        false
+    }
+
     fn has_annotations(&self) -> bool {
         self.has_annotations() // Inherent impl
     }

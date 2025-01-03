@@ -10,7 +10,7 @@ use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, TemplateExpansion, ValueExpr, ExprGroupExpansion, MakeTextExpansion, FlattenExpansion, ConditionalExpansion, MakeStructExpansion, MakeFieldExpansion};
 use crate::lazy::expanded::macro_table::{Macro, MacroKind};
-use crate::lazy::expanded::r#struct::UnexpandedField;
+use crate::lazy::expanded::r#struct::FieldExpr;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{
     EncodingContextRef,  LazyExpandedValue, TemplateVariableReference,
@@ -459,6 +459,34 @@ impl<'top, D: Decoder> TemplateSequenceIterator<'top, D> {
             index: 0,
         }
     }
+
+    /// Returns one of:
+    /// * The next value literal from the stream (when the evaluator is empty)
+    /// * The next value produced by continuing the evaluation of a macro in progress (when the evaluator is not empty)
+    /// * The next macro invocation from the stream (when the evaluator is empty)
+    /// * `None` when the stream and evaluator are both exhausted
+    pub fn next_value_expr(&mut self) -> Option<IonResult<ValueExpr<'top, D>>> {
+        // If the evaluator's stack is not empty, give it the opportunity to yield a value.
+        if let Some(value) = try_or_some_err!(self.evaluator.next()) {
+            return Some(Ok(ValueExpr::ValueLiteral(value)));
+        }
+        // The stack did not produce values and is empty, pull the next expression from `self.value_expressions`
+        // and start expanding it.
+        let current_expr = self.value_expressions.get(self.index)?;
+        let environment = self.evaluator.environment();
+        self.index += current_expr.num_expressions();
+
+        let value_expr = current_expr.to_value_expr(self.context, environment, self.template);
+
+        // If it's a macro invocation...
+        if let ValueExpr::MacroInvocation(invocation) = value_expr {
+            // ...push it onto the evaluator's stack so it begins expanding on the next call.
+            let new_expansion = try_or_some_err!(invocation.expand());
+            self.evaluator.push(new_expansion);
+        }
+
+        Some(Ok(value_expr))
+    }
 }
 
 impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
@@ -499,10 +527,10 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
     }
 }
 
-/// An iterator that pulls expressions from a template body and wraps them in a [`UnexpandedField`] to
+/// An iterator that pulls expressions from a template body and wraps them in a [`FieldExpr`] to
 /// mimic reading them from input. The [`LazyExpandedStruct`](crate::lazy::expanded::struct::LazyExpandedStruct) handles
 /// evaluating any macro invocations that this yields.
-pub struct TemplateStructUnexpandedFieldsIterator<'top, D: Decoder> {
+pub struct TemplateStructFieldExprIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     environment: Environment<'top, D>,
     template: TemplateMacroRef<'top>,
@@ -510,13 +538,13 @@ pub struct TemplateStructUnexpandedFieldsIterator<'top, D: Decoder> {
     index: usize,
 }
 
-impl<'top, D: Decoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
+impl<'top, D: Decoder> TemplateStructFieldExprIterator<'top, D> {
     pub fn context(&self) -> EncodingContextRef<'top> {
         self.context
     }
 }
 
-impl<'top, D: Decoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
+impl<'top, D: Decoder> TemplateStructFieldExprIterator<'top, D> {
     pub fn new(
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
@@ -533,8 +561,8 @@ impl<'top, D: Decoder> TemplateStructUnexpandedFieldsIterator<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top, D> {
-    type Item = IonResult<UnexpandedField<'top, D>>;
+impl<'top, D: Decoder> Iterator for TemplateStructFieldExprIterator<'top, D> {
+    type Item = IonResult<FieldExpr<'top, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let name_expr_address = self.index;
@@ -557,11 +585,11 @@ impl<'top, D: Decoder> Iterator for TemplateStructUnexpandedFieldsIterator<'top,
         let field_name = LazyExpandedFieldName::TemplateName(self.template, name);
         let value_expr = field_value_tdl_expr.to_value_expr(self.context, self.environment, self.template);
         let unexpanded_field = match value_expr {
-            ValueExpr::ValueLiteral(lazy_expanded_value) => UnexpandedField::NameValue(
+            ValueExpr::ValueLiteral(lazy_expanded_value) => FieldExpr::NameValue(
                 field_name,
                 lazy_expanded_value
             ),
-            ValueExpr::MacroInvocation(invocation) => UnexpandedField::NameMacro(
+            ValueExpr::MacroInvocation(invocation) => FieldExpr::NameMacro(
                 field_name,
                 invocation,
             ),
@@ -703,14 +731,11 @@ impl TemplateBodyExpr {
                 ))
             }
             TemplateBodyExprKind::Variable(variable_ref) => {
-                let mut expr = environment.require_expr(variable_ref.signature_index());
+                let expr = environment.require_expr(variable_ref.signature_index());
+                let template_variable_ref = variable_ref.resolve(host_template.macro_ref());
                 // If this is a value (and therefore needs no further evaluation), tag it as having
                 // come from this variable in the template body.
-                if let ValueExpr::ValueLiteral(ref mut value) = expr {
-                    *value =
-                        value.via_variable(variable_ref.resolve(host_template.macro_ref()))
-                }
-                expr
+                expr.via_variable(Some(template_variable_ref))
             }
             TemplateBodyExprKind::ExprGroup(parameter) => {
                 let template_arg_group = TemplateExprGroup::new(

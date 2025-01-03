@@ -217,6 +217,7 @@ macro_rules! v1_x_reader_writer {
             lazy::expanded::template::TemplateMacro,
             lazy::expanded::template::TemplateBodyExpr,
             lazy::expanded::template::TemplateBodyExprKind,
+            lazy::expanded::template::TemplateMacroInvocation,
             lazy::expanded::macro_table::Macro,
             lazy::expanded::macro_evaluator::MacroEvaluator,
             lazy::expanded::macro_evaluator::MacroExpansionKind,
@@ -294,7 +295,8 @@ macro_rules! v1_x_tooling_apis {
             lazy::expanded::r#struct::{
                 LazyExpandedStruct, ExpandedStructSource,
                 LazyExpandedField,
-                LazyExpandedFieldName
+                LazyExpandedFieldName,
+                FieldExpr,
             },
             lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator, EExpArgGroup, EExpArgGroupIterator},
             lazy::expanded::sequence::{Environment, ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
