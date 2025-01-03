@@ -23,17 +23,6 @@ use std::num::IntErrorKind;
 use std::ops::{Neg, Range};
 use std::str::FromStr;
 
-use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump as BumpAllocator;
-use ice_code::ice as cold_path;
-use num_traits::Zero;
-use smallvec::SmallVec;
-use winnow::combinator::alt;
-use winnow::combinator::preceded;
-use winnow::stream::{AsChar, Stream};
-use winnow::token::literal;
-use winnow::Parser;
-
 use crate::decimal::coefficient::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawFieldExpr, LazyRawValueExpr};
@@ -46,6 +35,15 @@ use crate::result::{DecodingError, IonFailure};
 use crate::{
     Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp, TimestampPrecision,
 };
+use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump as BumpAllocator;
+use ice_code::ice as cold_path;
+use num_traits::Zero;
+use smallvec::SmallVec;
+use winnow::combinator::alt;
+use winnow::combinator::preceded;
+use winnow::stream::AsChar;
+use winnow::Parser;
 
 /// A partially parsed Ion value.
 #[derive(Clone, Copy, Debug)]
@@ -750,11 +748,11 @@ fn complete_surrogate_pair<'data>(
     input: TextBuffer<'data>,
 ) -> IonResult<TextBuffer<'data>> {
     let mut match_next_codepoint = preceded(
-        literal("\\"),
+        "\\",
         alt((
-            preceded(literal("x"), TextBuffer::match_n_hex_digits(2)),
-            preceded(literal("u"), TextBuffer::match_n_hex_digits(4)),
-            preceded(literal("U"), TextBuffer::match_n_hex_digits(8)),
+            preceded("x", TextBuffer::match_n_hex_digits(2)),
+            preceded("u", TextBuffer::match_n_hex_digits(4)),
+            preceded("U", TextBuffer::match_n_hex_digits(8)),
         )),
     );
     let (remaining, hex_digits) = match match_next_codepoint.parse_peek(input) {
@@ -1173,7 +1171,7 @@ impl MatchedClob {
         // Use the existing short string body parser to identify all of the bytes up to the
         // unescaped closing `"`. This parser succeeded once during matching, so we know it will
         // succeed again here; it's safe to unwrap().
-        let (body, _has_escapes) = remaining.checkpoint().match_short_string_body().unwrap();
+        let (body, _has_escapes) = remaining.clone().match_short_string_body().unwrap();
         // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = BumpVec::with_capacity_in(body.len(), allocator);
@@ -1203,7 +1201,7 @@ impl MatchedClob {
         // This is the same parser that matched the input initially, which means that the only
         // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
         while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
-            TextBuffer::match_optional_whitespace,
+            TextBuffer::match_whitespace0,
             TextBuffer::match_long_string_segment,
         )
         .parse_peek(remaining)
@@ -1228,7 +1226,6 @@ mod tests {
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
     use crate::lazy::text::buffer::TextBuffer;
     use crate::{Decimal, Int, IonResult, Timestamp};
-    use winnow::stream::Stream;
 
     #[test]
     fn read_ints() -> IonResult<()> {
@@ -1237,7 +1234,7 @@ mod tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let matched = buffer.checkpoint().match_int().unwrap();
+            let matched = buffer.clone().match_int().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
                 actual, expected,
@@ -1271,7 +1268,7 @@ mod tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let matched = buffer.checkpoint().match_timestamp().unwrap();
+            let matched = buffer.clone().match_timestamp().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
                 actual, expected,
@@ -1374,13 +1371,13 @@ mod tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let result = buffer.checkpoint().match_decimal();
+            let result = buffer.clone().match_decimal();
             assert!(
                 result.is_ok(),
                 "Unexpected match error for input: '{data}': {:?}",
                 result
             );
-            let matched = buffer.checkpoint().match_decimal().expect("match decimal");
+            let matched = buffer.clone().match_decimal().expect("match decimal");
             let result = matched.read(buffer);
             assert!(
                 result.is_ok(),
@@ -1456,7 +1453,7 @@ mod tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let matched = buffer.checkpoint().match_blob().unwrap();
+            let matched = buffer.clone().match_blob().unwrap();
             let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
                 actual,
@@ -1565,7 +1562,7 @@ mod tests {
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
             // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
             // call to `match_clob()`.
-            let matched = buffer.checkpoint().match_clob().unwrap();
+            let matched = buffer.clone().match_clob().unwrap();
             // The resulting buffer slice may be rejected during reading.
             matched.read(context.allocator(), buffer)
         }

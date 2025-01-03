@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use winnow::combinator::opt;
-use winnow::token::{literal, one_of};
+use winnow::token::one_of;
 use winnow::Parser;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
@@ -120,10 +120,7 @@ impl RawTextListIterator_1_0<'_> {
             .match_optional_comments_and_whitespace()
             .with_context("seeking the end of a list", input)?;
         // Skip an optional comma and more whitespace
-        let _ = (
-            opt(literal(",")),
-            TextBuffer::match_optional_comments_and_whitespace,
-        )
+        let _ = (opt(","), TextBuffer::match_optional_comments_and_whitespace)
             .parse_next(&mut input)
             .with_context("skipping a list's trailing comma", input)?;
         let _end_delimiter = one_of(|c| c == b']')

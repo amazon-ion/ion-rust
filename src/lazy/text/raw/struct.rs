@@ -14,7 +14,7 @@ use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator}
 use crate::{IonResult, RawSymbolRef};
 use std::ops::Range;
 use winnow::combinator::opt;
-use winnow::token::{literal, one_of};
+use winnow::token::one_of;
 use winnow::Parser;
 
 #[derive(Clone, Copy, Debug)]
@@ -47,10 +47,7 @@ impl<'top> RawTextStructIterator_1_0<'top> {
             .match_optional_comments_and_whitespace()
             .with_context("seeking the end of a struct", input)?;
         // Skip an optional comma and more whitespace
-        let _ = (
-            opt(literal(",")),
-            TextBuffer::match_optional_comments_and_whitespace,
-        )
+        let _ = (opt(","), TextBuffer::match_optional_comments_and_whitespace)
             .parse_next(&mut input)
             .with_context("skipping a struct field's trailing comma", input)?;
         let _end_delimiter = one_of(|c| c == b'}')
