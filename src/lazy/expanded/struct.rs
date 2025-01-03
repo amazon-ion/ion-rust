@@ -35,11 +35,10 @@ pub enum FieldExpr<'top, D: Decoder> {
 impl<'top, D: Decoder> FieldExpr<'top, D> {
     pub fn name(&self) -> Option<&LazyExpandedFieldName<'top, D>> {
         use FieldExpr::*;
-        let name = match self {
-            NameValue(name, _) | NameMacro(name, _) => name,
-            EExp(_) => return None,
-        };
-        Some(name)
+        match self {
+            NameValue(name, _) | NameMacro(name, _) => Some(name),
+            EExp(_) => None,
+        }
     }
 
     pub fn name_is(&self, text: &str) -> IonResult<bool> {
