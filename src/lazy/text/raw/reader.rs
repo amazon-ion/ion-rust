@@ -41,32 +41,28 @@ impl<'data> LazyRawTextReader_1_0<'data> {
     }
 
     pub fn next(&mut self) -> IonResult<LazyRawStreamItem<'data, TextEncoding_1_0>> {
-        let (buffer_after_whitespace, _whitespace) = self
+        let _whitespace = self
             .input
             .match_optional_comments_and_whitespace()
             .with_context("reading whitespace/comments at the top level", self.input)?;
-        if buffer_after_whitespace.is_empty() {
+        if self.input.is_empty() {
             return Ok(RawStreamItem::EndOfStream(EndPosition::new(
                 TextEncoding_1_0.encoding(),
-                buffer_after_whitespace.offset(),
+                self.input.offset(),
             )));
         }
         // Consume any trailing whitespace that followed this item. Doing this allows us to check
         // whether this was the last item in the buffer by testing `buffer.is_empty()` afterward.
-        let (buffer_after_item, matched_item) = buffer_after_whitespace
+        let matched_item = self
+            .input
             .match_top_level_item_1_0()
-            .with_context("reading a top-level value", buffer_after_whitespace)?;
+            .with_context("reading a top-level value", self.input)?;
 
-        let (buffer_after_trailing_ws, _trailing_ws) = buffer_after_item
+        let _trailing_ws = self
+            .input
             .match_optional_comments_and_whitespace()
-            .with_context(
-                "reading trailing top-level whitespace/comments",
-                buffer_after_item,
-            )?;
+            .with_context("reading trailing top-level whitespace/comments", self.input)?;
 
-        // Since we successfully matched the next value, we'll update the buffer
-        // so a future call to `next()` will resume parsing the remaining input.
-        self.input = buffer_after_trailing_ws;
         Ok(matched_item)
     }
 

@@ -14,8 +14,9 @@ use crate::result::{DecodingError, IonFailure};
 use crate::{IonError, IonResult};
 use std::borrow::Cow;
 use std::fmt::{Debug, Display};
-use winnow::error::{ErrMode, Error as NomError, ErrorKind, ParseError};
-use winnow::IResult;
+use winnow::error::{ErrMode, ErrorKind, ParseError, ParserError};
+use winnow::stream::Stream;
+use winnow::PResult;
 
 /// A type alias for a [`IResult`] whose input is a `TextBuffer` and whose error type is an
 /// [`InvalidInputError`]. All of the Ion parsers in the `text::parsers` module return an
@@ -35,14 +36,14 @@ use winnow::IResult;
 ///    number of minutes because it's `>=60`. We know this was the right parser, but it wasn't
 ///    able to process it. (This is slightly contrived; it would be possible to write a parser
 ///    that rejected `71` as a number of minutes based on syntax alone.)
-pub(crate) type IonParseResult<'a, O> = IResult<TextBuffer<'a>, O, IonParseError<'a>>;
+pub(crate) type IonParseResult<'a, O> = PResult<O, IonParseError<'a>>;
 // Functions that return IonParseResult parse TextBuffer-^   ^     ^
 //                            ...return a value of type `O` -----+     |
 //         ...or a winnow::Err<IonParseError> if something goes wrong ----+
 
 /// As above, but for parsers that simply identify (i.e. 'match') a slice of the input as a
 /// particular item.
-pub(crate) type IonMatchResult<'a> = IResult<TextBuffer<'a>, TextBuffer<'a>, IonParseError<'a>>;
+pub(crate) type IonMatchResult<'a> = IonParseResult<'a, TextBuffer<'a>>;
 
 #[derive(Debug, PartialEq)]
 pub enum IonParseError<'data> {
@@ -218,27 +219,30 @@ impl<'data> From<(TextBuffer<'data>, ErrorKind)> for IonParseError<'data> {
 }
 
 /// Allows a [winnow::error::Error] to be converted into an [IonParseError] by calling `.into()`.
-impl<'data> From<NomError<TextBuffer<'data>>> for IonParseError<'data> {
-    fn from(nom_error: NomError<TextBuffer<'data>>) -> Self {
-        InvalidInputError::new(nom_error.input)
-            .with_nom_error_kind(nom_error.kind)
-            .into()
+impl<'data> From<ParseError<TextBuffer<'data>, IonParseError<'data>>> for IonParseError<'data> {
+    fn from(parse_error: ParseError<TextBuffer<'data>, IonParseError<'data>>) -> Self {
+        parse_error.into_inner()
     }
 }
 
 /// Allows `IonParseError` to be used as the error type in various `nom` functions.
-impl<'data> ParseError<TextBuffer<'data>> for IonParseError<'data> {
-    fn from_error_kind(input: TextBuffer<'data>, error_kind: ErrorKind) -> Self {
-        InvalidInputError::new(input)
+impl<'data> ParserError<TextBuffer<'data>> for IonParseError<'data> {
+    fn from_error_kind(input: &TextBuffer<'data>, error_kind: ErrorKind) -> Self {
+        InvalidInputError::new(*input)
             .with_nom_error_kind(error_kind)
             .into()
     }
 
-    fn append(self, input: TextBuffer<'data>, _kind: ErrorKind) -> Self {
+    fn append(
+        self,
+        input: &TextBuffer<'data>,
+        _checkpoint: &<TextBuffer<'data> as Stream>::Checkpoint,
+        _kind: ErrorKind,
+    ) -> Self {
         // When an error stack is being built, this method is called to give the error
         // type an opportunity to aggregate the errors into a collection or a more descriptive
         // message. For now, we simply allow the most recent error to take precedence.
-        IonParseError::Invalid(InvalidInputError::new(input))
+        IonParseError::Invalid(InvalidInputError::new(*input))
     }
 }
 
@@ -267,7 +271,7 @@ pub(crate) trait AddContext<'data, T> {
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBuffer<'data>,
-    ) -> IonResult<(TextBuffer<'a>, T)>
+    ) -> IonResult<T>
     where
         'data: 'a;
 }
@@ -277,7 +281,7 @@ impl<'data, T> AddContext<'data, T> for ErrMode<IonParseError<'data>> {
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBuffer<'data>,
-    ) -> IonResult<(TextBuffer<'a>, T)>
+    ) -> IonResult<T>
     where
         'data: 'a,
     {
@@ -292,7 +296,7 @@ impl<'data, T> AddContext<'data, T> for IonParseError<'data> {
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBuffer<'data>,
-    ) -> IonResult<(TextBuffer<'a>, T)>
+    ) -> IonResult<T>
     where
         'data: 'a,
     {
@@ -315,7 +319,7 @@ impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
         self,
         label: impl Into<Cow<'static, str>>,
         input: TextBuffer<'data>,
-    ) -> IonResult<(TextBuffer<'a>, T)>
+    ) -> IonResult<T>
     where
         'data: 'a,
     {
@@ -361,7 +365,7 @@ where
         label: L,
     ) -> IonParseResult<'_, T> {
         match self {
-            Ok(value) => Ok((input, value)),
+            Ok(value) => Ok(value),
             Err(error) => fatal_parse_error(input, format!("{label}: {error:?}")),
         }
     }

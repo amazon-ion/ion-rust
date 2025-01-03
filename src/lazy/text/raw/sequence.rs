@@ -3,7 +3,9 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use winnow::bytes::one_of;
+use winnow::combinator::opt;
+use winnow::token::{literal, one_of};
+use winnow::Parser;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
@@ -12,7 +14,6 @@ use crate::lazy::decoder::{
 use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::parse_result::AddContext;
-use crate::lazy::text::parse_result::ToIteratorOutput;
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
 use crate::{IonResult, IonType};
 
@@ -106,7 +107,7 @@ impl RawTextListIterator_1_0<'_> {
         // The input has already skipped past the opening delimiter.
         let start = self.input.offset() - 1;
         // We need to find the input slice containing the closing delimiter. It's either...
-        let input_after_last = if let Some(value_result) = self.last() {
+        let mut input = if let Some(value_result) = self.last() {
             let value = value_result?.expect_value()?;
             // ...the input slice that follows the last sequence value...
             self.input
@@ -115,20 +116,20 @@ impl RawTextListIterator_1_0<'_> {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input
         };
-        let (mut input_after_ws, _ws) =
-            input_after_last
-                .match_optional_comments_and_whitespace()
-                .with_context("seeking the end of a list", input_after_last)?;
+        let _ws = input
+            .match_optional_comments_and_whitespace()
+            .with_context("seeking the end of a list", input)?;
         // Skip an optional comma and more whitespace
-        if input_after_ws.bytes().first() == Some(&b',') {
-            (input_after_ws, _) = input_after_ws
-                .slice_to_end(1)
-                .match_optional_comments_and_whitespace()
-                .with_context("skipping a list's trailing comma", input_after_ws)?;
-        }
-        let (input_after_end, _end_delimiter) = one_of(|c| c == b']')(input_after_ws)
-            .with_context("seeking the closing delimiter of a list", input_after_ws)?;
-        let end = input_after_end.offset();
+        let _ = (
+            opt(literal(",")),
+            TextBuffer::match_optional_comments_and_whitespace,
+        )
+            .parse_next(&mut input)
+            .with_context("skipping a list's trailing comma", input)?;
+        let _end_delimiter = one_of(|c| c == b']')
+            .parse_next(&mut input)
+            .with_context("seeking the closing delimiter of a list", input)?;
+        let end = input.offset();
         Ok(start..end)
     }
 }
@@ -141,12 +142,11 @@ impl<'data> Iterator for RawTextListIterator_1_0<'data> {
             return None;
         }
         match self.input.match_list_value() {
-            Ok((remaining, Some(value))) => {
-                self.input = remaining;
+            Ok(Some(value)) => {
                 let value = RawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(value));
                 Some(Ok(value))
             }
-            Ok((_remaining, None)) => {
+            Ok(None) => {
                 // Don't update `remaining` so subsequent calls will continue to return None
                 None
             }
@@ -205,7 +205,7 @@ impl<'top> RawTextSExpIterator_1_0<'top> {
         // The input has already skipped past the opening delimiter.
         let start = self.input.offset() - initial_bytes_skipped;
         // We need to find the input slice containing the closing delimiter. It's either...
-        let input_after_last = if let Some(value_result) = self.last() {
+        let mut input = if let Some(value_result) = self.last() {
             let value = value_result?.expect_value()?;
             // ...the input slice that follows the last sequence value...
             self.input
@@ -214,12 +214,13 @@ impl<'top> RawTextSExpIterator_1_0<'top> {
             // ...or there aren't values, so it's just the input after the opening delimiter.
             self.input
         };
-        let (input_after_ws, _ws) = input_after_last
+        let _ = input
             .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a list", input_after_last)?;
-        let (input_after_end, _end_delimiter) = one_of(|c| c == b')')(input_after_ws)
-            .with_context("seeking the closing delimiter of a sexp", input_after_ws)?;
-        let end = input_after_end.offset();
+            .with_context("seeking the end of a sexp", input)?;
+        let _end_delimiter = one_of(|c| c == b')')
+            .parse_next(&mut input)
+            .with_context("seeking the closing delimiter of a sexp", input)?;
+        let end = input.offset();
         Ok(start..end)
     }
 }
@@ -232,13 +233,10 @@ impl<'data> Iterator for RawTextSExpIterator_1_0<'data> {
             return None;
         }
         match self.input.match_sexp_value() {
-            Ok((remaining, Some(value))) => {
-                self.input = remaining;
-                Some(Ok(RawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(
-                    value,
-                ))))
-            }
-            Ok((_remaining, None)) => None,
+            Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(
+                value,
+            )))),
+            Ok(None) => None,
             Err(e) => {
                 self.has_returned_error = true;
                 e.with_context("reading the next sexp value", self.input)

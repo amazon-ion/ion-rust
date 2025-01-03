@@ -9,11 +9,13 @@ use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::matched::MatchedFieldName;
-use crate::lazy::text::parse_result::{AddContext, ToIteratorOutput};
+use crate::lazy::text::parse_result::AddContext;
 use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
 use crate::{IonResult, RawSymbolRef};
 use std::ops::Range;
-use winnow::bytes::one_of;
+use winnow::combinator::opt;
+use winnow::token::{literal, one_of};
+use winnow::Parser;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RawTextStructIterator_1_0<'top> {
@@ -33,7 +35,7 @@ impl<'top> RawTextStructIterator_1_0<'top> {
         // The input has already skipped past the opening delimiter.
         let start = self.input.offset() - 1;
         // We need to find the input slice containing the closing delimiter. It's either...
-        let input_after_last = if let Some(field_result) = self.last() {
+        let mut input = if let Some(field_result) = self.last() {
             let field = field_result?;
             self.input
                 .slice_to_end(field.range().end - self.input.offset())
@@ -41,20 +43,20 @@ impl<'top> RawTextStructIterator_1_0<'top> {
             // ...or there aren't fields, so it's just the input after the opening delimiter.
             self.input
         };
-        let (mut input_after_ws, _ws) =
-            input_after_last
-                .match_optional_comments_and_whitespace()
-                .with_context("seeking the end of a struct", input_after_last)?;
+        let _ws = input
+            .match_optional_comments_and_whitespace()
+            .with_context("seeking the end of a struct", input)?;
         // Skip an optional comma and more whitespace
-        if input_after_ws.bytes().first() == Some(&b',') {
-            (input_after_ws, _) = input_after_ws
-                .slice_to_end(1)
-                .match_optional_comments_and_whitespace()
-                .with_context("skipping a list's trailing comma", input_after_ws)?;
-        }
-        let (input_after_end, _end_delimiter) = one_of(|c| c == b'}')(input_after_ws)
-            .with_context("seeking the closing delimiter of a struct", input_after_ws)?;
-        let end = input_after_end.offset();
+        let _ = (
+            opt(literal(",")),
+            TextBuffer::match_optional_comments_and_whitespace,
+        )
+            .parse_next(&mut input)
+            .with_context("skipping a struct field's trailing comma", input)?;
+        let _end_delimiter = one_of(|c| c == b'}')
+            .parse_next(&mut input)
+            .with_context("seeking the closing delimiter of a struct", input)?;
+        let end = input.offset();
         Ok(start..end)
     }
 }
@@ -67,11 +69,8 @@ impl<'top> Iterator for RawTextStructIterator_1_0<'top> {
             return None;
         }
         match self.input.match_struct_field() {
-            Ok((remaining_input, Some(field))) => {
-                self.input = remaining_input;
-                Some(Ok(field))
-            }
-            Ok((_, None)) => None,
+            Ok(Some(field)) => Some(Ok(field)),
+            Ok(None) => None,
             Err(e) => {
                 self.has_returned_error = true;
                 e.with_context("reading the next struct field", self.input)

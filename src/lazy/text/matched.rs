@@ -28,10 +28,10 @@ use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
 use num_traits::Zero;
 use smallvec::SmallVec;
-use winnow::branch::alt;
-use winnow::bytes::tag;
-use winnow::sequence::preceded;
-use winnow::stream::AsChar;
+use winnow::combinator::alt;
+use winnow::combinator::preceded;
+use winnow::stream::{AsChar, Stream};
+use winnow::token::literal;
 use winnow::Parser;
 
 use crate::decimal::coefficient::Coefficient;
@@ -456,12 +456,12 @@ impl MatchedString {
         // Iterate over the string segments using the match_long_string_segment parser.
         // This is the same parser that matched the input initially, which means that the only
         // reason it wouldn't succeed here is if the input is empty, meaning we're done reading.
-        while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
+        while let Ok((segment_body, _has_escapes)) = preceded(
             TextBuffer::match_optional_comments_and_whitespace,
             TextBuffer::match_long_string_segment,
-        )(remaining)
+        )
+        .parse_next(&mut remaining)
         {
-            remaining = remaining_after_match;
             replace_escapes_with_byte_values(
                 segment_body,
                 &mut sanitized,
@@ -480,7 +480,7 @@ impl MatchedString {
         matched_input: TextBuffer<'data>,
     ) -> IonResult<StrRef<'data>> {
         // Take a slice of the input that ignores the first and last bytes, which are quotes.
-        let body = matched_input.slice(1, matched_input.len() - 2);
+        let body = matched_input.slice(1, dbg!(matched_input.len()) - 2);
         // There are no escaped characters, so we can just validate the string in-place.
         let text = body.as_text()?;
         let str_ref = StrRef::from(text);
@@ -750,15 +750,15 @@ fn complete_surrogate_pair<'data>(
     input: TextBuffer<'data>,
 ) -> IonResult<TextBuffer<'data>> {
     let mut match_next_codepoint = preceded(
-        tag("\\"),
+        literal("\\"),
         alt((
-            preceded(tag("x"), TextBuffer::match_n_hex_digits(2)),
-            preceded(tag("u"), TextBuffer::match_n_hex_digits(4)),
-            preceded(tag("U"), TextBuffer::match_n_hex_digits(8)),
+            preceded(literal("x"), TextBuffer::match_n_hex_digits(2)),
+            preceded(literal("u"), TextBuffer::match_n_hex_digits(4)),
+            preceded(literal("U"), TextBuffer::match_n_hex_digits(8)),
         )),
     );
-    let (remaining, hex_digits) = match match_next_codepoint.parse_next(input) {
-        Ok((remaining, hex_digits)) => (remaining, hex_digits),
+    let (remaining, hex_digits) = match match_next_codepoint.parse_peek(input) {
+        Ok(hex_digits) => hex_digits,
         Err(_) => {
             return {
                 let error =
@@ -1173,7 +1173,7 @@ impl MatchedClob {
         // Use the existing short string body parser to identify all of the bytes up to the
         // unescaped closing `"`. This parser succeeded once during matching, so we know it will
         // succeed again here; it's safe to unwrap().
-        let (_, (body, _has_escapes)) = remaining.match_short_string_body().unwrap();
+        let (body, _has_escapes) = remaining.checkpoint().match_short_string_body().unwrap();
         // There are escaped characters. We need to build a new version of our string
         // that replaces the escaped characters with their corresponding bytes.
         let mut sanitized = BumpVec::with_capacity_in(body.len(), allocator);
@@ -1205,7 +1205,8 @@ impl MatchedClob {
         while let Ok((remaining_after_match, (segment_body, _has_escapes))) = preceded(
             TextBuffer::match_optional_whitespace,
             TextBuffer::match_long_string_segment,
-        )(remaining)
+        )
+        .parse_peek(remaining)
         {
             remaining = remaining_after_match;
             replace_escapes_with_byte_values(
@@ -1223,11 +1224,11 @@ impl MatchedClob {
 
 #[cfg(test)]
 mod tests {
-
     use crate::lazy::bytes_ref::BytesRef;
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
     use crate::lazy::text::buffer::TextBuffer;
     use crate::{Decimal, Int, IonResult, Timestamp};
+    use winnow::stream::Stream;
 
     #[test]
     fn read_ints() -> IonResult<()> {
@@ -1236,7 +1237,7 @@ mod tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let (_remaining, matched) = buffer.match_int().unwrap();
+            let matched = buffer.checkpoint().match_int().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
                 actual, expected,
@@ -1267,11 +1268,10 @@ mod tests {
     #[test]
     fn read_timestamps() -> IonResult<()> {
         fn expect_timestamp(data: &str, expected: Timestamp) {
-            let data = format!("{data} "); // Append a space
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let (_remaining, matched) = buffer.match_timestamp().unwrap();
+            let matched = buffer.checkpoint().match_timestamp().unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
                 actual, expected,
@@ -1374,13 +1374,13 @@ mod tests {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let result = buffer.match_decimal();
+            let result = buffer.checkpoint().match_decimal();
             assert!(
                 result.is_ok(),
                 "Unexpected match error for input: '{data}': {:?}",
                 result
             );
-            let (_remaining, matched) = buffer.match_decimal().expect("match decimal");
+            let matched = buffer.checkpoint().match_decimal().expect("match decimal");
             let result = matched.read(buffer);
             assert!(
                 result.is_ok(),
@@ -1453,11 +1453,10 @@ mod tests {
     #[test]
     fn read_blobs() -> IonResult<()> {
         fn expect_blob(data: &str, expected: &str) {
-            let data = format!("{data} "); // Append a space
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let (_remaining, matched) = buffer.match_blob().unwrap();
+            let matched = buffer.checkpoint().match_blob().unwrap();
             let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
                 actual,
@@ -1492,13 +1491,11 @@ mod tests {
             // For the sake of these tests, we're going to append one more value (`0`) to the input
             // stream so the parser knows that the long-form strings are complete. We then trim
             // our fabricated value off of the input before reading.
-            let data = format!("{data}\n0");
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let buffer = TextBuffer::new(context, data.as_bytes(), true);
-            let (_remaining, matched) = buffer.match_string().unwrap();
-            let matched_input = buffer.slice(0, buffer.len() - 2);
-            let actual = matched.read(context.allocator(), matched_input).unwrap();
+            let buffer = TextBuffer::new(context, dbg!(data).as_bytes(), true);
+            let matched = dbg!(buffer.clone().match_string().unwrap());
+            let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
                 actual, expected,
                 "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
@@ -1529,6 +1526,37 @@ mod tests {
     }
 
     #[test]
+    fn read_strings_foo() -> IonResult<()> {
+        fn expect_string(data: &str, expected: &str) {
+            // Ordinarily the reader is responsible for indicating that the input is complete.
+            // For the sake of these tests, we're going to append one more value (`0`) to the input
+            // stream so the parser knows that the long-form strings are complete. We then trim
+            // our fabricated value off of the input before reading.
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
+            let buffer = TextBuffer::new(context, dbg!(data).as_bytes(), true);
+            let matched = dbg!(buffer.clone().match_string().unwrap());
+            let actual = matched.read(context.allocator(), buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
+                data, actual, expected
+            );
+        }
+
+        let tests = [
+            // In long-form strings, all unescaped newlines are converted to `\n`.
+            ("'''foo\rbar\r\nbaz'''", "foo\nbar\nbaz"),
+        ];
+
+        for (input, expected) in tests {
+            expect_string(input, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn read_clobs() -> IonResult<()> {
         fn read_clob<'a>(
             context: EncodingContextRef<'a>,
@@ -1537,7 +1565,7 @@ mod tests {
             let buffer = TextBuffer::new(context, data.as_bytes(), true);
             // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
             // call to `match_clob()`.
-            let (_remaining, matched) = buffer.match_clob().unwrap();
+            let matched = buffer.checkpoint().match_clob().unwrap();
             // The resulting buffer slice may be rejected during reading.
             matched.read(context.allocator(), buffer)
         }

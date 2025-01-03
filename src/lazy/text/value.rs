@@ -1,10 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
-use std::ops::Range;
-
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
@@ -13,6 +8,10 @@ use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::{IonEncoding, IonResult, IonType, RawSymbolRef};
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
+use std::ops::Range;
 
 /// A value that has been identified in the text input stream but whose data has not yet been read.
 ///
@@ -250,11 +249,9 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
         // Match the first annotation in the input. In order for this iterator to be created,
         // the parser already successfully matched this input once before, so we know it will succeed.
         use winnow::Parser;
-        let (remaining, (symbol, span)) = dbg!(TextBuffer::match_annotation.parse_next(self.input))
+        let (symbol, matched_input) = TextBuffer::match_annotation
+            .parse_next(&mut self.input)
             .expect("annotations were already matched successfully by this parser");
-        let matched_input = self
-            .input
-            .slice(span.start - self.input.offset(), span.len());
         let text = match symbol.read(self.input.context.allocator(), matched_input) {
             Ok(text) => text,
             Err(e) => {
@@ -262,7 +259,6 @@ impl<'top> Iterator for RawTextAnnotationsIterator<'top> {
                 return Some(Err(e));
             }
         };
-        self.input = remaining;
         Some(Ok(text))
     }
 }
