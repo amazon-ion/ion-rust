@@ -11,8 +11,8 @@ use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
     StreamIsPartial,
 };
-use winnow::token::{one_of, take_till, take_until, take_while};
-use winnow::Parser;
+use winnow::token::{any, one_of, take_till, take_until, take_while};
+use winnow::{dispatch, Parser};
 
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
@@ -47,6 +47,17 @@ use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use bumpalo::collections::Vec as BumpVec;
 use winnow::ascii::{digit0, digit1};
+
+// .map(|int| EncodedTextValue::new(MatchedValue::Int(int))),
+
+macro_rules! value_matchers {
+    ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
+        $(fn $new_parser<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
+            $parser.map(|matched| EncodedTextValue::new(MatchedValue::$variant(matched))).parse_next(self)
+        })*
+    };
+}
+
 
 impl Debug for TextBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -671,53 +682,76 @@ impl<'top> TextBuffer<'top> {
         .parse_next(self)
     }
 
-    /// Matches a single scalar value or the beginning of a container.
+    /// Matches a single Ion 1.0 value.
     pub fn match_value(&mut self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
         let allocator = self.context().allocator();
-        alt((
-            // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
-            // parsing to be done.
-            Self::match_null.map(|ion_type| EncodedTextValue::new(MatchedValue::Null(ion_type))),
-            Self::match_bool.map(|value| EncodedTextValue::new(MatchedValue::Bool(value))),
-            // For `int` and the other types, we use `match` and store the partially-processed input in the
-            // `matched_value` field of the `EncodedTextValue` we return.
-            Self::match_int
-                .map(|matched_int| EncodedTextValue::new(MatchedValue::Int(matched_int))),
-            Self::match_float
-                .map(|matched_float| EncodedTextValue::new(MatchedValue::Float(matched_float))),
-            Self::match_decimal.map(|matched_decimal| {
-                EncodedTextValue::new(MatchedValue::Decimal(matched_decimal))
-            }),
-            Self::match_timestamp.map(|matched_timestamp| {
-                EncodedTextValue::new(MatchedValue::Timestamp(matched_timestamp))
-            }),
-            Self::match_string
-                .map(|matched_string| EncodedTextValue::new(MatchedValue::String(matched_string))),
-            Self::match_symbol
-                .map(|matched_symbol| EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))),
-            Self::match_blob
-                .map(|matched_blob| EncodedTextValue::new(MatchedValue::Blob(matched_blob))),
-            Self::match_clob
-                .map(|matched_clob| EncodedTextValue::new(MatchedValue::Clob(matched_clob))),
-            Self::match_list.map(|_matched_list| {
+        let mut peek_next_token = |input: &mut TextBuffer<'top>| {
+            let mut input_copy = input.clone();
+            any(&mut input_copy)
+        };
+        dispatch! {
+            peek_next_token;
+            byte if byte.is_ascii_digit() || byte == b'-' || byte == b'+' => {
+                alt((
+                    Self::match_int_value,
+                    Self::match_float_value,
+                    Self::match_decimal_value,
+                    Self::match_timestamp_value,
+                ))
+            },
+            byte if byte.is_ascii_alphabetic() => {
+                alt((
+                    Self::match_null_value,
+                    Self::match_bool_value,
+                    Self::match_identifier_value,
+                    Self::match_float_special_value, // nan
+                ))
+            },
+            b'$' | b'_' => {
+                Self::match_symbol_value // identifiers and symbol IDs
+            },
+            b'"' | b'\'' => {
+                alt((
+                    Self::match_string_value,
+                    Self::match_symbol_value,
+                ))
+            },
+            b'[' => {
+                Self::match_list.map(|_matched_list| {
                 // TODO: Cache child expressions found in 1.0 list
                 let not_yet_used_in_1_0 =
                     bumpalo::collections::Vec::new_in(allocator).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::List(not_yet_used_in_1_0))
-            }),
-            Self::match_sexp.map(|_matched_sexp| {
+                })
+            },
+            b'(' => {
+                Self::match_sexp.map(|_matched_sexp| {
                 // TODO: Cache child expressions found in 1.0 sexp
                 let not_yet_used_in_1_0 =
                     bumpalo::collections::Vec::new_in(allocator).into_bump_slice();
                 EncodedTextValue::new(MatchedValue::SExp(not_yet_used_in_1_0))
-            }),
-            Self::match_struct.map(|_matched_struct| {
-                // TODO: Cache child expressions found in 1.0 struct
-                let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(allocator).into_bump_slice();
-                EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
-            }),
-        ))
+                })
+            },
+            b'{' => {
+                alt((
+                    Self::match_blob_value,
+                    Self::match_clob_value,
+                    Self::match_struct.map(|_matched_struct| {
+                        // TODO: Cache child expressions found in 1.0 struct
+                        let not_yet_used_in_1_0 =
+                            bumpalo::collections::Vec::new_in(allocator).into_bump_slice();
+                        EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
+                    }),
+                ))
+            },
+            _other => {
+                // `other` is not a legal start-of-value byte.
+                |input: &mut TextBuffer<'top>| {
+                    let error = InvalidInputError::new(*input);
+                    return Err(ErrMode::Backtrack(IonParseError::Invalid(error)));
+                }
+            },
+        }
         .with_taken()
         .map(|(encoded_value, input)| LazyRawTextValue_1_0 {
             encoded_value,
@@ -1514,6 +1548,21 @@ impl<'top> TextBuffer<'top> {
         .parse_next(self)
     }
 
+    value_matchers!(
+        Self::match_null => Null => match_null_value,
+        Self::match_bool => Bool => match_bool_value,
+        Self::match_int => Int => match_int_value,
+        Self::match_float => Float => match_float_value,
+        Self::match_float_special => Float => match_float_special_value,
+        Self::match_decimal => Decimal => match_decimal_value,
+        Self::match_timestamp => Timestamp => match_timestamp_value,
+        Self::match_string => String => match_string_value,
+        Self::match_symbol => Symbol => match_symbol_value,
+        Self::match_identifier => Symbol => match_identifier_value,
+        Self::match_blob => Blob => match_blob_value,
+        Self::match_clob => Clob => match_clob_value,
+    );
+
     /// Matches a base-2 notation integer (e.g. `0b0`, `0B1010`, or `-0b0111`) and returns the
     /// partially parsed value as a [`MatchedInt`].
     fn match_base_2_int(&mut self) -> IonParseResult<'top, MatchedInt> {
@@ -1639,7 +1688,7 @@ impl<'top> TextBuffer<'top> {
     fn match_float(&mut self) -> IonParseResult<'top, MatchedFloat> {
         terminated(
             alt((
-                Self::match_float_special_value,
+                Self::match_float_special,
                 Self::match_float_numeric_value,
             )),
             Self::peek_stop_character,
@@ -1648,7 +1697,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches special IEEE-754 values, including +/- infinity and NaN.
-    fn match_float_special_value(&mut self) -> IonParseResult<'top, MatchedFloat> {
+    fn match_float_special(&mut self) -> IonParseResult<'top, MatchedFloat> {
         alt((
             "nan".value(MatchedFloat::NotANumber),
             "+inf".value(MatchedFloat::PositiveInfinity),
