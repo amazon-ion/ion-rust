@@ -256,16 +256,21 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches any amount of contiguous comments and whitespace, including none.
-    pub fn full_match_optional_comments_and_whitespace(&mut self) -> IonMatchResult<'top> {
-        zero_or_more(alt((Self::match_whitespace1, Self::match_comment))).parse_next(self)
-    }
-
-    /// Matches any amount of contiguous comments and whitespace, including none.
     #[inline]
     pub fn match_optional_comments_and_whitespace(&mut self) -> IonMatchResult<'top> {
+        pub fn full_match_optional_comments_and_whitespace<'t>(
+            input: &mut TextBuffer<'t>,
+        ) -> IonMatchResult<'t> {
+            zero_or_more(alt((
+                TextBuffer::match_whitespace1,
+                TextBuffer::match_comment,
+            )))
+            .parse_next(input)
+        }
+
         if let Some(&byte) = self.bytes().first() {
             if WHITESPACE_BYTES.contains_token(byte) || byte == b'/' {
-                return self.full_match_optional_comments_and_whitespace();
+                return full_match_optional_comments_and_whitespace(self);
             }
         }
         self.match_nothing()
@@ -550,10 +555,7 @@ impl<'top> TextBuffer<'top> {
             separated_pair(
                 whitespace_and_then(Self::match_struct_field_name),
                 whitespace_and_then(":"),
-                whitespace_and_then(alt((
-                    Self::match_annotated_long_string_in_struct,
-                    Self::match_annotated_value_1_1,
-                ))),
+                whitespace_and_then(Self::match_annotated_value_1_1),
             ),
             whitespace_and_then(alt((",", Self::peek_struct_end))),
         )
@@ -601,42 +603,6 @@ impl<'top> TextBuffer<'top> {
                 };
                 matched_input.apply_annotations(maybe_annotations, value)
             })
-    }
-
-    /// In the context of a list, long-form strings need to be parsed differently to properly detect incomplete
-    /// input. For example, at the top level...
-    /// ```ion
-    ///        // string  empty symbol
-    ///         '''foo'''      ''
-    /// ```
-    ///
-    /// But in the context of a list...
-    ///
-    /// ```ion
-    ///     [           // v--- Incomplete
-    ///         '''foo''' ''
-    /// ```
-    ///
-    /// the same partial value is an `Incomplete` because it must be followed by a `,` or `]` to be
-    /// complete.
-    pub fn match_annotated_long_string_in_list(
-        &mut self,
-    ) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
-        Self::match_annotated_value_parser(
-            Self::match_long_string_in_list.map(|s| EncodedTextValue::new(MatchedValue::String(s))),
-        )
-        .parse_next(self)
-    }
-
-    /// Like `match_annotated_long_string_in_list` above, but for structs.
-    pub fn match_annotated_long_string_in_struct(
-        &mut self,
-    ) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
-        Self::match_annotated_value_parser(
-            Self::match_long_string_in_struct
-                .map(|s| EncodedTextValue::new(MatchedValue::String(s))),
-        )
-        .parse_next(self)
     }
 
     /// Matches a struct field name. That is:
@@ -965,11 +931,7 @@ impl<'top> TextBuffer<'top> {
             )
             .map(|matched| Some(RawValueExpr::EExp(matched))),
             "]".value(None),
-            terminated(
-                Self::match_annotated_long_string_in_list.map(Some),
-                Self::match_delimiter_after_list_value,
-            )
-            .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
+            // .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
             terminated(
                 Self::match_annotated_value_1_1.map(Some),
                 // ...followed by a comma or end-of-list
@@ -1658,7 +1620,6 @@ impl<'top> TextBuffer<'top> {
     // This function's "1" suffix is a style borrowed from `nom`.
     fn take_base_16_digits1(&mut self) -> IonMatchResult<'top> {
         (
-            // We need at least one digit; if input's empty, this is Incomplete.
             one_of(|b: u8| b.is_ascii_hexdigit()),
             // After we have our digit, take digits until we find a non-digit (including EOF).
             take_while(.., |b: u8| b.is_ascii_hexdigit()),
@@ -1925,85 +1886,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     pub fn match_long_string(&mut self) -> IonParseResult<'top, MatchedString> {
-        // This method is used at the top level and inside s-expressions.
-        // Specific contexts that need to specify a delimiter will call
-        // `match_long_string_with_terminating_delimiter` themselves.
-        // This includes lists, structs, and clobs.
-        Self::match_only_complete_if_terminated(
-            "reading a long-form string",
-            Self::match_long_string_segments,
-            // Don't specify a terminating delimiter -- always succeed.
-            Self::match_nothing,
-            Self::match_partial_long_string_delimiter,
-        )
-        .parse_next(self)
-    }
-
-    pub fn match_long_string_in_struct(&mut self) -> IonParseResult<'top, MatchedString> {
-        Self::match_only_complete_if_terminated(
-            "reading a long-form string in a struct",
-            Self::match_long_string_segments,
-            alt((",", "}")),
-            Self::match_partial_long_string_delimiter,
-        )
-        .parse_next(self)
-    }
-
-    pub fn match_long_string_in_list(&mut self) -> IonParseResult<'top, MatchedString> {
-        Self::match_only_complete_if_terminated(
-            "reading a long-form string in a list",
-            Self::match_long_string_segments,
-            alt((",", "]")),
-            Self::match_partial_long_string_delimiter,
-        )
-        .parse_next(self)
-    }
-
-    /// Matches a parser that must be followed by input that matches `terminator`.
-    ///
-    /// This is used in contexts where the expression being parsed must be followed by one of a
-    /// set of known delimiters (ignoring whitespace and comments). For example:
-    ///   * in a list, a long string must be followed by `,` or `]`
-    ///   * in a struct, a long string must be followed by `,` or `}`
-    ///   * in a clob, a long string must be followed by `}}`.
-    ///
-    /// Without this, it would be impossible to determine whether `''' ''` is legal or incomplete
-    /// in a given context.
-    ///
-    /// If the input is NOT terminated properly, the parser will check to see if `partial` matches.
-    /// If so, it will return an `Incomplete`.
-    /// If not, it will return an `Err` that includes the provided `label`.
-    pub fn match_only_complete_if_terminated<Output, Output2, Output3: Debug>(
-        label: &'static str,
-        mut parser: impl IonParser<'top, Output>,
-        mut terminator: impl IonParser<'top, Output3>,
-        mut partial: impl IonParser<'top, Output2>,
-    ) -> impl Parser<Self, Output, IonParseError<'top>> {
-        move |input: &mut Self| {
-            // Save a copy of the original input.
-            let original_input = *input;
-            // If the parser raises an error, bubble it up.
-            let matched = parser.parse_next(input)?;
-            // If the next thing in input is the terminator, report success.
-            match terminator.parse_peek(input.clone()) {
-                Ok(_) => return Ok(matched),
-                // Otherwise, report that the original input was incomplete.
-                Err(ErrMode::Incomplete(_)) => return original_input.incomplete(label),
-                _ => {
-                    // no match
-                }
-            };
-            // Otherwise, see if the next thing in input is an indication that the input was
-            // incomplete.
-            if partial.parse_peek(input.clone()).is_ok() {
-                // If so, report that the original input was incomplete.
-                return original_input.incomplete(label);
-            }
-
-            Err(ErrMode::Backtrack(IonParseError::Invalid(
-                InvalidInputError::new(original_input).with_label(label),
-            )))
-        }
+        Self::match_long_string_segments.parse_next(self)
     }
 
     /// Matches a long string comprised of any number of `'''`-enclosed segments interleaved
@@ -2033,25 +1916,6 @@ impl<'top> TextBuffer<'top> {
             _ => MatchedString::Long,
         })
         .parse_next(self)
-    }
-
-    /// In the context of a list or s-expression, a truncated long-form string makes it impossible
-    /// to tell whether the input is malformed or just incomplete. For example, at the top level,
-    /// this is incomplete:
-    ///     '''foo''' '
-    /// while this:
-    ///     '''foo''' ''
-    /// is valid--it's a string followed by an empty symbol. Inside a list, however, the same partial
-    /// long string has to be read differently. If the reader sees this:
-    ///    ['''foo''' ''
-    /// It needs to consider it incomplete, not valid; for the last token to be an empty symbol,
-    /// there would need to be a delimiting comma (`,`) between the two values. Structs also require
-    /// a delimiting comma between a value and the next field.
-    ///
-    /// If an error is encountered while traversing a list or struct, this method can be used to
-    /// see if the problematic data was the beginning of another string segment.
-    pub fn match_partial_long_string_delimiter(&mut self) -> IonMatchResult<'top> {
-        whitespace_and_then(terminated("''", eof)).parse_next(self)
     }
 
     /// Matches a single long string segment enclosed by `'''` delimiters.
@@ -2548,19 +2412,12 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches the body (inside the `{{` and `}}`) of a long-form clob.
     fn match_long_clob_body(&mut self) -> IonMatchResult<'top> {
-        let body = Self::match_only_complete_if_terminated(
-            "reading a long-form clob",
-            one_or_more(preceded(
-                Self::match_whitespace0,
-                Self::match_long_clob_body_segment,
-            ))
-            .take(),
-            preceded(Self::match_whitespace0, "}}"),
-            preceded(Self::match_whitespace0, "''"),
-        )
-        .parse_next(self)?;
-
-        Ok(body)
+        one_or_more(preceded(
+            Self::match_whitespace0,
+            Self::match_long_clob_body_segment,
+        ))
+        .take()
+        .parse_next(self)
     }
 
     /// Matches a single segment of a long-form clob's content.
