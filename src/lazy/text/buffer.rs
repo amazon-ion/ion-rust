@@ -758,47 +758,57 @@ impl<'top> TextBuffer<'top> {
     }
 
     pub fn match_value_1_1(&mut self) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
-        alt((
-            // For `null` and `bool`, we use `read_` instead of `match_` because there's no additional
-            // parsing to be done.
-            Self::match_null.map(|ion_type| EncodedTextValue::new(MatchedValue::Null(ion_type))),
-            Self::match_bool.map(|value| EncodedTextValue::new(MatchedValue::Bool(value))),
-            // For `int` and the other types, we use `match` and store the partially-processed input in the
-            // `matched_value` field of the `EncodedTextValue` we return.
-            Self::match_int
-                .map(|matched_int| EncodedTextValue::new(MatchedValue::Int(matched_int))),
-            Self::match_float
-                .map(|matched_float| EncodedTextValue::new(MatchedValue::Float(matched_float))),
-            Self::match_decimal.map(|matched_decimal| {
-                EncodedTextValue::new(MatchedValue::Decimal(matched_decimal))
-            }),
-            Self::match_timestamp.map(|matched_timestamp| {
-                EncodedTextValue::new(MatchedValue::Timestamp(matched_timestamp))
-            }),
-            Self::match_string
-                .map(|matched_string| EncodedTextValue::new(MatchedValue::String(matched_string))),
-            Self::match_symbol
-                .map(|matched_symbol| EncodedTextValue::new(MatchedValue::Symbol(matched_symbol))),
-            Self::match_blob
-                .map(|matched_blob| EncodedTextValue::new(MatchedValue::Blob(matched_blob))),
-            Self::match_clob
-                .map(|matched_clob| EncodedTextValue::new(MatchedValue::Clob(matched_clob))),
-            Self::match_list_1_1.map(|(_matched_list, child_expr_cache)| {
-                EncodedTextValue::new(MatchedValue::List(child_expr_cache))
-            }),
-            Self::match_sexp_1_1.map(|(_matched_sexp, child_expr_cache)| {
-                EncodedTextValue::new(MatchedValue::SExp(child_expr_cache))
-            }),
-            Self::match_struct_1_1.map(|(_matched_struct, field_expr_cache)| {
-                EncodedTextValue::new(MatchedValue::Struct(field_expr_cache))
-            }),
-        ))
+        dispatch! {
+            |input: &mut TextBuffer<'top>| input.peek_byte();
+            byte if byte.is_ascii_digit() || byte == b'-' => {
+                alt((
+                    Self::match_int_value,
+                    Self::match_float_value,
+                    Self::match_decimal_value,
+                    Self::match_timestamp_value,
+                ))
+            },
+            byte if byte.is_ascii_alphabetic() => {
+                alt((
+                    Self::match_null_value,
+                    Self::match_bool_value,
+                    Self::match_identifier_value,
+                    Self::match_float_special_value, // nan
+                ))
+            },
+            b'$' | b'_' => {
+                Self::match_symbol_value // identifiers and symbol IDs
+            },
+            b'"' | b'\'' => {
+                alt((
+                    Self::match_string_value,
+                    Self::match_symbol_value,
+                ))
+            },
+            b'[' => Self::match_list_value_1_1,
+            b'(' => Self::match_sexp_value_1_1,
+            b'{' => {
+                alt((
+                    Self::match_blob_value,
+                    Self::match_clob_value,
+                    Self::match_struct_value_1_1,
+                ))
+            },
+            b'+' => Self::match_float_special_value, // +inf
+            _other => {
+                // `other` is not a legal start-of-value byte.
+                |input: &mut TextBuffer<'top>| {
+                    let error = InvalidInputError::new(*input);
+                    return Err(ErrMode::Backtrack(IonParseError::Invalid(error)));
+                }
+            },
+        }
         .with_taken()
-        .map(|(encoded_value, input)| LazyRawTextValue_1_1 {
-            encoded_value,
-            input,
-        })
-        .parse_next(self)
+            .map(|(encoded_value, input)| LazyRawTextValue_1_1 {
+                encoded_value,
+                input,
+            })
+            .parse_next(self)
     }
 
     /// Matches a list.
@@ -843,10 +853,7 @@ impl<'top> TextBuffer<'top> {
         &mut self,
     ) -> IonParseResult<
         'top,
-        (
-            TextBuffer<'top>,
-            &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
-        ),
+        &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
     > {
         // If it doesn't start with [, it isn't a list.
         if self.bytes().first() != Some(&b'[') {
@@ -877,11 +884,8 @@ impl<'top> TextBuffer<'top> {
             }
         };
 
-        // For the matched span, we use `self` again to include the opening `[`
-        let matched = self.slice(0, span.len());
-        let remaining = self.slice_to_end(span.len());
-        *self = remaining;
-        Ok((matched, child_exprs))
+        self.consume(span.len());
+        Ok(child_exprs)
     }
 
     // TODO: DRY with `match_sexp`
@@ -889,10 +893,7 @@ impl<'top> TextBuffer<'top> {
         &mut self,
     ) -> IonParseResult<
         'top,
-        (
-            TextBuffer<'top>,
-            &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
-        ),
+        &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
     > {
         if self.bytes().first() != Some(&b'(') {
             let error = InvalidInputError::new(*self);
@@ -917,11 +918,8 @@ impl<'top> TextBuffer<'top> {
                     }
                 }
             };
-        // For the matched span, we use `self` again to include the opening `(`
-        let matched = self.slice(0, span.len());
-        let remaining = self.slice_to_end(span.len());
-        *self = remaining;
-        Ok((matched, child_expr_cache))
+        self.consume(span.len());
+        Ok(child_expr_cache)
     }
 
     /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
@@ -1048,10 +1046,7 @@ impl<'top> TextBuffer<'top> {
         &mut self,
     ) -> IonParseResult<
         'top,
-        (
-            TextBuffer<'top>,
-            &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>],
-        ),
+        &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>],
     > {
         // If it doesn't start with {, it isn't a struct.
         if self.bytes().first() != Some(&b'{') {
@@ -1082,11 +1077,8 @@ impl<'top> TextBuffer<'top> {
             }
         };
 
-        // For the matched span, we use `self` again to include the opening `{`
-        let matched = self.slice(0, span.len());
-        let remaining = self.slice_to_end(span.len());
-        *self = remaining;
-        Ok((matched, fields))
+        self.consume(span.len());
+        Ok(fields)
     }
 
     pub fn match_e_expression_arg_group(
@@ -1558,6 +1550,12 @@ impl<'top> TextBuffer<'top> {
         Self::match_list => List => match_list_value,
         Self::match_sexp => SExp => match_sexp_value,
         Self::match_struct => Struct => match_struct_value,
+    );
+
+    container_value_matchers_1_1!(
+        Self::match_list_1_1 => List => match_list_value_1_1,
+        Self::match_sexp_1_1 => SExp => match_sexp_value_1_1,
+        Self::match_struct_1_1 => Struct => match_struct_value_1_1,
     );
 
     /// Matches a base-2 notation integer (e.g. `0b0`, `0B1010`, or `-0b0111`) and returns the
