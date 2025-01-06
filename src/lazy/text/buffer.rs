@@ -185,7 +185,7 @@ impl<'top> TextBuffer<'top> {
         self.context
     }
 
-    fn incomplete<T>(&self, label: &'static str) -> IonParseResult<'top, T> {
+    pub(crate) fn incomplete<T>(&self, label: &'static str) -> IonParseResult<'top, T> {
         if self.is_final_data() {
             fatal_parse_error(*self, format!("ran out of data while parsing {label}"))
         } else {
@@ -731,13 +731,13 @@ impl<'top> TextBuffer<'top> {
                     Self::match_symbol_value,
                 ))
             },
-            b'[' => Self::match_list_value,
-            b'(' => Self::match_sexp_value,
+            b'[' => TextEncoding_1_0::list_matcher(),
+            b'(' => TextEncoding_1_0::sexp_matcher(),
             b'{' => {
                 alt((
                     Self::match_blob_value,
                     Self::match_clob_value,
-                    Self::match_struct_value,
+                    TextEncoding_1_0::struct_matcher(),
                 ))
             },
             b'+' => Self::match_float_special_value, // +inf

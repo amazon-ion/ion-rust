@@ -5,6 +5,7 @@ use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0};
+use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpression_1_1;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryFieldName_1_1;
 use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
 use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryVersionMarker_1_1;
@@ -19,25 +20,34 @@ use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::Encoder;
 use crate::lazy::never::Never;
-use crate::lazy::text::raw::r#struct::{LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0};
+use crate::lazy::text::buffer::{whitespace_and_then, IonParser, TextBuffer};
+use crate::lazy::text::encoded_value::EncodedTextValue;
+use crate::lazy::text::matched::MatchedValue;
+use crate::lazy::text::parse_result::fatal_parse_error;
+use crate::lazy::text::raw::r#struct::{
+    LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0, RawTextStructIterator_1_0,
+};
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
-use crate::lazy::text::raw::sequence::{LazyRawTextList_1_0, LazyRawTextSExp_1_0};
+use crate::lazy::text::raw::sequence::{
+    LazyRawTextList_1_0, LazyRawTextSExp_1_0, RawTextListIterator_1_0, RawTextSExpIterator_1_0,
+};
 use crate::lazy::text::raw::v1_1::reader::{
     LazyRawTextFieldName_1_1, LazyRawTextList_1_1, LazyRawTextReader_1_1, LazyRawTextSExp_1_1,
-    LazyRawTextStruct_1_1, TextEExpression_1_1,
+    LazyRawTextStruct_1_1, RawTextListIterator_1_1, RawTextSExpIterator_1_1,
+    RawTextStructIterator_1_1, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
+use crate::{
+    AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, HasRange, IonError, IonResult,
+    SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
+};
 use std::fmt::Debug;
 use std::io;
-
-use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpression_1_1;
-use crate::{
-    AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, IonResult, SymbolValueEncoding,
-    TextFormat, ValueWriterConfig, WriteConfig,
-};
+use winnow::combinator::opt;
+use winnow::Parser;
 
 /// Marker trait for types that represent an Ion encoding.
 pub trait Encoding: Encoder + Decoder {
@@ -246,10 +256,96 @@ pub trait TextEncoding<'top>:
         Value<'top> = LazyRawTextValue<'top, Self>,
     >
 {
-    // No methods, just a marker
+    fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
+    fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
+    fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
+    fn container_matcher<MakeIterator, Iter, Expr>(
+        label: &'static str,
+        mut make_iterator: MakeIterator,
+        mut end_matcher: impl IonParser<'top, TextBuffer<'top>>,
+    ) -> impl IonParser<'top, &'top [Expr]>
+    where
+        Expr: HasRange + 'top,
+        Iter: Iterator<Item = IonResult<Expr>>,
+        MakeIterator: FnMut(TextBuffer<'top>) -> Iter,
+    {
+        use bumpalo::collections::Vec as BumpVec;
+        move |input: &mut TextBuffer<'top>| {
+            // Skip the opening token of the container, i.e. '[', '(', or '{'
+            let iterator = make_iterator(input.slice_to_end(1));
+            // The input has already skipped past the opening delimiter.
+            let start = input.offset();
+            let mut child_expr_cache = BumpVec::new_in(input.context().allocator());
+            for expr_result in iterator {
+                let expr = match expr_result {
+                    Ok(expr) => expr,
+                    Err(IonError::Incomplete(..)) => {
+                        return input.incomplete(label);
+                    }
+                    Err(e) => {
+                        return fatal_parse_error(*input, format!("failed to parse {label}: {e:?}"))
+                    }
+                };
+                child_expr_cache.push(expr);
+            }
+
+            let last_expr_end = child_expr_cache
+                .last()
+                .map(|expr| expr.range().end)
+                .unwrap_or(input.offset() + 1);
+            let mut remaining = input.slice_to_end(last_expr_end - input.offset());
+            let _matched_end = end_matcher.parse_next(&mut remaining)?;
+            let end = remaining.offset();
+            let span = start..end;
+            input.consume(span.len());
+            Ok(child_expr_cache.into_bump_slice())
+        }
+    }
 }
-impl TextEncoding<'_> for TextEncoding_1_0 {}
-impl TextEncoding<'_> for TextEncoding_1_1 {}
+impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
+    fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextListIterator_1_0::new(buffer);
+        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("]")).take();
+        Self::container_matcher("a v1.0 list", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::List(nested_expr_cache)))
+    }
+
+    fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextSExpIterator_1_0::new(buffer);
+        let end_matcher = whitespace_and_then(")");
+        Self::container_matcher("a v1.0 sexp", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::SExp(nested_expr_cache)))
+    }
+
+    fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextStructIterator_1_0::new(buffer);
+        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("}")).take();
+        Self::container_matcher("a v1.0 struct", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
+    }
+}
+impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
+    fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextListIterator_1_1::new(buffer);
+        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("]")).take();
+        Self::container_matcher("a v1.1 list", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::List(nested_expr_cache)))
+    }
+
+    fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextSExpIterator_1_1::new(buffer);
+        let end_matcher = whitespace_and_then(")");
+        Self::container_matcher("a v1.1 sexp", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::SExp(nested_expr_cache)))
+    }
+
+    fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextStructIterator_1_1::new(buffer);
+        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("}")).take();
+        Self::container_matcher("a v1.1 struct", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
+    }
+}
 
 /// Marker trait for encodings that support macros.
 pub trait EncodingWithMacroSupport {}
