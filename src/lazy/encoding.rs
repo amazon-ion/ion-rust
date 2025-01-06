@@ -256,6 +256,10 @@ pub trait TextEncoding<'top>:
         Value<'top> = LazyRawTextValue<'top, Self>,
     >
 {
+    fn new_value(
+        input: TextBuffer<'top>,
+        encoded_text_value: EncodedTextValue<'top, Self>,
+    ) -> Self::Value<'top>;
     fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
     fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
     fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
@@ -303,6 +307,13 @@ pub trait TextEncoding<'top>:
     }
 }
 impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
+    fn new_value(
+        input: TextBuffer<'top>,
+        encoded_text_value: EncodedTextValue<'top, Self>,
+    ) -> Self::Value<'top> {
+        LazyRawTextValue_1_0::new(input, encoded_text_value)
+    }
+
     fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
         let make_iter = |buffer: TextBuffer<'top>| RawTextListIterator_1_0::new(buffer);
         let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("]")).take();
@@ -325,6 +336,13 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
     }
 }
 impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
+    fn new_value(
+        input: TextBuffer<'top>,
+        encoded_text_value: EncodedTextValue<'top, Self>,
+    ) -> Self::Value<'top> {
+        LazyRawTextValue_1_1::new(input, encoded_text_value)
+    }
+
     fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
         let make_iter = |buffer: TextBuffer<'top>| RawTextListIterator_1_1::new(buffer);
         let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("]")).take();
