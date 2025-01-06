@@ -337,14 +337,14 @@ pub(crate) fn fatal_parse_error<D: Into<Cow<'static, str>>, O>(
     input: TextBuffer<'_>,
     description: D,
 ) -> IonParseResult<'_, O> {
-    Err(winnow::error::ErrMode::Cut(
+    Err(ErrMode::Cut(
         InvalidInputError::new(input)
             .with_description(description)
             .into(),
     ))
 }
 
-/// An extension trait that allows a [std::result::Result] of any kind to be mapped to an
+/// An extension trait that allows a [Result] of any kind to be mapped to an
 /// `IonParseResult` concisely.
 pub(crate) trait OrFatalParseError<T> {
     fn or_fatal_parse_error<L: Display>(

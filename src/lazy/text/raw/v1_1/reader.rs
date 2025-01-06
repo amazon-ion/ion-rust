@@ -550,7 +550,7 @@ impl<'top> Iterator for RawTextSExpIterator_1_1<'top> {
         if self.has_returned_error {
             return None;
         }
-        match self.input.match_sexp_value_1_1() {
+        match self.input.match_sexp_item_1_1() {
             Ok(Some(value)) => Some(Ok(value)),
             Ok(None) => None,
             Err(e) => {
@@ -701,7 +701,7 @@ impl<'top> Iterator for RawTextListIterator_1_1<'top> {
         if self.has_returned_error {
             return None;
         }
-        match self.input.match_list_value_1_1() {
+        match self.input.match_list_item_1_1() {
             Ok(Some(value_expr)) => Some(Ok(value_expr)),
             Ok(None) => {
                 // Don't update `remaining` so subsequent calls will continue to return None

@@ -138,7 +138,7 @@ impl<'data> Iterator for RawTextListIterator_1_0<'data> {
         if self.has_returned_error {
             return None;
         }
-        match self.input.match_list_value() {
+        match self.input.match_list_item() {
             Ok(Some(value)) => {
                 let value = RawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(value));
                 Some(Ok(value))
@@ -229,7 +229,7 @@ impl<'data> Iterator for RawTextSExpIterator_1_0<'data> {
         if self.has_returned_error {
             return None;
         }
-        match self.input.match_sexp_value() {
+        match self.input.match_sexp_item() {
             Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(LazyRawTextValue_1_0::from(
                 value,
             )))),

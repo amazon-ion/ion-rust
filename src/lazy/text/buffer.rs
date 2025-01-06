@@ -11,7 +11,7 @@ use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
     StreamIsPartial,
 };
-use winnow::token::{any, one_of, take_till, take_until, take_while};
+use winnow::token::{one_of, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
@@ -48,9 +48,7 @@ use crate::lazy::text::as_utf8::AsUtf8;
 use bumpalo::collections::Vec as BumpVec;
 use winnow::ascii::{digit0, digit1};
 
-// .map(|int| EncodedTextValue::new(MatchedValue::Int(int))),
-
-macro_rules! value_matchers {
+macro_rules! scalar_value_matchers {
     ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
         $(fn $new_parser<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
             $parser.map(|matched| EncodedTextValue::new(MatchedValue::$variant(matched))).parse_next(self)
@@ -58,6 +56,21 @@ macro_rules! value_matchers {
     };
 }
 
+macro_rules! container_value_matchers_1_0 {
+    ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
+        $(fn $new_parser(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, TextEncoding_1_0>> {
+            $parser.map(|nested_item_cache| EncodedTextValue::new(MatchedValue::$variant(nested_item_cache))).parse_next(self)
+        })*
+    };
+}
+
+macro_rules! container_value_matchers_1_1 {
+    ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
+        $(fn $new_parser(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, TextEncoding_1_1>> {
+            $parser.map(|nested_item_cache| EncodedTextValue::new(MatchedValue::$variant(nested_item_cache))).parse_next(self)
+        })*
+    };
+}
 
 impl Debug for TextBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -211,6 +224,13 @@ impl<'top> TextBuffer<'top> {
     /// Returns a slice containing all of the buffer's bytes.
     pub fn bytes(&self) -> &'top [u8] {
         self.data
+    }
+
+    pub fn peek_byte(&self) -> IonParseResult<'top, u8> {
+        let Some(byte) = self.bytes().first().copied() else {
+            return self.incomplete("a value");
+        };
+        Ok(byte)
     }
 
     /// Returns the number of bytes between the start of the original input byte array and the
@@ -385,7 +405,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an optional annotations sequence and a value, including operators.
-    pub fn match_sexp_value(&mut self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
+    pub fn match_sexp_item(&mut self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
         let (maybe_sexp_value, matched_input) = whitespace_and_then(alt((
             ")".value(None),
             (
@@ -412,7 +432,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches either:
     /// * A macro invocation
     /// * An optional annotations sequence and a value
-    pub fn match_sexp_value_1_1(
+    pub fn match_sexp_item_1_1(
         &mut self,
     ) -> IonParseResult<'top, Option<LazyRawValueExpr<'top, TextEncoding_1_1>>> {
         let input = self.clone();
@@ -684,14 +704,9 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a single Ion 1.0 value.
     pub fn match_value(&mut self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
-        let allocator = self.context().allocator();
-        let mut peek_next_token = |input: &mut TextBuffer<'top>| {
-            let mut input_copy = input.clone();
-            any(&mut input_copy)
-        };
         dispatch! {
-            peek_next_token;
-            byte if byte.is_ascii_digit() || byte == b'-' || byte == b'+' => {
+            |input: &mut TextBuffer<'top>| input.peek_byte();
+            byte if byte.is_ascii_digit() || byte == b'-' => {
                 alt((
                     Self::match_int_value,
                     Self::match_float_value,
@@ -716,34 +731,16 @@ impl<'top> TextBuffer<'top> {
                     Self::match_symbol_value,
                 ))
             },
-            b'[' => {
-                Self::match_list.map(|_matched_list| {
-                // TODO: Cache child expressions found in 1.0 list
-                let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(allocator).into_bump_slice();
-                EncodedTextValue::new(MatchedValue::List(not_yet_used_in_1_0))
-                })
-            },
-            b'(' => {
-                Self::match_sexp.map(|_matched_sexp| {
-                // TODO: Cache child expressions found in 1.0 sexp
-                let not_yet_used_in_1_0 =
-                    bumpalo::collections::Vec::new_in(allocator).into_bump_slice();
-                EncodedTextValue::new(MatchedValue::SExp(not_yet_used_in_1_0))
-                })
-            },
+            b'[' => Self::match_list_value,
+            b'(' => Self::match_sexp_value,
             b'{' => {
                 alt((
                     Self::match_blob_value,
                     Self::match_clob_value,
-                    Self::match_struct.map(|_matched_struct| {
-                        // TODO: Cache child expressions found in 1.0 struct
-                        let not_yet_used_in_1_0 =
-                            bumpalo::collections::Vec::new_in(allocator).into_bump_slice();
-                        EncodedTextValue::new(MatchedValue::Struct(not_yet_used_in_1_0))
-                    }),
+                    Self::match_struct_value,
                 ))
             },
+            b'+' => Self::match_float_special_value, // +inf
             _other => {
                 // `other` is not a legal start-of-value byte.
                 |input: &mut TextBuffer<'top>| {
@@ -807,7 +804,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches a list.
     ///
     /// If the input does not contain the entire list, returns `IonError::Incomplete(_)`.
-    pub fn match_list(&mut self) -> IonMatchResult<'top> {
+    pub fn match_list(&mut self) -> IonParseResult<'top, &'top [LazyRawValueExpr<'top, TextEncoding_1_0>]> {
         // If it doesn't start with [, it isn't a list.
         if self.bytes().first() != Some(&b'[') {
             let error = InvalidInputError::new(*self);
@@ -832,11 +829,9 @@ impl<'top> TextBuffer<'top> {
             }
         };
 
-        // For the matched span, we use `self` again to include the opening `[`
-        let matched = self.slice(0, span.len());
-        let remaining = self.slice_to_end(span.len());
-        *self = remaining;
-        Ok(matched)
+        self.consume(span.len());
+        // TODO: Populate the nested expr cache, which isn't yet used in the 1.0 parser.
+        Ok(&[])
     }
 
     /// Matches an Ion v1.1 list, which allows e-expressions (macro invocations) to appear in value
@@ -934,7 +929,7 @@ impl<'top> TextBuffer<'top> {
     ///
     /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
     /// `Ok(None)`.
-    pub fn match_list_value(&mut self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
+    pub fn match_list_item(&mut self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
         preceded(
             // Some amount of whitespace/comments...
             Self::match_optional_comments_and_whitespace,
@@ -955,7 +950,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches either:
     /// * An e-expression (i.e. macro invocation)
     /// * An optional annotations sequence and a value
-    pub fn match_list_value_1_1(
+    pub fn match_list_item_1_1(
         &mut self,
     ) -> IonParseResult<'top, Option<LazyRawValueExpr<'top, TextEncoding_1_1>>> {
         whitespace_and_then(alt((
@@ -989,7 +984,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches an s-expression (sexp).
     ///
     /// If the input does not contain the entire s-expression, returns `IonError::Incomplete(_)`.
-    pub fn match_sexp(&mut self) -> IonMatchResult<'top> {
+    pub fn match_sexp(&mut self) -> IonParseResult<'top, &'top[LazyRawValueExpr<'top, TextEncoding_1_0>]> {
         if self.bytes().first() != Some(&b'(') {
             let error = InvalidInputError::new(*self);
             return Err(ErrMode::Backtrack(IonParseError::Invalid(error)));
@@ -1011,17 +1006,15 @@ impl<'top> TextBuffer<'top> {
                 }
             }
         };
-        // For the matched span, we use `self` again to include the opening `(`
-        let matched = self.slice(0, span.len());
-        let remaining = self.slice_to_end(span.len());
-        *self = remaining;
-        Ok(matched)
+        self.consume(span.len());
+        // TODO: Populate the nested expr cache, which isn't yet used in the 1.0 parser.
+        Ok(&[])
     }
 
     /// Matches a struct.
     ///
     /// If the input does not contain the entire struct, returns `IonError::Incomplete(_)`.
-    pub fn match_struct(&mut self) -> IonMatchResult<'top> {
+    pub fn match_struct(&mut self) -> IonParseResult<'top, &'top [LazyRawFieldExpr<'top, TextEncoding_1_0>]> {
         // If it doesn't start with {, it isn't a struct.
         if self.bytes().first() != Some(&b'{') {
             let error = InvalidInputError::new(*self);
@@ -1046,11 +1039,9 @@ impl<'top> TextBuffer<'top> {
             }
         };
 
-        // For the matched span, we use `self` again to include the opening `{`
-        let matched = self.slice(0, span.len());
-        let remaining = self.slice_to_end(span.len());
-        *self = remaining;
-        Ok(matched)
+        self.consume(span.len());
+        // TODO: Populate the nested expr cache, which isn't yet used in the 1.0 parser.
+        Ok(&[])
     }
 
     pub fn match_struct_1_1(
@@ -1366,7 +1357,7 @@ impl<'top> TextBuffer<'top> {
                 format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name()),
             );
         }
-        let maybe_expr = Self::match_sexp_value_1_1
+        let maybe_expr = Self::match_sexp_item_1_1
             .map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from))
             .parse_next(self)?;
         match maybe_expr {
@@ -1401,7 +1392,7 @@ impl<'top> TextBuffer<'top> {
         whitespace_and_then(alt((
             Self::parser_with_arg(Self::match_empty_arg_group, parameter).map(Some),
             // TODO: Match a non-empty arg group and turn it into a failure with a helpful error message
-            Self::match_sexp_value_1_1.map(|maybe_expr| {
+            Self::match_sexp_item_1_1.map(|maybe_expr| {
                 maybe_expr.map(|expr| {
                     EExpArg::new(parameter, EExpArgExpr::<TextEncoding_1_1>::from(expr))
                 })
@@ -1419,7 +1410,7 @@ impl<'top> TextBuffer<'top> {
             alt((
                 Self::parser_with_arg(Self::match_e_expression_arg_group, parameter)
                     .map(|group| Some(EExpArg::new(parameter, EExpArgExpr::ArgGroup(group)))),
-                Self::match_sexp_value_1_1.map(|expr| {
+                Self::match_sexp_item_1_1.map(|expr| {
                     expr.map(EExpArgExpr::from)
                         .map(|expr| EExpArg::new(parameter, expr))
                 }),
@@ -1460,7 +1451,7 @@ impl<'top> TextBuffer<'top> {
         let parser = |input: &mut TextBuffer<'top>| {
             while let Some(expr) = alt((
                 whitespace_and_then(peek(")")).value(None),
-                Self::match_sexp_value_1_1,
+                Self::match_sexp_item_1_1,
             ))
             .parse_next(input)?
             {
@@ -1548,7 +1539,7 @@ impl<'top> TextBuffer<'top> {
         .parse_next(self)
     }
 
-    value_matchers!(
+    scalar_value_matchers!(
         Self::match_null => Null => match_null_value,
         Self::match_bool => Bool => match_bool_value,
         Self::match_int => Int => match_int_value,
@@ -1561,6 +1552,12 @@ impl<'top> TextBuffer<'top> {
         Self::match_identifier => Symbol => match_identifier_value,
         Self::match_blob => Blob => match_blob_value,
         Self::match_clob => Clob => match_clob_value,
+    );
+
+    container_value_matchers_1_0!(
+        Self::match_list => List => match_list_value,
+        Self::match_sexp => SExp => match_sexp_value,
+        Self::match_struct => Struct => match_struct_value,
     );
 
     /// Matches a base-2 notation integer (e.g. `0b0`, `0B1010`, or `-0b0111`) and returns the
