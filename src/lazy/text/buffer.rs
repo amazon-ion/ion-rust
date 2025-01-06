@@ -435,7 +435,7 @@ impl<'top> TextBuffer<'top> {
     pub fn match_sexp_item_1_1(
         &mut self,
     ) -> IonParseResult<'top, Option<LazyRawValueExpr<'top, TextEncoding_1_1>>> {
-        let input = self.clone();
+        let input = *self;
         let result = whitespace_and_then(alt((
             Self::match_e_expression.map(|matched| Some(RawValueExpr::EExp(matched))),
             peek(")").value(None),
@@ -595,7 +595,7 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches an optional annotation sequence and a trailing value.
     pub fn match_annotated_value(&mut self) -> IonParseResult<'top, LazyRawTextValue_1_0<'top>> {
-        let input = self.clone();
+        let input = *self;
         (
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value),
@@ -608,7 +608,7 @@ impl<'top> TextBuffer<'top> {
     pub fn match_annotated_value_1_1(
         &mut self,
     ) -> IonParseResult<'top, LazyRawTextValue_1_1<'top>> {
-        let input = self.clone();
+        let input = *self;
         (
             opt(Self::match_annotations),
             whitespace_and_then(Self::match_value_1_1),
@@ -745,7 +745,7 @@ impl<'top> TextBuffer<'top> {
                 // `other` is not a legal start-of-value byte.
                 |input: &mut TextBuffer<'top>| {
                     let error = InvalidInputError::new(*input);
-                    return Err(ErrMode::Backtrack(IonParseError::Invalid(error)));
+                    Err(ErrMode::Backtrack(IonParseError::Invalid(error)))
                 }
             },
         }
@@ -799,7 +799,7 @@ impl<'top> TextBuffer<'top> {
                 // `other` is not a legal start-of-value byte.
                 |input: &mut TextBuffer<'top>| {
                     let error = InvalidInputError::new(*input);
-                    return Err(ErrMode::Backtrack(IonParseError::Invalid(error)));
+                    Err(ErrMode::Backtrack(IonParseError::Invalid(error)))
                 }
             },
         }
@@ -1119,7 +1119,7 @@ impl<'top> TextBuffer<'top> {
             // `input` is now positioned after the opening delimiter.
             // The rest of the group uses s-expression syntax. Scan ahead to find the end of this
             // group.
-            let sexp_iter = RawTextSExpIterator_1_1::new(input.clone());
+            let sexp_iter = RawTextSExpIterator_1_1::new(*input);
             // The sexp iterator holds the body of the expression. When finding the input span it occupies,
             // we tell the iterator how many bytes comprised the head of the group: `(::` followed
             // by whitespace.
@@ -2172,7 +2172,7 @@ impl<'top> TextBuffer<'top> {
         // Whether we've encountered any escapes while looking for the delimiter
         let mut contained_escapes = false;
         // The input left to search
-        let mut remaining = self.clone();
+        let mut remaining = *self;
         loop {
             // Look for the first unescaped instance of the delimiter's head.
             // If the input doesn't contain one, this will return an `Incomplete`.
@@ -2221,7 +2221,7 @@ impl<'top> TextBuffer<'top> {
         match self.bytes().first() {
             Some(byte) if byte.is_ascii_digit() => full_match_timestamp(self),
             Some(_) => Err(ErrMode::Backtrack(IonParseError::Invalid(
-                InvalidInputError::new(self.clone()),
+                InvalidInputError::new(*self),
             ))),
             None => self.incomplete("a timestamp"),
         }

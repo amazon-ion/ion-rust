@@ -1,8 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::fmt::Debug;
-use std::io;
-
 use crate::lazy::any_encoding::{IonEncoding, IonVersion, LazyRawAnyValue};
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
@@ -33,6 +30,8 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
+use std::fmt::Debug;
+use std::io;
 
 use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpression_1_1;
 use crate::{
