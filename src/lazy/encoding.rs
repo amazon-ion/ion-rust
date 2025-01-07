@@ -284,12 +284,18 @@ pub trait TextEncoding<'top>:
             .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
     }
 
-    /// Logic common to parsing all container types.
+    /// Constructs an `IonParser` implementation using parsing logic common to all container types.
     /// Caches all subexpressions in the bump allocator for future reference.
     fn container_matcher<MakeIterator, Iter, Expr>(
+        // Text describing what is being parsed. For example: "a list".
+        // This message will be added to any error messages for context.
         label: &'static str,
+        // The literal that begins the container. ("[", "(", etc.)
         mut opening_token: &str,
+        // A closure or function that will construct an appropriate iterator to parse any child
+        // expressions.
         mut make_iterator: MakeIterator,
+        // A parser that will match the expected end of the container.
         mut end_matcher: impl IonParser<'top, TextBuffer<'top>>,
     ) -> impl IonParser<'top, &'top [Expr]>
     where
@@ -299,13 +305,15 @@ pub trait TextEncoding<'top>:
     {
         use bumpalo::collections::Vec as BumpVec;
         move |input: &mut TextBuffer<'top>| {
-            // Make a copy of the input buffer view that the iterator can consume.
+            // Make a copy of the input buffer view so the iterator has one it can consume.
             let mut iterator_input = *input;
+            // Confirm that the input begins with the expected opening token, consuming it in the process.
             let _head = opening_token.parse_next(&mut iterator_input)?;
             let iterator = make_iterator(iterator_input);
-            // The input has already skipped past the opening delimiter.
-            let start = input.offset();
+            // Bump-allocate a space to store any child expressions we encounter as we traverse this
+            // container.
             let mut child_expr_cache = BumpVec::new_in(input.context().allocator());
+            // Visit each child expression yielded by the parser, reporting any errors.
             for expr_result in iterator {
                 let expr = match expr_result {
                     Ok(expr) => expr,
@@ -316,18 +324,21 @@ pub trait TextEncoding<'top>:
                         return fatal_parse_error(*input, format!("failed to parse {label}: {e:?}"))
                     }
                 };
+                // If there are no errors, add the new child expr to the cache.
                 child_expr_cache.push(expr);
             }
 
+            // Take note of where we finished.
             let last_expr_end = child_expr_cache
                 .last()
+                // If we found child expressions, we'll resume immediately after the last child expression.
                 .map(|expr| expr.range().end - input.offset())
+                // If we didn't find child expressions, we'll resume immediately after the opening token.
                 .unwrap_or(opening_token.len());
-            let mut remaining = input.slice_to_end(last_expr_end);
-            let _matched_end = end_matcher.parse_next(&mut remaining)?;
-            let end = remaining.offset();
-            let span = start..end;
-            input.consume(span.len());
+            // Advance `input` to the remaining data.
+            *input = input.slice_to_end(last_expr_end);
+            // Confirm that the last expression is followed by input that `end_matcher` approves of.
+            let _matched_end = end_matcher.parse_next(input)?;
             Ok(child_expr_cache.into_bump_slice())
         }
     }
