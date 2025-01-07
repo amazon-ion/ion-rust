@@ -112,7 +112,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::any_encoding::IonVersion;
-    use crate::lazy::decoder::{LazyRawReader, LazyRawSequence, LazyRawValue};
+    use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
     use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;

@@ -46,23 +46,19 @@ use crate::lazy::text::raw::r#struct::{
     LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0, RawTextStructIterator_1_0,
 };
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
-use crate::lazy::text::raw::sequence::{
-    LazyRawTextList_1_0, LazyRawTextSExp_1_0, RawTextListIterator_1_0, RawTextSExpIterator_1_0,
-};
+use crate::lazy::text::raw::sequence::{LazyRawTextSExp_1_0, RawTextList, RawTextSExpIterator_1_0};
 use crate::lazy::text::raw::v1_1::arg_group::{
     EExpArg, EExpArgExpr, TextEExpArgGroup, TextEExpArgGroupIterator,
 };
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextFieldName_1_1, LazyRawTextList_1_1, LazyRawTextReader_1_1, LazyRawTextSExp_1_1,
-    LazyRawTextStruct_1_1, MacroIdRef, RawTextSequenceCacheIterator_1_1,
-    RawTextStructCacheIterator_1_1, TextEExpression_1_1,
+    LazyRawTextFieldName_1_1, LazyRawTextReader_1_1, LazyRawTextSExp_1_1, LazyRawTextStruct_1_1,
+    MacroIdRef, RawTextSequenceCacheIterator, RawTextStructCacheIterator_1_1, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
 use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0, SYSTEM_SYMBOLS_1_1};
-use crate::LazyRawValueKind::{Binary_1_0, Binary_1_1, Text_1_0, Text_1_1};
 use crate::{try_next, Encoding, IonResult, IonType, RawStreamItem, RawSymbolRef};
 use std::fmt::Debug;
 use std::ops::Range;
@@ -1043,6 +1039,7 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
     }
 
     fn is_delimited(&self) -> bool {
+        use LazyRawValueKind::*;
         match &self.encoding {
             Text_1_0(v) => v.is_delimited(),
             Binary_1_0(v) => v.is_delimited(),
@@ -1161,25 +1158,26 @@ impl<'top> LazyRawAnyList<'top> {
 
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawListKind<'top> {
-    Text_1_0(LazyRawTextList_1_0<'top>),
+    Text_1_0(RawTextList<'top, TextEncoding_1_0>),
     Binary_1_0(LazyRawBinaryList_1_0<'top>),
-    Text_1_1(LazyRawTextList_1_1<'top>),
+    Text_1_1(RawTextList<'top, TextEncoding_1_1>),
     Binary_1_1(LazyRawBinaryList_1_1<'top>),
 }
 
 impl<'top> LazyContainerPrivate<'top, AnyEncoding> for LazyRawAnyList<'top> {
     fn from_value(value: LazyRawAnyValue<'top>) -> Self {
+        use LazyRawValueKind::*;
         match value.encoding {
-            LazyRawValueKind::Text_1_0(v) => LazyRawAnyList {
-                encoding: LazyRawListKind::Text_1_0(LazyRawTextList_1_0::from_value(v)),
+            Text_1_0(v) => LazyRawAnyList {
+                encoding: LazyRawListKind::Text_1_0(RawTextList::from_value(v)),
             },
-            LazyRawValueKind::Binary_1_0(v) => LazyRawAnyList {
+            Binary_1_0(v) => LazyRawAnyList {
                 encoding: LazyRawListKind::Binary_1_0(LazyRawBinaryList_1_0::from_value(v)),
             },
-            LazyRawValueKind::Text_1_1(v) => LazyRawAnyList {
-                encoding: LazyRawListKind::Text_1_1(LazyRawTextList_1_1::from_value(v)),
+            Text_1_1(v) => LazyRawAnyList {
+                encoding: LazyRawListKind::Text_1_1(RawTextList::from_value(v)),
             },
-            LazyRawValueKind::Binary_1_1(v) => LazyRawAnyList {
+            Binary_1_1(v) => LazyRawAnyList {
                 encoding: LazyRawListKind::Binary_1_1(LazyRawBinaryList_1_1::from_value(v)),
             },
         }
@@ -1193,9 +1191,9 @@ pub struct RawAnyListIterator<'data> {
 
 #[derive(Debug, Copy, Clone)]
 pub enum RawAnyListIteratorKind<'data> {
-    Text_1_0(RawTextListIterator_1_0<'data>),
+    Text_1_0(RawTextSequenceCacheIterator<'data, TextEncoding_1_0>),
     Binary_1_0(RawBinarySequenceIterator_1_0<'data>),
-    Text_1_1(RawTextSequenceCacheIterator_1_1<'data>),
+    Text_1_1(RawTextSequenceCacheIterator<'data, TextEncoding_1_1>),
     Binary_1_1(RawBinarySequenceIterator_1_1<'data>),
 }
 
@@ -1265,8 +1263,8 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnyList<'top> {
     }
 }
 
-impl<'data> From<LazyRawTextList_1_0<'data>> for LazyRawAnyList<'data> {
-    fn from(value: LazyRawTextList_1_0<'data>) -> Self {
+impl<'data> From<RawTextList<'data, TextEncoding_1_0>> for LazyRawAnyList<'data> {
+    fn from(value: RawTextList<'data, TextEncoding_1_0>) -> Self {
         LazyRawAnyList {
             encoding: LazyRawListKind::Text_1_0(value),
         }
@@ -1281,8 +1279,8 @@ impl<'data> From<LazyRawBinaryList_1_0<'data>> for LazyRawAnyList<'data> {
     }
 }
 
-impl<'data> From<LazyRawTextList_1_1<'data>> for LazyRawAnyList<'data> {
-    fn from(value: LazyRawTextList_1_1<'data>) -> Self {
+impl<'data> From<RawTextList<'data, TextEncoding_1_1>> for LazyRawAnyList<'data> {
+    fn from(value: RawTextList<'data, TextEncoding_1_1>) -> Self {
         LazyRawAnyList {
             encoding: LazyRawListKind::Text_1_1(value),
         }
@@ -1358,7 +1356,7 @@ pub struct RawAnySExpIterator<'data> {
 pub enum RawAnySExpIteratorKind<'data> {
     Text_1_0(RawTextSExpIterator_1_0<'data>),
     Binary_1_0(RawBinarySequenceIterator_1_0<'data>),
-    Text_1_1(RawTextSequenceCacheIterator_1_1<'data>),
+    Text_1_1(RawTextSequenceCacheIterator<'data, TextEncoding_1_1>),
     Binary_1_1(RawBinarySequenceIterator_1_1<'data>),
 }
 

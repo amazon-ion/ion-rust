@@ -10,7 +10,7 @@ use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
 };
-use crate::lazy::encoding::TextEncoding_1_1;
+use crate::lazy::encoding::{TextEncoding, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
 use crate::lazy::expanded::EncodingContextRef;
@@ -273,95 +273,6 @@ impl EncodedTextMacroInvocation {
 }
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextList_1_1<'top> {
-    pub(crate) value: LazyRawTextValue_1_1<'top>,
-}
-
-impl Debug for LazyRawTextList_1_1<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "[")?;
-        for value in self.iter() {
-            write!(f, "{:?}, ", value?.expect_value()?.read()?)?;
-        }
-        write!(f, "]").unwrap();
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct RawTextListIterator_1_1<'top> {
-    input: TextBuffer<'top>,
-    // If this iterator has returned an error, it should return `None` forever afterward
-    has_returned_error: bool,
-}
-
-impl<'top> RawTextListIterator_1_1<'top> {
-    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
-        Self {
-            input,
-            has_returned_error: false,
-        }
-    }
-}
-
-/// Wraps a [`RawTextListIterator_1_1`] (which parses the body of a list) and caches the child
-/// expressions the iterator yields along the way. Finally, returns a `Range<usize>` representing
-/// the span of input bytes that the list occupies.
-pub(crate) struct TextListSpanFinder_1_1<'top> {
-    pub(crate) allocator: &'top bumpalo::Bump,
-    pub(crate) iterator: RawTextListIterator_1_1<'top>,
-}
-
-impl<'top> TextListSpanFinder_1_1<'top> {
-    pub(crate) fn find_span(
-        &self,
-    ) -> IonResult<(
-        Range<usize>,
-        &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
-    )> {
-        // The input has already skipped past the opening delimiter.
-        let start = self.iterator.input.offset() - 1;
-        let mut child_expr_cache = BumpVec::new_in(self.allocator);
-        for expr_result in self.iterator {
-            let expr = expr_result?;
-            child_expr_cache.push(expr);
-        }
-
-        let end = child_expr_cache
-            .last()
-            .map(|e| e.range().end)
-            .unwrap_or(self.iterator.input.offset());
-        let mut input = self
-            .iterator
-            .input
-            .slice_to_end(end - self.iterator.input.offset());
-
-        let _ws = input
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a list", input)?;
-
-        // Skip an optional comma and more whitespace
-        let _ = (opt(","), TextBuffer::match_optional_comments_and_whitespace)
-            .parse_next(&mut input)
-            .with_context("skipping a v1.1 list item's trailing comma", input)?;
-        let _end_delimiter = one_of(|c: u8| c == b']')
-            .parse_next(&mut input)
-            .with_context("seeking the closing delimiter of a list", input)?;
-        let end = input.offset();
-
-        let span = start..end;
-        Ok((span, child_expr_cache.into_bump_slice()))
-    }
-    pub fn new(allocator: &'top bumpalo::Bump, iterator: RawTextListIterator_1_1<'top>) -> Self {
-        Self {
-            allocator,
-            iterator,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
 pub struct LazyRawTextSExp_1_1<'top> {
     pub(crate) value: LazyRawTextValue_1_1<'top>,
 }
@@ -395,13 +306,13 @@ impl<'top> RawTextSExpIterator_1_1<'top> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextSequenceCacheIterator_1_1<'top> {
-    child_exprs: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
+pub struct RawTextSequenceCacheIterator<'top, E: TextEncoding<'top>> {
+    child_exprs: &'top [LazyRawValueExpr<'top, E>],
     index: usize,
 }
 
-impl<'top> RawTextSequenceCacheIterator_1_1<'top> {
-    pub fn new(child_exprs: &'top [LazyRawValueExpr<'top, TextEncoding_1_1>]) -> Self {
+impl<'top, E: TextEncoding<'top>> RawTextSequenceCacheIterator<'top, E> {
+    pub fn new(child_exprs: &'top [LazyRawValueExpr<'top, E>]) -> Self {
         Self {
             child_exprs,
             index: 0,
@@ -409,8 +320,8 @@ impl<'top> RawTextSequenceCacheIterator_1_1<'top> {
     }
 }
 
-impl<'top> Iterator for RawTextSequenceCacheIterator_1_1<'top> {
-    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
+impl<'top, E: TextEncoding<'top>> Iterator for RawTextSequenceCacheIterator<'top, E> {
+    type Item = IonResult<LazyRawValueExpr<'top, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_expr = self.child_exprs.get(self.index)?;
@@ -525,7 +436,7 @@ impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top
 }
 
 impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
-    type Iterator = RawTextSequenceCacheIterator_1_1<'top>;
+    type Iterator = RawTextSequenceCacheIterator<'top, TextEncoding_1_1>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
@@ -539,7 +450,7 @@ impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top>
         let MatchedValue::SExp(child_exprs) = self.value.encoded_value.matched() else {
             unreachable!("s-expression contained a matched value of the wrong type")
         };
-        RawTextSequenceCacheIterator_1_1::new(child_exprs)
+        RawTextSequenceCacheIterator::new(child_exprs)
     }
 }
 
@@ -658,61 +569,6 @@ impl<'top> Iterator for RawTextStructCacheIterator_1_1<'top> {
         self.index += 1;
         // TODO: Remove the result wrapper because these values are already in the cache
         Some(Ok(*next_expr))
-    }
-}
-
-// ===== Trait implementations =====
-
-impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
-    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
-        LazyRawTextList_1_1 { value }
-    }
-}
-
-impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
-    fn as_value(&self) -> LazyRawTextValue_1_1<'top> {
-        self.value
-    }
-}
-
-impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextList_1_1<'top> {
-    type Iterator = RawTextSequenceCacheIterator_1_1<'top>;
-
-    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
-        self.value.annotations()
-    }
-
-    fn ion_type(&self) -> IonType {
-        self.value.ion_type()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        let MatchedValue::List(child_exprs) = self.value.encoded_value.matched() else {
-            unreachable!("list contained a matched value of the wrong type")
-        };
-        RawTextSequenceCacheIterator_1_1::new(child_exprs)
-    }
-}
-
-impl<'top> Iterator for RawTextListIterator_1_1<'top> {
-    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.has_returned_error {
-            return None;
-        }
-        match self.input.match_list_item_1_1() {
-            Ok(Some(value_expr)) => Some(Ok(value_expr)),
-            Ok(None) => {
-                // Don't update `remaining` so subsequent calls will continue to return None
-                None
-            }
-            Err(e) => {
-                self.has_returned_error = true;
-                e.with_context("reading the next list value", self.input)
-                    .transpose()
-            }
-        }
     }
 }
 
