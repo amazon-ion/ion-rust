@@ -1,71 +1,51 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{
-    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
-    LazyRawStruct, LazyRawValue,
-};
-use crate::lazy::encoding::TextEncoding_1_0;
+use crate::lazy::decoder::{HasRange, HasSpan, LazyRawFieldExpr, LazyRawFieldName};
+use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::span::Span;
-use crate::lazy::text::buffer::TextBuffer;
+use crate::lazy::text::buffer::{whitespace_and_then, TextBuffer};
 use crate::lazy::text::matched::MatchedFieldName;
 use crate::lazy::text::parse_result::AddContext;
-use crate::lazy::text::value::{LazyRawTextValue_1_0, RawTextAnnotationsIterator};
 use crate::{IonResult, RawSymbolRef};
+use std::marker::PhantomData;
 use std::ops::Range;
-use winnow::combinator::opt;
-use winnow::token::one_of;
+use winnow::combinator::{alt, opt, terminated};
 use winnow::Parser;
 
 #[derive(Clone, Copy, Debug)]
-pub struct RawTextStructIterator_1_0<'top> {
+pub struct RawTextStructIterator<'top, E: TextEncoding<'top>> {
     input: TextBuffer<'top>,
     has_returned_error: bool,
+    spooky: PhantomData<E>,
 }
 
-impl<'top> RawTextStructIterator_1_0<'top> {
-    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
-        RawTextStructIterator_1_0 {
+impl<'top, E: TextEncoding<'top>> RawTextStructIterator<'top, E> {
+    pub fn new(input: TextBuffer<'top>) -> Self {
+        Self {
             input,
             has_returned_error: false,
+            spooky: PhantomData,
         }
-    }
-
-    pub(crate) fn find_span(&self) -> IonResult<Range<usize>> {
-        // The input has already skipped past the opening delimiter.
-        let start = self.input.offset() - 1;
-        // We need to find the input slice containing the closing delimiter. It's either...
-        let mut input = if let Some(field_result) = self.last() {
-            let field = field_result?;
-            self.input
-                .slice_to_end(field.range().end - self.input.offset())
-        } else {
-            // ...or there aren't fields, so it's just the input after the opening delimiter.
-            self.input
-        };
-        let _ws = input
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a struct", input)?;
-        // Skip an optional comma and more whitespace
-        let _ = (opt(","), TextBuffer::match_optional_comments_and_whitespace)
-            .parse_next(&mut input)
-            .with_context("skipping a struct field's trailing comma", input)?;
-        let _end_delimiter = one_of(|c| c == b'}')
-            .parse_next(&mut input)
-            .with_context("seeking the closing delimiter of a struct", input)?;
-        let end = input.offset();
-        Ok(start..end)
     }
 }
 
-impl<'top> Iterator for RawTextStructIterator_1_0<'top> {
-    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_0>>;
+impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructIterator<'top, E> {
+    type Item = IonResult<LazyRawFieldExpr<'top, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
             return None;
         }
-        match self.input.match_struct_field() {
+
+        let result = whitespace_and_then(alt((
+            "}".value(None),
+            terminated(
+                E::field_expr_matcher().map(Some),
+                whitespace_and_then(opt(",")),
+            ),
+        )))
+        .parse_next(&mut self.input);
+        match result {
             Ok(Some(field)) => Some(Ok(field)),
             Ok(None) => None,
             Err(e) => {
@@ -78,72 +58,49 @@ impl<'top> Iterator for RawTextStructIterator_1_0<'top> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct LazyRawTextFieldName_1_0<'top> {
+pub struct LazyRawTextFieldName<'top, E: TextEncoding<'top>> {
     matched: MatchedFieldName<'top>,
+    // XXX: Ion 1.0 and 1.1 use the same syntax for field names.
+    // This type is generic over the encoding because if it is not, the user must manually
+    // specify 1.0 or 1.1 in a variety of places. When it is generic, the compiler can infer
+    // the Ion version from context.
+    spooky: PhantomData<E>,
 }
 
-impl<'top> LazyRawTextFieldName_1_0<'top> {
+impl<'top, E: TextEncoding<'top>> LazyRawTextFieldName<'top, E> {
     pub(crate) fn new(matched: MatchedFieldName<'top>) -> Self {
-        Self { matched }
+        Self {
+            matched,
+            spooky: PhantomData,
+        }
     }
 }
 
-impl<'top> HasSpan<'top> for LazyRawTextFieldName_1_0<'top> {
+impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextFieldName<'top, E> {
     fn span(&self) -> Span<'top> {
         self.matched.span()
     }
 }
 
-impl HasRange for LazyRawTextFieldName_1_0<'_> {
+impl<'top, E: TextEncoding<'top>> HasRange for LazyRawTextFieldName<'top, E> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }
 }
 
-impl<'top> LazyRawFieldName<'top, TextEncoding_1_0> for LazyRawTextFieldName_1_0<'top> {
+impl<'top> LazyRawFieldName<'top, TextEncoding_1_0>
+    for LazyRawTextFieldName<'top, TextEncoding_1_0>
+{
     fn read(&self) -> IonResult<RawSymbolRef<'top>> {
         self.matched.read()
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct LazyRawTextStruct_1_0<'top> {
-    pub(crate) value: LazyRawTextValue_1_0<'top>,
-}
-
-impl<'top> LazyContainerPrivate<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
-    fn from_value(value: LazyRawTextValue_1_0<'top>) -> Self {
-        LazyRawTextStruct_1_0 { value }
-    }
-}
-
-impl<'top> LazyRawContainer<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
-    fn as_value(&self) -> <TextEncoding_1_0 as Decoder>::Value<'top> {
-        self.value
-    }
-}
-
-impl<'top> LazyRawStruct<'top, TextEncoding_1_0> for LazyRawTextStruct_1_0<'top> {
-    type Iterator = RawTextStructIterator_1_0<'top>;
-
-    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
-        self.value.annotations()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        // Make an iterator over the input bytes that follow the initial `{`; account for
-        // a leading annotations sequence.
-        let struct_contents_start = self.value.encoded_value.data_offset() + 1;
-        RawTextStructIterator_1_0::new(self.value.input.slice_to_end(struct_contents_start))
-    }
-}
-
-impl<'top> IntoIterator for LazyRawTextStruct_1_0<'top> {
-    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_0>>;
-    type IntoIter = RawTextStructIterator_1_0<'top>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+impl<'top> LazyRawFieldName<'top, TextEncoding_1_1>
+    for LazyRawTextFieldName<'top, TextEncoding_1_1>
+{
+    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
+        self.matched.read()
     }
 }
 

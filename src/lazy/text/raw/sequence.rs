@@ -1,4 +1,5 @@
 #![allow(non_camel_case_types)]
+#![deny(dead_code)]
 
 use std::fmt;
 use std::fmt::{Debug, Formatter};

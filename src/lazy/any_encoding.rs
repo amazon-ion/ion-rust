@@ -42,17 +42,15 @@ use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::lazy::text::raw::r#struct::{
-    LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0, RawTextStructIterator_1_0,
-};
+use crate::lazy::text::raw::r#struct::LazyRawTextFieldName;
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{RawTextList, RawTextSExp};
 use crate::lazy::text::raw::v1_1::arg_group::{
     EExpArg, EExpArgExpr, TextEExpArgGroup, TextEExpArgGroupIterator,
 };
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextFieldName_1_1, LazyRawTextReader_1_1, LazyRawTextStruct_1_1, MacroIdRef,
-    RawTextSequenceCacheIterator, RawTextStructCacheIterator_1_1, TextEExpression_1_1,
+    LazyRawTextReader_1_1, LazyRawTextStruct, MacroIdRef, RawTextSequenceCacheIterator,
+    RawTextStructCacheIterator, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
@@ -1456,9 +1454,9 @@ pub struct LazyRawAnyStruct<'data> {
 
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawStructKind<'data> {
-    Text_1_0(LazyRawTextStruct_1_0<'data>),
+    Text_1_0(LazyRawTextStruct<'data, TextEncoding_1_0>),
     Binary_1_0(LazyRawBinaryStruct_1_0<'data>),
-    Text_1_1(LazyRawTextStruct_1_1<'data>),
+    Text_1_1(LazyRawTextStruct<'data, TextEncoding_1_1>),
     Binary_1_1(LazyRawBinaryStruct_1_1<'data>),
 }
 
@@ -1480,9 +1478,9 @@ pub struct LazyRawAnyFieldName<'data> {
 
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawFieldNameKind<'data> {
-    Text_1_0(LazyRawTextFieldName_1_0<'data>),
+    Text_1_0(LazyRawTextFieldName<'data, TextEncoding_1_0>),
     Binary_1_0(LazyRawBinaryFieldName_1_0<'data>),
-    Text_1_1(LazyRawTextFieldName_1_1<'data>),
+    Text_1_1(LazyRawTextFieldName<'data, TextEncoding_1_1>),
     Binary_1_1(LazyRawBinaryFieldName_1_1<'data>),
 }
 
@@ -1528,14 +1526,14 @@ impl<'top> From<LazyRawFieldNameKind<'top>> for LazyRawAnyFieldName<'top> {
     }
 }
 
-impl<'top> From<LazyRawTextFieldName_1_0<'top>> for LazyRawAnyFieldName<'top> {
-    fn from(value: LazyRawTextFieldName_1_0<'top>) -> Self {
+impl<'top> From<LazyRawTextFieldName<'top, TextEncoding_1_0>> for LazyRawAnyFieldName<'top> {
+    fn from(value: LazyRawTextFieldName<'top, TextEncoding_1_0>) -> Self {
         LazyRawFieldNameKind::Text_1_0(value).into()
     }
 }
 
-impl<'top> From<LazyRawTextFieldName_1_1<'top>> for LazyRawAnyFieldName<'top> {
-    fn from(value: LazyRawTextFieldName_1_1<'top>) -> Self {
+impl<'top> From<LazyRawTextFieldName<'top, TextEncoding_1_1>> for LazyRawAnyFieldName<'top> {
+    fn from(value: LazyRawTextFieldName<'top, TextEncoding_1_1>) -> Self {
         LazyRawFieldNameKind::Text_1_1(value).into()
     }
 }
@@ -1559,9 +1557,9 @@ pub struct RawAnyStructIterator<'data> {
 
 #[derive(Debug, Copy, Clone)]
 pub enum RawAnyStructIteratorKind<'data> {
-    Text_1_0(RawTextStructIterator_1_0<'data>),
+    Text_1_0(RawTextStructCacheIterator<'data, TextEncoding_1_0>),
     Binary_1_0(RawBinaryStructIterator_1_0<'data>),
-    Text_1_1(RawTextStructCacheIterator_1_1<'data>),
+    Text_1_1(RawTextStructCacheIterator<'data, TextEncoding_1_1>),
     Binary_1_1(RawBinaryStructIterator_1_1<'data>),
 }
 
@@ -1642,13 +1640,17 @@ impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnyStruct<'data>
     fn from_value(value: LazyRawAnyValue<'data>) -> Self {
         match value.encoding {
             LazyRawValueKind::Text_1_0(v) => LazyRawAnyStruct {
-                encoding: LazyRawStructKind::Text_1_0(LazyRawTextStruct_1_0::from_value(v)),
+                encoding: LazyRawStructKind::Text_1_0(
+                    LazyRawTextStruct::<TextEncoding_1_0>::from_value(v),
+                ),
             },
             LazyRawValueKind::Binary_1_0(v) => LazyRawAnyStruct {
                 encoding: LazyRawStructKind::Binary_1_0(LazyRawBinaryStruct_1_0::from_value(v)),
             },
             LazyRawValueKind::Text_1_1(v) => LazyRawAnyStruct {
-                encoding: LazyRawStructKind::Text_1_1(LazyRawTextStruct_1_1::from_value(v)),
+                encoding: LazyRawStructKind::Text_1_1(
+                    LazyRawTextStruct::<TextEncoding_1_1>::from_value(v),
+                ),
             },
             LazyRawValueKind::Binary_1_1(v) => LazyRawAnyStruct {
                 encoding: LazyRawStructKind::Binary_1_1(LazyRawBinaryStruct_1_1::from_value(v)),
@@ -1695,8 +1697,8 @@ impl<'top> LazyRawStruct<'top, AnyEncoding> for LazyRawAnyStruct<'top> {
     }
 }
 
-impl<'data> From<LazyRawTextStruct_1_0<'data>> for LazyRawAnyStruct<'data> {
-    fn from(value: LazyRawTextStruct_1_0<'data>) -> Self {
+impl<'data> From<LazyRawTextStruct<'data, TextEncoding_1_0>> for LazyRawAnyStruct<'data> {
+    fn from(value: LazyRawTextStruct<'data, TextEncoding_1_0>) -> Self {
         LazyRawAnyStruct {
             encoding: LazyRawStructKind::Text_1_0(value),
         }
@@ -1711,8 +1713,8 @@ impl<'data> From<LazyRawBinaryStruct_1_0<'data>> for LazyRawAnyStruct<'data> {
     }
 }
 
-impl<'data> From<LazyRawTextStruct_1_1<'data>> for LazyRawAnyStruct<'data> {
-    fn from(value: LazyRawTextStruct_1_1<'data>) -> Self {
+impl<'data> From<LazyRawTextStruct<'data, TextEncoding_1_1>> for LazyRawAnyStruct<'data> {
+    fn from(value: LazyRawTextStruct<'data, TextEncoding_1_1>) -> Self {
         LazyRawAnyStruct {
             encoding: LazyRawStructKind::Text_1_1(value),
         }

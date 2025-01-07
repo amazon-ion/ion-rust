@@ -24,16 +24,13 @@ use crate::lazy::text::buffer::{whitespace_and_then, IonParser, TextBuffer};
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::parse_result::fatal_parse_error;
-use crate::lazy::text::raw::r#struct::{
-    LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0, RawTextStructIterator_1_0,
-};
+use crate::lazy::text::raw::r#struct::{LazyRawTextFieldName, RawTextStructIterator};
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{
     RawTextList, RawTextListIterator, RawTextSExp, RawTextSExpIterator,
 };
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextFieldName_1_1, LazyRawTextReader_1_1, LazyRawTextStruct_1_1,
-    RawTextStructIterator_1_1, TextEExpression_1_1,
+    LazyRawTextReader_1_1, LazyRawTextStruct, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
@@ -278,7 +275,12 @@ pub trait TextEncoding<'top>:
             .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::SExp(nested_expr_cache)))
     }
 
-    fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
+    fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextStructIterator::new(buffer);
+        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("}")).take();
+        Self::container_matcher("a struct", "{", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
+    }
 
     fn container_matcher<MakeIterator, Iter, Expr>(
         label: &'static str,
@@ -347,15 +349,8 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
             whitespace_and_then(TextBuffer::match_annotated_value::<Self>),
         )
         .map(|(field_name, invocation)| {
-            LazyRawFieldExpr::NameValue(LazyRawTextFieldName_1_0::new(field_name), invocation)
+            LazyRawFieldExpr::NameValue(LazyRawTextFieldName::new(field_name), invocation)
         })
-    }
-
-    fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
-        let make_iter = |buffer: TextBuffer<'top>| RawTextStructIterator_1_0::new(buffer);
-        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("}")).take();
-        Self::container_matcher("a v1.0 struct", "{", make_iter, end_matcher)
-            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
     }
 }
 impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
@@ -375,16 +370,15 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
 
     fn field_expr_matcher() -> impl IonParser<'top, LazyRawFieldExpr<'top, Self>> {
         alt((
-            // An e-expression
-            TextBuffer::match_e_expression.map(|eexp| LazyRawFieldExpr::EExp(eexp)),
-            // A (name, eexp) pair
+            // A (name, eexp) pair. Check for this first to prevent `(:` from being considered
+            // the beginning of an s-expression.
             separated_pair(
                 whitespace_and_then(TextBuffer::match_struct_field_name),
                 whitespace_and_then(":"),
                 whitespace_and_then(TextBuffer::match_e_expression),
             )
             .map(|(field_name, invocation)| {
-                LazyRawFieldExpr::NameEExp(LazyRawTextFieldName_1_1::new(field_name), invocation)
+                LazyRawFieldExpr::NameEExp(LazyRawTextFieldName::new(field_name), invocation)
             }),
             // A (name, value) pair
             separated_pair(
@@ -393,17 +387,12 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
                 whitespace_and_then(TextBuffer::match_annotated_value::<Self>),
             )
             .map(move |(field_name, value)| {
-                let field_name = LazyRawTextFieldName_1_1::new(field_name);
+                let field_name = LazyRawTextFieldName::new(field_name);
                 LazyRawFieldExpr::NameValue(field_name, value)
             }),
+            // An e-expression
+            TextBuffer::match_e_expression.map(LazyRawFieldExpr::EExp),
         ))
-    }
-    
-    fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
-        let make_iter = |buffer: TextBuffer<'top>| RawTextStructIterator_1_1::new(buffer);
-        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("}")).take();
-        Self::container_matcher("a v1.1 struct", "{", make_iter, end_matcher)
-            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
     }
 }
 
@@ -431,8 +420,8 @@ impl Decoder for TextEncoding_1_0 {
     type Value<'top> = LazyRawTextValue_1_0<'top>;
     type SExp<'top> = RawTextSExp<'top, Self>;
     type List<'top> = RawTextList<'top, Self>;
-    type Struct<'top> = LazyRawTextStruct_1_0<'top>;
-    type FieldName<'top> = LazyRawTextFieldName_1_0<'top>;
+    type Struct<'top> = LazyRawTextStruct<'top, Self>;
+    type FieldName<'top> = LazyRawTextFieldName<'top, Self>;
     type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
     // Macros are not supported in Ion 1.0
     type EExp<'top> = Never;
@@ -445,8 +434,8 @@ impl Decoder for TextEncoding_1_1 {
     type Value<'top> = LazyRawTextValue_1_1<'top>;
     type SExp<'top> = RawTextSExp<'top, Self>;
     type List<'top> = RawTextList<'top, Self>;
-    type Struct<'top> = LazyRawTextStruct_1_1<'top>;
-    type FieldName<'top> = LazyRawTextFieldName_1_1<'top>;
+    type Struct<'top> = LazyRawTextStruct<'top, Self>;
+    type FieldName<'top> = LazyRawTextFieldName<'top, Self>;
     type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
     type EExp<'top> = TextEExpression_1_1<'top>;
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_1<'top>;

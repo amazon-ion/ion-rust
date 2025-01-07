@@ -410,22 +410,22 @@ pub(crate) mod private {
         fn from_value(value: D::Value<'top>) -> Self;
     }
 
-    pub trait LazyRawStructPrivate<'top, D: Decoder> {
-        /// Creates an iterator that converts each raw struct field into an `FieldExpr`, a
-        /// common representation for both raw fields and template fields that is used in the
-        /// expansion process.
-        fn field_exprs(
-            &self,
-            context: EncodingContextRef<'top>,
-        ) -> RawStructFieldExprIterator<'top, D>;
-    }
-
     pub struct RawStructFieldExprIterator<'top, D: Decoder> {
         context: EncodingContextRef<'top>,
         raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
     }
 
     impl<'top, D: Decoder> RawStructFieldExprIterator<'top, D> {
+        pub fn new(
+            context: EncodingContextRef<'top>,
+            raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
+        ) -> Self {
+            Self {
+                context,
+                raw_fields,
+            }
+        }
+
         pub fn context(&self) -> EncodingContextRef<'top> {
             self.context
         }
@@ -452,22 +452,6 @@ pub(crate) mod private {
                 }
             };
             Some(Ok(unexpanded_field))
-        }
-    }
-
-    impl<'top, D: Decoder<Struct<'top> = S>, S> LazyRawStructPrivate<'top, D> for S
-    where
-        S: LazyRawStruct<'top, D>,
-    {
-        fn field_exprs(
-            &self,
-            context: EncodingContextRef<'top>,
-        ) -> RawStructFieldExprIterator<'top, D> {
-            let raw_fields = <Self as LazyRawStruct<'top, D>>::iter(self);
-            RawStructFieldExprIterator {
-                context,
-                raw_fields,
-            }
         }
     }
 }
@@ -666,12 +650,7 @@ where
 }
 
 pub trait LazyRawStruct<'top, D: Decoder>:
-    LazyRawContainer<'top, D>
-    + private::LazyContainerPrivate<'top, D>
-    + private::LazyRawStructPrivate<'top, D>
-    + Debug
-    + Copy
-    + Clone
+    LazyRawContainer<'top, D> + private::LazyContainerPrivate<'top, D> + Debug + Copy + Clone
 {
     type Iterator: RawStructIterator<'top, D>;
 

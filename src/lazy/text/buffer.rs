@@ -15,7 +15,7 @@ use winnow::stream::{
 use winnow::token::{one_of, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
-use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
@@ -27,10 +27,9 @@ use crate::lazy::text::matched::{
 };
 use crate::lazy::text::parse_result::{fatal_parse_error, InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
-use crate::lazy::text::raw::r#struct::LazyRawTextFieldName_1_0;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextFieldName_1_1, MacroIdRef,
+    MacroIdRef,
     SystemMacroAddress, TextEExpression_1_1
 };
 use crate::lazy::text::value::{
@@ -468,111 +467,6 @@ impl<'top> TextBuffer<'top> {
             full_apply_annotations(self, &annotations, &mut value);
         }
         value
-    }
-
-    /// Matches a struct field name/value pair.
-    ///
-    /// If a pair is found, returns `Some(field)` and consumes the following comma if present.
-    /// If no pair is found (that is: the end of the struct is next), returns `None`.
-    pub fn match_struct_field(
-        &mut self,
-    ) -> IonParseResult<'top, Option<LazyRawFieldExpr<'top, TextEncoding_1_0>>> {
-        whitespace_and_then(alt((
-            // If the next thing in the input is a `}`, return `None`.
-            Self::peek_struct_end.value(None),
-            // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
-            Self::match_struct_field_name_and_value.map(move |(matched_field_name, value)| {
-                let field_name = LazyRawTextFieldName_1_0::new(matched_field_name);
-                Some(LazyRawFieldExpr::<'top, TextEncoding_1_0>::NameValue(
-                    field_name, value,
-                ))
-            }),
-        )))
-        .parse_next(self)
-    }
-
-    /// Succeeds if the next token in input is a closing `}`; does not consume input.
-    fn peek_struct_end(&mut self) -> IonMatchResult<'top> {
-        peek("}").parse_next(self)
-    }
-
-    /// Matches a field name/value pair. Returns the syntax used for the field name, the range of
-    /// input bytes where the field name is found, and the value.
-    pub fn match_struct_field_name_and_value(
-        &mut self,
-    ) -> IonParseResult<'top, (MatchedFieldName<'top>, LazyRawTextValue_1_0<'top>)> {
-        terminated(
-            separated_pair(
-                whitespace_and_then(Self::match_struct_field_name),
-                whitespace_and_then(":"),
-                whitespace_and_then(Self::match_annotated_value::<TextEncoding_1_0>),
-            ),
-            whitespace_and_then(alt((",", Self::peek_struct_end))),
-        )
-        .parse_next(self)
-    }
-
-    /// Matches a struct field (name, value expression) pair.
-    ///
-    /// If a pair is found, returns `Some(field)` and consumes the following comma if present.
-    /// If no pair is found (that is: the end of the struct is next), returns `None`.
-    pub fn match_struct_field_1_1(
-        &mut self,
-    ) -> IonParseResult<'top, Option<LazyRawFieldExpr<'top, TextEncoding_1_1>>> {
-        whitespace_and_then(alt((
-            // If the next thing in the input is a `}`, return `None`.
-            Self::peek_struct_end.map(|_| Ok(None)),
-            terminated(
-                Self::match_e_expression.map(|eexp| Ok(Some(LazyRawFieldExpr::EExp(eexp)))),
-                whitespace_and_then(alt((",", peek("}")))),
-            ),
-            Self::match_struct_field_name_and_e_expression_1_1.map(|(field_name, invocation)| {
-                Ok(Some(LazyRawFieldExpr::NameEExp(
-                    LazyRawTextFieldName_1_1::new(field_name),
-                    invocation,
-                )))
-            }),
-            // Otherwise, match a name/value pair and turn it into a `LazyRawTextField`.
-            Self::match_struct_field_name_and_value_1_1.map(move |(field_name, value)| {
-                let field_name = LazyRawTextFieldName_1_1::new(field_name);
-                Ok(Some(LazyRawFieldExpr::NameValue(field_name, value)))
-            }),
-        )))
-        .parse_next(self)?
-    }
-
-    /// Matches a field (name, value expression) pair, where the value expression may be either
-    /// an annotated value or an e-expression. Returns the syntax used for the field name, the
-    /// range of input bytes where the field name is found, and the value.
-    pub fn match_struct_field_name_and_e_expression_1_1(
-        &mut self,
-    ) -> IonParseResult<'top, (MatchedFieldName<'top>, TextEExpression_1_1<'top>)> {
-        terminated(
-            separated_pair(
-                whitespace_and_then(Self::match_struct_field_name),
-                whitespace_and_then(":"),
-                whitespace_and_then(Self::match_e_expression),
-            ),
-            whitespace_and_then(alt((",", Self::peek_struct_end))),
-        )
-        .parse_next(self)
-    }
-
-    /// Matches a field (name, value expression) pair, where the value expression may be either
-    /// an annotated value or an e-expression. Returns the syntax used for the field name, the
-    /// range of input bytes where the field name is found, and the value.
-    pub fn match_struct_field_name_and_value_1_1(
-        &mut self,
-    ) -> IonParseResult<'top, (MatchedFieldName<'top>, LazyRawTextValue_1_1<'top>)> {
-        terminated(
-            separated_pair(
-                whitespace_and_then(Self::match_struct_field_name),
-                whitespace_and_then(":"),
-                whitespace_and_then(Self::match_annotated_value::<TextEncoding_1_1>),
-            ),
-            whitespace_and_then(alt((",", Self::peek_struct_end))),
-        )
-        .parse_next(self)
     }
 
     /// Matches an optional annotation sequence and a trailing value.

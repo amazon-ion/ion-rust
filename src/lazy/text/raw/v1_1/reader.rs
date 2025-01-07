@@ -7,8 +7,8 @@ use std::ops::Range;
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
-    LazyRawReader, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
+    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawReader, LazyRawStruct,
+    LazyRawValue, LazyRawValueExpr,
 };
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
@@ -18,15 +18,11 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem
 use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::lazy::text::buffer::TextBuffer;
-use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
+use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::parse_result::AddContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
-use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
-use crate::{v1_1, Encoding, IonResult, RawSymbolRef};
-use bumpalo::collections::Vec as BumpVec;
-use winnow::combinator::opt;
-use winnow::token::one_of;
-use winnow::Parser;
+use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
+use crate::{v1_1, Encoding, IonResult};
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: TextBuffer<'data>,
@@ -328,41 +324,12 @@ impl<'top> Iterator for TextEExpArgsIterator_1_1<'top> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct LazyRawTextFieldName_1_1<'top> {
-    matched: MatchedFieldName<'top>,
-}
-
-impl<'top> LazyRawTextFieldName_1_1<'top> {
-    pub(crate) fn new(matched: MatchedFieldName<'top>) -> Self {
-        Self { matched }
-    }
-}
-
-impl<'top> HasSpan<'top> for LazyRawTextFieldName_1_1<'top> {
-    fn span(&self) -> Span<'top> {
-        self.matched.span()
-    }
-}
-
-impl HasRange for LazyRawTextFieldName_1_1<'_> {
-    fn range(&self) -> Range<usize> {
-        self.matched.range()
-    }
-}
-
-impl<'top> LazyRawFieldName<'top, TextEncoding_1_1> for LazyRawTextFieldName_1_1<'top> {
-    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
-        self.matched.read()
-    }
-}
-
 #[derive(Copy, Clone)]
-pub struct LazyRawTextStruct_1_1<'top> {
-    pub(crate) value: LazyRawTextValue_1_1<'top>,
+pub struct LazyRawTextStruct<'top, E: TextEncoding<'top>> {
+    pub(crate) value: LazyRawTextValue<'top, E>,
 }
 
-impl Debug for LazyRawTextStruct_1_1<'_> {
+impl<'top, E: TextEncoding<'top>> Debug for LazyRawTextStruct<'top, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field_result in self.iter() {
@@ -387,28 +354,13 @@ impl Debug for LazyRawTextStruct_1_1<'_> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextStructIterator_1_1<'top> {
-    input: TextBuffer<'top>,
-    has_returned_error: bool,
-}
-
-impl<'top> RawTextStructIterator_1_1<'top> {
-    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
-        Self {
-            input,
-            has_returned_error: false,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct RawTextStructCacheIterator_1_1<'top> {
-    field_exprs: &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>],
+pub struct RawTextStructCacheIterator<'top, E: TextEncoding<'top>> {
+    field_exprs: &'top [LazyRawFieldExpr<'top, E>],
     index: usize,
 }
 
-impl<'top> RawTextStructCacheIterator_1_1<'top> {
-    pub fn new(field_exprs: &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>]) -> Self {
+impl<'top, E: TextEncoding<'top>> RawTextStructCacheIterator<'top, E> {
+    pub fn new(field_exprs: &'top [LazyRawFieldExpr<'top, E>]) -> Self {
         Self {
             field_exprs,
             index: 0,
@@ -416,8 +368,8 @@ impl<'top> RawTextStructCacheIterator_1_1<'top> {
     }
 }
 
-impl<'top> Iterator for RawTextStructCacheIterator_1_1<'top> {
-    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_1>>;
+impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructCacheIterator<'top, E> {
+    type Item = IonResult<LazyRawFieldExpr<'top, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_expr = self.field_exprs.get(self.index)?;
@@ -427,20 +379,20 @@ impl<'top> Iterator for RawTextStructCacheIterator_1_1<'top> {
     }
 }
 
-impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
-    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
-        LazyRawTextStruct_1_1 { value }
+impl<'top, E: TextEncoding<'top>> LazyContainerPrivate<'top, E> for LazyRawTextStruct<'top, E> {
+    fn from_value(value: LazyRawTextValue<'top, E>) -> Self {
+        LazyRawTextStruct { value }
     }
 }
 
-impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
-    fn as_value(&self) -> <TextEncoding_1_1 as Decoder>::Value<'top> {
+impl<'top, E: TextEncoding<'top>> LazyRawContainer<'top, E> for LazyRawTextStruct<'top, E> {
+    fn as_value(&self) -> <E as Decoder>::Value<'top> {
         self.value
     }
 }
 
-impl<'top> LazyRawStruct<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top> {
-    type Iterator = RawTextStructCacheIterator_1_1<'top>;
+impl<'top, E: TextEncoding<'top>> LazyRawStruct<'top, E> for LazyRawTextStruct<'top, E> {
+    type Iterator = RawTextStructCacheIterator<'top, E>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
         self.value.annotations()
@@ -450,82 +402,7 @@ impl<'top> LazyRawStruct<'top, TextEncoding_1_1> for LazyRawTextStruct_1_1<'top>
         let MatchedValue::Struct(field_exprs) = self.value.encoded_value.matched() else {
             unreachable!("struct contained a matched value of the wrong type")
         };
-        RawTextStructCacheIterator_1_1::new(field_exprs)
-    }
-}
-
-impl<'top> Iterator for RawTextStructIterator_1_1<'top> {
-    type Item = IonResult<LazyRawFieldExpr<'top, TextEncoding_1_1>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.has_returned_error {
-            return None;
-        }
-        match self.input.match_struct_field_1_1() {
-            Ok(Some(field)) => Some(Ok(field)),
-            Ok(None) => None,
-            Err(e) => {
-                self.has_returned_error = true;
-                e.with_context("reading the next struct field", self.input)
-                    .transpose()
-            }
-        }
-    }
-}
-
-/// Wraps a [`RawTextStructIterator_1_1`] (which parses the body of a struct) and caches the field
-/// expressions the iterator yields along the way. Finally, returns a `Range<usize>` representing
-/// the span of input bytes that the struct occupies.
-pub(crate) struct TextStructSpanFinder_1_1<'top> {
-    pub(crate) allocator: &'top bumpalo::Bump,
-    pub(crate) iterator: RawTextStructIterator_1_1<'top>,
-}
-
-impl<'top> TextStructSpanFinder_1_1<'top> {
-    pub fn new(allocator: &'top bumpalo::Bump, iterator: RawTextStructIterator_1_1<'top>) -> Self {
-        Self {
-            allocator,
-            iterator,
-        }
-    }
-
-    /// Scans ahead to find the end of this struct and reports the input span that it occupies.
-    /// As it scans, it records lazy references to the struct's field expressions.
-    pub(crate) fn find_span(
-        &self,
-    ) -> IonResult<(
-        Range<usize>,
-        &'top [LazyRawFieldExpr<'top, TextEncoding_1_1>],
-    )> {
-        // The input has already skipped past the opening delimiter.
-        let start = self.iterator.input.offset() - 1;
-        let mut child_expr_cache = BumpVec::new_in(self.allocator);
-        for expr_result in self.iterator {
-            let expr = expr_result?;
-            child_expr_cache.push(expr);
-        }
-
-        let end = child_expr_cache
-            .last()
-            .map(|e| e.range().end)
-            .unwrap_or(start + 1);
-        let mut input = self
-            .iterator
-            .input
-            .slice_to_end(end - self.iterator.input.offset());
-
-        let _ws = input
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a struct", input)?;
-        // Skip an optional comma and more whitespace
-        let _ = (opt(","), TextBuffer::match_optional_comments_and_whitespace)
-            .parse_next(&mut input)
-            .with_context("skipping a struct field's trailing comma", input)?;
-        let _end_delimiter = one_of(|c: u8| c == b'}')
-            .parse_next(&mut input)
-            .with_context("seeking the closing delimiter of a struct", input)?;
-        let end = input.offset();
-        Ok((start..end, child_expr_cache.into_bump_slice()))
+        RawTextStructCacheIterator::new(field_exprs)
     }
 }
 
