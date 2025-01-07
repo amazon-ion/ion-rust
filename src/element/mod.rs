@@ -1764,7 +1764,6 @@ mod value_tests {
 
         // Use the Display impl to serialize the sexp to text
         let text_sexp = format!("{sexp}");
-        println!("{text_sexp}");
         // Parse the result and make sure it represents the same data
         let expected_element: Element = sexp.into();
         let actual_element = Element::read_one(text_sexp).unwrap();
