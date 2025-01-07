@@ -1129,7 +1129,7 @@ impl<D: Decoder> Debug for TemplateExprGroup<'_, D> {
     }
 }
 
-/// A resolved version of [`TemplateBodyMacroInvocation`]; instead of holding addresses, this type
+/// A resolved version of `TemplateBodyMacroInvocation`; instead of holding addresses, this type
 /// holds references to the invoked macro and its argument expressions.
 #[derive(Copy, Clone)]
 pub struct TemplateMacroInvocation<'top, D: Decoder> {

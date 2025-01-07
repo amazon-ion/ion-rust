@@ -1,12 +1,5 @@
-//! The [`nom` parser combinator crate](https://docs.rs/nom/latest/nom/) intentionally provides
-//! bare-bones error reporting by default. Each error contains only a `&str` representing the input
-//! that could not be matched and an [`ErrorKind`] enum variant indicating which `nom` parser produced
-//! the error. This stack-allocated type is very cheap to create, which is important because a
-//! typical parse will require creating large numbers of short-lived error values.
-//!
-//! This module defines `IonParseError`, a custom error type that can capture more information than is
-//! supported by [`winnow::error::Error`]. It also defines `IonParseResult`, a type alias for an
-//! [`IResult`] that parses `TextBuffer`s and produces `IonParseError`s if something goes wrong.
+//! This module defines `IonParseError`, a custom error type, and `IonParseResult`, a type alias for an
+//! [`PResult`] that parses `TextBuffer`s and produces `IonParseError`s if something goes wrong.
 
 use crate::lazy::text::buffer::TextBuffer;
 use crate::position::Position;
@@ -18,28 +11,25 @@ use winnow::error::{ErrMode, ErrorKind, ParseError, ParserError};
 use winnow::stream::Stream;
 use winnow::PResult;
 
-/// A type alias for a [`IResult`] whose input is a `TextBuffer` and whose error type is an
-/// [`InvalidInputError`]. All of the Ion parsers in the `text::parsers` module return an
-/// [`IonParseResult`].
+/// A type alias for a [`PResult`] whose input is a [`TextBuffer`] and whose error type is an
+/// `IonParseError`. All of the Ion parsers in the `TextBuffer` type return `IonParseResult`.
 ///
 /// If the parser is successful, it will return `Ok(output_value)`. If it encounters a problem,
-/// it will return a `winnow::Err<IonParseError>`. [winnow::Err] is a generic enum with three possible
-/// variants:
+/// it will return a `winnow::error::ErrMode<IonParseError>`.
+///
+/// [`ErrMode`] is a generic enum with three possible variants:
 /// 1. `Incomplete(_)` indicates that there wasn't enough input data to determine whether the
 ///    parser should match or not.
-/// 2. `Error(ion_parse_error)` indicates that the parser did not match the input text.
-/// 3. `Failure(ion_parse_error)` indicates that the parser matched the text but encountered
+/// 2. `Backtrack(ion_parse_error)` indicates that the parser did not match the input text; the reader should try another.
+/// 3. `Cut(ion_parse_error)` indicates that the parser matched the text but encountered
 ///    a problem when trying to materialize it into the `output_value`. In such cases, returning a
-///    `Failure` signals that this was the correct parser to handle the input but it could not
+///    `Cut` signals that this was the correct parser to handle the input but it could not
 ///    be processed successfully for some reason. For example, a parser trying to match a number of
 ///    hours and minutes might match the text `11:71`, but fail when it tries to turn `71` into a
 ///    number of minutes because it's `>=60`. We know this was the right parser, but it wasn't
 ///    able to process it. (This is slightly contrived; it would be possible to write a parser
 ///    that rejected `71` as a number of minutes based on syntax alone.)
 pub(crate) type IonParseResult<'a, O> = PResult<O, IonParseError<'a>>;
-// Functions that return IonParseResult parse TextBuffer-^   ^     ^
-//                            ...return a value of type `O` -----+     |
-//         ...or a winnow::Err<IonParseError> if something goes wrong ----+
 
 /// As above, but for parsers that simply identify (i.e. 'match') a slice of the input as a
 /// particular item.
@@ -56,8 +46,8 @@ pub enum IonParseError<'data> {
 /// Describes a problem that occurred while trying to parse a given input `TextBuffer`.
 ///
 /// When returned as part of an `IonParseResult`, an `IonParseError` is always wrapped in
-/// a [winnow::Err] (see `IonParseResult`'s documentation for details). If the `winnow::Err` is
-/// a non-fatal `Error`, the `IonParseError`'s `description` will be `None`. If the `winnow::Err` is
+/// an [`ErrMode`] (see `IonParseResult`'s documentation for details). If the `ErrMode` is
+/// a non-fatal `Error`, the `IonParseError`'s `description` will be `None`. If the `winnow::ErrMode` is
 /// a fatal `Failure`, the `description` will be `Some(String)`. In this way, using an
 /// `IonParseError` only incurs heap allocation costs when parsing is coming to an end.
 #[derive(Debug, PartialEq)]
@@ -218,7 +208,7 @@ impl<'data> From<(TextBuffer<'data>, ErrorKind)> for IonParseError<'data> {
     }
 }
 
-/// Allows a [winnow::error::Error] to be converted into an [IonParseError] by calling `.into()`.
+/// Allows an [`ErrMode`] to be converted into an [IonParseError] by calling `.into()`.
 impl<'data> From<ParseError<TextBuffer<'data>, IonParseError<'data>>> for IonParseError<'data> {
     fn from(parse_error: ParseError<TextBuffer<'data>, IonParseError<'data>>) -> Self {
         parse_error.into_inner()
