@@ -29,11 +29,11 @@ use crate::lazy::text::raw::r#struct::{
 };
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{
-    LazyRawTextSExp_1_0, RawTextList, RawTextListIterator, RawTextSExpIterator_1_0,
+    RawTextList, RawTextListIterator, RawTextSExp, RawTextSExpIterator,
 };
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextFieldName_1_1, LazyRawTextReader_1_1, LazyRawTextSExp_1_1, LazyRawTextStruct_1_1,
-    RawTextSExpIterator_1_1, RawTextStructIterator_1_1, TextEExpression_1_1,
+    LazyRawTextFieldName_1_1, LazyRawTextReader_1_1, LazyRawTextStruct_1_1,
+    RawTextStructIterator_1_1, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
@@ -264,12 +264,25 @@ pub trait TextEncoding<'top>:
 
     fn field_expr_matcher() -> impl IonParser<'top, LazyRawFieldExpr<'top, Self>>;
 
-    fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
-    fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
+    fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextListIterator::<Self>::new(buffer);
+        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("]")).take();
+        Self::container_matcher("a list", "[", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::List(nested_expr_cache)))
+    }
+
+    fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
+        let make_iter = |buffer: TextBuffer<'top>| RawTextSExpIterator::<Self>::new(buffer);
+        let end_matcher = whitespace_and_then(")");
+        Self::container_matcher("an s-expression", "(", make_iter, end_matcher)
+            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::SExp(nested_expr_cache)))
+    }
+
     fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>>;
 
     fn container_matcher<MakeIterator, Iter, Expr>(
         label: &'static str,
+        mut opening_token: &str,
         mut make_iterator: MakeIterator,
         mut end_matcher: impl IonParser<'top, TextBuffer<'top>>,
     ) -> impl IonParser<'top, &'top [Expr]>
@@ -280,8 +293,10 @@ pub trait TextEncoding<'top>:
     {
         use bumpalo::collections::Vec as BumpVec;
         move |input: &mut TextBuffer<'top>| {
-            // Skip the opening token of the container, i.e. '[', '(', or '{'
-            let iterator = make_iterator(input.slice_to_end(1));
+            // Make a copy of the input buffer view that the iterator can consume.
+            let mut iterator_input = *input;
+            let _head = opening_token.parse_next(&mut iterator_input)?;
+            let iterator = make_iterator(iterator_input);
             // The input has already skipped past the opening delimiter.
             let start = input.offset();
             let mut child_expr_cache = BumpVec::new_in(input.context().allocator());
@@ -300,9 +315,9 @@ pub trait TextEncoding<'top>:
 
             let last_expr_end = child_expr_cache
                 .last()
-                .map(|expr| expr.range().end)
-                .unwrap_or(input.offset() + 1);
-            let mut remaining = input.slice_to_end(last_expr_end - input.offset());
+                .map(|expr| expr.range().end - input.offset())
+                .unwrap_or(opening_token.len());
+            let mut remaining = input.slice_to_end(last_expr_end);
             let _matched_end = end_matcher.parse_next(&mut remaining)?;
             let end = remaining.offset();
             let span = start..end;
@@ -336,24 +351,10 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
         })
     }
 
-    fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
-        let make_iter = |buffer: TextBuffer<'top>| RawTextListIterator::<Self>::new(buffer);
-        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("]")).take();
-        Self::container_matcher("a v1.0 list", make_iter, end_matcher)
-            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::List(nested_expr_cache)))
-    }
-
-    fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
-        let make_iter = |buffer: TextBuffer<'top>| RawTextSExpIterator_1_0::new(buffer);
-        let end_matcher = whitespace_and_then(")");
-        Self::container_matcher("a v1.0 sexp", make_iter, end_matcher)
-            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::SExp(nested_expr_cache)))
-    }
-
     fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
         let make_iter = |buffer: TextBuffer<'top>| RawTextStructIterator_1_0::new(buffer);
         let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("}")).take();
-        Self::container_matcher("a v1.0 struct", make_iter, end_matcher)
+        Self::container_matcher("a v1.0 struct", "{", make_iter, end_matcher)
             .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
     }
 }
@@ -397,25 +398,11 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
             }),
         ))
     }
-
-    fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
-        let make_iter = |buffer: TextBuffer<'top>| RawTextListIterator::<Self>::new(buffer);
-        let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("]")).take();
-        Self::container_matcher("a v1.1 list", make_iter, end_matcher)
-            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::List(nested_expr_cache)))
-    }
-
-    fn sexp_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
-        let make_iter = |buffer: TextBuffer<'top>| RawTextSExpIterator_1_1::new(buffer);
-        let end_matcher = whitespace_and_then(")");
-        Self::container_matcher("a v1.1 sexp", make_iter, end_matcher)
-            .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::SExp(nested_expr_cache)))
-    }
-
+    
     fn struct_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
         let make_iter = |buffer: TextBuffer<'top>| RawTextStructIterator_1_1::new(buffer);
         let end_matcher = (whitespace_and_then(opt(",")), whitespace_and_then("}")).take();
-        Self::container_matcher("a v1.1 struct", make_iter, end_matcher)
+        Self::container_matcher("a v1.1 struct", "{", make_iter, end_matcher)
             .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
     }
 }
@@ -442,7 +429,7 @@ impl Decoder for TextEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_0;
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
     type Value<'top> = LazyRawTextValue_1_0<'top>;
-    type SExp<'top> = LazyRawTextSExp_1_0<'top>;
+    type SExp<'top> = RawTextSExp<'top, Self>;
     type List<'top> = RawTextList<'top, Self>;
     type Struct<'top> = LazyRawTextStruct_1_0<'top>;
     type FieldName<'top> = LazyRawTextFieldName_1_0<'top>;
@@ -456,7 +443,7 @@ impl Decoder for TextEncoding_1_1 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_1;
     type Reader<'data> = LazyRawTextReader_1_1<'data>;
     type Value<'top> = LazyRawTextValue_1_1<'top>;
-    type SExp<'top> = LazyRawTextSExp_1_1<'top>;
+    type SExp<'top> = RawTextSExp<'top, Self>;
     type List<'top> = RawTextList<'top, Self>;
     type Struct<'top> = LazyRawTextStruct_1_1<'top>;
     type FieldName<'top> = LazyRawTextFieldName_1_1<'top>;

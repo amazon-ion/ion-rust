@@ -30,9 +30,8 @@ use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::r#struct::LazyRawTextFieldName_1_0;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextFieldName_1_1, MacroIdRef, RawTextSExpIterator_1_1
-    , SystemMacroAddress, TextEExpression_1_1,
-    TextSExpSpanFinder_1_1,
+    LazyRawTextFieldName_1_1, MacroIdRef,
+    SystemMacroAddress, TextEExpression_1_1
 };
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
@@ -47,6 +46,7 @@ use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use bumpalo::collections::Vec as BumpVec;
 use winnow::ascii::{digit0, digit1};
+use crate::lazy::text::raw::sequence::RawTextSExpIterator;
 
 macro_rules! scalar_value_matchers {
     ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
@@ -166,6 +166,7 @@ impl<'top> TextBuffer<'top> {
         self.context
     }
 
+    #[inline(never)]
     pub(crate) fn incomplete<T>(&self, label: &'static str) -> IonParseResult<'top, T> {
         if self.is_final_data() {
             fatal_parse_error(*self, format!("ran out of data while parsing {label}"))
@@ -437,7 +438,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     #[inline]
-    fn apply_annotations<E: TextEncoding<'top>>(
+    pub(crate) fn apply_annotations<E: TextEncoding<'top>>(
         &self,
         maybe_annotations: Option<TextBuffer<'top>>,
         mut value: LazyRawTextValue<'top, E>,
@@ -784,52 +785,16 @@ impl<'top> TextBuffer<'top> {
         &mut self,
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
-        let parser = |input: &mut TextBuffer<'top>| {
-            let group_head = alt((
-                // A trivially empty arg group: `(:)`
-                terminated("(::", peek(")")),
-                // An arg group that is not trivially empty, though it may only contain whitespace:
-                //   (:: )
-                //   (:: 1 2 3)
-                ("(::", Self::match_whitespace0).take(),
-            ))
-            .parse_next(input)?;
 
-            // `input` is now positioned after the opening delimiter.
-            // The rest of the group uses s-expression syntax. Scan ahead to find the end of this
-            // group.
-            let sexp_iter = RawTextSExpIterator_1_1::new(*input);
-            // The sexp iterator holds the body of the expression. When finding the input span it occupies,
-            // we tell the iterator how many bytes comprised the head of the group: `(::` followed
-            // by whitespace.
-            let initial_bytes_skipped = group_head.len();
-            match TextSExpSpanFinder_1_1::new(input.context.allocator(), sexp_iter)
-                .find_span(initial_bytes_skipped)
-            {
-                Ok((span, child_expr_cache)) => {
-                    input.consume(span.len() - group_head.len());
-                    Ok(child_expr_cache)
-                }
-                // If the complete group isn't available, return an incomplete.
-                Err(IonError::Incomplete(_)) => {
-                    input.incomplete("matching an e-expression argument group")
-                }
-                // If invalid syntax was encountered, return a failure to prevent nom from trying
-                // other parser kinds.
-                Err(e) => {
-                    let error = InvalidInputError::new(*input)
-                        .with_label("matching an e-expression argument group")
-                        .with_description(format!("{}", e));
-                    Err(ErrMode::Cut(IonParseError::Invalid(error)))
-                }
-            }
-        };
-        let (child_expr_cache, matched_input) = parser.with_taken().parse_next(self)?;
-        Ok(TextEExpArgGroup::new(
-            parameter,
-            matched_input,
-            child_expr_cache,
-        ))
+        TextEncoding_1_1::container_matcher(
+            "an explicit argument group",
+            "(::",
+            RawTextSExpIterator::<TextEncoding_1_1>::new,
+            whitespace_and_then(")")
+        )
+            .with_taken()
+            .map(|(expr_cache, input)| TextEExpArgGroup::new(parameter, input, expr_cache))
+            .parse_next(self)
     }
 
     pub fn match_e_expression_name(&mut self) -> IonParseResult<'top, MacroIdRef<'top>> {
@@ -1642,7 +1607,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an operator symbol, which can only legally appear within an s-expression
-    fn match_operator<E: TextEncoding<'top>>(
+    pub(crate) fn match_operator<E: TextEncoding<'top>>(
         &mut self,
     ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
         one_or_more(one_of(b"!#%&*+-./;<=>?@^`|~"))

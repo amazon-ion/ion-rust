@@ -8,7 +8,7 @@ use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
-    LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
+    LazyRawReader, LazyRawStruct, LazyRawValue, LazyRawValueExpr,
 };
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
@@ -22,7 +22,7 @@ use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
 use crate::lazy::text::parse_result::AddContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue_1_1, RawTextAnnotationsIterator};
-use crate::{v1_1, Encoding, IonResult, IonType, RawSymbolRef};
+use crate::{v1_1, Encoding, IonResult, RawSymbolRef};
 use bumpalo::collections::Vec as BumpVec;
 use winnow::combinator::opt;
 use winnow::token::one_of;
@@ -272,39 +272,6 @@ impl EncodedTextMacroInvocation {
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct LazyRawTextSExp_1_1<'top> {
-    pub(crate) value: LazyRawTextValue_1_1<'top>,
-}
-
-impl Debug for LazyRawTextSExp_1_1<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "(")?;
-        for value in self.iter() {
-            write!(f, "{:?} ", value?.expect_value()?.read()?)?;
-        }
-        write!(f, ")").unwrap();
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct RawTextSExpIterator_1_1<'top> {
-    input: TextBuffer<'top>,
-    // If this iterator has returned an error, it should return `None` forever afterwards
-    has_returned_error: bool,
-}
-
-impl<'top> RawTextSExpIterator_1_1<'top> {
-    pub(crate) fn new(input: TextBuffer<'top>) -> Self {
-        Self {
-            input,
-            has_returned_error: false,
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct RawTextSequenceCacheIterator<'top, E: TextEncoding<'top>> {
     child_exprs: &'top [LazyRawValueExpr<'top, E>],
@@ -358,118 +325,6 @@ impl<'top> Iterator for TextEExpArgsIterator_1_1<'top> {
         let num_args = self.arg_exprs.len();
         // Tells the macro evaluator how much space to allocate to hold these arguments
         (num_args, Some(num_args))
-    }
-}
-
-/// Wraps a [`RawTextSExpIterator_1_1`] (which parses the body of a sexp) and caches the child
-/// expressions the iterator yields along the way. Finally, returns a `Range<usize>` representing
-/// the span of input bytes that the sexp occupies.
-pub(crate) struct TextSExpSpanFinder_1_1<'top> {
-    pub(crate) allocator: &'top bumpalo::Bump,
-    pub(crate) iterator: RawTextSExpIterator_1_1<'top>,
-}
-
-impl<'top> TextSExpSpanFinder_1_1<'top> {
-    pub fn new(allocator: &'top bumpalo::Bump, iterator: RawTextSExpIterator_1_1<'top>) -> Self {
-        Self {
-            allocator,
-            iterator,
-        }
-    }
-
-    /// Scans ahead to find the end of this s-expression and reports the input span that it occupies.
-    /// As it scans, it records lazy references to the S-expression's child expressions.
-    ///
-    /// The `initial_bytes_skipped` parameter indicates how many bytes of input that represented the
-    /// beginning of the expression are not in the buffer. For plain s-expressions, this will always
-    /// be `1` as they begin with a single open parenthesis `(`. For e-expressions (which are used
-    /// to invoke macros from the data stream), it will always be a minimum of `3`: two bytes for
-    /// the opening `(:` and at least one for the macro identifier. (For example: `(:foo`.)
-    pub(crate) fn find_span(
-        &self,
-        initial_bytes_skipped: usize,
-    ) -> IonResult<(
-        Range<usize>,
-        &'top [LazyRawValueExpr<'top, TextEncoding_1_1>],
-    )> {
-        // The input has already skipped past the opening delimiter.
-        let start = self.iterator.input.offset() - initial_bytes_skipped;
-        let mut child_expr_cache = BumpVec::new_in(self.allocator);
-
-        for expr_result in self.iterator {
-            let expr = expr_result?;
-            child_expr_cache.push(expr);
-        }
-
-        let end = child_expr_cache
-            .last()
-            .map(|e| e.range().end)
-            .unwrap_or(self.iterator.input.offset());
-        let mut input = self
-            .iterator
-            .input
-            .slice_to_end(end - self.iterator.input.offset());
-
-        let _ws = input
-            .match_optional_comments_and_whitespace()
-            .with_context("seeking the end of a sexp", input)?;
-        let _end_delimiter = one_of(|c| c == b')')
-            .parse_next(&mut input)
-            .with_context("seeking the closing delimiter of a sexp", input)?;
-        let end = input.offset();
-
-        let range = start..end;
-        Ok((range, child_expr_cache.into_bump_slice()))
-    }
-}
-
-impl<'top> LazyContainerPrivate<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
-    fn from_value(value: LazyRawTextValue_1_1<'top>) -> Self {
-        LazyRawTextSExp_1_1 { value }
-    }
-}
-
-impl<'top> LazyRawContainer<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
-    fn as_value(&self) -> <TextEncoding_1_1 as Decoder>::Value<'top> {
-        self.value
-    }
-}
-
-impl<'top> LazyRawSequence<'top, TextEncoding_1_1> for LazyRawTextSExp_1_1<'top> {
-    type Iterator = RawTextSequenceCacheIterator<'top, TextEncoding_1_1>;
-
-    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
-        self.value.annotations()
-    }
-
-    fn ion_type(&self) -> IonType {
-        self.value.ion_type()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        let MatchedValue::SExp(child_exprs) = self.value.encoded_value.matched() else {
-            unreachable!("s-expression contained a matched value of the wrong type")
-        };
-        RawTextSequenceCacheIterator::new(child_exprs)
-    }
-}
-
-impl<'top> Iterator for RawTextSExpIterator_1_1<'top> {
-    type Item = IonResult<LazyRawValueExpr<'top, TextEncoding_1_1>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.has_returned_error {
-            return None;
-        }
-        match self.input.match_sexp_item_1_1() {
-            Ok(Some(value)) => Some(Ok(value)),
-            Ok(None) => None,
-            Err(e) => {
-                self.has_returned_error = true;
-                e.with_context("reading the next sexp value", self.input)
-                    .transpose()
-            }
-        }
     }
 }
 
@@ -680,7 +535,7 @@ mod tests {
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;
-    use crate::RawVersionMarker;
+    use crate::{IonType, RawVersionMarker};
 
     use super::*;
 

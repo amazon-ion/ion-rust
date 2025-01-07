@@ -46,13 +46,13 @@ use crate::lazy::text::raw::r#struct::{
     LazyRawTextFieldName_1_0, LazyRawTextStruct_1_0, RawTextStructIterator_1_0,
 };
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
-use crate::lazy::text::raw::sequence::{LazyRawTextSExp_1_0, RawTextList, RawTextSExpIterator_1_0};
+use crate::lazy::text::raw::sequence::{RawTextList, RawTextSExp};
 use crate::lazy::text::raw::v1_1::arg_group::{
     EExpArg, EExpArgExpr, TextEExpArgGroup, TextEExpArgGroupIterator,
 };
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextFieldName_1_1, LazyRawTextReader_1_1, LazyRawTextSExp_1_1, LazyRawTextStruct_1_1,
-    MacroIdRef, RawTextSequenceCacheIterator, RawTextStructCacheIterator_1_1, TextEExpression_1_1,
+    LazyRawTextFieldName_1_1, LazyRawTextReader_1_1, LazyRawTextStruct_1_1, MacroIdRef,
+    RawTextSequenceCacheIterator, RawTextStructCacheIterator_1_1, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
@@ -1310,9 +1310,9 @@ impl<'top> LazyRawAnySExp<'top> {
 
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawSExpKind<'data> {
-    Text_1_0(LazyRawTextSExp_1_0<'data>),
+    Text_1_0(RawTextSExp<'data, TextEncoding_1_0>),
     Binary_1_0(LazyRawBinarySExp_1_0<'data>),
-    Text_1_1(LazyRawTextSExp_1_1<'data>),
+    Text_1_1(RawTextSExp<'data, TextEncoding_1_1>),
     Binary_1_1(LazyRawBinarySExp_1_1<'data>),
 }
 
@@ -1332,13 +1332,13 @@ impl<'data> LazyContainerPrivate<'data, AnyEncoding> for LazyRawAnySExp<'data> {
     fn from_value(value: LazyRawAnyValue<'data>) -> Self {
         match value.encoding {
             LazyRawValueKind::Text_1_0(v) => LazyRawAnySExp {
-                encoding: LazyRawSExpKind::Text_1_0(LazyRawTextSExp_1_0::from_value(v)),
+                encoding: LazyRawSExpKind::Text_1_0(RawTextSExp::from_value(v)),
             },
             LazyRawValueKind::Binary_1_0(v) => LazyRawAnySExp {
                 encoding: LazyRawSExpKind::Binary_1_0(LazyRawBinarySExp_1_0::from_value(v)),
             },
             LazyRawValueKind::Text_1_1(v) => LazyRawAnySExp {
-                encoding: LazyRawSExpKind::Text_1_1(LazyRawTextSExp_1_1::from_value(v)),
+                encoding: LazyRawSExpKind::Text_1_1(RawTextSExp::from_value(v)),
             },
             LazyRawValueKind::Binary_1_1(v) => LazyRawAnySExp {
                 encoding: LazyRawSExpKind::Binary_1_1(LazyRawBinarySExp_1_1::from_value(v)),
@@ -1354,7 +1354,7 @@ pub struct RawAnySExpIterator<'data> {
 
 #[derive(Debug, Copy, Clone)]
 pub enum RawAnySExpIteratorKind<'data> {
-    Text_1_0(RawTextSExpIterator_1_0<'data>),
+    Text_1_0(RawTextSequenceCacheIterator<'data, TextEncoding_1_0>),
     Binary_1_0(RawBinarySequenceIterator_1_0<'data>),
     Text_1_1(RawTextSequenceCacheIterator<'data, TextEncoding_1_1>),
     Binary_1_1(RawBinarySequenceIterator_1_1<'data>),
@@ -1415,8 +1415,8 @@ impl<'top> LazyRawSequence<'top, AnyEncoding> for LazyRawAnySExp<'top> {
     }
 }
 
-impl<'data> From<LazyRawTextSExp_1_0<'data>> for LazyRawAnySExp<'data> {
-    fn from(value: LazyRawTextSExp_1_0<'data>) -> Self {
+impl<'data> From<RawTextSExp<'data, TextEncoding_1_0>> for LazyRawAnySExp<'data> {
+    fn from(value: RawTextSExp<'data, TextEncoding_1_0>) -> Self {
         LazyRawAnySExp {
             encoding: LazyRawSExpKind::Text_1_0(value),
         }
@@ -1431,8 +1431,8 @@ impl<'data> From<LazyRawBinarySExp_1_0<'data>> for LazyRawAnySExp<'data> {
     }
 }
 
-impl<'data> From<LazyRawTextSExp_1_1<'data>> for LazyRawAnySExp<'data> {
-    fn from(value: LazyRawTextSExp_1_1<'data>) -> Self {
+impl<'data> From<RawTextSExp<'data, TextEncoding_1_1>> for LazyRawAnySExp<'data> {
+    fn from(value: RawTextSExp<'data, TextEncoding_1_1>) -> Self {
         LazyRawAnySExp {
             encoding: LazyRawSExpKind::Text_1_1(value),
         }
