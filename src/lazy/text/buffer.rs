@@ -59,7 +59,7 @@ macro_rules! scalar_value_matchers {
 impl Debug for TextBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         const CHARS_TO_SHOW: usize = 64;
-        write!(f, "Buf {{")?;
+        write!(f, "TextBuffer {{")?;
         // Try to read the next several bytes from the buffer as UTF-8...
         let text_result = std::str::from_utf8(self.data);
         // ...if it works, print the first 64 Unicode scalars...
@@ -737,8 +737,6 @@ impl<'top> TextBuffer<'top> {
         };
         let ((macro_id, macro_ref, mut arg_expr_cache), matched_input) =
             parser.with_taken().parse_next(self)?;
-
-        // let matched_input = self.slice(0, input.offset() - self.offset());
 
         let parameters = macro_ref.signature().parameters();
         if arg_expr_cache.len() < parameters.len() {

@@ -209,23 +209,6 @@ impl<'data, E: TextEncoding<'data>> Iterator for RawTextSExpIterator<'data, E> {
             }
         }
     }
-
-    // fn next(&mut self) -> Option<Self::Item> {
-    //     if self.has_returned_error {
-    //         return None;
-    //     }
-    //     match self.input.match_sexp_item() {
-    //         Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(LazyRawTextValue::<E>::from(
-    //             value,
-    //         )))),
-    //         Ok(None) => None,
-    //         Err(e) => {
-    //             self.has_returned_error = true;
-    //             e.with_context("reading the next sexp value", self.input)
-    //                 .transpose()
-    //         }
-    //     }
-    // }
 }
 
 impl<'data, E: TextEncoding<'data>> LazyContainerPrivate<'data, E> for RawTextSExp<'data, E> {
