@@ -257,8 +257,10 @@ pub trait TextEncoding<'top>:
         encoded_text_value: EncodedTextValue<'top, Self>,
     ) -> Self::Value<'top>;
 
+    /// Matches an expression that appears in value position.
     fn value_expr_matcher() -> impl IonParser<'top, LazyRawValueExpr<'top, Self>>;
 
+    /// Matches an expression that appears in struct field position. Does NOT match trailing commas.
     fn field_expr_matcher() -> impl IonParser<'top, LazyRawFieldExpr<'top, Self>>;
 
     fn list_matcher() -> impl IonParser<'top, EncodedTextValue<'top, Self>> {
@@ -282,6 +284,8 @@ pub trait TextEncoding<'top>:
             .map(|nested_expr_cache| EncodedTextValue::new(MatchedValue::Struct(nested_expr_cache)))
     }
 
+    /// Logic common to parsing all container types.
+    /// Caches all subexpressions in the bump allocator for future reference.
     fn container_matcher<MakeIterator, Iter, Expr>(
         label: &'static str,
         mut opening_token: &str,

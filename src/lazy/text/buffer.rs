@@ -1,4 +1,3 @@
-#![deny(dead_code)]
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::str::FromStr;
@@ -385,31 +384,6 @@ impl<'top> TextBuffer<'top> {
         .parse_next(self)
     }
 
-    /// Matches an optional annotations sequence and a value, including operators.
-    pub fn match_sexp_item(&mut self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
-        let (maybe_sexp_value, matched_input) = whitespace_and_then(alt((
-            ")".value(None),
-            (
-                opt(Self::match_annotations),
-                // We need the s-expression parser to recognize the input `--3` as the operator `--` and the
-                // int `3` while recognizing the input `-3` as the int `-3`. If `match_operator` runs before
-                // `match_value`, it will consume the sign (`-`) of negative number values, treating
-                // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
-                whitespace_and_then(alt((Self::match_value::<TextEncoding_1_0>, Self::match_operator))),
-            )
-                .map(Some),
-        )))
-        .with_taken()
-        .parse_next(self)?;
-
-        let Some((maybe_annotations, value)) = maybe_sexp_value else {
-            return Ok(None);
-        };
-        Ok(Some(
-            matched_input.apply_annotations::<TextEncoding_1_0>(maybe_annotations, value),
-        ))
-    }
-
     /// Matches either:
     /// * A macro invocation
     /// * An optional annotations sequence and a value
@@ -595,63 +569,6 @@ impl<'top> TextBuffer<'top> {
         }
         .with_taken()
         .map(|(encoded_value, input)| E::new_value(input, encoded_value))
-        .parse_next(self)
-    }
-
-    /// Matches a single value in a list OR the end of the list, allowing for leading whitespace
-    /// and comments in either case.
-    ///
-    /// If a value is found, returns `Ok(Some(value))`. If the end of the list is found, returns
-    /// `Ok(None)`.
-    pub fn match_list_item(&mut self) -> IonParseResult<'top, Option<LazyRawTextValue_1_0<'top>>> {
-        preceded(
-            // Some amount of whitespace/comments...
-            Self::match_optional_comments_and_whitespace,
-            // ...followed by either the end of the list...
-            alt((
-                "]".value(None),
-                // ...or a value...
-                terminated(
-                    Self::match_annotated_value::<TextEncoding_1_0>.map(Some),
-                    // ...followed by a comma or end-of-list
-                    Self::match_delimiter_after_list_value,
-                ),
-            )),
-        )
-        .parse_next(self)
-    }
-
-    /// Matches either:
-    /// * An e-expression (i.e. macro invocation)
-    /// * An optional annotations sequence and a value
-    pub fn match_list_item_1_1(
-        &mut self,
-    ) -> IonParseResult<'top, Option<LazyRawValueExpr<'top, TextEncoding_1_1>>> {
-        whitespace_and_then(alt((
-            terminated(
-                Self::match_e_expression,
-                Self::match_delimiter_after_list_value,
-            )
-            .map(|matched| Some(RawValueExpr::EExp(matched))),
-            "]".value(None),
-            // .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
-            terminated(
-                Self::match_annotated_value::<TextEncoding_1_1>.map(Some),
-                // ...followed by a comma or end-of-list
-                Self::match_delimiter_after_list_value,
-            )
-            .map(|maybe_matched| maybe_matched.map(RawValueExpr::ValueLiteral)),
-        )))
-        .parse_next(self)
-    }
-
-    /// Matches syntax that is expected to follow a value in a list: any amount of whitespace and/or
-    /// comments followed by either a comma (consumed) or an end-of-list `]` (not consumed).
-    fn match_delimiter_after_list_value(&mut self) -> IonMatchResult<'top> {
-        preceded(
-            Self::match_optional_comments_and_whitespace,
-            alt((",", peek("]"))),
-        )
         .parse_next(self)
     }
 
@@ -901,6 +818,8 @@ impl<'top> TextBuffer<'top> {
             ),
         }
     }
+
+
 
     pub fn match_empty_arg_group(
         &mut self,
@@ -1733,6 +1652,9 @@ impl<'top> TextBuffer<'top> {
         pub fn full_match_timestamp<'t>(
             input: &mut TextBuffer<'t>,
         ) -> IonParseResult<'t, MatchedTimestamp> {
+            // TODO: As-is, matching common timestamps (those with greater than second precision)
+            //       is slow because the parser tries each shorter arrangement in turn. We should
+            //       rewrite this to use a single path that can accept any precision.
             alt((
                 TextBuffer::match_timestamp_y,
                 TextBuffer::match_timestamp_ym,
