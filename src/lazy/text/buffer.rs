@@ -46,6 +46,8 @@ use bumpalo::collections::Vec as BumpVec;
 use winnow::ascii::{digit0, digit1};
 use crate::lazy::text::raw::sequence::RawTextSExpIterator;
 
+/// Generates parser functions that map from an Ion type representation (`Decimal`, `Int`, etc)
+/// to an `EncodedTextValue`.
 macro_rules! scalar_value_matchers {
     ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
         $(fn $new_parser<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
