@@ -1,6 +1,6 @@
 #![cfg(feature = "experimental-reader-writer")]
 
-use crate::ion_tests::{DataStraw, SkipList, ELEMENT_GLOBAL_SKIP_LIST};
+use crate::ion_tests::{DataStraw, ELEMENT_GLOBAL_SKIP_LIST};
 use ion_rs::{
     AnyEncoding, Element, ElementReader, IonData, IonError, IonResult, IonStream, Reader,
 };
