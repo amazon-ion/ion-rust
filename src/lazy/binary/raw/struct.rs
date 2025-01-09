@@ -165,9 +165,8 @@ mod tests {
             ),
         ];
         let context = EncodingContext::empty();
-        let context = context.get_ref();
         for (input, field_name_ranges) in tests {
-            let mut reader = LazyRawBinaryReader_1_0::new(context, input);
+            let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), input);
             let struct_ = reader.next()?.expect_value()?.read()?.expect_struct()?;
             for (field_result, (expected_name, range)) in
                 struct_.iter().zip(field_name_ranges.iter())

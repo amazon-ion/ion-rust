@@ -239,8 +239,7 @@ mod tests {
         "#,
         )?;
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader::new(context, &ion_data);
+        let mut reader = LazyRawBinaryReader::new(context.get_ref(), &ion_data);
         // IVM
         reader.next()?.expect_ivm()?;
         // Symbol table
@@ -308,8 +307,7 @@ mod tests {
         "#,
         )?;
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader::new(context, &ion_data);
+        let mut reader = LazyRawBinaryReader::new(context.get_ref(), &ion_data);
         // IVM
         reader.next()?.expect_ivm()?;
 

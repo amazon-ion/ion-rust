@@ -284,8 +284,7 @@ mod tests {
         "#,
         )?;
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader_1_0::new(context, data);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), data);
         let _ivm = reader.next()?.expect_ivm()?;
         let _symbol_table = reader.next()?.expect_value()?;
         let lazy_list = reader.next()?.expect_value()?.read()?.expect_list()?;
@@ -330,8 +329,7 @@ mod tests {
         "#,
         )?;
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader_1_0::new(context, data);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), data);
         loop {
             use RawStreamItem::*;
             match reader.next()? {
@@ -355,8 +353,7 @@ mod tests {
         "#,
         )?;
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader_1_0::new(context, data);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), data);
         let _ivm = reader.next()?.expect_ivm()?;
 
         // Read annotations from $ion_symbol_table::{...}
@@ -392,8 +389,7 @@ mod tests {
         ];
 
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader_1_0::new(context, &data);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), &data);
         let _ivm = reader.next()?.expect_ivm()?;
 
         assert_eq!(
@@ -416,8 +412,7 @@ mod tests {
         ];
 
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader_1_0::new(context, &data);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), &data);
         let _ivm = reader.next()?.expect_ivm()?;
         let _ivm = reader.next()?.expect_ivm()?;
 

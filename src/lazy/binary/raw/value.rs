@@ -803,8 +803,7 @@ mod tests {
         "#,
         )?;
         let context = EncodingContext::empty();
-        let context = context.get_ref();
-        let mut reader = LazyRawBinaryReader_1_0::new(context, data);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), data);
         let _ivm = reader.next()?.expect_ivm()?;
         let value = reader.next()?.expect_value()?;
         let annotations_sequence = value.annotations_sequence();
