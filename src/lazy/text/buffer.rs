@@ -2596,6 +2596,71 @@ mod tests {
         ]
     }
 
+    matcher_tests! {
+        match_struct_1_0 => TextEncoding_1_0::struct_matcher(),
+        expect_match: [
+            "{}",
+            "{$0:$0}",
+            "{'':''}",
+            r#"{"":""}"#,
+            "{foo:bar}",
+            "{foo: bar, baz: quux}",
+            "{'foo': bar, 'baz': quux}",
+            r#"{foo: bar, "baz": quux}"#,
+            r#"{'foo': bar, "baz": quux}"#,
+            "{_:_}",
+            "{foo: [1, 2, 3]}",
+            "{foo: foo, foo: foo}",
+            "{foo: foo::foo::foo, foo: foo::foo}"
+        ],
+        expect_mismatch: [
+            "{", "{foo: bar",
+            "{1: bar}",
+            "{foo: bar baz: quux}",
+            "{foo: bar,, baz: quux}",
+            "{foo:: bar, baz: quux}",
+            "{, foo: bar, baz: quux}",
+            "{,}"
+        ]
+    }
+
+    matcher_tests_with_macro! {
+        match_struct_1_1 => TextEncoding_1_1::struct_matcher(),
+        "(macro foo (x*) {quux: quuz})"
+        expect_match: [
+            "{}", "{$0:$0}", "{'':''}", r#"{"":""}"#, "{foo:bar}",
+            "{foo: bar, baz: quux}", "{'foo': bar, 'baz': quux}",
+            r#"{foo: bar, "baz": quux}"#, r#"{'foo': bar, "baz": quux}"#,
+            "{_:_}", "{foo: [1, 2, 3]}", "{foo: foo, foo: foo}",
+            "{a: (:foo 1 2 3)}",
+            // With e-expressions
+            "{(:foo)}",
+            "{ (:foo)}",
+            "{(:foo) }",
+            "{(:foo), (:foo)}",
+            "{   (:foo)   ,   (:foo)   }",
+            "{ a : (:foo 1 2 3) , b : (:foo 4 5 6) }",
+            "{a:(:foo 1 2 3),b:(:foo 4 5 6)}",  "{(:foo), (:foo)}",
+            "{a: (:foo 1 2 3), b: (:foo 4 5 6)}"
+        ],
+        expect_mismatch: [
+            "{", "{foo: bar",
+            "{1: bar}",
+            "{foo: bar baz: quux}",
+            "{foo: bar,, baz: quux}",
+            "{foo:: bar, baz: quux}",
+            "{, foo: bar, baz: quux}",
+            "{,}",
+            "{(:foo}",
+            "{(:foo]}",
+            "{[:foo}",
+            "{(foo)}",
+            "{(:foo): bar}",
+            "{bar: (:foo}",
+            "{bar: (:foo) baz: quux}",
+        ]
+    }
+
     matcher_tests_with_macro! {
         parsing_eexps => TextBuffer::match_e_expression,
         "(macro foo (x*) null)"

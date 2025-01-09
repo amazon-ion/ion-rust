@@ -9,7 +9,7 @@ use crate::lazy::text::parse_result::AddContext;
 use crate::{IonResult, RawSymbolRef};
 use std::marker::PhantomData;
 use std::ops::Range;
-use winnow::combinator::{alt, opt, terminated};
+use winnow::combinator::{alt, peek, terminated};
 use winnow::Parser;
 
 #[derive(Clone, Copy, Debug)]
@@ -38,10 +38,14 @@ impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructIterator<'top, E> {
         }
 
         let result = whitespace_and_then(alt((
-            "}".value(None),
+            // If it's the end of the struct, don't consume it so future calls will also yield `None`
+            peek("}").value(None),
             terminated(
                 E::field_expr_matcher().map(Some),
-                whitespace_and_then(opt(",")),
+                whitespace_and_then(
+                    // Either a comma (consumed) or an upcoming end-of-struct (not consumed)
+                    alt((",", peek("}"))),
+                ),
             ),
         )))
         .parse_next(&mut self.input);
