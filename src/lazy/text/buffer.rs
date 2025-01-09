@@ -27,24 +27,20 @@ use crate::lazy::text::matched::{
 use crate::lazy::text::parse_result::{fatal_parse_error, InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
-use crate::lazy::text::raw::v1_1::reader::{
-    MacroIdRef,
-    SystemMacroAddress, TextEExpression_1_1
-};
+use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress, TextEExpression_1_1};
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
 use crate::result::DecodingError;
-use crate::{
-    Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, TimestampPrecision,
-};
+use crate::{Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, TimestampPrecision};
 
 use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
+use crate::lazy::text::raw::sequence::RawTextSExpIterator;
+use crate::lazy::text::token_kind::{ValueTokenKind, TEXT_ION_TOKEN_KINDS};
 use bumpalo::collections::Vec as BumpVec;
 use winnow::ascii::{digit0, digit1};
-use crate::lazy::text::raw::sequence::RawTextSExpIterator;
 
 /// Generates parser functions that map from an Ion type representation (`Decimal`, `Int`, etc)
 /// to an `EncodedTextValue`.
@@ -402,7 +398,10 @@ impl<'top> TextBuffer<'top> {
                 // int `3` while recognizing the input `-3` as the int `-3`. If `match_operator` runs before
                 // `match_value`, it will consume the sign (`-`) of negative number values, treating
                 // `-3` as an operator (`-`) and an int (`3`). Thus, we run `match_value` first.
-                whitespace_and_then(alt((Self::match_value::<TextEncoding_1_1>, Self::match_operator))),
+                whitespace_and_then(alt((
+                    Self::match_value::<TextEncoding_1_1>,
+                    Self::match_operator,
+                ))),
             )
                 .map(|(maybe_annotations, value)| input.apply_annotations(maybe_annotations, value))
                 .map(RawValueExpr::ValueLiteral)
@@ -446,7 +445,9 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
+    pub fn match_annotated_value<E: TextEncoding<'top>>(
+        &mut self,
+    ) -> IonParseResult<'top, E::Value<'top>> {
         let input = *self;
         (
             opt(Self::match_annotations),
@@ -524,49 +525,34 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a single Ion 1.0 value.
     pub fn match_value<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
+        use ValueTokenKind::*;
         dispatch! {
-            |input: &mut TextBuffer<'top>| input.peek_byte();
-            byte if byte.is_ascii_digit() || byte == b'-' => {
-                alt((
-                    Self::match_int_value,
-                    Self::match_float_value,
-                    Self::match_decimal_value,
-                    Self::match_timestamp_value,
-                ))
-            },
-            byte if byte.is_ascii_alphabetic() => {
-                alt((
-                    Self::match_null_value,
-                    Self::match_bool_value,
-                    Self::match_identifier_value,
-                    Self::match_float_special_value, // nan
-                ))
-            },
-            b'$' | b'_' => {
-                Self::match_symbol_value // identifiers and symbol IDs
-            },
-            b'"' | b'\'' => {
-                alt((
-                    Self::match_string_value,
-                    Self::match_symbol_value,
-                ))
-            },
-            b'[' => E::list_matcher(),
-            b'(' => E::sexp_matcher(),
-            b'{' => {
-                alt((
-                    Self::match_blob_value,
-                    Self::match_clob_value,
-                    E::struct_matcher(),
-                ))
-            },
-            b'+' => Self::match_float_special_value, // +inf
-            _other => {
-                // `other` is not a legal start-of-value byte.
-                |input: &mut TextBuffer<'top>| {
-                    let error = InvalidInputError::new(*input);
-                    Err(ErrMode::Backtrack(IonParseError::Invalid(error)))
-                }
+            |input: &mut TextBuffer<'top>| Ok(TEXT_ION_TOKEN_KINDS[input.peek_byte()? as usize]);
+            NumberOrTimestamp => alt((
+                Self::match_int_value,
+                Self::match_float_value,
+                Self::match_decimal_value,
+                Self::match_timestamp_value,
+            )),
+            Letter => alt((
+                Self::match_null_value,
+                Self::match_bool_value,
+                Self::match_identifier_value,
+                Self::match_float_special_value, // nan
+            )),
+            Symbol => Self::match_symbol_value,
+            QuotedText => alt((Self::match_string_value, Self::match_symbol_value)),
+            List => E::list_matcher(),
+            SExp => E::sexp_matcher(),
+            LobOrStruct => alt((
+                Self::match_blob_value,
+                Self::match_clob_value,
+                E::struct_matcher(),
+            )),
+            Invalid(byte) => |input: &mut TextBuffer<'top>| {
+                let error = InvalidInputError::new(*input)
+                    .with_label(format!("a value cannot begin with '{}'", char::from(byte)));
+                Err(ErrMode::Backtrack(IonParseError::Invalid(error)))
             },
         }
         .with_taken()
@@ -598,16 +584,15 @@ impl<'top> TextBuffer<'top> {
         &mut self,
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
-
         TextEncoding_1_1::container_matcher(
             "an explicit argument group",
             "(::",
             RawTextSExpIterator::<TextEncoding_1_1>::new,
-            whitespace_and_then(")")
+            whitespace_and_then(")"),
         )
-            .with_taken()
-            .map(|(expr_cache, input)| TextEExpArgGroup::new(parameter, input, expr_cache))
-            .parse_next(self)
+        .with_taken()
+        .map(|(expr_cache, input)| TextEExpArgGroup::new(parameter, input, expr_cache))
+        .parse_next(self)
     }
 
     pub fn match_e_expression_name(&mut self) -> IonParseResult<'top, MacroIdRef<'top>> {
@@ -818,8 +803,6 @@ impl<'top> TextBuffer<'top> {
             ),
         }
     }
-
-
 
     pub fn match_empty_arg_group(
         &mut self,
@@ -1127,10 +1110,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches an Ion float of any syntax
     fn match_float(&mut self) -> IonParseResult<'top, MatchedFloat> {
         terminated(
-            alt((
-                Self::match_float_special,
-                Self::match_float_numeric_value,
-            )),
+            alt((Self::match_float_special, Self::match_float_numeric_value)),
             Self::peek_stop_character,
         )
         .parse_next(self)
