@@ -943,10 +943,7 @@ impl<'top, D: Decoder> StackedMacroEvaluator<'top, D> {
     /// current encoding context and push the resulting `MacroExpansion` onto the stack.
     pub fn push(&mut self, invocation: impl Into<MacroExpr<'top, D>>) -> IonResult<()> {
         let macro_expr = invocation.into();
-        let expansion = match macro_expr.expand() {
-            Ok(expansion) => expansion,
-            Err(e) => return Err(e),
-        };
+        let expansion = macro_expr.expand()?;
         self.macro_stack.push(expansion);
         Ok(())
     }
@@ -989,10 +986,7 @@ impl<'top, D: Decoder> StackedMacroEvaluator<'top, D> {
                 Some(expansion) => expansion,
             };
             // Ask that expansion to continue its evaluation by one step.
-            let step = match current_expansion.next_step() {
-                Ok(step) => step,
-                Err(e) => return Err(e),
-            };
+            let step = current_expansion.next_step()?;
             current_expansion.is_complete = step.is_final();
             use ValueExpr::*;
             let maybe_output_value = match step.value_expr() {

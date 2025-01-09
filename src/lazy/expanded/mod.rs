@@ -558,10 +558,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             // It's another macro invocation, we'll add it to the evaluator so it will be evaluated
             // on the next call and then we'll return the e-expression itself.
             EExp(e_exp) => {
-                let resolved_e_exp = match e_exp.resolve(context_ref) {
-                    Ok(resolved) => resolved,
-                    Err(e) => return Err(e),
-                };
+                let resolved_e_exp = e_exp.resolve(context_ref)?;
 
                 // Get the current evaluator or make a new one
                 let evaluator = match self.evaluator_ptr.get() {
@@ -639,10 +636,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                 }
                 // It's another macro invocation, we'll start evaluating it.
                 EExp(e_exp) => {
-                    let resolved_e_exp = match e_exp.resolve(context_ref) {
-                        Ok(resolved) => resolved,
-                        Err(e) => return Err(e),
-                    };
+                    let resolved_e_exp = e_exp.resolve(context_ref)?;
 
                     // If this e-expression invokes a template with a non-system, singleton expansion, we can use the
                     // e-expression to back a LazyExpandedValue. It will only be evaluated if the user calls `read()`.
@@ -664,11 +658,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
                     };
 
                     // Try to get a value by starting to evaluate the e-expression.
-                    let next_value = match evaluator.next() {
-                        Ok(value) => value,
-                        Err(e) => return Err(e),
-                    };
-                    if let Some(value) = next_value {
+                    if let Some(value) = evaluator.next()? {
                         // If we get a value and the evaluator isn't empty yet, save its pointer
                         // so we can try to get more out of it when `next_at_or_above_depth` is called again.
                         if !evaluator.is_empty() {
