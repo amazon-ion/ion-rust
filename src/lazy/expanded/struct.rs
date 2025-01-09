@@ -93,7 +93,7 @@ impl<'top, D: Decoder> LazyExpandedField<'top, D> {
         self.name
     }
 
-    pub fn to_field_expr(&self) -> FieldExpr<'top, D> {
+    pub fn to_field_expr(self) -> FieldExpr<'top, D> {
         FieldExpr::NameValue(self.name(), self.value())
     }
 }
