@@ -239,7 +239,7 @@ impl<W: io::Write> fmt::Write for IoValueFormatter<W> {
     }
 }
 
-impl<W: std::fmt::Write> FmtValueFormatter<'_, W> {
+impl<W: fmt::Write> FmtValueFormatter<'_, W> {
     /// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
     /// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
     /// and numbers. Examples:

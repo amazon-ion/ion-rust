@@ -1,5 +1,5 @@
 use crate::element::iterators::SymbolsIterator;
-use crate::lazy::decoder::private::{LazyRawStructPrivate, RawStructFieldExprIterator};
+use crate::lazy::decoder::private::RawStructFieldExprIterator;
 use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpr, MacroExprArgsIterator, ValueExpr,
@@ -269,10 +269,10 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
             .alloc_with(|| MacroEvaluator::new());
         use ExpandedStructSource::*;
         let source = match &self.source {
-            ValueLiteral(raw_struct) => ExpandedStructIteratorSource::ValueLiteral(
-                evaluator,
-                raw_struct.field_exprs(self.context),
-            ),
+            ValueLiteral(raw_struct) => {
+                let field_exprs = RawStructFieldExprIterator::new(self.context, raw_struct.iter());
+                ExpandedStructIteratorSource::ValueLiteral(evaluator, field_exprs)
+            }
             Template(environment, element, _index) => {
                 evaluator.set_root_environment(*environment);
                 let template = element.template();

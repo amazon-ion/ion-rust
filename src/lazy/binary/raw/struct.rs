@@ -146,7 +146,7 @@ mod tests {
     use std::ops::Range;
 
     use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
-    use crate::IonResult;
+    use crate::{EncodingContext, IonResult};
 
     use super::*;
 
@@ -164,8 +164,9 @@ mod tests {
                 &[(RawSymbolRef::SymbolId(4), 1..2)],
             ),
         ];
+        let context = EncodingContext::empty();
         for (input, field_name_ranges) in tests {
-            let mut reader = LazyRawBinaryReader_1_0::new(input);
+            let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), input);
             let struct_ = reader.next()?.expect_value()?.read()?.expect_struct()?;
             for (field_result, (expected_name, range)) in
                 struct_.iter().zip(field_name_ranges.iter())

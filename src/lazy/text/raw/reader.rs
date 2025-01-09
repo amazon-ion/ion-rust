@@ -13,106 +13,95 @@ use crate::{Encoding, IonResult};
 /// A text Ion 1.0 reader that yields [`LazyRawStreamItem`]s representing the top level values found
 /// in the provided input stream.
 pub struct LazyRawTextReader_1_0<'data> {
-    input: &'data [u8],
-    // The offset from the beginning of the overall stream at which the `input` slice begins
-    stream_offset: usize,
-    // The offset from the beginning of `input` at which the reader is positioned
-    local_offset: usize,
+    input: TextBuffer<'data>,
 }
 
 impl<'data> LazyRawTextReader_1_0<'data> {
     /// Constructs a `LazyRawTextReader` positioned at the beginning of the provided input stream.
-    pub fn new(data: &'data [u8]) -> LazyRawTextReader_1_0<'data> {
-        Self::new_with_offset(data, 0)
+    pub fn new(
+        context: EncodingContextRef<'data>,
+        data: &'data [u8],
+        is_final_data: bool,
+    ) -> LazyRawTextReader_1_0<'data> {
+        Self::new_with_offset(context, data, 0, is_final_data)
     }
 
     /// Constructs a `LazyRawTextReader` positioned at the beginning of the provided input stream.
     /// The provided input stream is itself a slice starting `offset` bytes from the beginning
     /// of a larger data stream. This offset is used for reporting the absolute (stream-level)
     /// position of values encountered in `data`.
-    fn new_with_offset(data: &'data [u8], offset: usize) -> LazyRawTextReader_1_0<'data> {
-        LazyRawTextReader_1_0 {
-            input: data,
-            // `data` begins at position `offset` within some larger stream. If `data` contains
-            // the entire stream, this will be zero.
-            stream_offset: offset,
-            // Start reading from the beginning of the slice `data`
-            local_offset: 0,
-        }
+    fn new_with_offset(
+        context: EncodingContextRef<'data>,
+        data: &'data [u8],
+        offset: usize,
+        is_final_data: bool,
+    ) -> LazyRawTextReader_1_0<'data> {
+        let input = TextBuffer::new_with_offset(context, data, offset, is_final_data);
+        LazyRawTextReader_1_0 { input }
     }
 
-    pub fn next<'top>(
-        &'top mut self,
-        context: EncodingContextRef<'top>,
-    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_0>>
-    where
-        'data: 'top,
-    {
-        let input = TextBuffer::new_with_offset(
-            context,
-            &self.input[self.local_offset..],
-            self.stream_offset + self.local_offset,
-        );
-        let (buffer_after_whitespace, _whitespace) = input
+    pub fn next(&mut self) -> IonResult<LazyRawStreamItem<'data, TextEncoding_1_0>> {
+        let _whitespace = self
+            .input
             .match_optional_comments_and_whitespace()
-            .with_context("reading whitespace/comments at the top level", input)?;
-        if buffer_after_whitespace.is_empty() {
+            .with_context("reading whitespace/comments at the top level", self.input)?;
+        if self.input.is_empty() {
             return Ok(RawStreamItem::EndOfStream(EndPosition::new(
                 TextEncoding_1_0.encoding(),
-                buffer_after_whitespace.offset(),
+                self.input.offset(),
             )));
         }
         // Consume any trailing whitespace that followed this item. Doing this allows us to check
         // whether this was the last item in the buffer by testing `buffer.is_empty()` afterward.
-        let buffer_after_whitespace = buffer_after_whitespace.local_lifespan();
-        let (buffer_after_item, matched_item) = buffer_after_whitespace
+        let matched_item = self
+            .input
             .match_top_level_item_1_0()
-            .with_context("reading a top-level value", buffer_after_whitespace)?;
+            .with_context("reading a top-level value", self.input)?;
 
-        let (buffer_after_trailing_ws, _trailing_ws) = buffer_after_item
+        let _trailing_ws = self
+            .input
             .match_optional_comments_and_whitespace()
-            .with_context(
-                "reading trailing top-level whitespace/comments",
-                buffer_after_item,
-            )?;
+            .with_context("reading trailing top-level whitespace/comments", self.input)?;
 
-        // Since we successfully matched the next value, we'll update the buffer
-        // so a future call to `next()` will resume parsing the remaining input.
-        self.local_offset = buffer_after_trailing_ws.offset() - self.stream_offset;
         Ok(matched_item)
+    }
+
+    pub fn context(&self) -> EncodingContextRef<'data> {
+        self.input.context()
     }
 }
 
 impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'data> {
-    fn resume_at_offset(
-        data: &'data [u8],
-        offset: usize,
-        // This argument is ignored by all raw readers except LazyRawAnyReader
-        _encoding_hint: IonEncoding,
-    ) -> Self {
-        LazyRawTextReader_1_0::new_with_offset(data, offset)
+    fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self {
+        LazyRawTextReader_1_0::new(context, data, is_final_data)
+    }
+
+    fn resume(context: EncodingContextRef<'data>, saved_state: RawReaderState<'data>) -> Self {
+        LazyRawTextReader_1_0 {
+            input: TextBuffer::new_with_offset(
+                context,
+                saved_state.data(),
+                saved_state.offset(),
+                saved_state.is_final_data(),
+            ),
+        }
     }
 
     fn save_state(&self) -> RawReaderState<'data> {
         RawReaderState::new(
-            &self.input[self.local_offset..],
+            self.input.bytes(),
             self.position(),
+            self.input.is_final_data(),
             self.encoding(),
         )
     }
 
-    fn next<'top>(
-        &'top mut self,
-        context: EncodingContextRef<'top>,
-    ) -> IonResult<LazyRawStreamItem<'top, TextEncoding_1_0>>
-    where
-        'data: 'top,
-    {
-        self.next(context)
+    fn next(&mut self) -> IonResult<LazyRawStreamItem<'data, TextEncoding_1_0>> {
+        self.next()
     }
 
     fn position(&self) -> usize {
-        self.stream_offset + self.local_offset
+        self.input.offset()
     }
 
     fn encoding(&self) -> IonEncoding {
@@ -136,16 +125,13 @@ mod tests {
     }
 
     impl<'data> TestReader<'data> {
-        fn next(&mut self) -> IonResult<LazyRawStreamItem<'_, TextEncoding_1_0>> {
-            self.reader.next(self.context)
+        fn next(&mut self) -> IonResult<LazyRawStreamItem<'data, TextEncoding_1_0>> {
+            self.reader.next()
         }
-        fn expect_next<'a>(&'a mut self, expected: RawValueRef<'a, TextEncoding_1_0>)
-        where
-            'data: 'a,
-        {
-            let TestReader { context, reader } = self;
+        fn expect_next(&mut self, expected: RawValueRef<'data, TextEncoding_1_0>) {
+            let TestReader { reader, .. } = self;
             let lazy_value = reader
-                .next(*context)
+                .next()
                 .expect("advancing the reader failed")
                 .expect_value()
                 .expect("expected a value");
@@ -297,7 +283,7 @@ mod tests {
 
         let encoding_context = EncodingContext::empty();
         let reader = &mut TestReader {
-            reader: LazyRawTextReader_1_0::new(data.as_bytes()),
+            reader: LazyRawTextReader_1_0::new(encoding_context.get_ref(), data.as_bytes(), true),
             context: encoding_context.get_ref(),
         };
 
@@ -475,21 +461,21 @@ mod tests {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
         let data = b"foo 2024T bar::38 [1, 2, 3]";
-        let mut reader = LazyRawTextReader_1_0::new(data);
+        let mut reader = LazyRawTextReader_1_0::new(context, data, true);
 
-        let foo = reader.next(context)?.expect_value()?;
+        let foo = reader.next()?.expect_value()?;
         assert_eq!(foo.span(), b"foo");
         assert_eq!(foo.range(), 0..3);
 
-        let timestamp = reader.next(context)?.expect_value()?;
+        let timestamp = reader.next()?.expect_value()?;
         assert_eq!(timestamp.span(), b"2024T");
         assert_eq!(timestamp.range(), 4..9);
 
-        let annotated_int = reader.next(context)?.expect_value()?;
+        let annotated_int = reader.next()?.expect_value()?;
         assert_eq!(annotated_int.span(), b"bar::38");
         assert_eq!(annotated_int.range(), 10..17);
 
-        let list_value = reader.next(context)?.expect_value()?;
+        let list_value = reader.next()?.expect_value()?;
         assert_eq!(list_value.span(), b"[1, 2, 3]");
         assert_eq!(list_value.range(), 18..27);
 

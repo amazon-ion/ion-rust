@@ -302,8 +302,8 @@ impl<D: Decoder> WriteAsIon for RawValueRef<'_, D> {
             Timestamp(t) => value_writer.write_timestamp(t),
             Symbol(s) => value_writer.write_symbol(s),
             String(s) => value_writer.write_string(s.text()),
-            Clob(c) => value_writer.write_clob(c.as_ref()),
-            Blob(b) => value_writer.write_blob(b.as_ref()),
+            Clob(c) => value_writer.write_clob(c.data()),
+            Blob(b) => value_writer.write_blob(b.data()),
             List(l) => {
                 let mut list_writer = value_writer.list_writer()?;
                 for value_result in l.iter() {
@@ -489,8 +489,8 @@ impl<D: Decoder> WriteAsIon for ValueRef<'_, D> {
             Timestamp(t) => value_writer.write_timestamp(t),
             Symbol(s) => value_writer.write_symbol(s),
             String(s) => value_writer.write_string(s.text()),
-            Clob(c) => value_writer.write_clob(c.as_ref()),
-            Blob(b) => value_writer.write_blob(b.as_ref()),
+            Clob(c) => value_writer.write_clob(c.data()),
+            Blob(b) => value_writer.write_blob(b.data()),
             List(l) => value_writer.write(l),
             SExp(s) => value_writer.write(s),
             Struct(s) => value_writer.write(s),

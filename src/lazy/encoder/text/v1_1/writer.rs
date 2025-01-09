@@ -112,7 +112,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::any_encoding::IonVersion;
-    use crate::lazy::decoder::{LazyRawReader, LazyRawSequence, LazyRawValue};
+    use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
     use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
@@ -282,14 +282,14 @@ mod tests {
         let encoded_text = String::from_utf8(encoded_bytes).unwrap();
         println!("{encoded_text}");
 
-        let mut reader = LazyRawTextReader_1_1::new(encoded_text.as_bytes());
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let macro_foo =
             TemplateCompiler::compile_from_source(context.get_ref(), "(macro foo (x*) null)")?;
         context.macro_table.add_template_macro(macro_foo)?;
-        let context = context.get_ref();
-        let _marker = reader.next(context)?.expect_ivm()?;
-        let eexp = reader.next(context)?.expect_eexp()?;
+        let mut reader =
+            LazyRawTextReader_1_1::new(context.get_ref(), encoded_text.as_bytes(), true);
+        let _marker = reader.next()?.expect_ivm()?;
+        let eexp = reader.next()?.expect_eexp()?;
         assert_eq!(MacroIdRef::LocalName("foo"), eexp.id());
         let mut args = eexp.raw_arguments();
         let x = args.next().unwrap()?.expr().expect_arg_group()?;

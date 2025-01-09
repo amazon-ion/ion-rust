@@ -75,11 +75,7 @@ fn without_trailing_zeros(data: &[u8]) -> &[u8] {
         return data;
     }
 
-    let index = data
-        .as_ref()
-        .iter()
-        .rposition(|byte| *byte != 0x00)
-        .unwrap();
+    let index = data.iter().rposition(|byte| *byte != 0x00).unwrap();
 
     &data[0..=index]
 }

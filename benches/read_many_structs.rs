@@ -47,9 +47,8 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
 
     let text_1_1_data = r#"(:event 1670446800245 418 "6" "1" "abc123" (:: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
 
-    let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
-    let mut binary_1_1_data_body: Vec<u8> = [MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
+    let binary_1_1_data: Vec<u8> = [MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
         0b10, // [NOTE: `0b`] `parameters*` arg is an arg group
         0x66, // 6-byte integer (`timestamp` param)
         0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
@@ -73,7 +72,6 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         0x39, 0x3A, 0x35, 0x39,
         0x2E, 0x37, 0x34, 0x34,
         0x30, 0x30, 0x30, 0x5A].repeat(num_values);
-    binary_1_1_data.append(&mut binary_1_1_data_body);
     TestData_1_1 {
         name: "maximally compact".to_owned(),
         template_definition_text,
@@ -107,9 +105,8 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     "#;
 
     let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (:: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
-    let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
-    let mut binary_1_1_data_body: Vec<u8> = [MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
+    let binary_1_1_data: Vec<u8> = [MacroTable::FIRST_USER_MACRO_ID as u8, // Macro ID
         0b10, // [NOTE: `0b` prefix] `parameters*` arg is an arg group
         0x66, // 6-byte integer (`timestamp` param)
         0x75, 0x5D, 0x63, 0xEE, 0x84, 0x01,
@@ -142,7 +139,6 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
         0x2E, 0x37, 0x34, 0x34,
         0x30, 0x30, 0x30, 0x5A].repeat(num_values);
 
-    binary_1_1_data.append(&mut binary_1_1_data_body);
     TestData_1_1 {
         name: "moderately compact".to_owned(),
         template_definition_text: template_definition_text.to_owned(),
@@ -176,9 +172,8 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
     "#;
 
     let text_1_1_data = r#"(:event 1670446800245 418 "scheduler-thread-6" "example-client-1" "aws-us-east-5f-abc123" (:: "region 4" "2022-12-07T20:59:59.744000Z"))"#.repeat(num_values);
-    let mut binary_1_1_data = vec![0xE0u8, 0x01, 0x01, 0xEA]; // IVM
     #[rustfmt::skip]
-    let mut binary_1_1_data_body: Vec<u8> = [0xF5, // LP invocation
+    let binary_1_1_data: Vec<u8> = [0xF5, // LP invocation
         ((MacroTable::FIRST_USER_MACRO_ID * 2) + 1) as u8, // Macro ID
         0xDF, // Length prefix: FlexUInt 111
         0b10, // [NOTE: `0b` prefix] `parameters*` arg is an arg group
@@ -213,7 +208,6 @@ fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_
         0x2E, 0x37, 0x34, 0x34,
         0x30, 0x30, 0x30, 0x5A].repeat(num_values);
 
-    binary_1_1_data.append(&mut binary_1_1_data_body);
     TestData_1_1 {
         name: "moderately compact w/length-prefixed top level".to_owned(),
         template_definition_text: template_definition_text.to_owned(),
@@ -444,12 +438,12 @@ mod benchmark {
             b.iter(|| {
                 // We don't have an API for doing this with the application-level reader yet, so
                 // for now we use a manually configured context and a raw reader.
-                let mut reader = LazyRawBinaryReader_1_1::new(binary_1_1_data);
+                let mut reader = LazyRawBinaryReader_1_1::new(context_ref, binary_1_1_data);
                 let mut num_top_level_values: usize = 0;
                 // Skip past the IVM
-                reader.next(context_ref).unwrap().expect_ivm().unwrap();
+                reader.next().unwrap().expect_ivm().unwrap();
                 // Expect every top-level item to be an e-expression.
-                while let RawStreamItem::EExp(raw_eexp) = reader.next(context_ref).unwrap() {
+                while let RawStreamItem::EExp(raw_eexp) = reader.next().unwrap() {
                     num_top_level_values += 1;
                     // Look up the e-expression's invoked macro ID in the encoding context.
                     let eexp = raw_eexp.resolve(context_ref).unwrap();

@@ -792,7 +792,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
 mod tests {
     use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::IonResult;
+    use crate::{EncodingContext, IonResult};
 
     #[test]
     fn annotations_sequence() -> IonResult<()> {
@@ -802,7 +802,8 @@ mod tests {
             foo // binary writer will omit the symtab if we don't use a symbol 
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader_1_0::new(data);
+        let context = EncodingContext::empty();
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), data);
         let _ivm = reader.next()?.expect_ivm()?;
         let value = reader.next()?.expect_value()?;
         let annotations_sequence = value.annotations_sequence();

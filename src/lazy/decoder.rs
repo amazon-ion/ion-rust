@@ -10,7 +10,7 @@ use crate::lazy::encoding::{
     BinaryEncoding, BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0,
 };
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -410,22 +410,22 @@ pub(crate) mod private {
         fn from_value(value: D::Value<'top>) -> Self;
     }
 
-    pub trait LazyRawStructPrivate<'top, D: Decoder> {
-        /// Creates an iterator that converts each raw struct field into an `FieldExpr`, a
-        /// common representation for both raw fields and template fields that is used in the
-        /// expansion process.
-        fn field_exprs(
-            &self,
-            context: EncodingContextRef<'top>,
-        ) -> RawStructFieldExprIterator<'top, D>;
-    }
-
     pub struct RawStructFieldExprIterator<'top, D: Decoder> {
         context: EncodingContextRef<'top>,
         raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
     }
 
     impl<'top, D: Decoder> RawStructFieldExprIterator<'top, D> {
+        pub fn new(
+            context: EncodingContextRef<'top>,
+            raw_fields: <D::Struct<'top> as LazyRawStruct<'top, D>>::Iterator,
+        ) -> Self {
+            Self {
+                context,
+                raw_fields,
+            }
+        }
+
         pub fn context(&self) -> EncodingContextRef<'top> {
             self.context
         }
@@ -454,31 +454,13 @@ pub(crate) mod private {
             Some(Ok(unexpanded_field))
         }
     }
-
-    impl<'top, D: Decoder<Struct<'top> = S>, S> LazyRawStructPrivate<'top, D> for S
-    where
-        S: LazyRawStruct<'top, D>,
-    {
-        fn field_exprs(
-            &self,
-            context: EncodingContextRef<'top>,
-        ) -> RawStructFieldExprIterator<'top, D> {
-            let raw_fields = <Self as LazyRawStruct<'top, D>>::iter(self);
-            RawStructFieldExprIterator {
-                context,
-                raw_fields,
-            }
-        }
-    }
 }
 
 pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// Constructs a new raw reader using decoder `D` that will read from `data`.
     /// `data` must be the beginning of the stream. To continue reading from the middle of a
-    /// stream, see [`resume_at_offset`](Self::resume_at_offset).
-    fn new(data: &'data [u8]) -> Self {
-        Self::resume_at_offset(data, 0, IonEncoding::default())
-    }
+    /// stream, see [`resume_at_offset`](Self::resume).
+    fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self;
 
     /// Constructs a new raw reader using decoder `D` that will read from `data`.
     ///
@@ -486,17 +468,12 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// If offset is not zero, the caller must supply an `encoding_hint` indicating the expected
     /// encoding. Encoding-specific raw readers will ignore this hint--the stream's encoding must be
     /// the one that they support--but the `LazyRawAnyReader` will use it.
-    fn resume_at_offset(data: &'data [u8], offset: usize, encoding_hint: IonEncoding) -> Self;
+    fn resume(context: EncodingContextRef<'data>, saved_state: RawReaderState<'data>) -> Self;
 
     /// Deconstructs this reader, returning a tuple of `(remaining_data, stream_offset, encoding)`.
     fn save_state(&self) -> RawReaderState<'data>;
 
-    fn next<'top>(
-        &'top mut self,
-        context: EncodingContextRef<'top>,
-    ) -> IonResult<LazyRawStreamItem<'top, D>>
-    where
-        'data: 'top;
+    fn next(&mut self) -> IonResult<LazyRawStreamItem<'data, D>>;
 
     /// The stream byte offset at which the reader will begin parsing the next item to return.
     /// This position is not necessarily the first byte of the next value; it may be (e.g.) a NOP,
@@ -572,11 +549,9 @@ fn transcribe_raw_binary_to_text<
     writer: &mut Writer,
 ) -> IonResult<()> {
     const FLUSH_EVERY_N: usize = 100;
-    let encoding_context = EncodingContext::for_ion_version(IonVersion::v1_1);
-    let context_ref = encoding_context.get_ref();
     let mut item_number: usize = 0;
     loop {
-        let item = reader.next(context_ref)?;
+        let item = reader.next()?;
         use crate::RawStreamItem::*;
         match item {
             VersionMarker(_m) if item_number == 0 => {
@@ -675,12 +650,7 @@ where
 }
 
 pub trait LazyRawStruct<'top, D: Decoder>:
-    LazyRawContainer<'top, D>
-    + private::LazyContainerPrivate<'top, D>
-    + private::LazyRawStructPrivate<'top, D>
-    + Debug
-    + Copy
-    + Clone
+    LazyRawContainer<'top, D> + private::LazyContainerPrivate<'top, D> + Debug + Copy + Clone
 {
     type Iterator: RawStructIterator<'top, D>;
 

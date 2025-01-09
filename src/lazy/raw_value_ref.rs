@@ -217,7 +217,7 @@ impl<'top, D: Decoder> RawValueRef<'top, D> {
 mod tests {
     use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0 as LazyRawBinaryReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::{Decimal, IonResult, IonType, RawSymbolRef, Timestamp};
+    use crate::{Decimal, EncodingContext, IonResult, IonType, RawSymbolRef, Timestamp};
 
     #[test]
     fn expect_type() -> IonResult<()> {
@@ -238,7 +238,8 @@ mod tests {
             {this: is, a: struct}
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(&ion_data);
+        let context = EncodingContext::empty();
+        let mut reader = LazyRawBinaryReader::new(context.get_ref(), &ion_data);
         // IVM
         reader.next()?.expect_ivm()?;
         // Symbol table
@@ -305,7 +306,8 @@ mod tests {
             null.bool
         "#,
         )?;
-        let mut reader = LazyRawBinaryReader::new(&ion_data);
+        let context = EncodingContext::empty();
+        let mut reader = LazyRawBinaryReader::new(context.get_ref(), &ion_data);
         // IVM
         reader.next()?.expect_ivm()?;
 
