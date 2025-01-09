@@ -112,7 +112,8 @@ impl<'data, E: TextEncoding<'data>> Iterator for RawTextListIterator<'data, E> {
             return None;
         }
         let result = whitespace_and_then(alt((
-            "]".value(None),
+            // We only peek at the end so future calls to `next()` will continue to yield `None`.
+            peek("]").value(None),
             terminated(
                 E::value_expr_matcher(),
                 whitespace_and_then(alt((",", peek("]")))),
