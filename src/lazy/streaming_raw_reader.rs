@@ -120,10 +120,6 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         self.read_next(context, /*is_peek=*/ true)
     }
 
-    fn input_is_streaming(&mut self) -> bool {
-        self.input.get_mut().is_streaming()
-    }
-
     fn read_next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
@@ -131,7 +127,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     ) -> IonResult<LazyRawStreamItem<'top, Encoding>> {
         // If the input is a stream, we assume there may be more data available.
         // If it's a fixed slice, we know it's already complete.
-        let mut input_source_exhausted = !self.input_is_streaming();
+        let mut input_source_exhausted = !Input::DataSource::IS_STREAMING;
         loop {
             // If the input buffer is empty, try to pull more data from the source before proceeding.
             // It's important that we do this _before_ reading from the buffer; any item returned
@@ -257,6 +253,9 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 /// An input source--typically an implementation of either `AsRef<[u8]>` or `io::Read`--from which
 /// Ion can be read, paying the cost of buffering and I/O copies only when necessary.
 pub trait IonDataSource {
+    /// If `true`, the current contents of the buffer may not be the complete stream.
+    const IS_STREAMING: bool;
+
     /// Returns a slice of all unread bytes that are currently available in the buffer.
     fn buffer(&self) -> &[u8];
 
@@ -268,9 +267,6 @@ pub trait IonDataSource {
     /// Marks `number_of_bytes` in the buffer as having been read. The caller is responsible for
     /// confirming that the buffer contains at least `number_of_bytes` bytes.
     fn consume(&mut self, number_of_bytes: usize);
-
-    /// If `true`, the current contents of the buffer may not be the complete stream.
-    fn is_streaming(&self) -> bool;
 }
 
 /// A fixed slice of Ion data that does not grow; it wraps an implementation of `AsRef<[u8]>` such
@@ -303,6 +299,8 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
 }
 
 impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
+    const IS_STREAMING: bool = false;
+
     #[inline]
     fn buffer(&self) -> &[u8] {
         // Return the input slice containing all of the as-of-yet unread bytes.
@@ -326,11 +324,6 @@ impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
             self.stream_bytes().len(),
             self.buffer()
         );
-    }
-
-    #[inline(always)]
-    fn is_streaming(&self) -> bool {
-        false
     }
 }
 
@@ -377,6 +370,8 @@ impl<R: Read> IonStream<R> {
 }
 
 impl<R: Read> IonDataSource for IonStream<R> {
+    const IS_STREAMING: bool = true;
+
     fn buffer(&self) -> &[u8] {
         &self.buffer[self.position..self.limit]
     }
@@ -405,11 +400,6 @@ impl<R: Read> IonDataSource for IonStream<R> {
     fn consume(&mut self, number_of_bytes: usize) {
         self.position += number_of_bytes;
         debug_assert!(self.position <= self.limit);
-    }
-
-    #[inline(always)]
-    fn is_streaming(&self) -> bool {
-        true
     }
 }
 
