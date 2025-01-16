@@ -141,7 +141,7 @@ pub struct UnrecognizedInputError {
     winnow_error_kind: Option<ErrorKind>,
 }
 
-impl<'data> UnrecognizedInputError {
+impl UnrecognizedInputError {
     fn new() -> Self {
         Self {
             winnow_error_kind: None,

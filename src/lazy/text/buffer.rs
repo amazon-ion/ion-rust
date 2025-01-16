@@ -2093,7 +2093,7 @@ where
 }
 
 pub fn incomplete_is_ok<'data, P>(
-    mut parser: P,
+    parser: P,
 ) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
 where
     P: Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>,
