@@ -3,15 +3,13 @@ use std::ops::Range;
 use std::str::FromStr;
 
 use winnow::ascii::alphanumeric1;
-use winnow::combinator::{
-    alt, delimited, empty, eof, not, opt, peek, preceded, repeat, separated_pair, terminated,
-};
+use winnow::combinator::{alt, delimited, empty, eof, not, opt, peek, preceded, repeat, separated_pair, terminated};
 use winnow::error::{ErrMode, Needed};
 use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
     StreamIsPartial,
 };
-use winnow::token::{one_of, take_till, take_until, take_while};
+use winnow::token::{one_of, rest, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
 use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
@@ -24,8 +22,8 @@ use crate::lazy::text::matched::{
     MatchedFloat, MatchedInt, MatchedString, MatchedSymbol, MatchedTimestamp,
     MatchedTimestampOffset, MatchedValue,
 };
-use crate::lazy::text::parse_result::{fatal_parse_error, InvalidInputError, IonParseError};
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
+use crate::lazy::text::parse_result::IonParseError;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
 use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress, TextEExpression_1_1};
 use crate::lazy::text::value::{
@@ -162,15 +160,6 @@ impl<'top> TextBuffer<'top> {
         self.context
     }
 
-    #[inline(never)]
-    pub(crate) fn incomplete<T>(&self, label: &'static str) -> IonParseResult<'top, T> {
-        if self.is_final_data() {
-            fatal_parse_error(*self, format!("ran out of data while parsing {label}"))
-        } else {
-            Err(ErrMode::Incomplete(Needed::Unknown))
-        }
-    }
-
     /// Returns a subslice of the [`TextBuffer`] that starts at `offset` and continues for
     /// `length` bytes. The subslice is considered to be 'final' data (i.e. not a potentially
     /// incomplete buffer).
@@ -279,7 +268,9 @@ impl<'top> TextBuffer<'top> {
 
         if let Some(&byte) = self.bytes().first() {
             if WHITESPACE_BYTES.contains_token(byte) || byte == b'/' {
-                return full_match_optional_comments_and_whitespace(self);
+                return full_match_optional_comments_and_whitespace
+                    .context("reading whitespace/comments")
+                    .parse_next(self);
             }
         }
         self.match_nothing()
@@ -332,16 +323,16 @@ impl<'top> TextBuffer<'top> {
         .parse_next(self)?;
         // `major` and `minor` are base 10 digits. Turning them into `&str`s is guaranteed to succeed.
         let major_version = u8::from_str(matched_major.as_text().unwrap()).map_err(|_| {
-            let error = InvalidInputError::new(matched_major)
-                .with_label("parsing an IVM major version")
-                .with_description("value did not fit in an unsigned byte");
-            ErrMode::Cut(IonParseError::Invalid(error))
+            matched_major
+                .invalid("value did not fit in an unsigned byte")
+                .context("reading an IVM major version")
+                .cut_err()
         })?;
         let minor_version = u8::from_str(matched_minor.as_text().unwrap()).map_err(|_| {
-            let error = InvalidInputError::new(matched_minor)
-                .with_label("parsing an IVM minor version")
-                .with_description("value did not fit in an unsigned byte");
-            ErrMode::Cut(IonParseError::Invalid(error))
+                matched_major
+                    .invalid("value did not fit in an unsigned byte")
+                    .context("reading an IVM minor version")
+                    .cut_err()
         })?;
         let marker =
             LazyRawTextVersionMarker::<E>::new(matched_marker, major_version, minor_version);
@@ -356,10 +347,10 @@ impl<'top> TextBuffer<'top> {
         fn full_match_annotations<'t>(input: &mut TextBuffer<'t>) -> IonMatchResult<'t> {
             let matched = one_or_more(TextBuffer::match_annotation).parse_next(input)?;
             if matched.len() > u16::MAX as usize {
-                let error = InvalidInputError::new(matched)
-                    .with_description("the maximum supported annotations sequence length is 65KB")
-                    .with_label("parsing annotations");
-                Err(ErrMode::Cut(IonParseError::Invalid(error)))
+                matched
+                    .invalid("the maximum supported annotations sequence length is 65KB")
+                    .context("reading an annotations sequence")
+                    .cut()
             } else {
                 Ok(matched)
             }
@@ -520,6 +511,7 @@ impl<'top> TextBuffer<'top> {
                 .map(LazyRawTextValue_1_1::from)
                 .map(RawStreamItem::Value),
         ))
+            .context("reading a v1.1 top-level expression")
         .parse_next(self)
     }
 
@@ -549,10 +541,11 @@ impl<'top> TextBuffer<'top> {
                 Self::match_clob_value,
                 E::struct_matcher(),
             )),
-            Invalid(byte) => |input: &mut TextBuffer<'top>| {
-                let error = InvalidInputError::new(*input)
-                    .with_label(format!("a value cannot begin with '{}'", char::from(byte)));
-                Err(ErrMode::Backtrack(IonParseError::Invalid(error)))
+            Invalid(_byte) => |input: &mut TextBuffer<'top>| {
+                input
+                    .unrecognized()
+                    .context("reading a value")
+                   .backtrack()
             },
         }
         .with_taken()
@@ -630,20 +623,20 @@ impl<'top> TextBuffer<'top> {
         let system_id = match id {
             MacroIdRef::LocalName(name) => {
                 let Some(macro_address) = ION_1_1_SYSTEM_MACROS.address_for_name(name) else {
-                    return fatal_parse_error(
-                        *self,
-                        format!("Found unrecognized system macro name: '{}'", name),
-                    );
+                    return self
+                        .invalid(format!("found unrecognized system macro name: '{}'", name))
+                        .context("reading an e-expression's macro ID as a local name")
+                        .cut();
                 };
                 // This address came from the system table, so we don't need to validate it.
                 MacroIdRef::SystemAddress(SystemMacroAddress::new_unchecked(macro_address))
             }
             MacroIdRef::LocalAddress(address) => {
                 let Some(system_address) = SystemMacroAddress::new(address) else {
-                    return fatal_parse_error(
-                        *self,
-                        format!("Found out-of-bounds system macro address {}", address),
-                    );
+                    return self
+                        .invalid(format!("found out-of-bounds system macro address {}", address))
+                        .context("reading an e-expression's macro ID as a system address")
+                        .cut();
                 };
                 MacroIdRef::SystemAddress(system_address)
             }
@@ -679,10 +672,10 @@ impl<'top> TextBuffer<'top> {
                 .macro_table()
                 .macro_with_id(id)
                 .ok_or_else(|| {
-                    ErrMode::Cut(IonParseError::Invalid(
-                        InvalidInputError::new(*input)
-                            .with_description(format!("could not find macro with id {:?}", id)),
-                    ))
+                    (*input)
+                        .invalid(format!("could not find macro with id {:?}", id))
+                        .context("reading an e-expression")
+                        .cut_err()
                 })?
                 .reference();
             let signature_params: &'top [Parameter] = macro_ref.signature().parameters();
@@ -693,13 +686,13 @@ impl<'top> TextBuffer<'top> {
                     None => {
                         for param in &signature_params[index..] {
                             if !param.can_be_omitted() {
-                                return fatal_parse_error(
-                                    *input,
-                                    format!(
+                                return input
+                                    .invalid(format!(
                                         "e-expression did not include an argument for param '{}'",
                                         param.name()
-                                    ),
-                                );
+                                    ))
+                                    .context("reading an e-expression")
+                                    .cut()
                             }
                         }
                         break;
@@ -710,13 +703,13 @@ impl<'top> TextBuffer<'top> {
                 Ok(_closing_delimiter) => Ok((id, macro_ref, arg_expr_cache)),
                 Err(ErrMode::Incomplete(_)) => input.incomplete("an e-expression"),
                 Err(_e) => {
-                    fatal_parse_error(
-                        *input,
-                        format!(
+                    (*input)
+                        .invalid(format!(
                             "macro {id} signature has {} parameter(s), e-expression had an extra argument",
                             signature_params.len()
-                        ),
-                    )
+                        ))
+                        .context("reading an e-expression's arguments")
+                        .cut()
                 }
             }
         };
@@ -784,23 +777,21 @@ impl<'top> TextBuffer<'top> {
         // This check exists to offer a more human-friendly error message; without it,
         // the user simply sees a parsing failure.
         if self.bytes().starts_with(b"(::") {
-            return fatal_parse_error(
-                *self,
-                format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name()),
-            );
+            return self
+                .invalid(format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name()))
+                .context("reading an e-expression argument with `exactly-one` cardinality")
+                .cut()
         }
         let maybe_expr = Self::match_sexp_item_1_1
             .map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from))
             .parse_next(self)?;
         match maybe_expr {
             Some(expr) => Ok(EExpArg::new(parameter, expr)),
-            None => fatal_parse_error(
-                *self,
-                format!(
-                    "expected argument for required parameter '{}'",
-                    parameter.name()
-                ),
-            ),
+            None => self.invalid(format!(
+                "expected argument for required parameter '{}'",
+                parameter.name()
+            )).context("reading an e-expression argument with `exactly-one` cardinality")
+                .cut()
         }
     }
 
@@ -858,12 +849,10 @@ impl<'top> TextBuffer<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, Option<EExpArg<'top, TextEncoding_1_1>>> {
         if self.match_empty_arg_group(parameter).is_ok() {
-            return Err(ErrMode::Cut(IonParseError::Invalid(
-                InvalidInputError::new(*self).with_description(format!(
-                    "parameter '{}' is one-or-more (`+`) and cannot accept an empty stream",
-                    parameter.name()
-                )),
-            )));
+            return self
+                .unrecognized()
+                .context("reading an e-expression argument with `one-or-more` cardinality")
+                .backtrack();
         }
 
         self.match_zero_or_more(parameter)
@@ -874,10 +863,9 @@ impl<'top> TextBuffer<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         if parameter.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
-            return Err(ErrMode::Backtrack(IonParseError::Invalid(
-                InvalidInputError::new(*self)
-                    .with_description("parameter does not support rest syntax"),
-            )));
+            return self.unrecognized()
+                .context("reading a parameter that does not support rest syntax")
+                .backtrack();
         }
         let mut cache = BumpVec::new_in(self.context().allocator());
         let parser = |input: &mut TextBuffer<'top>| {
@@ -1561,7 +1549,7 @@ impl<'top> TextBuffer<'top> {
                 }
             }
         }
-        self.incomplete("a text value without closing delimiter")
+        self.incomplete("reading a text value without closing delimiter")
     }
 
     #[cold]
@@ -1572,14 +1560,18 @@ impl<'top> TextBuffer<'top> {
         allow_unescaped_newlines: bool,
     ) -> IonParseResult<'top, ()> {
         if byte == b'\n' && !allow_unescaped_newlines {
-            let error = InvalidInputError::new(self.slice_to_end(index))
-                .with_description("unescaped newlines are not allowed in short string literals");
-            return Err(ErrMode::Cut(IonParseError::Invalid(error)));
+            return self
+                .slice_to_end(index)
+                .invalid("unescaped newlines are not allowed in short string literals")
+                .context("reading a string")
+                .cut();
         }
         if !WHITESPACE_BYTES.contains(&byte) {
-            let error = InvalidInputError::new(self.slice_to_end(index))
-                .with_description("unescaped control characters are not allowed in text literals");
-            return Err(ErrMode::Cut(IonParseError::Invalid(error)));
+            return self
+                .slice_to_end(index)
+                .invalid(format!("unescaped control characters are not allowed in text literals; byte {byte:02X}"))
+                .context("reading a string")
+                .cut();
         }
         Ok(())
     }
@@ -1648,9 +1640,7 @@ impl<'top> TextBuffer<'top> {
 
         match self.bytes().first() {
             Some(byte) if byte.is_ascii_digit() => full_match_timestamp(self),
-            Some(_) => Err(ErrMode::Backtrack(IonParseError::Invalid(
-                InvalidInputError::new(*self),
-            ))),
+            Some(_) => self.unrecognized().backtrack(),
             None => self.incomplete("a timestamp"),
         }
     }
@@ -1906,8 +1896,9 @@ impl<'top> TextBuffer<'top> {
         for byte in self.bytes().iter().copied() {
             if !Self::byte_is_legal_clob_ascii(byte) {
                 let message = format!("found an illegal byte '{:0x}' in clob", byte);
-                let error = InvalidInputError::new(*self).with_description(message);
-                return Err(ErrMode::Cut(IonParseError::Invalid(error)));
+                return self.invalid(message)
+                    .context("reading a clob")
+                    .cut();
             }
         }
         // Return success without consuming
@@ -2099,6 +2090,16 @@ where
     P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
 {
     repeat::<_, _, (), _, _>(n, parser).take()
+}
+
+pub fn incomplete_is_ok<'data, P>(
+    mut parser: P,
+) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
+where
+    P: Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>,
+{
+    // If we run out of input while applying the parser, consider the rest of the input to match.
+    alt((parser.complete_err(), rest))
 }
 
 #[cfg(test)]

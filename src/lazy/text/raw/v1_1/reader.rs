@@ -17,13 +17,14 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::lazy::text::buffer::TextBuffer;
+use crate::lazy::text::buffer::{incomplete_is_ok, TextBuffer};
 use crate::lazy::text::matched::MatchedValue;
-use crate::lazy::text::parse_result::AddContext;
+use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
 use crate::{v1_1, Encoding, IonResult};
 
+use winnow::Parser;
 pub struct LazyRawTextReader_1_1<'data> {
     input: TextBuffer<'data>,
 }
@@ -84,9 +85,8 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
             .match_top_level_item_1_1()
             .with_context("reading a v1.1 top-level value", self.input)?;
 
-        let _trailing_ws = self
-            .input
-            .match_optional_comments_and_whitespace()
+        let _trailing_ws = incomplete_is_ok(TextBuffer::match_optional_comments_and_whitespace)
+            .parse_next(&mut self.input)
             .with_context(
                 "reading trailing top-level whitespace/comments in v1.1",
                 self.input,
