@@ -5,7 +5,7 @@ use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::{whitespace_and_then, TextBuffer};
 use crate::lazy::text::matched::MatchedFieldName;
-use crate::lazy::text::parse_result::AddContext;
+use crate::lazy::text::parse_result::WithContext;
 use crate::{IonResult, RawSymbolRef};
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -54,7 +54,7 @@ impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructIterator<'top, E> {
             Ok(None) => None,
             Err(e) => {
                 self.has_returned_error = true;
-                e.with_context("reading the next struct field", self.input)
+                e.with_context("reading a struct field", self.input)
                     .transpose()
             }
         }

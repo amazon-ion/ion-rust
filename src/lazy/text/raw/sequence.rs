@@ -14,7 +14,7 @@ use crate::lazy::decoder::{
 use crate::lazy::encoding::TextEncoding;
 use crate::lazy::text::buffer::{whitespace_and_then, TextBuffer};
 use crate::lazy::text::matched::MatchedValue;
-use crate::lazy::text::parse_result::AddContext;
+use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::v1_1::reader::RawTextSequenceCacheIterator;
 use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
 use crate::{IonResult, IonType};
@@ -116,7 +116,8 @@ impl<'data, E: TextEncoding<'data>> Iterator for RawTextListIterator<'data, E> {
             peek("]").value(None),
             terminated(
                 E::value_expr_matcher(),
-                whitespace_and_then(alt((",", peek("]")))),
+                whitespace_and_then(alt((",", peek("]"))))
+                    .context("reading a list value delimiter (`,`)"),
             )
             .map(Some),
         )))
@@ -130,7 +131,7 @@ impl<'data, E: TextEncoding<'data>> Iterator for RawTextListIterator<'data, E> {
             }
             Err(e) => {
                 self.has_returned_error = true;
-                e.with_context("reading the next list value", self.input)
+                e.with_context("reading a list value", self.input)
                     .transpose()
             }
         }
@@ -205,7 +206,7 @@ impl<'data, E: TextEncoding<'data>> Iterator for RawTextSExpIterator<'data, E> {
             Ok(None) => None,
             Err(e) => {
                 self.has_returned_error = true;
-                e.with_context("reading the next s-expression value", self.input)
+                e.with_context("reading an s-expression value", self.input)
                     .transpose()
             }
         }

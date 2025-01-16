@@ -6,9 +6,10 @@ use crate::lazy::encoding::TextEncoding_1_0;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::lazy::text::buffer::TextBuffer;
-use crate::lazy::text::parse_result::AddContext;
+use crate::lazy::text::buffer::{incomplete_is_ok, TextBuffer};
+use crate::lazy::text::parse_result::WithContext;
 use crate::{Encoding, IonResult};
+use winnow::Parser;
 
 /// A text Ion 1.0 reader that yields [`LazyRawStreamItem`]s representing the top level values found
 /// in the provided input stream.
@@ -58,11 +59,9 @@ impl<'data> LazyRawTextReader_1_0<'data> {
             .match_top_level_item_1_0()
             .with_context("reading a top-level value", self.input)?;
 
-        let _trailing_ws = self
-            .input
-            .match_optional_comments_and_whitespace()
+        let _trailing_ws = incomplete_is_ok(TextBuffer::match_optional_comments_and_whitespace)
+            .parse_next(&mut self.input)
             .with_context("reading trailing top-level whitespace/comments", self.input)?;
-
         Ok(matched_item)
     }
 

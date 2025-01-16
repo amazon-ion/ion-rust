@@ -44,8 +44,6 @@ mod benchmark {
         println!("# Values: {NUM_VALUES}");
 
         // TODO: For now, these benchmarks only write values that can be serialized in 8 bytes or fewer.
-        // This is because `VarUInt` has a bug[1] that causes it to encode very large u64s incorrectly.
-        // [1]: https://github.com/amazon-ion/ion-rust/issues/689
         let unsigned_values = generate_unsigned_values(u64::MIN, (2 << 49) - 1);
         let signed_values = generate_signed_values(-2 << 49, (2 << 49) - 1);
 

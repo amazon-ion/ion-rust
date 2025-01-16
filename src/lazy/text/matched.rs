@@ -30,7 +30,6 @@ use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBuffer;
-use crate::lazy::text::parse_result::InvalidInputError;
 use crate::result::{DecodingError, IonFailure};
 use crate::{
     Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp, TimestampPrecision,
@@ -245,11 +244,9 @@ impl MatchedFloat {
 
         let text = sanitized.as_utf8(matched_input.offset())?;
         let float = f64::from_str(text).map_err(|e| {
-            let error: IonError = InvalidInputError::new(matched_input)
-                .with_description(format!("encountered an unexpected error ({:?})", e))
-                .with_label("parsing a float")
-                .into();
-            error
+            matched_input
+                .invalid(format!("encountered an unexpected error ({:?})", e))
+                .context("reading a float")
         })?;
         Ok(float)
     }

@@ -3,11 +3,11 @@
 
 use crate::lazy::text::buffer::TextBuffer;
 use crate::position::Position;
-use crate::result::{DecodingError, IonFailure};
+use crate::result::{DecodingError, IncompleteError};
 use crate::{IonError, IonResult};
 use std::borrow::Cow;
-use std::fmt::{Debug, Display};
-use winnow::error::{ErrMode, ErrorKind, ParseError, ParserError};
+use std::fmt::Debug;
+use winnow::error::{AddContext, ErrMode, ErrorKind, Needed, ParserError};
 use winnow::stream::Stream;
 use winnow::PResult;
 
@@ -35,12 +35,124 @@ pub(crate) type IonParseResult<'a, O> = PResult<O, IonParseError<'a>>;
 /// particular item.
 pub(crate) type IonMatchResult<'a> = IonParseResult<'a, TextBuffer<'a>>;
 
-#[derive(Debug, PartialEq)]
-pub enum IonParseError<'data> {
-    // When nom reports that the data was incomplete, it doesn't provide additional context.
+/// Returned to explain why the current parser could not successfully read the provided input.
+/// The included `IonParseErrorKind` gives more granular detail, and indicates whether the reader
+/// should continue trying other parsers if any alternatives remain.
+#[derive(Debug, Clone)]
+pub struct IonParseError<'data> {
+    /// The input that could not be parsed successfully.
+    input: TextBuffer<'data>,
+    /// A human-friendly name for what the parser was working on when the error occurred
+    context: &'static str,
+    /// An explanation of what went wrong.
+    kind: IonParseErrorKind,
+}
+
+impl<'data> IonParseError<'data> {
+    /// Allows the context (a label for the task that was in progress) to be set on a manually
+    /// constructed error. Mirrors winnow's [`Parser::context`](winnow::Parser::context) method.
+    pub(crate) fn context(mut self, context: &'static str) -> Self {
+        self.context = context;
+        self
+    }
+
+    /// Converts this `IonParseError` into an `ErrMode::Cut<IonParseError>`.
+    pub(crate) fn cut_err(self) -> ErrMode<Self> {
+        ErrMode::Cut(self)
+    }
+
+    /// Converts this `IonParseError` into an `IonParseResult` containing an `Err(ErrMode::Cut<IonParseError>)`.
+    pub(crate) fn cut<T>(self) -> IonParseResult<'data, T> {
+        Err(ErrMode::Cut(self))
+    }
+
+    pub(crate) fn backtrack_err(self) -> ErrMode<Self> {
+        ErrMode::Backtrack(self)
+    }
+
+    pub(crate) fn backtrack<T>(self) -> IonParseResult<'data, T> {
+        Err(ErrMode::Backtrack(self))
+    }
+}
+
+/// This should be overwritten by all parsers. If a parser does not overwrite it, this
+/// will produce a coherent (albeit vague) error message.
+const DEFAULT_CONTEXT: &str = "reading Ion data";
+
+/// Adds error constructor methods to the `TextBuffer` type.
+impl<'data> TextBuffer<'data> {
+    #[inline(never)]
+    pub(crate) fn incomplete_err_mode(
+        &self,
+        context: &'static str,
+    ) -> ErrMode<IonParseError<'data>> {
+        if self.is_final_data() {
+            self.invalid("stream is incomplete; ran out of data")
+                .context(context)
+                .cut_err()
+        } else {
+            ErrMode::Incomplete(Needed::Unknown)
+        }
+    }
+
+    pub fn incomplete<T>(&self, context: &'static str) -> IonParseResult<'data, T> {
+        Err(self.incomplete_err_mode(context))
+    }
+
+    pub fn unrecognized(&self) -> IonParseError<'data> {
+        IonParseError {
+            input: *self,
+            context: DEFAULT_CONTEXT,
+            kind: IonParseErrorKind::Unrecognized(UnrecognizedInputError::new()),
+        }
+    }
+
+    pub fn invalid(&self, description: impl Into<Cow<'static, str>>) -> IonParseError<'data> {
+        IonParseError {
+            input: *self,
+            context: DEFAULT_CONTEXT,
+            kind: IonParseErrorKind::Invalid(InvalidInputError::new(description)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IonParseErrorKind {
+    /// The parser ran out of input in the middle of an expression.
     Incomplete,
-    // When we encounter illegal text Ion, we'll have more information to share with the user.
-    Invalid(InvalidInputError<'data>),
+    /// The parser did not recognize the head of the provided input. It may be recognized by another
+    /// parser if there are more to try.
+    Unrecognized(UnrecognizedInputError),
+    /// The parser detected that it was the correct parser to handle the provided input,
+    /// but the input was malformed in some way. For example, if the list parser were reading this
+    /// stream:
+    /// ```ion
+    ///     ["foo" "bar"]
+    /// ```
+    /// it would know from the leading `[` that this is a list and the list parser is therefore the
+    /// correct parser to handle it. However, there was a comma missing after `"foo"`. The list
+    /// parser can say definitively that the input not valid Ion data.
+    Invalid(InvalidInputError),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnrecognizedInputError {
+    /// The winnow-provided parser kind that rejected the input.
+    winnow_error_kind: Option<ErrorKind>,
+}
+
+impl UnrecognizedInputError {
+    fn new() -> Self {
+        Self {
+            winnow_error_kind: None,
+        }
+    }
+
+    fn with_winnow_error_kind(winnow_error_kind: ErrorKind) -> Self {
+        Self {
+            winnow_error_kind: Some(winnow_error_kind),
+        }
+    }
 }
 
 /// Describes a problem that occurred while trying to parse a given input `TextBuffer`.
@@ -50,117 +162,81 @@ pub enum IonParseError<'data> {
 /// a non-fatal `Error`, the `IonParseError`'s `description` will be `None`. If the `winnow::ErrMode` is
 /// a fatal `Failure`, the `description` will be `Some(String)`. In this way, using an
 /// `IonParseError` only incurs heap allocation costs when parsing is coming to an end.
-#[derive(Debug, PartialEq)]
-pub struct InvalidInputError<'data> {
-    // The input that being parsed when the error arose
-    input: TextBuffer<'data>,
-    // A human-friendly name for what the parser was working on when the error occurred
-    label: Option<Cow<'static, str>>,
-    // The nature of the error--what went wrong?
-    description: Option<Cow<'static, str>>,
-    // The nom ErrorKind, which indicates which nom-provided parser encountered the error we're
-    // bubbling up.
-    nom_error_kind: Option<ErrorKind>,
+#[derive(Debug, PartialEq, Clone)]
+pub struct InvalidInputError {
+    // A human-friendly description of the error.
+    description: Cow<'static, str>,
 }
 
-impl<'data> InvalidInputError<'data> {
+impl InvalidInputError {
     /// Constructs a new `IonParseError` from the provided `input` text.
-    pub(crate) fn new(input: TextBuffer<'data>) -> Self {
+    pub(crate) fn new(description: impl Into<Cow<'static, str>>) -> Self {
         InvalidInputError {
-            input,
-            label: None,
-            description: None,
-            nom_error_kind: None,
+            description: description.into(),
         }
     }
-
-    /// Constructs a new `IonParseError` from the provided `input` text and `description`.
-    pub(crate) fn with_label<D: Into<Cow<'static, str>>>(mut self, label: D) -> Self {
-        self.label = Some(label.into());
-        self
-    }
-
-    /// Constructs a new `IonParseError` from the provided `input` text and `description`.
-    pub(crate) fn with_description<D: Into<Cow<'static, str>>>(mut self, description: D) -> Self {
-        self.description = Some(description.into());
-        self
-    }
-
-    /// Constructs a new `IonParseError` from the provided `input` text and `description`.
-    pub(crate) fn with_nom_error_kind(mut self, nom_error_kind: ErrorKind) -> Self {
-        self.nom_error_kind = Some(nom_error_kind);
-        self
-    }
-
-    /// Returns a reference to the `description` text, if any.
-    pub fn description(&self) -> Option<&str> {
-        self.description.as_deref()
-    }
-
-    pub fn label(&self) -> Option<&str> {
-        self.label.as_deref()
-    }
-
-    // TODO: Decide how to expose 'input'.
 }
 
-impl<'data> From<InvalidInputError<'data>> for IonParseError<'data> {
-    fn from(value: InvalidInputError<'data>) -> Self {
-        IonParseError::Invalid(value)
+impl<'data> AddContext<TextBuffer<'data>> for IonParseError<'data> {
+    fn add_context(
+        mut self,
+        _input: &TextBuffer<'data>,
+        _token_start: &<TextBuffer<'data> as Stream>::Checkpoint,
+        context: &'static str,
+    ) -> Self {
+        self.context = context;
+        self
     }
 }
 
 // We cannot provide an analogous impl for `Incomplete` because it is missing necessary data.
-impl From<InvalidInputError<'_>> for IonError {
-    fn from(invalid_input_error: InvalidInputError<'_>) -> Self {
-        let mut message = String::from(
-            invalid_input_error
-                .description()
-                .unwrap_or("invalid Ion syntax encountered"),
-        );
-        if let Some(label) = invalid_input_error.label {
-            message.push_str("\n    while ");
-            message.push_str(label.as_ref());
-        }
-        use std::fmt::Write;
-        let input = invalid_input_error.input;
+impl From<IonParseError<'_>> for IonError {
+    fn from(ion_parse_error: IonParseError<'_>) -> Self {
+        use IonParseErrorKind::*;
+        let mut message: String = match ion_parse_error.kind {
+            Incomplete => {
+                return IonError::Incomplete(IncompleteError::new(
+                    ion_parse_error.context,
+                    ion_parse_error.input.offset(),
+                ));
+            }
+            Invalid(e) => e.description.into(),
+            Unrecognized(..) => "found unrecognized syntax".into(),
+        };
 
-        // Make displayable strings showing the contents of the first and last 32 characters
-        // of the buffer. If the buffer is smaller than 32 bytes, fewer characters will be shown.
+        message.push_str("\n    while ");
+        message.push_str(ion_parse_error.context.as_ref());
+        use std::fmt::Write;
+        let input = ion_parse_error.input;
+
+        // Make displayable strings showing the contents of the first 32 characters
+        // of the buffer. If the buffer is smaller than 32 bytes, fewer characters will be shown
+        // and a leading or trailing '...' will be displayed as appropriate.
         const NUM_CHARS_TO_SHOW: usize = 32;
-        let (buffer_head, buffer_tail) = match input.as_text() {
+        let buffer_head = match input.as_text() {
             // The buffer contains UTF-8 bytes, so we'll display it as text
             Ok(text) => {
                 let mut head_chars = text.chars();
                 let mut head = (&mut head_chars)
                     .take(NUM_CHARS_TO_SHOW)
-                    .collect::<String>();
+                    .collect::<String>()
+                    // XXX: Newlines wreck the formatting, so escape them in output.
+                    //      We may wish to do this for other whitespace too.
+                    .replace("\n", "\\n");
                 if head_chars.next().is_some() {
                     head.push_str("...");
                 }
-                let mut tail_chars = text.chars().rev();
-                let tail_backwards = (&mut tail_chars)
-                    .take(NUM_CHARS_TO_SHOW)
-                    .collect::<Vec<char>>();
-                let mut tail = String::new();
-                if tail_chars.next().is_some() {
-                    tail.push_str("...");
-                }
-                tail.push_str(tail_backwards.iter().rev().collect::<String>().as_str());
 
-                (head, tail)
+                head
             }
             // The buffer contains non-text bytes, so we'll show its contents as formatted hex
             // pairs instead.
             Err(_) => {
                 let head = format!(
                     "{:X?}",
-                    &invalid_input_error.input.bytes()[..NUM_CHARS_TO_SHOW.min(input.len())]
+                    &input.bytes()[..NUM_CHARS_TO_SHOW.min(input.len())]
                 );
-                let tail_bytes_to_take = input.bytes().len().min(NUM_CHARS_TO_SHOW);
-                let buffer_tail = &input.bytes()[input.len() - tail_bytes_to_take..];
-                let tail = format!("{:X?}", buffer_tail);
-                (head, tail)
+                head
             }
         };
         // The offset and buffer head will often be helpful to the programmer. The buffer tail
@@ -170,193 +246,92 @@ impl From<InvalidInputError<'_>> for IonError {
             message,
             r#"
         offset={}
-        buffer head=<{}>
-        buffer tail=<{}>
+        input={}
         buffer len={}
         "#,
-            invalid_input_error.input.offset(),
+            input.offset(),
             buffer_head,
-            buffer_tail,
             input.len(),
         )
         .unwrap();
-        let position = Position::with_offset(invalid_input_error.input.offset())
-            .with_length(invalid_input_error.input.len());
+        let position = Position::with_offset(input.offset()).with_length(input.len());
         let decoding_error = DecodingError::new(message).with_position(position);
         IonError::Decoding(decoding_error)
     }
 }
 
-impl<'data> From<ErrMode<IonParseError<'data>>> for IonParseError<'data> {
-    fn from(value: ErrMode<IonParseError<'data>>) -> Self {
-        use winnow::error::ErrMode::*;
-        match value {
-            Incomplete(_) => IonParseError::Incomplete,
-            Backtrack(e) => e,
-            Cut(e) => e,
-        }
-    }
-}
-
-/// Allows an `IonParseError` to be constructed from a `(&str, ErrorKind)` tuple, which is the
-/// data provided by core `nom` parsers if they do not match the input.
-impl<'data> From<(TextBuffer<'data>, ErrorKind)> for IonParseError<'data> {
-    fn from((input, error_kind): (TextBuffer<'data>, ErrorKind)) -> Self {
-        InvalidInputError::new(input)
-            .with_nom_error_kind(error_kind)
-            .into()
-    }
-}
-
-/// Allows an [`ErrMode`] to be converted into an [IonParseError] by calling `.into()`.
-impl<'data> From<ParseError<TextBuffer<'data>, IonParseError<'data>>> for IonParseError<'data> {
-    fn from(parse_error: ParseError<TextBuffer<'data>, IonParseError<'data>>) -> Self {
-        parse_error.into_inner()
-    }
-}
-
-/// Allows `IonParseError` to be used as the error type in various `nom` functions.
+/// Allows `IonParseError` to be used as the error type in various `winnow` parsers.
 impl<'data> ParserError<TextBuffer<'data>> for IonParseError<'data> {
     fn from_error_kind(input: &TextBuffer<'data>, error_kind: ErrorKind) -> Self {
-        InvalidInputError::new(*input)
-            .with_nom_error_kind(error_kind)
-            .into()
+        IonParseError {
+            input: *input,
+            context: DEFAULT_CONTEXT,
+            kind: IonParseErrorKind::Unrecognized(UnrecognizedInputError::with_winnow_error_kind(
+                error_kind,
+            )),
+        }
     }
 
     fn append(
         self,
-        input: &TextBuffer<'data>,
+        _input: &TextBuffer<'data>,
         _checkpoint: &<TextBuffer<'data> as Stream>::Checkpoint,
         _kind: ErrorKind,
     ) -> Self {
         // When an error stack is being built, this method is called to give the error
         // type an opportunity to aggregate the errors into a collection or a more descriptive
-        // message. For now, we simply allow the most recent error to take precedence.
-        IonParseError::Invalid(InvalidInputError::new(*input))
-    }
-}
-
-/// `Result<Option<T>, _>` has a method called `transpose` that converts it into an `Option<Result<T, _>>`,
-/// allowing it to be easily used in places like iterators that expect that return type.
-/// This trait defines a similar extension method for `Result<(TextBuffer, Option<T>)>`.
-pub(crate) trait ToIteratorOutput<'data, T> {
-    fn transpose(self) -> Option<IonResult<T>>;
-}
-
-impl<'data, T> ToIteratorOutput<'data, T> for IonResult<(TextBuffer<'data>, Option<T>)> {
-    fn transpose(self) -> Option<IonResult<T>> {
-        match self {
-            Ok((_remaining, Some(value))) => Some(Ok(value)),
-            Ok((_remaining, None)) => None,
-            Err(e) => Some(Err(e)),
-        }
+        // message. We don't currently use this feature as it can be expensive in the common case.
+        // We may find a use for adding it behind a debugging-oriented feature gate.
+        self
     }
 }
 
 /// Converts the output of a text Ion parser (any of `IonParseResult`, `IonParseError`,
-/// or `winnow::Err<IonParseError>`) into a general-purpose `IonResult`. If the implementing type
-/// does not have its own `label` and `input`, the specified values will be used.
-pub(crate) trait AddContext<'data, T> {
-    fn with_context<'a>(
-        self,
-        label: impl Into<Cow<'static, str>>,
-        input: TextBuffer<'data>,
-    ) -> IonResult<T>
-    where
-        'data: 'a;
+/// or `winnow::ErrMode<IonParseError>`) into a general-purpose `IonResult`.
+// This is necessary because `winnow`'s `ErrMode::Incomplete` variant doesn't store an IonParseError
+// like its other variants, so the input and context aren't available. This method adds them back
+// in as a kludge. Winnow v0.7.0 should address this; see:
+// <https://github.com/winnow-rs/winnow/discussions/693>
+pub(crate) trait WithContext<'data, T> {
+    fn with_context(self, label: &'static str, input: TextBuffer<'data>) -> IonResult<T>;
 }
 
-impl<'data, T> AddContext<'data, T> for ErrMode<IonParseError<'data>> {
-    fn with_context<'a>(
-        self,
-        label: impl Into<Cow<'static, str>>,
-        input: TextBuffer<'data>,
-    ) -> IonResult<T>
-    where
-        'data: 'a,
-    {
-        let ipe = IonParseError::from(self);
-        ipe.with_context(label, input)
+impl<'data, T> WithContext<'data, T> for ErrMode<IonParseError<'data>> {
+    fn with_context(self, label: &'static str, input: TextBuffer<'data>) -> IonResult<T> {
+        use ErrMode::*;
+        let ion_parse_error = match self {
+            // We only apply the label and input in the `Incomplete` case. Other cases already have
+            // these fields populated, potentially by more precise information.
+            Incomplete(_) => IonParseError {
+                input,
+                context: label,
+                kind: IonParseErrorKind::Incomplete,
+            },
+            Backtrack(e) | Cut(e) => e,
+        };
+
+        let ion_error = IonError::from(ion_parse_error);
+        Err(ion_error)
     }
 }
 
 // Turns an IonParseError into an IonResult
-impl<'data, T> AddContext<'data, T> for IonParseError<'data> {
-    fn with_context<'a>(
-        self,
-        label: impl Into<Cow<'static, str>>,
-        input: TextBuffer<'data>,
-    ) -> IonResult<T>
-    where
-        'data: 'a,
-    {
-        match self {
-            IonParseError::Incomplete => IonResult::incomplete(
-                format!(
-                    "{}; buffer utf-8: {}",
-                    label.into(),
-                    input.as_text().unwrap_or("<invalid utf-8>")
-                ),
-                input.offset(),
-            ),
-            IonParseError::Invalid(invalid_input_error) => Err(IonError::from(invalid_input_error)),
+impl<'data, T> WithContext<'data, T> for IonParseError<'data> {
+    fn with_context(mut self, label: &'static str, input: TextBuffer<'data>) -> IonResult<T> {
+        if self.kind == IonParseErrorKind::Incomplete {
+            self.input = input;
+            self.context = label;
         }
+        Err(IonError::from(self))
     }
 }
 
-impl<'data, T> AddContext<'data, T> for IonParseResult<'data, T> {
-    fn with_context<'a>(
-        self,
-        label: impl Into<Cow<'static, str>>,
-        input: TextBuffer<'data>,
-    ) -> IonResult<T>
-    where
-        'data: 'a,
-    {
+impl<'data, T> WithContext<'data, T> for IonParseResult<'data, T> {
+    fn with_context(self, label: &'static str, input: TextBuffer<'data>) -> IonResult<T> {
         match self {
             // No change needed in the ok case
             Ok(matched) => Ok(matched),
             Err(e) => e.with_context(label, input),
-        }
-    }
-}
-
-/// Constructs a `winnow::error::ErrMode::Cut` that contains an `IonParseError` describing the problem
-/// that was encountered.
-pub(crate) fn fatal_parse_error<D: Into<Cow<'static, str>>, O>(
-    input: TextBuffer<'_>,
-    description: D,
-) -> IonParseResult<'_, O> {
-    Err(ErrMode::Cut(
-        InvalidInputError::new(input)
-            .with_description(description)
-            .into(),
-    ))
-}
-
-/// An extension trait that allows a [Result] of any kind to be mapped to an
-/// `IonParseResult` concisely.
-pub(crate) trait OrFatalParseError<T> {
-    fn or_fatal_parse_error<L: Display>(
-        self,
-        input: TextBuffer<'_>,
-        label: L,
-    ) -> IonParseResult<'_, T>;
-}
-
-/// See the documentation for [OrFatalParseError].
-impl<T, E> OrFatalParseError<T> for Result<T, E>
-where
-    E: Debug,
-{
-    fn or_fatal_parse_error<L: Display>(
-        self,
-        input: TextBuffer<'_>,
-        label: L,
-    ) -> IonParseResult<'_, T> {
-        match self {
-            Ok(value) => Ok(value),
-            Err(error) => fatal_parse_error(input, format!("{label}: {error:?}")),
         }
     }
 }
