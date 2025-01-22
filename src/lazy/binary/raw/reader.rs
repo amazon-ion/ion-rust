@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::binary::immutable_buffer::BinaryBuffer;
+use crate::lazy::binary::binary_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::{HasRange, LazyRawFieldExpr, LazyRawReader};
 use crate::lazy::encoding::BinaryEncoding_1_0;

@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::{BinaryBuffer, ParseResult};
+use crate::lazy::binary::raw::v1_1::binary_buffer::{BinaryBuffer, ParseResult};
 use crate::lazy::decoder::{LazyRawReader, RawValueExpr};
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoding::BinaryEncoding_1_1;

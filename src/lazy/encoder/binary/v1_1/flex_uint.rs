@@ -14,8 +14,7 @@ const fn init_bytes_needed_cache() -> [u8; 129] {
     let mut leading_zeros = 0usize;
     while leading_zeros < BITS_PER_U128 {
         let magnitude_bits_needed = 128 - leading_zeros;
-        cache[leading_zeros] =
-            magnitude_bits_needed.div_ceil(BITS_PER_ENCODED_BYTE) as u8;
+        cache[leading_zeros] = magnitude_bits_needed.div_ceil(BITS_PER_ENCODED_BYTE) as u8;
         leading_zeros += 1;
     }
     // Special case: 128 leading zeros means it's `0i128`, which requires one byte.
@@ -322,7 +321,7 @@ impl FlexUInt {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::immutable_buffer::BinaryBuffer;
+    use crate::lazy::binary::binary_buffer::BinaryBuffer;
     use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
     use crate::{IonError, IonResult};
 

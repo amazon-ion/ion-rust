@@ -1,4 +1,4 @@
-use crate::lazy::binary::raw::v1_1::immutable_buffer::BinaryBuffer;
+use crate::lazy::binary::raw::v1_1::binary_buffer::BinaryBuffer;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};

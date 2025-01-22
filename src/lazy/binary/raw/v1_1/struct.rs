@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::v1_1::{
-    immutable_buffer::{BinaryBuffer, ParseResult},
+    binary_buffer::{BinaryBuffer, ParseResult},
     value::{DelimitedContents, LazyRawBinaryValue_1_1},
     OpcodeType,
 };

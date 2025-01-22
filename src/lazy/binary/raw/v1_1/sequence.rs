@@ -3,7 +3,7 @@
 use std::fmt::{Debug, Formatter};
 
 use crate::lazy::binary::raw::v1_1::annotations_iterator::RawBinaryAnnotationsIterator_1_1;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::BinaryBuffer;
+use crate::lazy::binary::raw::v1_1::binary_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::v1_1::value::{DelimitedContents, LazyRawBinaryValue_1_1};
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr};

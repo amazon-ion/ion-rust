@@ -1,5 +1,5 @@
 #![allow(non_camel_case_types)]
-use crate::lazy::binary::raw::v1_1::immutable_buffer::{AnnotationsEncoding, BinaryBuffer};
+use crate::lazy::binary::raw::v1_1::binary_buffer::{AnnotationsEncoding, BinaryBuffer};
 use crate::lazy::encoder::binary::v1_1::flex_sym::FlexSymValue;
 use crate::{IonResult, RawSymbolRef, SymbolId};
 

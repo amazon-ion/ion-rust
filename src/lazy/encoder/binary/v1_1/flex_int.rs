@@ -167,7 +167,7 @@ impl FlexInt {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::immutable_buffer::BinaryBuffer;
+    use crate::lazy::binary::binary_buffer::BinaryBuffer;
     use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
     use crate::{IonError, IonResult};
     const FLEX_INT_TEST_CASES: &[(i64, &[u8])] = &[
