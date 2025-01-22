@@ -1317,7 +1317,9 @@ mod tests {
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let template_macro =
             TemplateCompiler::compile_from_source(context.get_ref(), macro_source)?;
-        let macro_address = context.macro_table.add_template_macro(template_macro)?;
+        let macro_address = context
+            .macro_table_mut()
+            .add_template_macro(template_macro)?;
         let opcode_byte = u8::try_from(macro_address).unwrap();
         let binary_ion = encode_macro_fn(opcode_byte as usize);
         let buffer = BinaryBuffer::new(context.get_ref(), &binary_ion);

@@ -130,7 +130,7 @@ impl EncodingContext {
     }
 
     pub fn macro_table_mut(&mut self) -> &mut MacroTable {
-        &mut self.macro_table
+        Rc::make_mut(&mut self.macro_table)
     }
 
     pub fn symbol_table(&self) -> &SymbolTable {
@@ -141,6 +141,20 @@ impl EncodingContext {
         &self.allocator
     }
 
+    fn make_allocator_mut(allocator: &mut Rc<BumpAllocator>) -> &mut BumpAllocator {
+        // This is the same logic as `Rc::make_mut`. We can't use that method here because
+        // the bump allocator doesn't implement `Clone`, a required bound.
+        if Rc::strong_count(allocator) > 1 {
+            *allocator = Rc::new(BumpAllocator::new());
+        }
+
+        Rc::get_mut(allocator).expect("allocator should be initialized")
+    }
+
+    pub fn allocator_mut(&mut self) -> &mut BumpAllocator {
+        Self::make_allocator_mut(&mut self.allocator)
+    }
+
     // TODO: These methods are temporary; they will be removed once shared modules are supported.
     pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         let template_macro: TemplateMacro =
@@ -149,7 +163,16 @@ impl EncodingContext {
     }
 
     pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        self.macro_table.add_template_macro(template_macro)
+        self.macro_table_mut().add_template_macro(template_macro)
+    }
+
+    pub(crate) fn tables_mut(&mut self) -> (&mut MacroTable, &mut SymbolTable) {
+        let Self {
+            macro_table,
+            symbol_table,
+            ..
+        } = self;
+        (Rc::make_mut(macro_table), Rc::make_mut(symbol_table))
     }
 }
 
@@ -286,7 +309,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 
     fn add_macro(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        let macro_table = &mut self.context_mut().macro_table;
+        let macro_table = self.context_mut().macro_table_mut();
         macro_table.add_template_macro(template_macro)
     }
 
@@ -310,7 +333,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     //         reference to any structures within `EncodingContext`.
     unsafe fn reset_bump_allocator(&self) {
         let context: &mut EncodingContext = &mut *self.encoding_context.get();
-        context.allocator.reset();
+        context.allocator_mut().reset();
     }
 
     pub fn pending_context_changes(&self) -> &PendingContextChanges {
@@ -478,11 +501,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
             // SAFETY: Nothing else holds a reference to the `EncodingContext`'s contents, so we can use the
             //         `UnsafeCell` to get a mutable reference to its symbol table.
             let encoding_context_ref = unsafe { &mut *self.encoding_context.get() };
-            let EncodingContext {
-                macro_table,
-                symbol_table,
-                ..
-            } = encoding_context_ref;
+            let (macro_table, symbol_table) = encoding_context_ref.tables_mut();
             Self::apply_pending_context_changes(pending_lst, symbol_table, macro_table);
         }
     }
