@@ -2151,7 +2151,7 @@ mod tests {
             let new_macro =
                 TemplateCompiler::compile_from_source(self.context.get_ref(), text).unwrap();
             self.context
-                .macro_table
+                .macro_table_mut()
                 .add_template_macro(new_macro)
                 .unwrap();
             self
