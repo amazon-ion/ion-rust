@@ -1,5 +1,5 @@
 use crate::lazy::binary::raw::type_descriptor::Header;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::IonType;
 use std::ops::Range;
@@ -268,7 +268,7 @@ mod tests {
     use crate::binary::IonTypeCode;
     use crate::lazy::binary::encoded_value::EncodedValue;
     use crate::lazy::binary::raw::type_descriptor::Header;
-    use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+    use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
     use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
     use crate::{IonResult, IonType};
 

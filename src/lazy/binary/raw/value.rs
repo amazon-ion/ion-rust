@@ -6,8 +6,8 @@ use std::{fmt, mem};
 
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
+use crate::lazy::binary::binary_buffer::BinaryBuffer;
 use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::immutable_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct_1_0;
 use crate::lazy::binary::raw::sequence::{

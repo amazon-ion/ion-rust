@@ -37,6 +37,7 @@ use sequence::{LazyExpandedList, LazyExpandedSExp};
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::element::iterators::SymbolsIterator;
@@ -89,9 +90,9 @@ pub mod template;
 //  would need to be proved out first.
 #[derive(Debug)]
 pub struct EncodingContext {
-    pub(crate) macro_table: MacroTable,
-    pub(crate) symbol_table: SymbolTable,
-    pub(crate) allocator: BumpAllocator,
+    pub(crate) macro_table: Rc<MacroTable>,
+    pub(crate) symbol_table: Rc<SymbolTable>,
+    pub(crate) allocator: Rc<BumpAllocator>,
 }
 
 impl EncodingContext {
@@ -101,9 +102,9 @@ impl EncodingContext {
         allocator: BumpAllocator,
     ) -> Self {
         Self {
-            macro_table,
-            symbol_table,
-            allocator,
+            macro_table: Rc::new(macro_table),
+            symbol_table: Rc::new(symbol_table),
+            allocator: Rc::new(allocator),
         }
     }
 

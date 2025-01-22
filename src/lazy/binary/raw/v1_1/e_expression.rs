@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use crate::lazy::binary::raw::v1_1::immutable_buffer::{
+use crate::lazy::binary::raw::v1_1::binary_buffer::{
     ArgGrouping, ArgGroupingBitmapIterator, BinaryBuffer,
 };
 use crate::lazy::binary::raw::v1_1::value::DelimitedContents;

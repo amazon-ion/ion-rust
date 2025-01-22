@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use num_traits::PrimInt;
 
-use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
 use crate::lazy::binary::raw::v1_1::LengthType;
@@ -25,8 +25,8 @@ use crate::{
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
-                    immutable_buffer::BinaryBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
-                    Header, OpcodeType,
+                    binary_buffer::BinaryBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES, Header,
+                    OpcodeType,
                 },
                 value::ValueParseResult,
             },
