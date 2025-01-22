@@ -315,10 +315,8 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
                 '\r' => r"\r",
                 '\t' => r"\t",
                 '\\' => r"\\",
-                '/' => r"\/",
                 '"' => r#"\""#,
                 '\'' => r"\'",
-                '?' => r"\?",
                 '\x00' => r"\0", // NUL
                 '\x07' => r"\a", // alert BEL
                 '\x08' => r"\b", // backspace
@@ -577,6 +575,16 @@ mod formatter_test {
     #[test]
     fn test_format_string() -> IonResult<()> {
         formatter(|ivf| ivf.format_string("bar"), "\"bar\"");
+
+        // Test some string escapes
+        formatter(|ivf| ivf.format_string("/"), "\"/\""); // slash is not escaped
+        formatter(|ivf| ivf.format_string("\\"), "\"\\\\\""); // backslash is escaped
+        formatter(|ivf| ivf.format_string("'"), "\"\\'\""); // single quote is escaped
+        formatter(|ivf| ivf.format_string("\n"), "\"\\n\""); // newline is escaped
+        formatter(|ivf| ivf.format_string("\r"), "\"\\r\""); // carriage return is escaped
+        formatter(|ivf| ivf.format_string("\t"), "\"\\t\""); // tab is escaped
+        formatter(|ivf| ivf.format_string("\0"), "\"\\0\""); // NUL is escaped
+
         Ok(())
     }
 
