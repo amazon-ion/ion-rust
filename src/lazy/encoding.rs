@@ -348,7 +348,7 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_0 {
         input: TextBuffer<'top>,
         encoded_text_value: EncodedTextValue<'top, Self>,
     ) -> Self::Value<'top> {
-        LazyRawTextValue_1_0::new(input, encoded_text_value)
+        LazyRawTextValue_1_0::new(encoded_text_value, input)
     }
 
     fn value_expr_matcher() -> impl IonParser<'top, LazyRawValueExpr<'top, Self>> {
@@ -374,7 +374,7 @@ impl<'top> TextEncoding<'top> for TextEncoding_1_1 {
         input: TextBuffer<'top>,
         encoded_text_value: EncodedTextValue<'top, Self>,
     ) -> Self::Value<'top> {
-        LazyRawTextValue_1_1::new(input, encoded_text_value)
+        LazyRawTextValue_1_1::new(encoded_text_value, input)
     }
 
     fn value_expr_matcher() -> impl IonParser<'top, LazyRawValueExpr<'top, Self>> {

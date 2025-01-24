@@ -325,7 +325,7 @@ macro_rules! v1_0_tooling_apis {
             },
             lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0 as LazyRawBinaryStruct, LazyRawBinaryFieldName_1_0 as LazyRawBinaryFieldName},
             lazy::binary::raw::value::{
-                EncodedBinaryValue,
+                BinaryValueLiteral,
                 LazyRawBinaryValue_1_0 as LazyRawBinaryValue,
                 LazyRawBinaryVersionMarker_1_0 as LazyRawBinaryVersionMarker,
                 EncodedBinaryValueData_1_0 as EncodedBinaryValueData,

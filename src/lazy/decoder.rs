@@ -64,8 +64,9 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     type Reader<'data>: LazyRawReader<'data, Self>;
     /// A value (at any depth) in the input. This can be further inspected to access either its
     /// scalar data or, if it is a container, to view it as [`Self::List`], [`Self::SExp`] or
-    /// [`Self::Struct`].  
+    /// [`Self::Struct`].
     type Value<'top>: LazyRawValue<'top, Self>;
+
     /// A list whose child values may be accessed iteratively.
     type SExp<'top>: LazyRawSequence<'top, Self>;
     /// An s-expression whose child values may be accessed iteratively.
@@ -586,6 +587,8 @@ pub trait LazyRawContainer<'top, D: Decoder> {
 pub trait LazyRawValue<'top, D: Decoder>:
     HasSpan<'top> + RawValueLiteral + Copy + Clone + Debug + Sized
 {
+    // fn new(encoded: D::EncodedValue<'top>, span: impl Into<Span<'top>>) -> Self;
+
     fn ion_type(&self) -> IonType;
     fn is_null(&self) -> bool;
 

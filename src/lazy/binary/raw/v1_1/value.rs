@@ -9,7 +9,7 @@ use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
 use crate::lazy::binary::raw::v1_1::LengthType;
-use crate::lazy::binary::raw::value::EncodedBinaryValue;
+use crate::lazy::binary::raw::value::BinaryValueLiteral;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::expanded::EncodingContextRef;
@@ -21,7 +21,7 @@ use crate::{
     constants,
     lazy::{
         binary::{
-            encoded_value::{EncodedHeader, EncodedValue},
+            encoded_value::{EncodedBinaryValue, EncodedHeader},
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
@@ -115,7 +115,7 @@ pub enum BinaryValueEncoding {
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryValue_1_1<'top> {
-    pub(crate) encoded_value: EncodedValue<Header>,
+    pub(crate) encoded_value: EncodedBinaryValue<Header>,
     pub(crate) input: BinaryBuffer<'top>,
     pub(crate) delimited_contents: DelimitedContents<'top>,
 }
@@ -314,7 +314,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Constructs a lazy raw binary value from an input buffer slice that has been found to contain
     /// a complete `FlexUInt`.
     pub(crate) fn for_flex_uint(input: BinaryBuffer<'top>) -> Self {
-        let encoded_value = EncodedValue {
+        let encoded_value = EncodedBinaryValue {
             encoding: BinaryValueEncoding::FlexUInt,
             header: Header {
                 // It is an int, that's true.
@@ -905,7 +905,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 }
 
-impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
+impl<'top> BinaryValueLiteral<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
     fn opcode_length(&self) -> usize {
         self.encoded_value.opcode_length()
     }
