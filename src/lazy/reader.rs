@@ -113,6 +113,11 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
+
+    pub fn save(&self, _value: LazyValue<'_, Encoding>) -> IonResult<SavedValue<Encoding>> {
+        // let _io_buffer = self.system_reader.expanding_reader.raw_reader().save_buffer();
+        todo!()
+    }
 }
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
@@ -129,6 +134,7 @@ use crate::lazy::{
     expanded::template::TemplateMacro,
     text::raw::v1_1::reader::MacroAddress,
 };
+use crate::lazy::expanded::saved_value::SavedValue;
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     // TODO: Remove this when the reader can understand 1.1 encoding directives.

@@ -50,6 +50,7 @@ use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
 use crate::lazy::expanded::macro_table::{Macro, MacroTable, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
+use crate::lazy::expanded::saved_value::SavedValue;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
 use crate::lazy::r#struct::LazyStruct;
@@ -77,6 +78,7 @@ pub mod e_expression;
 pub mod encoding_module;
 pub mod macro_evaluator;
 pub mod macro_table;
+pub mod saved_value;
 pub mod sequence;
 pub mod r#struct;
 pub mod template;
@@ -322,9 +324,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 
     pub fn context_mut(&mut self) -> &mut EncodingContext {
-        // SAFETY: If the caller has a `&mut` reference to `self`, it is the only mutable reference
-        //         that can modify `self.encoding_context`.
-        unsafe { &mut *self.encoding_context.get() }
+        self.encoding_context.get_mut()
     }
 
     // SAFETY: This method takes an immutable reference to `self` and then modifies the
@@ -843,6 +843,12 @@ impl<Encoding: Decoder> Debug for LazyExpandedValue<'_, Encoding> {
 }
 
 impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
+    pub fn save(&self) -> SavedValue<Encoding> {
+        // This only involves Rc increments
+        let _context = self.context().clone();
+        todo!()
+    }
+
     // If the provided e-expression can be resolved to a template macro that is eligible to back
     // a lazy value without first being evaluated, returns `Some(lazy_expanded_value)`.
     // To be eligible, the body of the template macro must be an Ion value literal that is not

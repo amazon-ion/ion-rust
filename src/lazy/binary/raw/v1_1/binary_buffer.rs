@@ -5,7 +5,7 @@ use std::mem::size_of;
 use std::ops::Range;
 
 use crate::binary::constants::v1_1::IVM;
-use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::encoded_value::EncodedBinaryValue;
 use crate::lazy::binary::raw::v1_1::e_expression::{
     BinaryEExpArgsIterator_1_1, BinaryEExpression_1_1,
 };
@@ -653,7 +653,7 @@ impl<'a> BinaryBuffer<'a> {
             return IonResult::incomplete("a value", header_offset);
         }
 
-        let encoded_value = EncodedValue {
+        let encoded_value = EncodedBinaryValue {
             encoding: BinaryValueEncoding::Tagged,
             header,
             // If applicable, these are populated by the caller: `read_annotated_value()`

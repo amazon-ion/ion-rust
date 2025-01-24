@@ -27,7 +27,7 @@ pub struct LazyRawTextValue<'top, E: TextEncoding<'top>> {
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
-    pub(crate) fn new(input: TextBuffer<'top>, encoded_value: EncodedTextValue<'top, E>) -> Self {
+    pub(crate) fn new(encoded_value: EncodedTextValue<'top, E>, input: TextBuffer<'top>) -> Self {
         Self {
             encoded_value,
             input,
@@ -169,6 +169,10 @@ impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
+    // fn new(encoded: E::EncodedValue<'top>, span: impl Into<Span<'top>>) -> Self {
+    //     todo!()
+    // }
+
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }

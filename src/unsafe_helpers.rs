@@ -37,3 +37,9 @@ pub(crate) fn mut_ref_to_ptr<T>(reference: &mut T) -> *mut () {
     let untyped_ptr: *mut () = ptr.cast();
     untyped_ptr
 }
+
+pub fn ref_as_ptr<T>(reference: &mut T) -> *mut () {
+    let ptr: *mut T = reference;
+    let untyped_ptr: *mut () = ptr.cast();
+    untyped_ptr
+}
