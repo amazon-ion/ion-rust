@@ -88,6 +88,10 @@ impl Debug for TextBuffer<'_> {
 /// '\x0C', Form feed
 pub(crate) const WHITESPACE_BYTES: &[u8] = b" \t\r\n\x09\x0B\x0C";
 
+pub(crate) const NON_NEWLINE_BYTES: &[u8] = b"\t\x09\x0B\x0C";
+
+pub(crate) const NEWLINE_BYTES: &[u8] = b"\r\n";
+
 /// A slice of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a text Ion stream.
 ///
@@ -106,6 +110,8 @@ pub struct TextBuffer<'top> {
     //                          offset: 6
     data: &'top [u8],
     offset: usize,
+    row: usize,
+    prev_newline_offset: usize,
     pub(crate) context: EncodingContextRef<'top>,
     is_final_data: bool,
 }
@@ -141,6 +147,8 @@ impl<'top> TextBuffer<'top> {
             context,
             data,
             offset,
+            row: 1,
+            prev_newline_offset: 0,
             is_final_data,
         }
     }
@@ -206,6 +214,22 @@ impl<'top> TextBuffer<'top> {
         self.offset
     }
 
+    /// Returns the row position for this buffer.
+    /// _Note: Row positions are calculated based on newline characters `\n` and `\r`._
+    pub fn row(&self) -> usize {
+        self.row
+    }
+
+    /// Returns the column position for this buffer.
+    /// _Note: Column positions are calculated based on current offset and previous newline byte offset._
+    pub fn column(&self) -> usize {
+        self.offset - self.prev_newline_offset + 1
+    }
+
+    pub fn prev_newline_offset(&self) -> usize {
+        self.prev_newline_offset
+    }
+
     /// Returns the number of bytes in the buffer.
     pub fn len(&self) -> usize {
         self.data.len()
@@ -245,16 +269,44 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches one or more whitespace characters.
     pub fn match_whitespace1(&mut self) -> IonMatchResult<'top> {
-        take_while(1.., WHITESPACE_BYTES).parse_next(self)
+        let result = take_while(1.., WHITESPACE_BYTES).parse_next(self)?;
+        self.update_location_metadata(result.data);
+       Ok(*self)
+    }
+
+    /// Updates the location metadata based on the matched whitespace bytes in the consumed buffer
+    fn update_location_metadata(&mut self, data: &'top [u8]) {
+        if !data.is_empty() {
+            // If the bytes contain '\r\n' in this order then this must be coming from windows line ending pattern and hence should be counted as 1.
+            let crlf_count = data.windows(2).filter(|window| window == b"\r\n").count();
+
+            // Subtract the crlf_count from total count of all newline characters to get the correct number of newline match count.
+            let newline_match_count = data.iter().filter(|b| NEWLINE_BYTES.contains(b)).count() - crlf_count;
+
+            // Gets index for the last occurrence of the newline byte and subtracts from the result length to get non newline bytes length
+            let last_index_newline_byte = data.iter().rposition(|b| NEWLINE_BYTES.contains(b)).unwrap_or(0);
+            let non_newline_match_length = data.len() - last_index_newline_byte - 1;
+            self.row += newline_match_count;
+
+            // Stores this newline offset as previous newline offset for calculating column position since this has already been matched/parsed
+            if self.offset < non_newline_match_length {
+                // this means that the input is not yet consumed hence get the input length + the current offset
+                self.prev_newline_offset = self.offset + data.len() - non_newline_match_length;
+            } else {
+                self.prev_newline_offset = self.offset - non_newline_match_length;
+
+            }
+        }
     }
 
     /// Matches zero or more whitespace characters.
     pub fn match_whitespace0(&mut self) -> IonMatchResult<'top> {
-        take_while(0.., WHITESPACE_BYTES).parse_next(self)
+        let result = take_while(0.., WHITESPACE_BYTES).parse_next(self)?;
+        self.update_location_metadata(result.data);
+        Ok(*self)
     }
 
     /// Matches any amount of contiguous comments and whitespace, including none.
-    #[inline]
     pub fn match_optional_comments_and_whitespace(&mut self) -> IonMatchResult<'top> {
         pub fn full_match_optional_comments_and_whitespace<'t>(
             input: &mut TextBuffer<'t>,
@@ -446,6 +498,7 @@ impl<'top> TextBuffer<'top> {
         )
             .map(|(maybe_annotations, value)| input.apply_annotations(maybe_annotations, value))
             .parse_next(self)
+        // let length = result.with_span().map(|(_output, consumed)| consumed.len());
     }
 
     /// Matches a struct field name. That is:
@@ -1588,6 +1641,8 @@ impl<'top> TextBuffer<'top> {
         let delimiter_head = delimiter.as_bytes()[0];
         // Whether we've encountered any escapes while looking for the delimiter
         let mut contained_escapes = false;
+        // This input may contain newline characters hence update the location metadata.
+        self.update_location_metadata(self.bytes());
         // The input left to search
         let mut remaining = *self;
         loop {
@@ -1987,11 +2042,20 @@ impl<'data> Stream for TextBuffer<'data> {
     }
 
     fn checkpoint(&self) -> Self::Checkpoint {
-        *self
+        let mut checkpoint = *self;
+        // Reset row, column at checkpoint
+        checkpoint.row = 0;
+        checkpoint.prev_newline_offset = 0;
+        checkpoint
     }
 
     fn reset(&mut self, checkpoint: &Self::Checkpoint) {
+        let current_row = self.row;
+        let prev_column_value = self.prev_newline_offset;
+
         *self = *checkpoint;
+        self.row = current_row + checkpoint.row;
+        self.prev_newline_offset = prev_column_value + checkpoint.prev_newline_offset;
     }
 
     fn raw(&self) -> &dyn Debug {
@@ -2157,22 +2221,23 @@ mod tests {
             self
         }
 
-        fn try_match<'data, P, O>(&'data self, parser: P) -> IonParseResult<'data, usize>
+        fn try_match<'data, P, O>(&'data self, parser: P) -> IonParseResult<'data, (TextBuffer<'data>, usize)>
         where
             P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
         {
             let mut buffer = TextBuffer::new(self.context.get_ref(), self.input.as_bytes(), true);
-            match_length(parser).parse_next(&mut buffer)
+            let matched_length = match_length(parser).parse_next(&mut buffer)?;
+            Ok((buffer, matched_length))
         }
 
         fn expect_match<'data, P, O>(&'data self, parser: P)
         where
             P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
         {
-            let result = self.try_match(parser);
-            let match_length = result.unwrap_or_else(|e| {
+            let result = self.try_match(parser).unwrap_or_else(|e| {
                 panic!("Unexpected parse fail for input <{}>\n{e}", self.input)
             });
+            let match_length = result.1;
             // Inputs have a trailing newline and `0` that should _not_ be part of the match
             assert_eq!(
                 match_length,
@@ -2181,6 +2246,26 @@ mod tests {
                 self.input,
                 &self.input[..match_length]
             );
+        }
+
+        fn expect_match_location<'data, P, O>(&'data self, parser: P, expected_location: (usize, usize))
+        where
+            P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+        {
+            let result = self.try_match(parser).unwrap_or_else(|e| {
+                panic!("Unexpected parse fail for input <{}>\n{e}", self.input)
+            });
+            let match_length = result.1;
+            // Inputs have a trailing newline and `0` that should _not_ be part of the match
+            assert_eq!(
+                match_length,
+                self.input.len(),
+                "\nInput: '{}'\nMatched: '{}'\n",
+                self.input,
+                &self.input[..match_length]
+            );
+            // Assert the location metadata
+            assert_eq!(expected_location, (result.0.row(), result.0.column()));
         }
 
         fn expect_mismatch<'data, P, O>(&'data self, parser: P)
@@ -2192,7 +2277,7 @@ mod tests {
             // input will be rejected outright.
 
             match result {
-                Ok(match_length) => {
+                Ok((_, match_length)) => {
                     assert_ne!(
                         match_length,
                         self.input.len(),
@@ -2815,6 +2900,21 @@ mod tests {
         let (matched, contains_escapes) = input.match_text_until_unescaped_str(r#"'''"#).unwrap();
         assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");
         assert!(contains_escapes);
+    }
+
+    #[rstest]
+    #[case::newlines("\n\r", (3,1))]
+    #[case::crlf("\r\n\r\n", (3,1))]
+    #[case::mixed("\r\n\n\r\n", (4,1))]
+    #[case::tabs("\n\t\t\t", (2,4))]
+    #[case::mix_tabs_and_newlines("\n\t\n", (3,1))]
+    fn expect_whitespace(#[case] input: &str, #[case] expected_location: (usize, usize)) {
+        MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_whitespace0), expected_location);
+    }
+
+    #[test]
+    fn expect_newline_long_text() {
+        MatchTest::new_1_0("'''long \n\r\n\t hello'''").expect_match_location(match_length(TextBuffer::match_string), (3, 11));
     }
 
     #[test]
