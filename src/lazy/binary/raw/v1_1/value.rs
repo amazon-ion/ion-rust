@@ -136,6 +136,21 @@ impl<'top> HasRange for &'top LazyRawBinaryValue_1_1<'top> {
 }
 
 impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
+    fn new(
+        context: EncodingContextRef<'top>,
+        value_memo: <BinaryEncoding_1_1 as Decoder>::EncodedValue<'top>,
+        span: impl Into<Span<'top>>,
+    ) -> Self {
+        let span: Span<'top> = span.into();
+        let input = BinaryBuffer::new_with_offset(context, span.bytes(), span.offset());
+        let (delimited_contents, encoded_value) = value_memo;
+        context.allocator().alloc_with(|| LazyRawBinaryValue_1_1 {
+            encoded_value,
+            input,
+            delimited_contents,
+        })
+    }
+
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }

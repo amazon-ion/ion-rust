@@ -4,7 +4,7 @@ use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::IonType;
 use std::ops::Range;
 
-pub(crate) trait EncodedHeader: Copy {
+pub trait EncodedHeader: Copy {
     type TypeCode;
     fn ion_type(&self) -> IonType;
     fn type_code(&self) -> Self::TypeCode;
@@ -40,7 +40,7 @@ impl EncodedHeader for Header {
 /// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
 /// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct EncodedBinaryValue<HeaderType: EncodedHeader> {
+pub struct EncodedBinaryValue<HeaderType: EncodedHeader> {
     pub(crate) encoding: BinaryValueEncoding,
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.

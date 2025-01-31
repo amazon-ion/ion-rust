@@ -3,6 +3,7 @@
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBuffer;
@@ -169,9 +170,18 @@ impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
-    // fn new(encoded: E::EncodedValue<'top>, span: impl Into<Span<'top>>) -> Self {
-    //     todo!()
-    // }
+    fn new(
+        context: EncodingContextRef<'top>,
+        encoded_value: E::EncodedValue<'top>,
+        span: impl Into<Span<'top>>,
+    ) -> Self {
+        let span: Span<'top> = span.into();
+        let input = TextBuffer::new_with_offset(context, span.bytes(), span.offset(), true);
+        Self {
+            encoded_value,
+            input,
+        }
+    }
 
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()

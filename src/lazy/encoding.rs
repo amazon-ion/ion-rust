@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::{IonEncoding, IonVersion, LazyRawAnyValue};
+use crate::lazy::binary::encoded_value::EncodedBinaryValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
@@ -8,12 +9,12 @@ use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySEx
 use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpression_1_1;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryFieldName_1_1;
 use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
-use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryVersionMarker_1_1;
+use crate::lazy::binary::raw::v1_1::value::{DelimitedContents, LazyRawBinaryVersionMarker_1_1};
 use crate::lazy::binary::raw::v1_1::{
     r#struct::LazyRawBinaryStruct_1_1,
     sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1},
     value::LazyRawBinaryValue_1_1,
-    RawBinaryAnnotationsIterator_1_1,
+    Header as Header_1_1, RawBinaryAnnotationsIterator_1_1,
 };
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::{Decoder, LazyRawValueExpr, RawValueExpr};
@@ -35,6 +36,8 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
+use crate::v1_0::Header as Header_1_0;
+
 use crate::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, HasRange, IonError, IonResult,
     LazyRawFieldExpr, SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
@@ -249,6 +252,7 @@ pub trait TextEncoding<'top>:
     + Decoder<
         AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>,
         Value<'top> = LazyRawTextValue<'top, Self>,
+        EncodedValue<'top> = EncodedTextValue<'top, Self>,
     >
 {
     fn new_value(
@@ -421,6 +425,7 @@ impl Decoder for BinaryEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_0;
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
     type Value<'top> = LazyRawBinaryValue_1_0<'top>;
+    type EncodedValue<'top> = EncodedBinaryValue<Header_1_0>;
     type SExp<'top> = LazyRawBinarySExp_1_0<'top>;
     type List<'top> = LazyRawBinaryList_1_0<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_0<'top>;
@@ -435,6 +440,8 @@ impl Decoder for TextEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_0;
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
     type Value<'top> = LazyRawTextValue_1_0<'top>;
+    type EncodedValue<'top> = EncodedTextValue<'top, Self>;
+
     type SExp<'top> = RawTextSExp<'top, Self>;
     type List<'top> = RawTextList<'top, Self>;
     type Struct<'top> = LazyRawTextStruct<'top, Self>;
@@ -449,6 +456,7 @@ impl Decoder for TextEncoding_1_1 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_1;
     type Reader<'data> = LazyRawTextReader_1_1<'data>;
     type Value<'top> = LazyRawTextValue_1_1<'top>;
+    type EncodedValue<'top> = EncodedTextValue<'top, Self>;
     type SExp<'top> = RawTextSExp<'top, Self>;
     type List<'top> = RawTextList<'top, Self>;
     type Struct<'top> = LazyRawTextStruct<'top, Self>;
@@ -462,6 +470,7 @@ impl Decoder for BinaryEncoding_1_1 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_1;
     type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
     type Value<'top> = &'top LazyRawBinaryValue_1_1<'top>;
+    type EncodedValue<'top> = (DelimitedContents<'top>, EncodedBinaryValue<Header_1_1>);
     type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
     type List<'top> = LazyRawBinaryList_1_1<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
