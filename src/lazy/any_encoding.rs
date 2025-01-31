@@ -1016,6 +1016,11 @@ impl HasRange for LazyRawAnyValue<'_> {
 }
 
 impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
+    type WithLifetime<'new>
+        = LazyRawAnyValue<'new>
+    where
+        Self: 'new;
+
     fn ion_type(&self) -> IonType {
         use LazyRawValueKind::*;
         match &self.encoding {
@@ -1099,6 +1104,25 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             LazyRawValueKind::Binary_1_0(v) => v.value_span(),
             LazyRawValueKind::Text_1_1(v) => v.value_span(),
             LazyRawValueKind::Binary_1_1(v) => v.value_span(),
+        }
+    }
+
+    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+        Self {
+            encoding: match &self.encoding {
+                LazyRawValueKind::Text_1_0(v) => {
+                    LazyRawValueKind::Text_1_0(v.with_backing_data(span))
+                }
+                LazyRawValueKind::Binary_1_0(v) => {
+                    LazyRawValueKind::Binary_1_0(v.with_backing_data(span))
+                }
+                LazyRawValueKind::Text_1_1(v) => {
+                    LazyRawValueKind::Text_1_1(v.with_backing_data(span))
+                }
+                LazyRawValueKind::Binary_1_1(v) => {
+                    LazyRawValueKind::Binary_1_1(v.with_backing_data(span))
+                }
+            },
         }
     }
 }

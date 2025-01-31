@@ -50,7 +50,7 @@ use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
 use crate::lazy::expanded::macro_table::{Macro, MacroTable, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
-use crate::lazy::expanded::saved_value::SavedValue;
+use crate::lazy::expanded::saved_value::LazyElement;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
 use crate::lazy::r#struct::LazyStruct;
@@ -843,7 +843,7 @@ impl<Encoding: Decoder> Debug for LazyExpandedValue<'_, Encoding> {
 }
 
 impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
-    pub fn save(&self) -> SavedValue<Encoding> {
+    pub fn save(&self) -> LazyElement<Encoding> {
         // This only involves Rc increments
         let _context = self.context().clone();
         todo!()

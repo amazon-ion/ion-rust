@@ -136,6 +136,11 @@ impl<'top> HasRange for &'top LazyRawBinaryValue_1_1<'top> {
 }
 
 impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
+    type WithLifetime<'new>
+        = &'new LazyRawBinaryValue_1_1<'new>
+    where
+        Self: 'new;
+
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
@@ -281,6 +286,17 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         let range = self.encoded_value.unannotated_value_range();
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
+    }
+
+    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+        let buffer =
+            BinaryBuffer::new_with_offset(self.input.context(), span.bytes(), span.offset());
+        let allocator = self.input.context().allocator();
+        allocator.alloc_with(move || LazyRawBinaryValue_1_1 {
+            encoded_value: self.encoded_value,
+            input: buffer,
+            delimited_contents: self.delimited_contents,
+        })
     }
 }
 

@@ -35,6 +35,7 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
+
 use crate::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, HasRange, IonError, IonResult,
     LazyRawFieldExpr, SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
@@ -435,6 +436,7 @@ impl Decoder for TextEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_0;
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
     type Value<'top> = LazyRawTextValue_1_0<'top>;
+
     type SExp<'top> = RawTextSExp<'top, Self>;
     type List<'top> = RawTextList<'top, Self>;
     type Struct<'top> = LazyRawTextStruct<'top, Self>;

@@ -39,6 +39,10 @@ impl<'a> Span<'a> {
         Self { bytes, offset }
     }
 
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
     pub fn range(&self) -> Range<usize> {
         self.offset..self.offset + self.bytes.len()
     }

@@ -169,9 +169,10 @@ impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
-    // fn new(encoded: E::EncodedValue<'top>, span: impl Into<Span<'top>>) -> Self {
-    //     todo!()
-    // }
+    type WithLifetime<'new>
+        = LazyRawTextValue<'new, E>
+    where
+        Self: 'new;
 
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
@@ -228,6 +229,18 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
 
     fn value_span(&self) -> Span<'top> {
         self.value_span() // Inherent impl
+    }
+
+    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+        Self {
+            encoded_value: self.encoded_value,
+            input: TextBuffer::new_with_offset(
+                self.input.context(),
+                span.bytes(),
+                span.offset(),
+                true,
+            ),
+        }
     }
 }
 
