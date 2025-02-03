@@ -378,7 +378,7 @@ impl IoBuffer {
             stream_offset: offset,
             buffer: Rc::from(bytes),
             local_offset: 0,
-            local_end: 0,
+            local_end: bytes.len(),
         }
     }
 
@@ -472,12 +472,6 @@ impl IoBuffer {
 
     fn as_span(&self) -> Span<'_> {
         Span::from(self)
-    }
-}
-
-impl<'top> From<&'top IoBuffer> for Span<'top> {
-    fn from(io_buffer: &'top IoBuffer) -> Self {
-        Span::with_offset(io_buffer.stream_position(), io_buffer.bytes())
     }
 }
 

@@ -587,9 +587,6 @@ pub trait LazyRawContainer<'top, D: Decoder> {
 pub trait LazyRawValue<'top, D: Decoder>:
     HasSpan<'top> + RawValueLiteral + Copy + Clone + Debug + Sized
 {
-    type WithLifetime<'new>: LazyRawValue<'new, D>
-    where
-        Self: 'new;
     fn ion_type(&self) -> IonType;
     fn is_null(&self) -> bool;
 

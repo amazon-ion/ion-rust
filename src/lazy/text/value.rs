@@ -169,11 +169,6 @@ impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextValue<'top, E> {
 }
 
 impl<'top, E: TextEncoding> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
-    type WithLifetime<'new>
-        = LazyRawTextValue<'new, E>
-    where
-        Self: 'new;
-
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }

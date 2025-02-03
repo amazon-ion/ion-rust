@@ -90,7 +90,7 @@ pub mod template;
 //  happens to be available in the buffer OR the set that leads up to the next encoding directive.
 //  The value proposition of being able to lazily explore multiple top level values concurrently
 //  would need to be proved out first.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EncodingContext {
     pub(crate) macro_table: Rc<MacroTable>,
     pub(crate) symbol_table: Rc<SymbolTable>,
