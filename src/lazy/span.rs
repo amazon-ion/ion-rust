@@ -1,4 +1,5 @@
 use crate::lazy::binary::raw::v1_1::binary_buffer::BinaryBuffer;
+use crate::lazy::streaming_raw_reader::IoBuffer;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::result::IonFailure;
 use crate::{IonError, IonResult};
@@ -83,6 +84,15 @@ impl<'a> From<TextBuffer<'a>> for Span<'a> {
         Span {
             bytes: value.bytes(),
             offset: value.offset(),
+        }
+    }
+}
+
+impl<'a> From<&'a IoBuffer> for Span<'a> {
+    fn from(value: &'a IoBuffer) -> Self {
+        Span {
+            bytes: value.bytes(),
+            offset: value.stream_position(),
         }
     }
 }

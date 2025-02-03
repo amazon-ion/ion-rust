@@ -107,11 +107,6 @@ impl HasRange for LazyRawBinaryValue_1_0<'_> {
 }
 
 impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
-    type WithLifetime<'new>
-        = LazyRawBinaryValue_1_0<'new>
-    where
-        Self: 'new;
-
     fn ion_type(&self) -> IonType {
         self.ion_type()
     }

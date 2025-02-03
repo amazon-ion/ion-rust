@@ -1016,11 +1016,6 @@ impl HasRange for LazyRawAnyValue<'_> {
 }
 
 impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
-    type WithLifetime<'new>
-        = LazyRawAnyValue<'new>
-    where
-        Self: 'new;
-
     fn ion_type(&self) -> IonType {
         use LazyRawValueKind::*;
         match &self.encoding {
