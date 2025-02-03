@@ -1107,7 +1107,7 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
         }
     }
 
-    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+    fn with_backing_data(&self, span: Span<'top>) -> Self {
         Self {
             encoding: match &self.encoding {
                 LazyRawValueKind::Text_1_0(v) => {

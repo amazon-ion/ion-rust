@@ -288,7 +288,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
 
-    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+    fn with_backing_data(&self, span: Span<'top>) -> Self {
         let buffer =
             BinaryBuffer::new_with_offset(self.input.context(), span.bytes(), span.offset());
         let allocator = self.input.context().allocator();

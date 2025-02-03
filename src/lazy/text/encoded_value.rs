@@ -11,7 +11,7 @@ use crate::IonType;
 /// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
 /// without re-parsing its header information each time.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct EncodedTextValue<'top, E: TextEncoding<'top>> {
+pub struct EncodedTextValue<'top, E: TextEncoding> {
     // Each encoded text value has up to three components, appearing in the following order:
     //
     //     [annotations? | data ]
@@ -40,7 +40,7 @@ pub struct EncodedTextValue<'top, E: TextEncoding<'top>> {
     matched_value: MatchedValue<'top, E>,
 }
 
-impl<'top, E: TextEncoding<'top>> EncodedTextValue<'top, E> {
+impl<'top, E: TextEncoding> EncodedTextValue<'top, E> {
     pub(crate) fn new(matched_value: MatchedValue<'top, E>) -> EncodedTextValue<'top, E> {
         EncodedTextValue {
             data_offset: 0,

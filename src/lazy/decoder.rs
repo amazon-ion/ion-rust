@@ -605,7 +605,7 @@ pub trait LazyRawValue<'top, D: Decoder>:
 
     fn value_span(&self) -> Span<'top>;
 
-    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b>;
+    fn with_backing_data(&self, span: Span<'top>) -> Self;
 }
 
 pub trait RawSequenceIterator<'top, D: Decoder>:

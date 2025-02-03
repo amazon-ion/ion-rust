@@ -44,7 +44,7 @@ use winnow::ascii::{digit0, digit1};
 /// to an `EncodedTextValue`.
 macro_rules! scalar_value_matchers {
     ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
-        $(fn $new_parser<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
+        $(fn $new_parser<E: TextEncoding>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
             $parser.map(|matched| EncodedTextValue::new(MatchedValue::$variant(matched))).parse_next(self)
         })*
     };
@@ -377,7 +377,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an Ion version marker (e.g. `$ion_1_0` or `$ion_1_1`.)
-    pub fn match_ivm<E: TextEncoding<'top>>(
+    pub fn match_ivm<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, LazyRawTextVersionMarker<'top, E>> {
         let ((matched_major, matched_minor), matched_marker) = terminated(
@@ -470,14 +470,14 @@ impl<'top> TextBuffer<'top> {
     }
 
     #[inline]
-    pub(crate) fn apply_annotations<E: TextEncoding<'top>>(
+    pub(crate) fn apply_annotations<E: TextEncoding>(
         &self,
         maybe_annotations: Option<TextBuffer<'top>>,
         mut value: LazyRawTextValue<'top, E>,
     ) -> LazyRawTextValue<'top, E> {
         // This is a separately defined function so the common case (no annotations) is more readily
         // inlined.
-        fn full_apply_annotations<'t, T: TextEncoding<'t>>(
+        fn full_apply_annotations<'t, T: TextEncoding>(
             input: &TextBuffer<'t>,
             annotations: &TextBuffer<'t>,
             value: &mut LazyRawTextValue<'t, T>,
@@ -503,7 +503,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value<E: TextEncoding<'top>>(
+    pub fn match_annotated_value<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, E::Value<'top>> {
         let input = *self;
@@ -583,7 +583,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches a single Ion 1.0 value.
-    pub fn match_value<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
+    pub fn match_value<E: TextEncoding>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
         use ValueTokenKind::*;
         dispatch! {
             |input: &mut TextBuffer<'top>| Ok(TEXT_ION_TOKEN_KINDS[input.peek_byte()? as usize]);
@@ -1455,7 +1455,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an operator symbol, which can only legally appear within an s-expression
-    pub(crate) fn match_operator<E: TextEncoding<'top>>(
+    pub(crate) fn match_operator<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
         one_or_more(one_of(b"!#%&*+-./;<=>?@^`|~"))
@@ -2010,8 +2010,8 @@ pub trait IonParser<'top, O>: Parser<TextBuffer<'top>, O, IonParseError<'top>> {
     // No additional functionality, this is just a trait alias
 }
 
-impl<'data, O, P> IonParser<'data, O> for P where
-    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>
+impl<'top, O, P> IonParser<'top, O> for P where
+    P: Parser<TextBuffer<'top>, O, IonParseError<'top>>
 {
 }
 

@@ -151,7 +151,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
 
-    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+    fn with_backing_data(&self, span: Span<'top>) -> Self {
         Self {
             encoded_value: self.encoded_value,
             input: BinaryBuffer::new_with_offset(span.bytes(), span.offset()),

@@ -21,12 +21,12 @@ use std::ops::Range;
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Copy, Clone)]
-pub struct LazyRawTextValue<'top, E: TextEncoding<'top>> {
+pub struct LazyRawTextValue<'top, E: TextEncoding> {
     pub(crate) encoded_value: EncodedTextValue<'top, E>,
     pub(crate) input: TextBuffer<'top>,
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
+impl<'top, E: TextEncoding> LazyRawTextValue<'top, E> {
     pub(crate) fn new(encoded_value: EncodedTextValue<'top, E>, input: TextBuffer<'top>) -> Self {
         Self {
             encoded_value,
@@ -35,7 +35,7 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
+impl<'top, E: TextEncoding> LazyRawTextValue<'top, E> {
     pub fn data_range(&self) -> Range<usize> {
         // If the matched value has annotations, the `data_offset` will be the offset beyond
         // the annotations at which the value's data begins.
@@ -78,7 +78,7 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct LazyRawTextVersionMarker<'top, E: TextEncoding<'top>> {
+pub struct LazyRawTextVersionMarker<'top, E: TextEncoding> {
     major: u8,
     minor: u8,
     input: TextBuffer<'top>,
@@ -88,7 +88,7 @@ pub struct LazyRawTextVersionMarker<'top, E: TextEncoding<'top>> {
     spooky: PhantomData<E>,
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawTextVersionMarker<'top, E> {
+impl<'top, E: TextEncoding> LazyRawTextVersionMarker<'top, E> {
     pub fn new(input: TextBuffer<'top>, major: u8, minor: u8) -> LazyRawTextVersionMarker<'top, E> {
         Self {
             major,
@@ -102,19 +102,19 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextVersionMarker<'top, E> {
 pub type LazyRawTextVersionMarker_1_0<'top> = LazyRawTextVersionMarker<'top, TextEncoding_1_0>;
 pub type LazyRawTextVersionMarker_1_1<'top> = LazyRawTextVersionMarker<'top, TextEncoding_1_1>;
 
-impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextVersionMarker<'top, E> {
+impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextVersionMarker<'top, E> {
     fn span(&self) -> Span<'top> {
         Span::with_offset(self.input.offset(), self.input.bytes())
     }
 }
 
-impl<'top, E: TextEncoding<'top>> HasRange for LazyRawTextVersionMarker<'top, E> {
+impl<'top, E: TextEncoding> HasRange for LazyRawTextVersionMarker<'top, E> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
 }
 
-impl<'top, E: TextEncoding<'top>> RawVersionMarker<'top> for LazyRawTextVersionMarker<'top, E> {
+impl<'top, E: TextEncoding> RawVersionMarker<'top> for LazyRawTextVersionMarker<'top, E> {
     fn major_minor(&self) -> (u8, u8) {
         (self.major, self.minor)
     }
@@ -127,7 +127,7 @@ impl<'top, E: TextEncoding<'top>> RawVersionMarker<'top> for LazyRawTextVersionM
 pub type LazyRawTextValue_1_0<'top> = LazyRawTextValue<'top, TextEncoding_1_0>;
 pub type LazyRawTextValue_1_1<'top> = LazyRawTextValue<'top, TextEncoding_1_1>;
 
-impl<'top, E: TextEncoding<'top>> Debug for LazyRawTextValue<'top, E> {
+impl<'top, E: TextEncoding> Debug for LazyRawTextValue<'top, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", E::name())?;
 
@@ -150,13 +150,13 @@ impl<'top, E: TextEncoding<'top>> Debug for LazyRawTextValue<'top, E> {
 // These trait impls are common to all Ion versions, but require the caller to specify a type
 // parameter.
 
-impl<'top, E: TextEncoding<'top>> HasRange for LazyRawTextValue<'top, E> {
+impl<'top, E: TextEncoding> HasRange for LazyRawTextValue<'top, E> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
 }
 
-impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
+impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextValue<'top, E> {
     fn span(&self) -> Span<'top> {
         Span::with_offset(self.input.offset(), self.input.bytes())
         /*
@@ -168,7 +168,7 @@ impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
+impl<'top, E: TextEncoding> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
     type WithLifetime<'new>
         = LazyRawTextValue<'new, E>
     where
@@ -231,7 +231,7 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
         self.value_span() // Inherent impl
     }
 
-    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+    fn with_backing_data(&self, span: Span<'top>) -> Self {
         Self {
             encoded_value: self.encoded_value,
             input: TextBuffer::new_with_offset(
