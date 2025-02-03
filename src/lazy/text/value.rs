@@ -3,7 +3,6 @@
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
-use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBuffer;
@@ -170,18 +169,10 @@ impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
 }
 
 impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
-    fn new(
-        context: EncodingContextRef<'top>,
-        encoded_value: E::EncodedValue<'top>,
-        span: impl Into<Span<'top>>,
-    ) -> Self {
-        let span: Span<'top> = span.into();
-        let input = TextBuffer::new_with_offset(context, span.bytes(), span.offset(), true);
-        Self {
-            encoded_value,
-            input,
-        }
-    }
+    type WithLifetime<'new>
+        = LazyRawTextValue<'new, E>
+    where
+        Self: 'new;
 
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
@@ -238,6 +229,18 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
 
     fn value_span(&self) -> Span<'top> {
         self.value_span() // Inherent impl
+    }
+
+    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+        Self {
+            encoded_value: self.encoded_value,
+            input: TextBuffer::new_with_offset(
+                self.input.context(),
+                span.bytes(),
+                span.offset(),
+                true,
+            ),
+        }
     }
 }
 

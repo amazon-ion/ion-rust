@@ -57,7 +57,7 @@ use crate::lazy::text::value::{
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
 };
 use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0, SYSTEM_SYMBOLS_1_1};
-use crate::{try_next, v1_0, v1_1, Encoding, IonResult, IonType, RawStreamItem, RawSymbolRef};
+use crate::{try_next, Encoding, IonResult, IonType, RawStreamItem, RawSymbolRef};
 use std::fmt::Debug;
 use std::ops::Range;
 
@@ -75,7 +75,6 @@ impl Decoder for AnyEncoding {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_0;
     type Reader<'data> = LazyRawAnyReader<'data>;
     type Value<'top> = LazyRawAnyValue<'top>;
-    type EncodedValue<'top> = RawAnyEncodedValue<'top>;
     type SExp<'top> = LazyRawAnySExp<'top>;
     type List<'top> = LazyRawAnyList<'top>;
     type Struct<'top> = LazyRawAnyStruct<'top>;
@@ -83,13 +82,6 @@ impl Decoder for AnyEncoding {
     type AnnotationsIterator<'top> = RawAnyAnnotationsIterator<'top>;
     type EExp<'top> = LazyRawAnyEExpression<'top>;
     type VersionMarker<'top> = LazyRawAnyVersionMarker<'top>;
-}
-
-pub enum RawAnyEncodedValue<'top> {
-    Text_1_0(<v1_0::Text as Decoder>::EncodedValue<'top>),
-    Binary_1_0(<v1_0::Binary as Decoder>::EncodedValue<'top>),
-    Text_1_1(<v1_1::Text as Decoder>::EncodedValue<'top>),
-    Binary_1_1(<v1_1::Binary as Decoder>::EncodedValue<'top>),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1024,35 +1016,10 @@ impl HasRange for LazyRawAnyValue<'_> {
 }
 
 impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
-    fn new(
-        context: EncodingContextRef<'top>,
-        encoded: <AnyEncoding as Decoder>::EncodedValue<'top>,
-        span: impl Into<Span<'top>>,
-    ) -> Self {
-        use RawAnyEncodedValue::*;
-        match encoded {
-            Text_1_0(encoded_value) => <LazyRawTextValue_1_0<'top> as LazyRawValue<
-                'top,
-                v1_0::Text,
-            >>::new(context, encoded_value, span)
-            .into(),
-            Binary_1_0(encoded_value) => <LazyRawBinaryValue_1_0<'top> as LazyRawValue<
-                'top,
-                v1_0::Binary,
-            >>::new(context, encoded_value, span)
-            .into(),
-            Text_1_1(encoded_value) => <LazyRawTextValue_1_1<'top> as LazyRawValue<
-                'top,
-                v1_1::Text,
-            >>::new(context, encoded_value, span)
-            .into(),
-            Binary_1_1(encoded_value) => <&'top LazyRawBinaryValue_1_1<'top> as LazyRawValue<
-                'top,
-                v1_1::Binary,
-            >>::new(context, encoded_value, span)
-            .into(),
-        }
-    }
+    type WithLifetime<'new>
+        = LazyRawAnyValue<'new>
+    where
+        Self: 'new;
 
     fn ion_type(&self) -> IonType {
         use LazyRawValueKind::*;
@@ -1137,6 +1104,25 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             LazyRawValueKind::Binary_1_0(v) => v.value_span(),
             LazyRawValueKind::Text_1_1(v) => v.value_span(),
             LazyRawValueKind::Binary_1_1(v) => v.value_span(),
+        }
+    }
+
+    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+        Self {
+            encoding: match &self.encoding {
+                LazyRawValueKind::Text_1_0(v) => {
+                    LazyRawValueKind::Text_1_0(v.with_backing_data(span))
+                }
+                LazyRawValueKind::Binary_1_0(v) => {
+                    LazyRawValueKind::Binary_1_0(v.with_backing_data(span))
+                }
+                LazyRawValueKind::Text_1_1(v) => {
+                    LazyRawValueKind::Text_1_1(v.with_backing_data(span))
+                }
+                LazyRawValueKind::Binary_1_1(v) => {
+                    LazyRawValueKind::Binary_1_1(v.with_backing_data(span))
+                }
+            },
         }
     }
 }

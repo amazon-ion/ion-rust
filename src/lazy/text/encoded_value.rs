@@ -48,6 +48,16 @@ impl<'top, E: TextEncoding<'top>> EncodedTextValue<'top, E> {
         }
     }
 
+    pub(crate) fn with_offset(
+        offset: u16,
+        matched_value: MatchedValue<'top, E>,
+    ) -> EncodedTextValue<'top, E> {
+        EncodedTextValue {
+            data_offset: offset,
+            matched_value,
+        }
+    }
+
     // The annotations should include all of the symbol tokens, their delimiting '::'s, and any
     // interstitial or trailing whitespace. It should not include any leading whitespace or the
     // value itself.

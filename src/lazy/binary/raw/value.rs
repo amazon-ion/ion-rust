@@ -16,7 +16,6 @@ use crate::lazy::binary::raw::sequence::{
 use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::decoder::{HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::BinaryEncoding_1_0;
-use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
@@ -108,18 +107,10 @@ impl HasRange for LazyRawBinaryValue_1_0<'_> {
 }
 
 impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
-    fn new(
-        _context: EncodingContextRef<'top>,
-        encoded_value: <BinaryEncoding_1_0 as Decoder>::EncodedValue<'top>,
-        span: impl Into<Span<'top>>,
-    ) -> Self {
-        let span: Span<'top> = span.into();
-        let input = BinaryBuffer::new_with_offset(span.bytes(), span.offset());
-        Self {
-            encoded_value,
-            input,
-        }
-    }
+    type WithLifetime<'new>
+        = LazyRawBinaryValue_1_0<'new>
+    where
+        Self: 'new;
 
     fn ion_type(&self) -> IonType {
         self.ion_type()
@@ -158,6 +149,13 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
         let range = self.encoded_value.unannotated_value_range();
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
+    }
+
+    fn with_backing_data<'a: 'b, 'b>(&'a self, span: Span<'b>) -> Self::WithLifetime<'b> {
+        Self {
+            encoded_value: self.encoded_value,
+            input: BinaryBuffer::new_with_offset(span.bytes(), span.offset()),
+        }
     }
 }
 
