@@ -13,13 +13,13 @@ use winnow::combinator::{alt, peek, terminated};
 use winnow::Parser;
 
 #[derive(Clone, Copy, Debug)]
-pub struct RawTextStructIterator<'top, E: TextEncoding<'top>> {
+pub struct RawTextStructIterator<'top, E: TextEncoding> {
     input: TextBuffer<'top>,
     has_returned_error: bool,
     spooky: PhantomData<E>,
 }
 
-impl<'top, E: TextEncoding<'top>> RawTextStructIterator<'top, E> {
+impl<'top, E: TextEncoding> RawTextStructIterator<'top, E> {
     pub fn new(input: TextBuffer<'top>) -> Self {
         Self {
             input,
@@ -29,7 +29,7 @@ impl<'top, E: TextEncoding<'top>> RawTextStructIterator<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructIterator<'top, E> {
+impl<'top, E: TextEncoding> Iterator for RawTextStructIterator<'top, E> {
     type Item = IonResult<LazyRawFieldExpr<'top, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -62,7 +62,7 @@ impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructIterator<'top, E> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct LazyRawTextFieldName<'top, E: TextEncoding<'top>> {
+pub struct LazyRawTextFieldName<'top, E: TextEncoding> {
     matched: MatchedFieldName<'top>,
     // XXX: Ion 1.0 and 1.1 use the same syntax for field names.
     // This type is generic over the encoding because if it is not, the user must manually
@@ -71,7 +71,7 @@ pub struct LazyRawTextFieldName<'top, E: TextEncoding<'top>> {
     spooky: PhantomData<E>,
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawTextFieldName<'top, E> {
+impl<'top, E: TextEncoding> LazyRawTextFieldName<'top, E> {
     pub(crate) fn new(matched: MatchedFieldName<'top>) -> Self {
         Self {
             matched,
@@ -80,13 +80,13 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextFieldName<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextFieldName<'top, E> {
+impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextFieldName<'top, E> {
     fn span(&self) -> Span<'top> {
         self.matched.span()
     }
 }
 
-impl<'top, E: TextEncoding<'top>> HasRange for LazyRawTextFieldName<'top, E> {
+impl<'top, E: TextEncoding> HasRange for LazyRawTextFieldName<'top, E> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }
