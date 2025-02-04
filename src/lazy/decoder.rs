@@ -46,6 +46,10 @@ impl HasRange for Range<usize> {
     }
 }
 
+pub trait HasLocation {
+    fn location(&self) -> (usize, usize);
+}
+
 /// A family of types that collectively comprise the lazy reader API for an Ion serialization
 /// format. These types operate at the 'raw' level; they do not attempt to resolve symbols
 /// using the active symbol table.
@@ -480,6 +484,9 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// a comment, or whitespace that the reader will traverse as part of matching the next item.
     fn position(&self) -> usize;
 
+    fn row(&self) -> usize;
+
+    fn prev_newline_offset(&self) -> usize;
     /// The Ion encoding of the stream that the reader has been processing.
     ///
     /// Note that:
@@ -584,7 +591,7 @@ pub trait LazyRawContainer<'top, D: Decoder> {
 }
 
 pub trait LazyRawValue<'top, D: Decoder>:
-    HasSpan<'top> + RawValueLiteral + Copy + Clone + Debug + Sized
+    HasSpan<'top> + HasLocation + RawValueLiteral + Copy + Clone + Debug + Sized
 {
     fn ion_type(&self) -> IonType;
     fn is_null(&self) -> bool;
@@ -600,6 +607,8 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn annotations_span(&self) -> Span<'top>;
 
     fn value_span(&self) -> Span<'top>;
+
+    fn value_location(&self) -> (usize, usize);
 }
 
 pub trait RawSequenceIterator<'top, D: Decoder>:
