@@ -130,25 +130,27 @@ impl<'top> TextBuffer<'top> {
         data: &'top [u8],
         is_final_data: bool,
     ) -> TextBuffer<'top> {
-        Self::new_with_offset(context, data, 0, is_final_data)
+        Self::new_with_offset_and_location(context, data, 0, 1, 0, is_final_data)
     }
 
     /// Constructs a new `TextBuffer` that wraps `data`, setting the view's `offset` to the
     /// specified value. This is useful when `data` is a slice from the middle of a larger stream.
     /// Note that `offset` is the index of the larger stream at which `data` begins and not an
     /// offset _into_ `data`.
-    pub fn new_with_offset(
+    pub fn new_with_offset_and_location(
         context: EncodingContextRef<'top>,
         data: &'top [u8],
         offset: usize,
+        row: usize,
+        prev_newline_offset: usize,
         is_final_data: bool,
     ) -> TextBuffer<'top> {
         TextBuffer {
             context,
             data,
             offset,
-            row: 1,
-            prev_newline_offset: 0,
+            row,
+            prev_newline_offset,
             is_final_data,
         }
     }
@@ -787,10 +789,12 @@ impl<'top> TextBuffer<'top> {
                 .map(|arg| arg.expr().range().end)
                 .unwrap_or(self.offset);
             for parameter in &parameters[arg_expr_cache.len()..] {
-                let buffer = TextBuffer::new_with_offset(
+                let buffer = TextBuffer::new_with_offset_and_location(
                     self.context,
                     EMPTY_ARG_TEXT.as_bytes(),
                     last_explicit_arg_end,
+                    self.row,
+                    self.prev_newline_offset,
                     self.is_final_data(),
                 );
                 arg_expr_cache.push(EExpArg::new(
