@@ -14,7 +14,7 @@ use crate::lazy::binary::raw::sequence::{
     LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, LazyRawBinarySequence_1_0,
 };
 use crate::lazy::binary::raw::type_descriptor::Header;
-use crate::lazy::decoder::{HasRange, HasSpan, LazyRawValue, RawVersionMarker};
+use crate::lazy::decoder::{HasLocation, HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -100,6 +100,12 @@ impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_0<'top> {
     }
 }
 
+impl HasLocation for LazyRawBinaryValue_1_0<'_> {
+    fn location(&self) -> (usize, usize) {
+        self.value_location()
+    }
+}
+
 impl HasRange for LazyRawBinaryValue_1_0<'_> {
     fn range(&self) -> Range<usize> {
         self.encoded_value.annotated_value_range()
@@ -144,6 +150,10 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
         let range = self.encoded_value.unannotated_value_range();
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
+    }
+
+    fn value_location(&self) -> (usize, usize) {
+        (0, 0)
     }
 }
 

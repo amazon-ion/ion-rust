@@ -25,7 +25,7 @@ use crate::lazy::binary::raw::v1_1::RawBinaryAnnotationsIterator_1_1;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
-    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
+    Decoder, HasLocation, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr, RawValueExpr,
     RawVersionMarker,
 };
@@ -599,7 +599,7 @@ impl<'data> From<LazyRawBinaryReader_1_1<'data>> for LazyRawAnyReader<'data> {
 impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self {
         let encoding = Self::detect_encoding(data);
-        let state = RawReaderState::new(data, 0, is_final_data, encoding);
+        let state = RawReaderState::new(data, 0, 0, 0, is_final_data, encoding);
         LazyRawAnyReader {
             new_encoding: None,
             encoding_reader: RawReaderKind::resume_at_offset(context, state),
@@ -636,6 +636,8 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
             return RawReaderState::new(
                 reader_state.data(),
                 reader_state.offset(),
+                reader_state.row(),
+                reader_state.prev_newline_offset(),
                 reader_state.is_final_data(),
                 new_encoding,
             );
@@ -684,6 +686,26 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
             Binary_1_0(r) => r.position(),
             Text_1_1(r) => r.position(),
             Binary_1_1(r) => r.position(),
+        }
+    }
+
+    fn row(&self) -> usize {
+        use RawReaderKind::*;
+        match &self.encoding_reader {
+            Text_1_0(r) => r.row(),
+            Binary_1_0(r) => r.row(),
+            Text_1_1(r) => r.row(),
+            Binary_1_1(r) => r.row(),
+        }
+    }
+
+    fn prev_newline_offset(&self) -> usize {
+        use RawReaderKind::*;
+        match &self.encoding_reader {
+            Text_1_0(r) => r.prev_newline_offset(),
+            Binary_1_0(r) => r.prev_newline_offset(),
+            Text_1_1(r) => r.prev_newline_offset(),
+            Binary_1_1(r) => r.prev_newline_offset(),
         }
     }
 
@@ -1003,6 +1025,17 @@ impl<'top> HasSpan<'top> for LazyRawAnyValue<'top> {
     }
 }
 
+impl HasLocation for LazyRawAnyValue<'_> {
+    fn location(&self) -> (usize, usize) {
+        match &self.encoding {
+            LazyRawValueKind::Text_1_0(v) => v.location(),
+            LazyRawValueKind::Binary_1_0(v) => v.location(),
+            LazyRawValueKind::Text_1_1(v) => v.location(),
+            LazyRawValueKind::Binary_1_1(v) => v.location(),
+        }
+    }
+}
+
 impl HasRange for LazyRawAnyValue<'_> {
     fn range(&self) -> Range<usize> {
         use LazyRawValueKind::*;
@@ -1099,6 +1132,15 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             LazyRawValueKind::Binary_1_0(v) => v.value_span(),
             LazyRawValueKind::Text_1_1(v) => v.value_span(),
             LazyRawValueKind::Binary_1_1(v) => v.value_span(),
+        }
+    }
+
+    fn value_location(&self) -> (usize, usize) {
+        match &self.encoding {
+            LazyRawValueKind::Text_1_0(v) => v.value_location(),
+            LazyRawValueKind::Binary_1_0(v) => v.value_location(),
+            LazyRawValueKind::Text_1_1(v) => v.value_location(),
+            LazyRawValueKind::Binary_1_1(v) => v.value_location(),
         }
     }
 }

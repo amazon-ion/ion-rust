@@ -24,6 +24,8 @@ pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
     // The absolute position of the reader within the overall stream. This is the index of the first
     // byte that has not yet been read.
     stream_position: usize,
+    row: usize,
+    prev_column_value: usize,
     // XXX: The `UnsafeCell` wrappers around the field below is a workaround for a limitation in
     //      rustc's borrow checker that prevents mutable references from being conditionally
     //      returned in a loop.
@@ -48,15 +50,26 @@ const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
 pub struct RawReaderState<'a> {
     data: &'a [u8],
     offset: usize,
+    row: usize,
+    prev_column_value: usize,
     is_final_data: bool,
     encoding: IonEncoding,
 }
 
 impl<'a> RawReaderState<'a> {
-    pub fn new(data: &'a [u8], offset: usize, is_final_data: bool, encoding: IonEncoding) -> Self {
+    pub fn new(
+        data: &'a [u8],
+        offset: usize,
+        row: usize,
+        prev_column_value: usize,
+        is_final_data: bool,
+        encoding: IonEncoding,
+    ) -> Self {
         Self {
             data,
             offset,
+            row,
+            prev_column_value,
             is_final_data,
             encoding,
         }
@@ -72,6 +85,14 @@ impl<'a> RawReaderState<'a> {
 
     pub fn offset(&self) -> usize {
         self.offset
+    }
+
+    pub fn row(&self) -> usize {
+        self.row
+    }
+
+    pub fn prev_newline_offset(&self) -> usize {
+        self.prev_column_value
     }
 
     pub fn encoding(&self) -> IonEncoding {
@@ -91,6 +112,8 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             detected_encoding: Encoding::INITIAL_ENCODING_EXPECTED,
             input: input.into_data_source().into(),
             stream_position: 0,
+            row: 1,
+            prev_column_value: 0,
         }
     }
 
@@ -150,6 +173,8 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             let state = RawReaderState::new(
                 available_bytes,
                 self.stream_position,
+                self.row,
+                self.prev_column_value,
                 input_source_exhausted,
                 self.encoding(),
             );
@@ -164,6 +189,8 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 
             let new_encoding = slice_reader.encoding();
             let end_position = slice_reader.position();
+            let row = slice_reader.row();
+            let prev_column_value = slice_reader.prev_newline_offset();
 
             let bytes_read = end_position - starting_position;
 
@@ -236,6 +263,8 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                     // Update the streaming reader's position to reflect the number of bytes we
                     // just read.
                     self.stream_position = end_position;
+                    self.row = row;
+                    self.prev_column_value = prev_column_value;
                     // If the item read was an IVM, this will be a new value.
                     self.detected_encoding = new_encoding;
                 }

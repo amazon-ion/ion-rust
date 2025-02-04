@@ -1,7 +1,9 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValue, RawVersionMarker};
+use crate::lazy::decoder::{
+    Decoder, HasLocation, HasRange, HasSpan, LazyRawValue, RawVersionMarker,
+};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -68,6 +70,14 @@ impl<'top, E: TextEncoding<'top>> LazyRawTextValue<'top, E> {
         let start = self.encoded_value.data_offset();
         let bytes = &self.input.bytes()[start..];
         Span::with_offset(start, bytes)
+    }
+
+    fn value_row(&self) -> usize {
+        self.input.row()
+    }
+
+    fn value_column(&self) -> usize {
+        self.input.column()
     }
 
     /// Returns the total number of bytes used to represent the current value, including its
@@ -168,6 +178,12 @@ impl<'top, E: TextEncoding<'top>> HasSpan<'top> for LazyRawTextValue<'top, E> {
     }
 }
 
+impl<'top, E: TextEncoding<'top>> HasLocation for LazyRawTextValue<'top, E> {
+    fn location(&self) -> (usize, usize) {
+        (self.value_row(), self.value_column())
+    }
+}
+
 impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
@@ -224,6 +240,10 @@ impl<'top, E: TextEncoding<'top>> LazyRawValue<'top, E> for LazyRawTextValue<'to
 
     fn value_span(&self) -> Span<'top> {
         self.value_span() // Inherent impl
+    }
+
+    fn value_location(&self) -> (usize, usize) {
+        (self.input.row(), self.input.column())
     }
 }
 

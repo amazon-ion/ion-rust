@@ -38,16 +38,18 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
     fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self {
         Self::resume(
             context,
-            RawReaderState::new(data, 0, is_final_data, IonEncoding::Text_1_1),
+            RawReaderState::new(data, 0, 0, 0, is_final_data, IonEncoding::Text_1_1),
         )
     }
 
     fn resume(context: EncodingContextRef<'data>, saved_state: RawReaderState<'data>) -> Self {
         LazyRawTextReader_1_1 {
-            input: TextBuffer::new_with_offset(
+            input: TextBuffer::new_with_offset_and_location(
                 context,
                 saved_state.data(),
                 saved_state.offset(),
+                saved_state.row(),
+                saved_state.prev_newline_offset(),
                 saved_state.is_final_data(),
             ),
         }
@@ -57,6 +59,8 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
         RawReaderState::new(
             self.input.bytes(),
             self.position(),
+            self.row(),
+            self.input.prev_newline_offset(),
             self.input.is_final_data(),
             self.encoding(),
         )
@@ -96,6 +100,14 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
 
     fn position(&self) -> usize {
         self.input.offset()
+    }
+
+    fn row(&self) -> usize {
+        self.input.row()
+    }
+
+    fn prev_newline_offset(&self) -> usize {
+        self.input.prev_newline_offset()
     }
 
     fn encoding(&self) -> IonEncoding {
