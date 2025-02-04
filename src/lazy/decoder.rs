@@ -481,6 +481,9 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// a comment, or whitespace that the reader will traverse as part of matching the next item.
     fn position(&self) -> usize;
 
+    fn row(&self) -> usize;
+
+    fn prev_newline_offset(&self) -> usize;
     /// The Ion encoding of the stream that the reader has been processing.
     ///
     /// Note that:
