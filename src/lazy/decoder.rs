@@ -542,7 +542,7 @@ impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_0<W> {
 fn transcribe_raw_binary_to_text<
     'a,
     W: Write + 'a,
-    InputEncoding: BinaryEncoding<'a>,
+    InputEncoding: BinaryEncoding,
     Reader: LazyRawReader<'a, InputEncoding>,
     Writer: LazyRawWriter<W>,
 >(

@@ -313,6 +313,11 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
     fn stream_bytes(&self) -> &[u8] {
         self.source.as_ref()
     }
+
+    #[inline]
+    pub fn stream_span(&self) -> Span<'_> {
+        Span::with_offset(0, self.source.as_ref())
+    }
 }
 
 impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {

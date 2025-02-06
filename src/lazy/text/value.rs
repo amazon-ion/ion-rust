@@ -21,13 +21,16 @@ use std::ops::Range;
 /// includes a text definition for these items whenever one exists, see
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Copy, Clone)]
-pub struct LazyRawTextValue<'top, E: TextEncoding> {
-    pub(crate) encoded_value: EncodedTextValue<'top, E>,
+pub struct LazyRawTextValue<'top, Encoding: TextEncoding> {
+    pub(crate) encoded_value: EncodedTextValue<'top, Encoding>,
     pub(crate) input: TextBuffer<'top>,
 }
 
-impl<'top, E: TextEncoding> LazyRawTextValue<'top, E> {
-    pub(crate) fn new(encoded_value: EncodedTextValue<'top, E>, input: TextBuffer<'top>) -> Self {
+impl<'top, Encoding: TextEncoding> LazyRawTextValue<'top, Encoding> {
+    pub(crate) fn new(
+        encoded_value: EncodedTextValue<'top, Encoding>,
+        input: TextBuffer<'top>,
+    ) -> Self {
         Self {
             encoded_value,
             input,
@@ -35,7 +38,7 @@ impl<'top, E: TextEncoding> LazyRawTextValue<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding> LazyRawTextValue<'top, E> {
+impl<'top, Encoding: TextEncoding> LazyRawTextValue<'top, Encoding> {
     pub fn data_range(&self) -> Range<usize> {
         // If the matched value has annotations, the `data_offset` will be the offset beyond
         // the annotations at which the value's data begins.
@@ -127,9 +130,9 @@ impl<'top, E: TextEncoding> RawVersionMarker<'top> for LazyRawTextVersionMarker<
 pub type LazyRawTextValue_1_0<'top> = LazyRawTextValue<'top, TextEncoding_1_0>;
 pub type LazyRawTextValue_1_1<'top> = LazyRawTextValue<'top, TextEncoding_1_1>;
 
-impl<'top, E: TextEncoding> Debug for LazyRawTextValue<'top, E> {
+impl<'top, Encoding: TextEncoding> Debug for LazyRawTextValue<'top, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", E::name())?;
+        write!(f, "{}", Encoding::name())?;
 
         // Try to read the value
         match self.read() {
@@ -150,25 +153,21 @@ impl<'top, E: TextEncoding> Debug for LazyRawTextValue<'top, E> {
 // These trait impls are common to all Ion versions, but require the caller to specify a type
 // parameter.
 
-impl<'top, E: TextEncoding> HasRange for LazyRawTextValue<'top, E> {
+impl<'top, Encoding: TextEncoding> HasRange for LazyRawTextValue<'top, Encoding> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
 }
 
-impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextValue<'top, E> {
+impl<'top, Encoding: TextEncoding> HasSpan<'top> for LazyRawTextValue<'top, Encoding> {
     fn span(&self) -> Span<'top> {
         Span::with_offset(self.input.offset(), self.input.bytes())
-        /*
-        let range = self.range();
-        let input_offset = self.input.offset();
-        let local_range = (range.start - input_offset)..(range.end - input_offset);
-        Span::with_offset(range.start, &self.input.bytes()[local_range])
-        */
     }
 }
 
-impl<'top, E: TextEncoding> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> {
+impl<'top, Encoding: TextEncoding> LazyRawValue<'top, Encoding>
+    for LazyRawTextValue<'top, Encoding>
+{
     fn ion_type(&self) -> IonType {
         self.encoded_value.ion_type()
     }
@@ -185,7 +184,7 @@ impl<'top, E: TextEncoding> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> 
         self.has_annotations() // Inherent impl
     }
 
-    fn annotations(&self) -> <E as Decoder>::AnnotationsIterator<'top> {
+    fn annotations(&self) -> <Encoding as Decoder>::AnnotationsIterator<'top> {
         let range = self
             .encoded_value
             .annotations_range()
@@ -194,7 +193,7 @@ impl<'top, E: TextEncoding> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> 
         RawTextAnnotationsIterator::new(annotations_bytes)
     }
 
-    fn read(&self) -> IonResult<RawValueRef<'top, E>> {
+    fn read(&self) -> IonResult<RawValueRef<'top, Encoding>> {
         // Get the value's matched input, skipping over any annotations
         let matched_input = self.input.slice_to_end(self.encoded_value.data_offset());
         let allocator = self.input.context.allocator();
@@ -211,9 +210,9 @@ impl<'top, E: TextEncoding> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> 
             Symbol(s) => RawValueRef::Symbol(s.read(allocator, matched_input)?),
             Blob(b) => RawValueRef::Blob(b.read(allocator, matched_input)?),
             Clob(c) => RawValueRef::Clob(c.read(allocator, matched_input)?),
-            List(_) => RawValueRef::List(E::List::<'top>::from_value(*self)),
-            SExp(_) => RawValueRef::SExp(E::SExp::<'top>::from_value(*self)),
-            Struct(_) => RawValueRef::Struct(E::Struct::from_value(*self)),
+            List(_) => RawValueRef::List(Encoding::List::<'top>::from_value(*self)),
+            SExp(_) => RawValueRef::SExp(Encoding::SExp::<'top>::from_value(*self)),
+            Struct(_) => RawValueRef::Struct(Encoding::Struct::from_value(*self)),
         };
         Ok(value_ref)
     }
@@ -229,12 +228,7 @@ impl<'top, E: TextEncoding> LazyRawValue<'top, E> for LazyRawTextValue<'top, E> 
     fn with_backing_data(&self, span: Span<'top>) -> Self {
         Self {
             encoded_value: self.encoded_value,
-            input: TextBuffer::new_with_offset(
-                self.input.context(),
-                span.bytes(),
-                span.offset(),
-                true,
-            ),
+            input: TextBuffer::from_span(self.input.context(), span, true),
         }
     }
 }
@@ -291,7 +285,7 @@ mod tests {
         fn test(input: &str) -> IonResult<()> {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let input = TextBuffer::new(context, input.as_bytes(), true);
+            let input = TextBuffer::new(context, input.as_bytes());
             let mut iter = RawTextAnnotationsIterator::new(input);
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("foo"));
             assert_eq!(iter.next().unwrap()?, RawSymbolRef::Text("bar"));

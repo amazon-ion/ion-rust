@@ -1,5 +1,5 @@
 use crate::lazy::decoder::Decoder;
-use crate::lazy::encoding::BinaryEncoding_1_0;
+use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1};
 use crate::lazy::expanded::{EncodingContextRef, ExpandedAnnotationsIterator, LazyExpandedValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
@@ -58,6 +58,18 @@ pub struct LazyValue<'top, D: Decoder> {
 }
 
 pub type LazyBinaryValue<'top> = LazyValue<'top, BinaryEncoding_1_0>;
+
+#[test]
+fn sizes() {
+    // print the size of LazyValue with various values of `D`
+
+    println!("bin 1.0 {}", size_of::<LazyValue<'_, BinaryEncoding_1_0>>());
+    println!("bin 1.1 {}", size_of::<LazyValue<'_, BinaryEncoding_1_1>>());
+    println!(
+        "ex bin 1.1 {}",
+        size_of::<LazyExpandedValue<'_, BinaryEncoding_1_0>>()
+    );
+}
 
 impl<'top, D: Decoder> LazyValue<'top, D> {
     pub(crate) fn new(expanded_value: LazyExpandedValue<'top, D>) -> LazyValue<'top, D> {
