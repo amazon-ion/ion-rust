@@ -52,10 +52,14 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
 
     pub(crate) fn as_lazy_value<'top>(&'top self) -> LazyValue<'top, Encoding> {
         let expanded: LazyExpandedValue<'top, Encoding> = match &self.source {
-            LazyElementSource::ValueLiteral(io_buffer, value) => {
-                let backing_span = Span::from(io_buffer);
+            LazyElementSource::ValueLiteral(io_buffer, raw_value) => {
+                let value_offset = raw_value.span().offset();
+                let local_offset = value_offset - io_buffer.stream_position();
+                let length = raw_value.span().len();
+                let bytes = &io_buffer.bytes()[local_offset..local_offset + length];
+                let backing_span = Span::with_offset(value_offset, bytes);
                 let raw_value: Encoding::Value<'top> =
-                    unsafe { set_lifetime::<'top, Encoding>(*value) };
+                    unsafe { set_lifetime::<'top, Encoding>(*raw_value) };
                 let raw_value = raw_value.with_backing_data(backing_span);
                 LazyExpandedValue::from_literal(self.context.get_ref(), raw_value)
             }
@@ -93,20 +97,20 @@ mod tests {
     #[test]
     fn try_it() -> IonResult<()> {
         let mut reader = Reader::new(AnyEncoding, "foo bar baz")?;
-        let mut lazy_elements = vec![];
+        let mut lazy_elements: Vec<LazyElement<AnyEncoding>> = vec![];
         while let Some(lazy_value) = reader.next()? {
-            let owned: LazyElement<_> = LazyElement::from(lazy_value);
-            lazy_elements.push(owned);
+            // let owned: LazyElement<_> = reader.save(lazy_value);
+            // lazy_elements.push(owned);
         }
         drop(reader);
 
         println!("# values: {}", lazy_elements.len());
-
-        for element in &lazy_elements {
-            let lazy_value = element.as_lazy_value();
-            let value = lazy_value.read().unwrap();
-            println!("{:?}", value);
-        }
+        //
+        // for element in &lazy_elements {
+        //     let lazy_value = element.as_lazy_value();
+        //     let value = lazy_value.read().unwrap();
+        //     println!("{:?}", value);
+        // }
 
         Ok(())
     }

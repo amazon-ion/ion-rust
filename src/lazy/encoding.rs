@@ -119,8 +119,8 @@ pub struct BinaryEncoding_1_0;
 #[derive(Copy, Clone, Debug, Default)]
 pub struct BinaryEncoding_1_1;
 
-impl BinaryEncoding<'_> for BinaryEncoding_1_0 {}
-impl BinaryEncoding<'_> for BinaryEncoding_1_1 {}
+impl BinaryEncoding for BinaryEncoding_1_0 {}
+impl BinaryEncoding for BinaryEncoding_1_1 {}
 
 /// The Ion 1.0 text encoding.
 #[derive(Copy, Clone, Debug, Default)]
@@ -242,7 +242,7 @@ impl Encoding for TextEncoding_1_1 {
 }
 
 /// Marker trait for binary encodings of any version.
-pub trait BinaryEncoding<'top>: Encoding<Output = Vec<u8>> + Decoder {}
+pub trait BinaryEncoding: Encoding<Output = Vec<u8>> + Decoder {}
 
 /// Marker trait for text encodings.
 pub trait TextEncoding:

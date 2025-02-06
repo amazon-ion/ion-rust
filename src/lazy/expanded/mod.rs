@@ -50,7 +50,6 @@ use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
 use crate::lazy::expanded::macro_table::{Macro, MacroTable, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
-use crate::lazy::expanded::saved_value::LazyElement;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
 use crate::lazy::r#struct::LazyStruct;
@@ -58,7 +57,7 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
-use crate::lazy::streaming_raw_reader::{IonInput, StreamingRawReader};
+use crate::lazy::streaming_raw_reader::{IoBuffer, IonInput, StreamingRawReader};
 use crate::lazy::system_reader::{PendingContextChanges, SystemReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
@@ -180,7 +179,7 @@ impl EncodingContext {
 
 #[derive(Debug, Copy, Clone)]
 pub struct EncodingContextRef<'top> {
-    context: &'top EncodingContext,
+    pub(crate) context: &'top EncodingContext,
 }
 
 impl<'top> EncodingContextRef<'top> {
@@ -528,6 +527,10 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         unsafe { &*self.raw_reader.get() }.encoding()
     }
 
+    pub fn save_buffer(&self) -> IoBuffer {
+        unsafe { &*self.raw_reader.get() }.save_buffer()
+    }
+
     /// Returns the next IVM, value, or system value as an `ExpandedStreamItem`.
     ///
     /// This path is less optimized than `next_system_item` because it needs to surface additional
@@ -843,12 +846,6 @@ impl<Encoding: Decoder> Debug for LazyExpandedValue<'_, Encoding> {
 }
 
 impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
-    pub fn save(&self) -> LazyElement<Encoding> {
-        // This only involves Rc increments
-        let _context = self.context().clone();
-        todo!()
-    }
-
     // If the provided e-expression can be resolved to a template macro that is eligible to back
     // a lazy value without first being evaluated, returns `Some(lazy_expanded_value)`.
     // To be eligible, the body of the template macro must be an Ion value literal that is not

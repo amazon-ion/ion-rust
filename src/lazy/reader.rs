@@ -8,7 +8,7 @@ use crate::lazy::system_reader::SystemReader;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
+use crate::{ExpandedValueSource, IonError, IonResult};
 
 /// An Ion reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -114,9 +114,16 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
 
-    pub fn save(&self, _value: LazyValue<'_, Encoding>) -> IonResult<LazyElement<Encoding>> {
-        // let _io_buffer = self.system_reader.expanding_reader.raw_reader().save_buffer();
-        todo!()
+    pub fn save(&self, value: LazyValue<'_, Encoding>) -> LazyElement<Encoding> {
+        let io_buffer = self.system_reader.expanding_reader.save_buffer();
+        match value.expanded().source() {
+            ExpandedValueSource::ValueLiteral(raw_value) => {
+                LazyElement::from_literal(value.expanded().context.context.clone(), io_buffer, raw_value)
+            }
+            ExpandedValueSource::SingletonEExp(_) => todo!(),
+            ExpandedValueSource::Template(_, _) => todo!(),
+            ExpandedValueSource::Constructed(_, _) => todo!(),
+        }
     }
 }
 
@@ -130,11 +137,11 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 }
 
+use crate::lazy::expanded::saved_value::LazyElement;
 use crate::lazy::{
     expanded::template::TemplateMacro,
     text::raw::v1_1::reader::MacroAddress,
 };
-use crate::lazy::expanded::saved_value::LazyElement;
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
