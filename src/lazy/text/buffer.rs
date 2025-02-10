@@ -283,9 +283,11 @@ impl<'top> TextBuffer<'top> {
             // Subtract the crlf_count from total count of all newline characters to get the correct number of newline match count.
             let newline_match_count = data.iter().filter(|b| NEWLINE_BYTES.contains(b)).count() - crlf_count;
 
-            // Gets index for the last occurrence of the newline byte and subtracts from the result length to get non newline bytes length
-            let last_index_newline_byte = data.iter().rposition(|b| NEWLINE_BYTES.contains(b)).unwrap_or(0);
-            let non_newline_match_length = data.len() - last_index_newline_byte - 1;
+            // Gets index for the last occurrence of the newline byte and subtracts from the result length to get non newline bytes length.
+            // Adding 1 to the index because we want to include everything after the newline -
+            // if newline is at index 5, we want to start counting from index 6 (5 + 1).
+            let last_index_newline_byte = data.iter().rposition(|b| NEWLINE_BYTES.contains(b)).map(|i| i + 1).unwrap_or(0);
+            let non_newline_match_length = data.len() - last_index_newline_byte;
             self.row += newline_match_count;
 
             // Stores this newline offset as previous newline offset for calculating column position since this has already been matched/parsed
@@ -2045,7 +2047,12 @@ impl<'data> Stream for TextBuffer<'data> {
     }
 
     fn reset(&mut self, checkpoint: &Self::Checkpoint) {
+        let current_row = self.row;
+        let prev_column_value = self.prev_newline_offset;
+
         *self = *checkpoint;
+        self.row = current_row;
+        self.prev_newline_offset = prev_column_value;
     }
 
     fn raw(&self) -> &dyn Debug {
@@ -2893,6 +2900,8 @@ mod tests {
     }
 
     #[rstest]
+    #[case::no_whitespace("", (1,1))]
+    #[case::whitespace_without_newlines("\t\t", (1,3))]
     #[case::newlines("\n\r", (3,1))]
     #[case::crlf("\r\n\r\n", (3,1))]
     #[case::mixed("\r\n\n\r\n", (4,1))]
@@ -2900,6 +2909,14 @@ mod tests {
     #[case::mix_tabs_and_newlines("\n\t\n", (3,1))]
     fn expect_whitespace(#[case] input: &str, #[case] expected_location: (usize, usize)) {
         MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_whitespace0), expected_location);
+    }
+
+    #[rstest]
+    #[case::no_whitespace("", (1,1))]
+    #[case::whitespace_with_inline_comment("//comment ", (1,11))]
+    #[case::whitespace_with_comment("/*comment*/ \n", (2,1))]
+    fn expect_whitespace_with_comment(#[case] input: &str, #[case] expected_location: (usize, usize)) {
+        MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_optional_comments_and_whitespace), expected_location);
     }
 
     #[test]
