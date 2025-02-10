@@ -215,7 +215,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Returns the row position for this buffer.
-    /// _Note: Row positions are calculated based on newline characters `\n` and `\r`._
+    /// _Note: Row positions are calculated based on newline characters `\n` and `\r`. `\r\n` together in this order is considered a single newline._
     pub fn row(&self) -> usize {
         self.row
     }
@@ -271,7 +271,7 @@ impl<'top> TextBuffer<'top> {
     pub fn match_whitespace1(&mut self) -> IonMatchResult<'top> {
         let result = take_while(1.., WHITESPACE_BYTES).parse_next(self)?;
         self.update_location_metadata(result.data);
-       Ok(*self)
+       Ok(result)
     }
 
     /// Updates the location metadata based on the matched whitespace bytes in the consumed buffer
@@ -289,13 +289,12 @@ impl<'top> TextBuffer<'top> {
             self.row += newline_match_count;
 
             // Stores this newline offset as previous newline offset for calculating column position since this has already been matched/parsed
-            if self.offset < non_newline_match_length {
+            self.prev_newline_offset = if self.offset < non_newline_match_length {
                 // this means that the input is not yet consumed hence get the input length + the current offset
-                self.prev_newline_offset = self.offset + data.len() - non_newline_match_length;
+                self.offset + data.len() - non_newline_match_length
             } else {
-                self.prev_newline_offset = self.offset - non_newline_match_length;
-
-            }
+                self.offset - non_newline_match_length
+            };
         }
     }
 
@@ -303,10 +302,11 @@ impl<'top> TextBuffer<'top> {
     pub fn match_whitespace0(&mut self) -> IonMatchResult<'top> {
         let result = take_while(0.., WHITESPACE_BYTES).parse_next(self)?;
         self.update_location_metadata(result.data);
-        Ok(*self)
+        Ok(result)
     }
 
     /// Matches any amount of contiguous comments and whitespace, including none.
+    #[inline]
     pub fn match_optional_comments_and_whitespace(&mut self) -> IonMatchResult<'top> {
         pub fn full_match_optional_comments_and_whitespace<'t>(
             input: &mut TextBuffer<'t>,
@@ -498,7 +498,6 @@ impl<'top> TextBuffer<'top> {
         )
             .map(|(maybe_annotations, value)| input.apply_annotations(maybe_annotations, value))
             .parse_next(self)
-        // let length = result.with_span().map(|(_output, consumed)| consumed.len());
     }
 
     /// Matches a struct field name. That is:
@@ -1641,8 +1640,6 @@ impl<'top> TextBuffer<'top> {
         let delimiter_head = delimiter.as_bytes()[0];
         // Whether we've encountered any escapes while looking for the delimiter
         let mut contained_escapes = false;
-        // This input may contain newline characters hence update the location metadata.
-        self.update_location_metadata(self.bytes());
         // The input left to search
         let mut remaining = *self;
         loop {
@@ -1650,7 +1647,7 @@ impl<'top> TextBuffer<'top> {
             // If the input doesn't contain one, this will return an `Incomplete`.
             // `match_text_until_escaped` does NOT include the delimiter byte in the match,
             // so `remaining_after_match` starts at the delimiter byte.
-            let (_matched_input, segment_contained_escapes) =
+            let (matched_input_buffer, segment_contained_escapes) =
                 remaining.match_text_until_unescaped(delimiter_head, true)?;
             contained_escapes |= segment_contained_escapes;
 
@@ -1659,6 +1656,8 @@ impl<'top> TextBuffer<'top> {
                 let relative_match_end = remaining.offset() - self.offset();
                 let matched_input = self.slice(0, relative_match_end);
                 self.consume(relative_match_end);
+                // This input may contain newline characters hence update the location metadata.
+                self.update_location_metadata(matched_input_buffer.bytes());
                 return Ok((matched_input, contained_escapes));
             } else {
                 // Otherwise, advance by one and try again.
@@ -2042,20 +2041,11 @@ impl<'data> Stream for TextBuffer<'data> {
     }
 
     fn checkpoint(&self) -> Self::Checkpoint {
-        let mut checkpoint = *self;
-        // Reset row, column at checkpoint
-        checkpoint.row = 0;
-        checkpoint.prev_newline_offset = 0;
-        checkpoint
+        *self
     }
 
     fn reset(&mut self, checkpoint: &Self::Checkpoint) {
-        let current_row = self.row;
-        let prev_column_value = self.prev_newline_offset;
-
         *self = *checkpoint;
-        self.row = current_row + checkpoint.row;
-        self.prev_newline_offset = prev_column_value + checkpoint.prev_newline_offset;
     }
 
     fn raw(&self) -> &dyn Debug {
