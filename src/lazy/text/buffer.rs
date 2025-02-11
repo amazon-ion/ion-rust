@@ -88,8 +88,6 @@ impl Debug for TextBuffer<'_> {
 /// '\x0C', Form feed
 pub(crate) const WHITESPACE_BYTES: &[u8] = b" \t\r\n\x09\x0B\x0C";
 
-pub(crate) const NON_NEWLINE_BYTES: &[u8] = b"\t\x09\x0B\x0C";
-
 pub(crate) const NEWLINE_BYTES: &[u8] = b"\r\n";
 
 /// A slice of unsigned bytes that can be cheaply copied and which defines methods for parsing
@@ -110,7 +108,10 @@ pub struct TextBuffer<'top> {
     //                          offset: 6
     data: &'top [u8],
     offset: usize,
+    // `row` is the row position of the input data in this buffer.
     row: usize,
+    // `prev_newline_offset` is the previously encountered newline byte's offset value.
+    // this is useful in calculating the column position of the input data in this buffer.
     prev_newline_offset: usize,
     pub(crate) context: EncodingContextRef<'top>,
     is_final_data: bool,
@@ -226,10 +227,6 @@ impl<'top> TextBuffer<'top> {
         self.offset - self.prev_newline_offset + 1
     }
 
-    pub fn prev_newline_offset(&self) -> usize {
-        self.prev_newline_offset
-    }
-
     /// Returns the number of bytes in the buffer.
     pub fn len(&self) -> usize {
         self.data.len()
@@ -277,26 +274,30 @@ impl<'top> TextBuffer<'top> {
     /// Updates the location metadata based on the matched whitespace bytes in the consumed buffer
     fn update_location_metadata(&mut self, data: &'top [u8]) {
         if !data.is_empty() {
-            // If the bytes contain '\r\n' in this order then this must be coming from windows line ending pattern and hence should be counted as 1.
-            let crlf_count = data.windows(2).filter(|window| window == b"\r\n").count();
-
-            // Subtract the crlf_count from total count of all newline characters to get the correct number of newline match count.
-            let newline_match_count = data.iter().filter(|b| NEWLINE_BYTES.contains(b)).count() - crlf_count;
-
-            // Gets index for the last occurrence of the newline byte and subtracts from the result length to get non newline bytes length.
+            // Calculate `rows` based on occurrence of newline bytes. If we encounter:
+            // 1. b'\r' then increment row count by 1.
+            // 2.a. If there was no b'\r' encountered before b'\n' then increment row count by 1.
+            // 2.b. If there was no b'\r' encountered before b'\n' then don't increment as b'\r\n' should be counted as 1 based on windows line ending pattern.
+            // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
             // Adding 1 to the index because we want to include everything after the newline -
             // if newline is at index 5, we want to start counting from index 6 (5 + 1).
-            let last_index_newline_byte = data.iter().rposition(|b| NEWLINE_BYTES.contains(b)).map(|i| i + 1).unwrap_or(0);
-            let non_newline_match_length = data.len() - last_index_newline_byte;
-            self.row += newline_match_count;
-
-            // Stores this newline offset as previous newline offset for calculating column position since this has already been matched/parsed
-            self.prev_newline_offset = if self.offset < non_newline_match_length {
-                // this means that the input is not yet consumed hence get the input length + the current offset
-                self.offset + data.len() - non_newline_match_length
-            } else {
-                self.offset - non_newline_match_length
-            };
+            let (_, rows, prev_newline_offset) = data.iter().enumerate().fold((false, 0, 0), |(follows_cr, rows, offset), (i, b) | {
+                match (b, follows_cr) {
+                    // When there's a '\r', add a row and update the offset as this newline offset value
+                    (b'\r', _) => (true, rows + 1, i + 1),
+                    // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
+                    (b'\n', false) => (false, rows + 1, i + 1),
+                    // When there's '\n' immediately following '\r', update the offset without adding a row
+                    (b'\n', true) => (false, rows, i + 1),
+                    _ => (false, rows, offset),
+                }
+            });
+            // Set the previous newline offset by subtracting non newline match length from current offset,
+            // where non newline match length is the non newline bytes found after last newline byte.
+            if rows > 0 {
+                self.prev_newline_offset = self.offset - (data.len() - prev_newline_offset);
+                self.row += rows;
+            }
         }
     }
 
@@ -351,7 +352,7 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches a single multiline comment.
     fn match_multiline_comment(&mut self) -> IonMatchResult<'top> {
-        (
+        let result = (
             // Matches a leading "/*"...
             "/*",
             // ...any number of non-"*/" characters...
@@ -360,7 +361,8 @@ impl<'top> TextBuffer<'top> {
             "*/",
         )
             .take()
-            .parse_next(self)
+            .parse_next(self)?;
+        Ok(result)
     }
 
     /// Matches an Ion version marker (e.g. `$ion_1_0` or `$ion_1_1`.)
@@ -2901,27 +2903,59 @@ mod tests {
 
     #[rstest]
     #[case::no_whitespace("", (1,1))]
-    #[case::whitespace_without_newlines("\t\t", (1,3))]
+    #[case::no_crlf_1("\t", (1,2))]
+    #[case::no_crlf_2("\t\t", (1,3))]
+    #[case::cr("\r", (2,1))]
+    #[case::lf("\n", (2,1))]
+    // all combinations of 3 newline bytes; check number of rows
+    #[case::lf_3("\n\n\n", (4,1))]
+    #[case::lf_lf_cr("\n\n\r", (4,1))]
+    #[case::lf_cr_lf("\n\r\n", (3,1))]
+    #[case::lf_cr_cr("\n\r\r", (4,1))]
+    #[case::cr_lf_lf("\r\n\n", (3,1))]
+    #[case::cr_lf_cr("\r\n\r", (3,1))]
+    #[case::cr_cr_lf("\r\r\n", (3,1))]
+    #[case::cr_3("\r\r\r", (4,1))]
     #[case::newlines("\n\r", (3,1))]
     #[case::crlf("\r\n\r\n", (3,1))]
     #[case::mixed("\r\n\n\r\n", (4,1))]
-    #[case::tabs("\n\t\t\t", (2,4))]
+    // tabs before newline does not affect column count
+    #[case::tabs_before_newline_1("\t\t\t\n", (2,1))]
+    #[case::tabs_before_newline_2("\n\t\n", (3,1))]
+    // tabs after newline affects the column count
+    #[case::tabs_after_newline_1("\n\t\t\t", (2,4))]
+    #[case::tabs_after_newline_2("\t\n\t\t", (2,3))]
+    #[case::tabs_after_newline_3("\n\t\n\t", (3,2))]
     #[case::mix_tabs_and_newlines("\n\t\n", (3,1))]
     fn expect_whitespace(#[case] input: &str, #[case] expected_location: (usize, usize)) {
         MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_whitespace0), expected_location);
     }
 
     #[rstest]
-    #[case::no_whitespace("", (1,1))]
-    #[case::whitespace_with_inline_comment("//comment ", (1,11))]
-    #[case::whitespace_with_comment("/*comment*/ \n", (2,1))]
+    #[case::empty_input("", (1,1))]
+    #[case::inline_comment("//comment", (1,10))]
+    #[case::newline_before_inline_comment("\n//comment", (2,10))]
+    #[case::newline_after_inline_comment("//comment\n", (2,1))]
+    #[case::two_inline_comments("//comment\n//comment", (2,10))]
+    #[case::comment("/*comment*/", (1,12))]
+    #[case::newline_before_comment("\n/*comment*/", (2,12))]
+    #[case::newline_after_comment("/*comment*/\n", (2,1))]
     fn expect_whitespace_with_comment(#[case] input: &str, #[case] expected_location: (usize, usize)) {
         MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_optional_comments_and_whitespace), expected_location);
     }
 
-    #[test]
-    fn expect_newline_long_text() {
-        MatchTest::new_1_0("'''long \n\r\n\t hello'''").expect_match_location(match_length(TextBuffer::match_string), (3, 11));
+    #[rstest]
+    #[case::single_segment_empty("''''''", (1, 7))]
+    #[case::single_segment_with_newlines("'''\n\n\r\n'''", (4, 4))]
+    #[case::single_segment_long_string("'''long string'''", (1, 18))]
+    #[case::single_segment_with_tabs("'''long\tstring'''", (1, 18))]
+    #[case::two_segment_long_string("'''long''' '''string'''", (1, 24))]
+    #[case::two_segment_with_newline_between("'''long''' \n '''string'''", (2, 14))]
+    #[case::two_segment_with_newlines("'''long\n''' '''string\n'''", (3, 4))]
+    #[case::two_segment_long_string_mixed("'''long\n''' \n '''string\n'''", (4, 4))]
+    #[case::single_segment_with_whitespace("'''long \n\r\n\t hello'''", (3, 11))]
+    fn expect_newline_long_text(#[case] input: &str, #[case] expected_location: (usize, usize)) {
+        MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_string), expected_location);
     }
 
     #[test]
