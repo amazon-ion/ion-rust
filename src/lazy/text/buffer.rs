@@ -362,6 +362,7 @@ impl<'top> TextBuffer<'top> {
         )
             .take()
             .parse_next(self)?;
+        self.update_location_metadata(result.data);
         Ok(result)
     }
 
@@ -2940,6 +2941,8 @@ mod tests {
     #[case::comment("/*comment*/", (1,12))]
     #[case::newline_before_comment("\n/*comment*/", (2,12))]
     #[case::newline_after_comment("/*comment*/\n", (2,1))]
+    #[case::newline_inside_comment("/*multiline \n comment*/", (2,11))]
+    #[case::newlines_inside_comment("/*this is a \n multiline \n comment*/", (3,11))]
     fn expect_whitespace_with_comment(#[case] input: &str, #[case] expected_location: (usize, usize)) {
         MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_optional_comments_and_whitespace), expected_location);
     }
