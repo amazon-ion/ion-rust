@@ -57,7 +57,7 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::sequence::{LazyList, LazySExp};
 use crate::lazy::str_ref::StrRef;
-use crate::lazy::streaming_raw_reader::{IoBuffer, IonInput, StreamingRawReader};
+use crate::lazy::streaming_raw_reader::{IoBuffer, IoBufferHandle, IonInput, StreamingRawReader};
 use crate::lazy::system_reader::{PendingContextChanges, SystemReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
@@ -75,12 +75,28 @@ use crate::{
 pub mod compiler;
 pub mod e_expression;
 pub mod encoding_module;
+pub mod lazy_element;
 pub mod macro_evaluator;
 pub mod macro_table;
-pub mod saved_value;
 pub mod sequence;
 pub mod r#struct;
 pub mod template;
+
+#[derive(Clone)]
+pub(crate) enum IoBufferSource {
+    // The EncodingContext does not have an IoBufferSource set yet.
+    // This is true when the reader has begun reading the next expression from input but has not yet
+    // produced a LazyValue.
+    None,
+    // This encoding context instance belongs to the reader.
+    // It holds a valid reference to the input source and thus can return an IoBuffer representing
+    // the buffer's current contents. Doing so may or may not require heap allocation depending
+    // on the underlying `IoBufferHandle` implementation.
+    Reader(&'static dyn IoBufferHandle),
+    // This encoding context was previously cloned from the reader's instance.
+    // It holds an already-constructed IoBuffer that can be cheaply cloned.
+    IoBuffer(IoBuffer),
+}
 
 /// A collection of resources that can be used to encode or decode Ion values.
 //  It should be possible to loosen this definition of `'top` to include several top level values
@@ -89,11 +105,39 @@ pub mod template;
 //  happens to be available in the buffer OR the set that leads up to the next encoding directive.
 //  The value proposition of being able to lazily explore multiple top level values concurrently
 //  would need to be proved out first.
-#[derive(Debug, Clone)]
 pub struct EncodingContext {
+    // XXX: These fields are their own `Rc<_>` pointers to enable parts of the encoding context to be
+    //      re-used across top-level values. For example, if the symbol table changes between values
+    //      but the macro table does not, the two values can still point to the same macro table instance.
     pub(crate) macro_table: Rc<MacroTable>,
     pub(crate) symbol_table: Rc<SymbolTable>,
     pub(crate) allocator: Rc<BumpAllocator>,
+
+    pub(crate) io_buffer_source: UnsafeCell<IoBufferSource>,
+}
+
+impl Clone for EncodingContext {
+    fn clone(&self) -> Self {
+        // If this EncodingContext previously held a (now dying) reference to the current input,
+        // we need to give it its own IoBuffer to guarantee the bytes are available as long as it is.
+        let io_buffer = self.save_io_buffer();
+        Self {
+            macro_table: self.macro_table.clone(),
+            symbol_table: self.symbol_table.clone(),
+            allocator: self.allocator.clone(),
+            io_buffer_source: IoBufferSource::IoBuffer(io_buffer).into(),
+        }
+    }
+}
+
+impl Debug for EncodingContext {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let symbol_table = self.symbol_table();
+        let num_symbols = symbol_table.len();
+        let num_macros = self.macro_table().len();
+        let ion_version = symbol_table.ion_version();
+        write!(f, "EncodingContext {{ion_version = {ion_version:?}, {num_macros} macros, {num_symbols} symbols}} ")
+    }
 }
 
 impl EncodingContext {
@@ -106,6 +150,7 @@ impl EncodingContext {
             macro_table: Rc::new(macro_table),
             symbol_table: Rc::new(symbol_table),
             allocator: Rc::new(allocator),
+            io_buffer_source: IoBufferSource::None.into(),
         }
     }
 
@@ -124,6 +169,28 @@ impl EncodingContext {
 
     pub fn get_ref(&self) -> EncodingContextRef<'_> {
         EncodingContextRef { context: self }
+    }
+
+    pub fn save_io_buffer(&self) -> IoBuffer {
+        match unsafe { &*self.io_buffer_source.get() } {
+            IoBufferSource::IoBuffer(ref buffer) => buffer.clone(),
+            IoBufferSource::Reader(ref handle) => handle.save_io_buffer(),
+            IoBufferSource::None => {
+                panic!("io_buffer() called on EncodingContext before Input reference was set.")
+            }
+        }
+    }
+
+    /// SAFETY: This method should _only_ be called by the StreamingRawReader and then only
+    ///         after the current value has been read and no other changes to input can happen.
+    pub(crate) unsafe fn set_io_buffer_handle(&self, handle: &dyn IoBufferHandle) {
+        // SAFETY: This is always safe to *set*. It can only be read from when there is no chance of
+        //         the reader's data source being modified. This can only happen between `'top` lifetimes,
+        //         so from the end user's perspective it's always safe provided that we're not misusing it internally.
+        //         It should be unset at the beginning of each `'top` lifetime.
+        let buffer_handle: &'static dyn IoBufferHandle = unsafe { std::mem::transmute(handle) };
+        let io_buffer_source = unsafe { &mut *self.io_buffer_source.get() };
+        *io_buffer_source = IoBufferSource::Reader(buffer_handle).into();
     }
 
     pub fn macro_table(&self) -> &MacroTable {
@@ -486,10 +553,14 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // lives there.
         self.evaluator_ptr.set(None);
 
-        // Clear the bump allocator.
         // SAFETY: This is the only place where we modify the encoding context. Take care not to
         //         alias the allocator, symbol table, or macro table inside this `unsafe` scope.
-        unsafe { self.reset_bump_allocator() };
+        unsafe {
+            // If we're holding a reference to the input data source, drop it.
+            (&mut *self.encoding_context.get()).io_buffer_source = IoBufferSource::None.into();
+            // Clear the bump allocator.
+            self.reset_bump_allocator();
+        }
 
         // If the pending LST has changes to apply, do so.
         // SAFETY: Nothing else holds a reference to the `PendingLst`'s contents, so we can use the
@@ -534,7 +605,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     /// Returns the next IVM, value, or system value as an `ExpandedStreamItem`.
     ///
     /// This path is less optimized than `next_system_item` because it needs to surface additional
-    /// items that do not impact the application. However, is useful for tooling that needs more
+    /// items that do not impact the application. However, it's useful for tooling that needs more
     /// visibility into the expansion process.
     pub fn next_item(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
         // If there's already an active macro evaluator, that means the reader is still in the process

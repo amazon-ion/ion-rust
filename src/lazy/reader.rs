@@ -8,7 +8,7 @@ use crate::lazy::system_reader::SystemReader;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{ExpandedValueSource, IonError, IonResult};
+use crate::{IonError, IonResult};
 
 /// An Ion reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -19,7 +19,7 @@ use crate::{ExpandedValueSource, IonError, IonResult};
 ///
 /// The values that the reader yields ([`LazyValue`],
 /// [`LazyList`](crate::lazy::sequence::LazyList), [`LazySExp`](crate::lazy::sequence::LazySExp),
-/// and [`LazyStruct`](crate::lazy::struct::LazyStruct)) are immutable references to the data
+/// and [`LazyStruct`](crate::lazy::r#struct::LazyStruct)) are immutable references to the data
 /// stream, and remain valid until [`Reader::next`] is called again to advance the
 /// reader to the next top level value. This means that these references can be stored, read, and
 /// re-read as long as the reader remains on the same top-level value.
@@ -62,12 +62,6 @@ use crate::{ExpandedValueSource, IonError, IonResult};
 /// ```
 pub struct Reader<Encoding: Decoder, Input: IonInput> {
     system_reader: SystemReader<Encoding, Input>,
-}
-
-pub(crate) enum NextApplicationValue<'top, D: Decoder> {
-    ApplicationValue(LazyValue<'top, D>),
-    SystemValue,
-    EndOfStream,
 }
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
@@ -113,18 +107,6 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
-
-    pub fn save(&self, value: LazyValue<'_, Encoding>) -> LazyElement<Encoding> {
-        let io_buffer = self.system_reader.expanding_reader.save_buffer();
-        match value.expanded().source() {
-            ExpandedValueSource::ValueLiteral(raw_value) => {
-                LazyElement::from_literal(value.expanded().context.context.clone(), io_buffer, raw_value)
-            }
-            ExpandedValueSource::SingletonEExp(_) => todo!(),
-            ExpandedValueSource::Template(_, _) => todo!(),
-            ExpandedValueSource::Constructed(_, _) => todo!(),
-        }
-    }
 }
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
@@ -137,11 +119,8 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 }
 
-use crate::lazy::expanded::saved_value::LazyElement;
-use crate::lazy::{
-    expanded::template::TemplateMacro,
-    text::raw::v1_1::reader::MacroAddress,
-};
+use crate::lazy::expanded::lazy_element::LazyElement;
+use crate::lazy::{expanded::template::TemplateMacro, text::raw::v1_1::reader::MacroAddress};
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
@@ -152,7 +131,21 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 
     pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        self.system_reader.expanding_reader.register_template(template_macro)
+        self.system_reader
+            .expanding_reader
+            .register_template(template_macro)
+    }
+}
+
+impl<Encoding: Decoder, Input: IonInput> Iterator for Reader<Encoding, Input> {
+    type Item = IonResult<LazyElement<Encoding>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next() {
+            Ok(None) => None,
+            Ok(Some(lazy_value)) => Some(Ok(lazy_value.to_owned())),
+            Err(e) => Some(Err(e)),
+        }
     }
 }
 
@@ -160,9 +153,23 @@ pub struct LazyElementIterator<'iter, Encoding: Decoder, Input: IonInput> {
     lazy_reader: &'iter mut Reader<Encoding, Input>,
 }
 
-impl<Encoding: Decoder, Input: IonInput> Iterator
-    for LazyElementIterator<'_, Encoding, Input>
-{
+impl<Encoding: Decoder, Input: IonInput> Iterator for LazyElementIterator<'_, Encoding, Input> {
+    type Item = IonResult<LazyElement<Encoding>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.lazy_reader.next() {
+            Ok(None) => None,
+            Ok(Some(lazy_value)) => Some(Ok(lazy_value.to_owned())),
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+pub struct ElementIterator<'iter, Encoding: Decoder, Input: IonInput> {
+    lazy_reader: &'iter mut Reader<Encoding, Input>,
+}
+
+impl<Encoding: Decoder, Input: IonInput> Iterator for ElementIterator<'_, Encoding, Input> {
     type Item = IonResult<Element>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -175,7 +182,10 @@ impl<Encoding: Decoder, Input: IonInput> Iterator
 }
 
 impl<Encoding: Decoder, Input: IonInput> ElementReader for Reader<Encoding, Input> {
-    type ElementIterator<'a> = LazyElementIterator<'a, Encoding, Input> where Self: 'a,;
+    type ElementIterator<'a>
+        = ElementIterator<'a, Encoding, Input>
+    where
+        Self: 'a;
 
     fn read_next_element(&mut self) -> IonResult<Option<Element>> {
         let lazy_value = match self.next()? {
@@ -187,7 +197,7 @@ impl<Encoding: Decoder, Input: IonInput> ElementReader for Reader<Encoding, Inpu
     }
 
     fn elements(&mut self) -> Self::ElementIterator<'_> {
-        LazyElementIterator { lazy_reader: self }
+        ElementIterator { lazy_reader: self }
     }
 }
 

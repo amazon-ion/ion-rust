@@ -212,8 +212,14 @@ impl Iterator for OwnedSequenceIterator {
     }
 }
 
-impl std::fmt::Debug for OwnedSequenceIterator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl DoubleEndedIterator for OwnedSequenceIterator {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.elements.pop_back()
+    }
+}
+
+impl Debug for OwnedSequenceIterator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("OwnedSequenceIterator")
             .field(&self.elements)
             .finish()
