@@ -1,12 +1,15 @@
 use crate::lazy::decoder::Decoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1};
-use crate::lazy::expanded::{EncodingContextRef, ExpandedAnnotationsIterator, LazyExpandedValue};
+use crate::lazy::expanded::lazy_element::LazyElement;
+use crate::lazy::expanded::{
+    EncodingContextRef, ExpandedAnnotationsIterator, IoBufferSource, LazyExpandedValue,
+};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    try_or_some_err, Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError,
-    IonResult, IonType, SymbolRef, SymbolTable, Value,
+    try_or_some_err, Annotations, Element, ExpandedValueSource, HasSpan, IntoAnnotatedElement,
+    IonError, IonResult, IonType, LazyRawValue, Span, SymbolRef, SymbolTable, Value,
 };
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -271,6 +274,41 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     /// ```
     pub fn read(&self) -> IonResult<ValueRef<'top, D>> {
         self.expanded_value.read_resolved()
+    }
+
+    pub(crate) fn context(&self) -> EncodingContextRef<'_> {
+        self.expanded_value.context()
+    }
+
+    pub fn to_owned(&self) -> LazyElement<D> {
+        // Clone the `EncodingContext`, which will also bump the reference counts for the resources
+        // it owns.
+        let context = self.context().context.clone();
+        let source = if let ExpandedValueSource::ValueLiteral(raw_value) =
+            self.expanded_value.source
+        {
+            let IoBufferSource::IoBuffer(ref io_buffer) =
+                (unsafe { &*context.io_buffer_source.get() })
+            else {
+                unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
+            };
+            let value_span = raw_value.span();
+            let value_offset = value_span.offset();
+            let value_length = value_span.len();
+            // The value begins at stream position `value_offset`.
+            // The buffer begins at `io_buffer.stream_offset()`.
+            // To find the serialized value within the buffer,
+            // subtract the buffer's offset from the value's.
+            let local_offset = value_offset - io_buffer.stream_offset();
+            let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
+            // Construct a new span that is backed by the IoBuffer.
+            let backing_span = Span::with_offset(value_offset, value_bytes);
+            let raw_value = raw_value.with_backing_data(backing_span);
+            ExpandedValueSource::ValueLiteral(raw_value)
+        } else {
+            self.expanded_value.source
+        };
+        LazyElement::new(context, source)
     }
 }
 

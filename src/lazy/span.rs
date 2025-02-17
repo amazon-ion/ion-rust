@@ -113,7 +113,7 @@ impl<'a> From<TextBuffer<'a>> for Span<'a> {
 impl<'a> From<&'a IoBuffer> for Span<'a> {
     fn from(value: &'a IoBuffer) -> Self {
         Span {
-            bytes: value.bytes(),
+            bytes: value.remaining_bytes(),
             offset: value.stream_position(),
         }
     }

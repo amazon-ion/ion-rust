@@ -227,8 +227,8 @@ impl<'top, Encoding: TextEncoding> LazyRawValue<'top, Encoding>
 
     fn with_backing_data(&self, span: Span<'top>) -> Self {
         Self {
-            encoded_value: self.encoded_value,
             input: TextBuffer::from_span(self.input.context(), span, true),
+            ..*self
         }
     }
 }

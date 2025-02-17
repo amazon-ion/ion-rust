@@ -3,7 +3,9 @@ use std::ops::Range;
 use std::str::FromStr;
 
 use winnow::ascii::alphanumeric1;
-use winnow::combinator::{alt, delimited, empty, eof, not, opt, peek, preceded, repeat, separated_pair, terminated};
+use winnow::combinator::{
+    alt, delimited, empty, eof, not, opt, peek, preceded, repeat, separated_pair, terminated,
+};
 use winnow::error::{ErrMode, Needed};
 use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
@@ -26,9 +28,13 @@ use crate::lazy::text::parse_result::IonParseError;
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
 use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress, TextEExpression_1_1};
-use crate::lazy::text::value::{LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker};
+use crate::lazy::text::value::{
+    LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
+};
 use crate::result::DecodingError;
-use crate::{Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, Span, TimestampPrecision};
+use crate::{
+    Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, Span, TimestampPrecision,
+};
 
 use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
@@ -59,10 +65,7 @@ impl Debug for TextBuffer<'_> {
             let mut chars = text.chars();
             let text_head = (&mut chars).take(CHARS_TO_SHOW).collect::<String>();
             let ellipse = if chars.next().is_some() { "..." } else { "" };
-            write!(
-                f,
-                "text=\"{text_head}\"{ellipse}",
-            )?;
+            write!(f, "text=\"{text_head}\"{ellipse}",)?;
         } else {
             // ...if it doesn't, print the first 32 bytes in hex.
             write!(f, "Invalid UTF-8, bytes=")?;
@@ -143,7 +146,12 @@ impl<'top> TextBuffer<'top> {
     }
 
     // This is for largely for testing.
-    pub fn with_offset(context: EncodingContextRef<'top>, offset: usize, bytes: &'top [u8], is_final_data: bool) -> TextBuffer<'top> {
+    pub fn with_offset(
+        context: EncodingContextRef<'top>,
+        offset: usize,
+        bytes: &'top [u8],
+        is_final_data: bool,
+    ) -> TextBuffer<'top> {
         TextBuffer {
             context,
             input_span: Span::with_offset(offset, bytes),
@@ -390,10 +398,10 @@ impl<'top> TextBuffer<'top> {
                 .cut_err()
         })?;
         let minor_version = u8::from_str(matched_minor.as_text().unwrap()).map_err(|_| {
-                matched_major
-                    .invalid("value did not fit in an unsigned byte")
-                    .context("reading an IVM minor version")
-                    .cut_err()
+            matched_major
+                .invalid("value did not fit in an unsigned byte")
+                .context("reading an IVM minor version")
+                .cut_err()
         })?;
         let marker =
             LazyRawTextVersionMarker::<E>::new(matched_marker, major_version, minor_version);
@@ -572,7 +580,7 @@ impl<'top> TextBuffer<'top> {
                 .map(LazyRawTextValue_1_1::from)
                 .map(RawStreamItem::Value),
         ))
-            .context("reading a v1.1 top-level expression")
+        .context("reading a v1.1 top-level expression")
         .parse_next(self)
     }
 
@@ -695,7 +703,10 @@ impl<'top> TextBuffer<'top> {
             MacroIdRef::LocalAddress(address) => {
                 let Some(system_address) = SystemMacroAddress::new(address) else {
                     return self
-                        .invalid(format!("found out-of-bounds system macro address {}", address))
+                        .invalid(format!(
+                            "found out-of-bounds system macro address {}",
+                            address
+                        ))
                         .context("reading an e-expression's macro ID as a system address")
                         .cut();
                 };
@@ -754,7 +765,7 @@ impl<'top> TextBuffer<'top> {
                                         param.name()
                                     ))
                                     .context("reading an e-expression")
-                                    .cut()
+                                    .cut();
                             }
                         }
                         break;
@@ -793,7 +804,8 @@ impl<'top> TextBuffer<'top> {
 
             // Get an empty slice at the end position. This will be the backing slice for all
             // implicitly empty arguments.
-            let empty_end_slice = original_input.slice(last_explicit_arg_end - original_input.offset(), 0);
+            let empty_end_slice =
+                original_input.slice(last_explicit_arg_end - original_input.offset(), 0);
             for parameter in &parameters[arg_expr_cache.len()..] {
                 arg_expr_cache.push(EExpArg::new(
                     parameter,
@@ -840,18 +852,20 @@ impl<'top> TextBuffer<'top> {
             return self
                 .invalid(format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name()))
                 .context("reading an e-expression argument with `exactly-one` cardinality")
-                .cut()
+                .cut();
         }
         let maybe_expr = Self::match_sexp_item_1_1
             .map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from))
             .parse_next(self)?;
         match maybe_expr {
             Some(expr) => Ok(EExpArg::new(parameter, expr)),
-            None => self.invalid(format!(
-                "expected argument for required parameter '{}'",
-                parameter.name()
-            )).context("reading an e-expression argument with `exactly-one` cardinality")
-                .cut()
+            None => self
+                .invalid(format!(
+                    "expected argument for required parameter '{}'",
+                    parameter.name()
+                ))
+                .context("reading an e-expression argument with `exactly-one` cardinality")
+                .cut(),
         }
     }
 
@@ -923,7 +937,8 @@ impl<'top> TextBuffer<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         if parameter.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
-            return self.unrecognized()
+            return self
+                .unrecognized()
                 .context("reading a parameter that does not support rest syntax")
                 .backtrack();
         }
@@ -1961,9 +1976,7 @@ impl<'top> TextBuffer<'top> {
         for byte in self.bytes().iter().copied() {
             if !Self::byte_is_legal_clob_ascii(byte) {
                 let message = format!("found an illegal byte '{:0x}' in clob", byte);
-                return self.invalid(message)
-                    .context("reading a clob")
-                    .cut();
+                return self.invalid(message).context("reading a clob").cut();
             }
         }
         // Return success without consuming
@@ -2109,7 +2122,7 @@ impl<'a, const N: usize> winnow::stream::Compare<&'a [u8; N]> for TextBuffer<'_>
     }
 }
 
-impl  winnow::stream::Offset for TextBuffer<'_> {
+impl winnow::stream::Offset for TextBuffer<'_> {
     fn offset_from(&self, start: &Self) -> usize {
         self.offset() - start.offset()
     }
