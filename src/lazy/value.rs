@@ -1,6 +1,8 @@
 use crate::lazy::decoder::Decoder;
 use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1};
+use crate::lazy::expanded::saved_value::LazyElement;
 use crate::lazy::expanded::{EncodingContextRef, ExpandedAnnotationsIterator, LazyExpandedValue};
+use crate::lazy::streaming_raw_reader::IoBuffer;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
@@ -271,6 +273,22 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     /// ```
     pub fn read(&self) -> IonResult<ValueRef<'top, D>> {
         self.expanded_value.read_resolved()
+    }
+
+    pub(crate) fn context(&self) -> EncodingContextRef<'_> {
+        self.expanded_value.context()
+    }
+
+    pub fn to_owned(&self) -> LazyElement<D> {
+        // LazyElement::new(self.)
+        match self.expanded_value.source() {
+            ExpandedValueSource::ValueLiteral(raw_value) => {
+                LazyElement::from_literal(self.context().context.clone(), raw_value)
+            }
+            ExpandedValueSource::SingletonEExp(_) => todo!(),
+            ExpandedValueSource::Template(_, _) => todo!(),
+            ExpandedValueSource::Constructed(_, _) => todo!(),
+        }
     }
 }
 

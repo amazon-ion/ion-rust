@@ -288,9 +288,8 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             BinaryBuffer::new_with_offset(self.input.context(), span.bytes(), span.offset());
         let allocator = self.input.context().allocator();
         allocator.alloc_with(move || LazyRawBinaryValue_1_1 {
-            encoded_value: self.encoded_value,
             input: buffer,
-            delimited_contents: self.delimited_contents,
+            ..**self
         })
     }
 }

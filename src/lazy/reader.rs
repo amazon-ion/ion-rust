@@ -115,15 +115,18 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 
     pub fn save(&self, value: LazyValue<'_, Encoding>) -> LazyElement<Encoding> {
-        let io_buffer = self.system_reader.expanding_reader.save_buffer();
-        match value.expanded().source() {
-            ExpandedValueSource::ValueLiteral(raw_value) => {
-                LazyElement::from_literal(value.expanded().context.context.clone(), io_buffer, raw_value)
-            }
-            ExpandedValueSource::SingletonEExp(_) => todo!(),
-            ExpandedValueSource::Template(_, _) => todo!(),
-            ExpandedValueSource::Constructed(_, _) => todo!(),
-        }
+        // let io_buffer = self.system_reader.expanding_reader.save_buffer();
+
+        // let io_buffer = value.expanded().context().io_buffer_handle().as_ref().expect("buffer handle is set for each 'top lifetime").save_io_buffer();
+        // match value.expanded().source() {
+        //     ExpandedValueSource::ValueLiteral(raw_value) => {
+        //         LazyElement::from_literal(value.expanded().context.context.clone(), io_buffer, raw_value)
+        //     }
+        //     ExpandedValueSource::SingletonEExp(_) => todo!(),
+        //     ExpandedValueSource::Template(_, _) => todo!(),
+        //     ExpandedValueSource::Constructed(_, _) => todo!(),
+        // }
+        todo!()
     }
 }
 

@@ -284,6 +284,10 @@ impl SymbolTable {
     pub fn len(&self) -> usize {
         self.symbols_by_id.len()
     }
+
+    pub fn ion_version(&self) -> IonVersion {
+        self.ion_version
+    }
 }
 
 impl Debug for SymbolTable {

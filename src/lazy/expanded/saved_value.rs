@@ -1,3 +1,4 @@
+use crate::lazy::expanded::IoBufferSource;
 use crate::lazy::streaming_raw_reader::IoBuffer;
 use crate::{
     Decoder, EncodingContext, ExpandedValueSource, HasSpan, LazyExpandedValue, LazyRawValue,
@@ -6,7 +7,7 @@ use crate::{
 use std::marker::PhantomData;
 
 pub(crate) enum LazyElementSource<Encoding: Decoder> {
-    ValueLiteral(IoBuffer, Encoding::Value<'static>),
+    ValueLiteral(Encoding::Value<'static>),
 }
 
 pub struct LazyElement<Encoding: Decoder> {
@@ -28,16 +29,10 @@ unsafe fn set_lifetime<'x, Encoding: Decoder>(
 }
 
 impl<Encoding: Decoder> LazyElement<Encoding> {
-    pub(crate) fn from_literal(
-        context: EncodingContext,
-        io_buffer: IoBuffer,
-        value: Encoding::Value<'_>,
-    ) -> Self {
+    pub(crate) fn from_literal(context: EncodingContext, value: Encoding::Value<'_>) -> Self {
         Self {
             context,
-            source: LazyElementSource::ValueLiteral(io_buffer, unsafe {
-                erase_lifetime::<Encoding>(value)
-            }),
+            source: LazyElementSource::ValueLiteral(unsafe { erase_lifetime::<Encoding>(value) }),
             spooky: PhantomData,
         }
     }
@@ -52,12 +47,27 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
 
     pub(crate) fn as_lazy_value<'top>(&'top self) -> LazyValue<'top, Encoding> {
         let expanded: LazyExpandedValue<'top, Encoding> = match &self.source {
-            LazyElementSource::ValueLiteral(io_buffer, raw_value) => {
-                let value_offset = raw_value.span().offset();
-                let local_offset = value_offset - io_buffer.stream_position();
-                let length = raw_value.span().len();
-                let bytes = &io_buffer.bytes()[local_offset..local_offset + length];
-                let backing_span = Span::with_offset(value_offset, bytes);
+            LazyElementSource::ValueLiteral(raw_value) => {
+                let IoBufferSource::IoBuffer(ref io_buffer) =
+                    (unsafe { &*self.context.io_buffer_source.get() })
+                else {
+                    unreachable!(
+                        "tried to access cloned EncodingContext IoBuffer but it didn't exist"
+                    );
+                };
+                let value_span = raw_value.span();
+                let value_offset = value_span.offset();
+                let value_length = value_span.len();
+                // The value begins at stream position `value_offset`.
+                // The buffer begins at `io_buffer.stream_offset()`.
+                // To find the serialized value within the buffer,
+                // subtract the buffer's offset from the value's.
+                let local_offset = value_offset - io_buffer.stream_offset();
+                let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
+                // Construct a new span that is backed by the IoBuffer.
+                let backing_span = Span::with_offset(value_offset, value_bytes);
+                // SAFETY: Because the IoBuffer's data is reference counted, is guaranteed to live as `self`.
+                //         This means we can hand out data that depends on it with a shorter lifetime.
                 let raw_value: Encoding::Value<'top> =
                     unsafe { set_lifetime::<'top, Encoding>(*raw_value) };
                 let raw_value = raw_value.with_backing_data(backing_span);
@@ -70,22 +80,7 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
 
 impl<'top, Encoding: Decoder> From<LazyValue<'top, Encoding>> for LazyElement<Encoding> {
     fn from(value: LazyValue<'top, Encoding>) -> Self {
-        match value.expanded().source() {
-            ExpandedValueSource::ValueLiteral(raw_value) => {
-                let span = raw_value.span();
-                let span_bytes = span.bytes();
-                let io_buffer = IoBuffer::at_offset(span.offset(), span_bytes);
-                // TODO: Add the data source reference to the context!
-                LazyElement::from_literal(
-                    (*value.expanded().context.context).clone(),
-                    io_buffer,
-                    raw_value,
-                )
-            }
-            ExpandedValueSource::SingletonEExp(_) => todo!(),
-            ExpandedValueSource::Template(_, _) => todo!(),
-            ExpandedValueSource::Constructed(_, _) => todo!(),
-        }
+        value.to_owned()
     }
 }
 
@@ -99,18 +94,18 @@ mod tests {
         let mut reader = Reader::new(AnyEncoding, "foo bar baz")?;
         let mut lazy_elements: Vec<LazyElement<AnyEncoding>> = vec![];
         while let Some(lazy_value) = reader.next()? {
-            // let owned: LazyElement<_> = reader.save(lazy_value);
-            // lazy_elements.push(owned);
+            let owned: LazyElement<_> = lazy_value.to_owned();
+            lazy_elements.push(owned);
         }
         drop(reader);
 
         println!("# values: {}", lazy_elements.len());
-        //
-        // for element in &lazy_elements {
-        //     let lazy_value = element.as_lazy_value();
-        //     let value = lazy_value.read().unwrap();
-        //     println!("{:?}", value);
-        // }
+
+        for element in &lazy_elements {
+            let lazy_value = element.as_lazy_value();
+            let value = lazy_value.read().unwrap();
+            println!("{:?}", value);
+        }
 
         Ok(())
     }

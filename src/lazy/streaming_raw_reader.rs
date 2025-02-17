@@ -97,7 +97,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     }
 
     pub(crate) fn save_buffer(&self) -> IoBuffer {
-        unsafe { &*self.input.get() }.save_buffer()
+        unsafe { &*self.input.get() }.save_io_buffer()
     }
 
     /// Gets a reference to the data source and tries to fill its buffer.
@@ -247,6 +247,11 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                 }
             }
 
+            // At this point, `self.input` is no longer being modified.
+            // We can hand out a reference to it that's good for the duration of 'top.
+            let io_buffer_handle: &dyn IoBufferHandle = self.input.get_mut();
+            unsafe { context.set_io_buffer_handle(io_buffer_handle) };
+
             return result;
         }
     }
@@ -256,9 +261,15 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     }
 }
 
+// This is a separate trait so it can be `dyn`-compatible.
+pub trait IoBufferHandle {
+    /// Creates an inexpensive copy of the I/O buffer with no lifetime.
+    fn save_io_buffer(&self) -> IoBuffer;
+}
+
 /// An input source--typically an implementation of either `AsRef<[u8]>` or `io::Read`--from which
 /// Ion can be read, paying the cost of buffering and I/O copies only when necessary.
-pub trait IonDataSource {
+pub trait IonDataSource: IoBufferHandle {
     /// If `true`, the current contents of the buffer may not be the complete stream.
     const IS_STREAMING: bool;
 
@@ -277,9 +288,6 @@ pub trait IonDataSource {
     /// Returns the number of bytes that have been consumed from the data source.
     /// This is also the offset at which the data returned by [`buffer`](Self::buffer) begins.
     fn position(&self) -> usize;
-
-    /// Creates an inexpensive copy of the I/O buffer with no lifetime.
-    fn save_buffer(&self) -> IoBuffer;
 }
 
 /// A fixed slice of Ion data that does not grow; it wraps an implementation of `AsRef<[u8]>` such
@@ -292,9 +300,10 @@ pub struct IonSlice<SliceType> {
     source: SliceType,
     // The offset of the first byte that hasn't yet been consumed.
     position: usize,
-    // When a value is saved, this is initialized by cloning the source data into an `Rc`.
-    // Once initialized, it will be shared by all saved values.
-    shared_data: OnceCell<IoBuffer>,
+    // When a LazyValue is saved, this is initialized by cloning the source data into an `Rc`.
+    // Once initialized, that source data can be cheaply shared by all values in the buffer without
+    // requiring a lifetime.
+    shared_stream_data: OnceCell<Rc<[u8]>>,
 }
 
 impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
@@ -303,7 +312,7 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
         Self {
             source: bytes,
             position: 0,
-            shared_data: OnceCell::new(),
+            shared_stream_data: OnceCell::new(),
         }
     }
 
@@ -317,6 +326,24 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
     #[inline]
     pub fn stream_span(&self) -> Span<'_> {
         Span::with_offset(0, self.source.as_ref())
+    }
+}
+
+impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
+    fn save_io_buffer(&self) -> IoBuffer {
+        // If this is the first time this has been called, creates an Rc<[u8]> with a copy of the
+        // input stream. Otherwise, returns a clone of the previously constructed Rc<[u8]>.
+        let bytes = self
+            .shared_stream_data
+            .get_or_init(|| Rc::from(self.stream_bytes()))
+            .clone();
+        // In an IonSlice, the `bytes` represent the entire stream.
+        // Therefore, they always begin at stream position `0`.
+        let stream_position = 0;
+        // The offset within the bytes where the content of this IoBuffer begins.
+        let local_offset = self.position;
+        let local_end = bytes.len();
+        IoBuffer::new(stream_position, bytes, local_offset, local_end)
     }
 }
 
@@ -351,12 +378,6 @@ impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
     fn position(&self) -> usize {
         self.position
     }
-
-    fn save_buffer(&self) -> IoBuffer {
-        self.shared_data
-            .get_or_init(|| IoBuffer::new(self.stream_bytes()))
-            .clone()
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -365,7 +386,7 @@ pub struct IoBuffer {
     // stream. This byte may or may not have been consumed.
     stream_offset: usize,
     // This is `Rc<[u8]>` instead of `Rc<Vec<u8>>` because the latter would require double indirection.
-    buffer: Rc<[u8]>,
+    bytes: Rc<[u8]>,
     // The index of the first occupied byte in the buffer. If local_offset==local_end, no bytes
     // are occupied.
     local_offset: usize,
@@ -374,26 +395,41 @@ pub struct IoBuffer {
 }
 
 impl IoBuffer {
-    pub fn new(bytes: &[u8]) -> Self {
-        Self::at_offset(0, bytes)
-    }
-
-    pub fn at_offset(offset: usize, bytes: &[u8]) -> Self {
+    pub fn new(
+        stream_offset: usize,
+        bytes: impl Into<Rc<[u8]>>,
+        local_offset: usize,
+        local_end: usize,
+    ) -> Self {
+        debug_assert!(
+            local_offset <= local_end,
+            "local_offset {local_offset} must be <= local_end {local_end}"
+        );
+        let bytes = bytes.into();
+        debug_assert!(
+            local_end <= bytes.len(),
+            "local_end {local_end} must be < bytes.len {}",
+            bytes.len()
+        );
         Self {
-            stream_offset: offset,
-            buffer: Rc::from(bytes),
-            local_offset: 0,
-            local_end: bytes.len(),
+            stream_offset,
+            bytes,
+            local_offset,
+            local_end,
         }
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             stream_offset: 0,
-            buffer: Self::alloc_zeroed(capacity),
+            bytes: Self::alloc_zeroed(capacity),
             local_offset: 0,
             local_end: 0,
         }
+    }
+
+    pub fn stream_offset(&self) -> usize {
+        self.stream_offset
     }
 
     pub fn stream_position(&self) -> usize {
@@ -401,15 +437,19 @@ impl IoBuffer {
     }
 
     pub fn remaining_capacity(&self) -> usize {
-        self.buffer.len() - self.local_end
+        self.bytes.len() - self.local_end
     }
 
     pub fn len(&self) -> usize {
         self.local_end - self.local_offset
     }
 
-    pub fn bytes(&self) -> &[u8] {
-        &self.buffer[self.local_offset..self.local_end]
+    pub fn all_bytes(&self) -> &[u8] {
+        &self.bytes[..self.local_end]
+    }
+
+    pub fn remaining_bytes(&self) -> &[u8] {
+        &self.bytes[self.local_offset..self.local_end]
     }
 
     pub fn read_from<R: Read>(&mut self, input: &mut R) -> IonResult<usize> {
@@ -434,9 +474,10 @@ impl IoBuffer {
     }
 
     fn grow(&mut self) {
-        let mut new_buffer = Self::alloc_zeroed(self.buffer.len() * 2);
-        Rc::get_mut(&mut new_buffer).unwrap()[..self.buffer.len()].copy_from_slice(self.bytes());
-        std::mem::swap(&mut self.buffer, &mut new_buffer);
+        let mut new_buffer = Self::alloc_zeroed(self.bytes.len() * 2);
+        Rc::get_mut(&mut new_buffer).unwrap()[..self.bytes.len()]
+            .copy_from_slice(self.remaining_bytes());
+        std::mem::swap(&mut self.bytes, &mut new_buffer);
     }
 
     pub fn consume(&mut self, number_of_bytes: usize) {
@@ -447,7 +488,7 @@ impl IoBuffer {
     /// If there is only one reference to the data, returns a mutable reference to it.
     /// Otherwise, creates a new buffer. The old one will be dropped when it is no longer in use.
     fn make_data_mut(&mut self) -> &mut [u8] {
-        Rc::make_mut(&mut self.buffer)
+        Rc::make_mut(&mut self.bytes)
     }
 
     fn alloc_zeroed(size: usize) -> Rc<[u8]> {
@@ -499,11 +540,18 @@ impl<R: Read> IonStream<R> {
     }
 }
 
+impl<R: Read> IoBufferHandle for IonStream<R> {
+    fn save_io_buffer(&self) -> IoBuffer {
+        // `self.buffer` is reference counted, so we can cheaply clone it.
+        self.buffer.clone()
+    }
+}
+
 impl<R: Read> IonDataSource for IonStream<R> {
     const IS_STREAMING: bool = true;
 
     fn buffer(&self) -> &[u8] {
-        &self.buffer.bytes()
+        &self.buffer.remaining_bytes()
     }
 
     fn fill_buffer(&mut self) -> IonResult<usize> {
@@ -516,10 +564,6 @@ impl<R: Read> IonDataSource for IonStream<R> {
 
     fn position(&self) -> usize {
         self.buffer.stream_position()
-    }
-
-    fn save_buffer(&self) -> IoBuffer {
-        self.buffer.clone()
     }
 }
 
