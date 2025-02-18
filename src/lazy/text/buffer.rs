@@ -108,8 +108,10 @@ pub struct TextBuffer<'top> {
     //                          offset: 6
     data: &'top [u8],
     offset: usize,
+    #[cfg(feature = "experimental-location")]
     // `row` is the row position of the input data in this buffer.
     row: usize,
+    #[cfg(feature = "experimental-location")]
     // `prev_newline_offset` is the previously encountered newline byte's offset value.
     // this is useful in calculating the column position of the input data in this buffer.
     prev_newline_offset: usize,
@@ -148,7 +150,9 @@ impl<'top> TextBuffer<'top> {
             context,
             data,
             offset,
+            #[cfg(feature = "experimental-location")]
             row: 1,
+            #[cfg(feature = "experimental-location")]
             prev_newline_offset: 0,
             is_final_data,
         }
@@ -215,12 +219,14 @@ impl<'top> TextBuffer<'top> {
         self.offset
     }
 
+    #[cfg(feature = "experimental-location")]
     /// Returns the row position for this buffer.
     /// _Note: Row positions are calculated based on newline characters `\n` and `\r`. `\r\n` together in this order is considered a single newline._
     pub fn row(&self) -> usize {
         self.row
     }
 
+    #[cfg(feature = "experimental-location")]
     /// Returns the column position for this buffer.
     /// _Note: Column positions are calculated based on current offset and previous newline byte offset._
     pub fn column(&self) -> usize {
@@ -267,10 +273,12 @@ impl<'top> TextBuffer<'top> {
     /// Matches one or more whitespace characters.
     pub fn match_whitespace1(&mut self) -> IonMatchResult<'top> {
         let result = take_while(1.., WHITESPACE_BYTES).parse_next(self)?;
+        #[cfg(feature = "experimental-location")]
         self.update_location_metadata(result.data);
        Ok(result)
     }
 
+    #[cfg(feature = "experimental-location")]
     /// Updates the location metadata based on the matched whitespace bytes in the consumed buffer
     fn update_location_metadata(&mut self, data: &'top [u8]) {
         if !data.is_empty() {
@@ -304,6 +312,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches zero or more whitespace characters.
     pub fn match_whitespace0(&mut self) -> IonMatchResult<'top> {
         let result = take_while(0.., WHITESPACE_BYTES).parse_next(self)?;
+        #[cfg(feature = "experimental-location")]
         self.update_location_metadata(result.data);
         Ok(result)
     }
@@ -362,6 +371,7 @@ impl<'top> TextBuffer<'top> {
         )
             .take()
             .parse_next(self)?;
+        #[cfg(feature = "experimental-location")]
         self.update_location_metadata(result.data);
         Ok(result)
     }
@@ -1652,6 +1662,8 @@ impl<'top> TextBuffer<'top> {
             // If the input doesn't contain one, this will return an `Incomplete`.
             // `match_text_until_escaped` does NOT include the delimiter byte in the match,
             // so `remaining_after_match` starts at the delimiter byte.
+            // Note: `matched_input_buffer` is used under a feature flag, hence suppress clippy warnings for this.
+            #[allow(unused_variables)]
             let (matched_input_buffer, segment_contained_escapes) =
                 remaining.match_text_until_unescaped(delimiter_head, true)?;
             contained_escapes |= segment_contained_escapes;
@@ -1662,6 +1674,7 @@ impl<'top> TextBuffer<'top> {
                 let matched_input = self.slice(0, relative_match_end);
                 self.consume(relative_match_end);
                 // This input may contain newline characters hence update the location metadata.
+                #[cfg(feature = "experimental-location")]
                 self.update_location_metadata(matched_input_buffer.bytes());
                 return Ok((matched_input, contained_escapes));
             } else {
@@ -2050,12 +2063,16 @@ impl<'data> Stream for TextBuffer<'data> {
     }
 
     fn reset(&mut self, checkpoint: &Self::Checkpoint) {
-        let current_row = self.row;
-        let prev_column_value = self.prev_newline_offset;
+        #[cfg(feature = "experimental-location")]
+        let (current_row, prev_column_value) = (self.row, self.prev_newline_offset);
 
         *self = *checkpoint;
-        self.row = current_row;
-        self.prev_newline_offset = prev_column_value;
+
+        #[cfg(feature = "experimental-location")]
+        {
+            self.row = current_row;
+            self.prev_newline_offset = prev_column_value;
+        }
     }
 
     fn raw(&self) -> &dyn Debug {
@@ -2264,6 +2281,7 @@ mod tests {
                 self.input,
                 &self.input[..match_length]
             );
+            #[cfg(feature = "experimental-location")]
             // Assert the location metadata
             assert_eq!(expected_location, (result.0.row(), result.0.column()));
         }
