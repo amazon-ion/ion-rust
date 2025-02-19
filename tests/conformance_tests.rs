@@ -155,7 +155,8 @@ mod ion_tests {
     #[test_resources("ion-tests/conformance/system_macros/*.ion")]
     #[test_resources("ion-tests/conformance/tdl/*")]
     fn conformance(file_name: &str) {
-        if !GLOBAL_CONFORMANCE_SKIPLIST.iter().any(|f| *f == file_name) {
+        // Test for skip list. Convert windows '\\' separators into '/' to match skiplist.
+        if !GLOBAL_CONFORMANCE_SKIPLIST.iter().any(|f| *f == file_name.replace("\\", "/")) {
             println!("TESTING: {}", file_name);
             let collection = TestCollection::load(file_name).expect("unable to load test file");
 
