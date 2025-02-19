@@ -141,7 +141,6 @@ pub fn main() {
 
     for test_path in test_paths {
         let collection = TestCollection::load(&test_path).expect("unable to load test file");
-        // let name_len = collection.iter().fold(0, |acc, d| std::cmp::max(acc, d.name.as_ref().map_or(0, |n| n.len())));
 
         reporter.current_collection(&test_path, &collection);
         for doc in collection.iter() {
