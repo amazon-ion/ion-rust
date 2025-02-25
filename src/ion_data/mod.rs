@@ -3,8 +3,10 @@ mod ion_ord;
 
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::io::Write;
 use std::ops::Deref;
 
+use crate::{Encoding, IonResult, ValueWriter, WriteAsIon, WriteConfig};
 pub(crate) use ion_eq::{ion_eq_bool, ion_eq_f64, IonEq};
 pub(crate) use ion_ord::{ion_cmp_bool, ion_cmp_f64, IonOrd};
 
@@ -88,10 +90,35 @@ impl<T: IonEq + IonOrd> Ord for IonData<T> {
     }
 }
 
+impl<T: WriteAsIon> WriteAsIon for IonData<T> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        self.0.write_as_ion(writer)
+    }
+
+    fn encode_as<E: Encoding, C: Into<WriteConfig<E>>>(&self, config: C) -> IonResult<E::Output>
+    where
+        for<'a> &'a Self: WriteAsIon,
+    {
+        self.0.encode_as(config)
+    }
+
+    fn encode_to<E: Encoding, C: Into<WriteConfig<E>>, W: Write>(
+        &self,
+        config: C,
+        output: W,
+    ) -> IonResult<W>
+    where
+        for<'a> &'a Self: WriteAsIon,
+    {
+        self.0.encode_to(config, output)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ion_data::{IonEq, IonOrd};
-    use crate::{Element, IonData, Symbol};
+    use crate::lazy::encoding::TextEncoding_1_0;
+    use crate::{Element, IonData, Symbol, WriteConfig};
     use rstest::*;
     use std::boxed::Box;
     use std::fmt::Debug;
@@ -105,6 +132,7 @@ mod tests {
     #[case::value(|s| Element::read_one(s).unwrap().value().clone().into())]
     #[case::symbol(|s| Symbol::from(s).into())]
     #[case::element(|s| Element::read_one(s).unwrap().into() )]
+    #[case::write_as_ion(|s| Element::read_one(Element::read_one(s).unwrap().encode_as(WriteConfig::<TextEncoding_1_0>::default()).unwrap()).unwrap().into() )]
     #[case::rc_element(|s| Rc::new(Element::read_one(s).unwrap()).into() )]
     #[case::vec_element(|s| Element::read_all(s).unwrap().into() )]
     #[case::rc_vec_element(|s| Rc::new(Element::read_all(s).unwrap()).into() )]
