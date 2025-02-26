@@ -23,7 +23,7 @@ pub(crate) struct TypeQualifier(u8);
 /// To compute a TQ from a `T` and a `Q`, all we need to is a bitwise shift!
 const fn combine(ion_type_code: IonTypeCode, q: u8) -> TypeQualifier {
     let t = ion_type_code.to_u8();
-    TypeQualifier(t << 4 | q)
+    TypeQualifier((t << 4) | q)
 }
 
 impl TypeQualifier {
