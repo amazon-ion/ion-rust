@@ -48,13 +48,13 @@ trait TestReporter {
 /// A test reporter that renders the results of all tests to the terminal in a human readable way,
 /// mimicking the output of cargo test.
 #[derive(Default)]
-struct PlainReporter {
+struct PlainTextReporter {
     name_width: usize,
     current_source: String,
     failed_tests: Vec<(String, TestReport)>,
 }
 
-impl TestReporter for PlainReporter {
+impl TestReporter for PlainTextReporter {
     fn current_collection(&mut self, source: &str, collection: &TestCollection) {
         println!("\nRunning tests: {}", source);
         self.current_source = source.to_owned();
@@ -133,10 +133,10 @@ pub fn main() {
         .collect::<Vec<String>>();
     let emit_ion = Some("-i") == options.get(0).map(|v| v.as_str());
 
-    let mut reporter: Box<dyn TestReporter> = if emit_ion {
-        Box::new(IonReporter::default())
+    let reporter: &mut dyn TestReporter = if emit_ion {
+        &mut IonReporter::default()
     } else {
-        Box::new(PlainReporter::default())
+        &mut PlainTextReporter::default()
     };
 
     for test_path in test_paths {
@@ -149,7 +149,7 @@ pub fn main() {
             // Limit the span that we've hijack'd the panic hook, so that if something goes wrong
             // with the unit test outside of our conformance eval, we don't conflate the two.
             std::panic::set_hook({
-                let mut panic_buffer = panic_buffer.clone();
+                let panic_buffer = panic_buffer.clone();
                 Box::new(move |info| {
                     let mut panic_buffer = panic_buffer.lock().unwrap();
                     // If we have a nice string-ish payload we can just take it.. otherwise we'll

@@ -84,6 +84,7 @@ mod ion_tests {
         // half-float not implemented
         "ion-tests/conformance/data_model/float.ion",
         // e-expression transcription
+        "ion-tests/conformance/demos/metaprogramming.ion",
         "ion-tests/conformance/eexp/arg_inlining.ion",
         "ion-tests/conformance/eexp/element_inlining.ion",
         "ion-tests/conformance/eexp/basic_system_macros.ion",
@@ -106,6 +107,8 @@ mod ion_tests {
         "ion-tests/conformance/ion_encoding/module/trivial.ion",
         "ion-tests/conformance/ion_encoding/module/macro_table.ion",
         "ion-tests/conformance/system_macros/add_macros.ion",
+        "ion-tests/conformance/ion_literal.ion",
+        "ion-tests/conformance/system_symbols.ion",
         // Error: found operation name with non-symbol type: sexp
         "ion-tests/conformance/ion_encoding/module/load_symtab.ion",
         "ion-tests/conformance/ion_encoding/module/symtab.ion",
@@ -141,19 +144,15 @@ mod ion_tests {
         "ion-tests/conformance/tdl/if_some.ion",
         "ion-tests/conformance/tdl/if_multi.ion",
         "ion-tests/conformance/tdl/if_single.ion",
+        // Mismatched encodings for nested contexts.
+        "ion-tests/conformance/ivm.ion",
+        // Decoding error "expected struct but found a null.struct"
+        "ion-tests/conformance/local_symtab.ion",
+        // Encoding error: "symbol value ID $10 is not in the symbol table"
+        "ion-tests/conformance/local_symtab_imports.ion",
     ];
 
-    #[test_resources("ion-tests/conformance/core/*.ion")]
-    #[test_resources("ion-tests/conformance/data_model/*.ion")]
-    #[test_resources("ion-tests/conformance/eexp/*.ion")]
-    #[test_resources("ion-tests/conformance/eexp/binary/*.ion")]
-    #[test_resources("ion-tests/conformance/ion_encoding/*.ion")]
-    #[test_resources("ion-tests/conformance/ion_encoding/module/*.ion")]
-    #[test_resources("ion-tests/conformance/ion_encoding/module/macro/cardinality/*.ion")]
-    #[test_resources("ion-tests/conformance/ion_encoding/module/macro/template/*.ion")]
-    #[test_resources("ion-tests/conformance/ion_encoding/module/macro/trivial/*.ion")]
-    #[test_resources("ion-tests/conformance/system_macros/*.ion")]
-    #[test_resources("ion-tests/conformance/tdl/*")]
+    #[test_resources("ion-tests/conformance/**/*.ion")]
     fn conformance(file_name: &str) {
         // Test for skip list. Convert windows '\\' separators into '/' to match skiplist.
         if !GLOBAL_CONFORMANCE_SKIPLIST.iter().any(|f| *f == file_name.replace("\\", "/")) {
