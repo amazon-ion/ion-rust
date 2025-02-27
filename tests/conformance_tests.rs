@@ -70,11 +70,6 @@ mod ion_tests {
         "ion-tests/conformance/system_macros/make_timestamp.ion",
         // Expected Signal: invalid macro definition
         "ion-tests/conformance/tdl/expression_groups.ion",
-        // Expected Signal Errors and e-expression transcription
-        "ion-tests/conformance/tdl/if_none.ion",
-        "ion-tests/conformance/tdl/if_some.ion",
-        "ion-tests/conformance/tdl/if_multi.ion",
-        "ion-tests/conformance/tdl/if_single.ion",
         // Mismatched encodings for nested contexts.
         "ion-tests/conformance/ivm.ion",
         // Decoding error "expected struct but found a null.struct"

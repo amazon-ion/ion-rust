@@ -158,17 +158,17 @@ impl TryFrom<Clause> for Fragment {
                     mac_table_elems.push(elem);
                 }
                 let mac_table: Element = SExp(Sequence::new(mac_table_elems)).into();
+
+                // Construct our Module
                 let module: Element = SExp(ion_seq!(
                     Symbol::from("module"),
-                    Symbol::from("M"),
+                    Symbol::from("_"),
                     mac_table,
-                    SExp(ion_seq!(Symbol::from("macro_table"), Symbol::from("M"))),
                 ))
                 .into();
-                let encoding: Element = SExp(ion_seq!(module)).into();
-                let encoding = encoding.with_annotations(["$ion_encoding"]);
+
                 Fragment::TopLevel(TopLevel {
-                    elems: vec![encoding],
+                    elems: vec![module.with_annotations(["$ion"])],
                 })
             }
             _ => return Err(ConformanceErrorKind::ExpectedFragment),
@@ -358,7 +358,19 @@ impl WriteAsIon for ProxyElement<'_> {
                     Some(Symbol(symbol)) if symbol.text().is_some() => {
                         let text = symbol.text().unwrap();
                         if text.starts_with("#$:") {
-                            todo!("e-expression transcription")
+                            let macro_id = text.strip_prefix("#$:").unwrap(); // SAFETY: Tested above.
+                            let mut args = if let Ok(symbol_id) = macro_id.parse::<ion_rs::SymbolId>() {
+                                writer.eexp_writer(symbol_id)?
+                            } else {
+                                // TODO: Need to handle text macro IDs when generating a binary
+                                // test document.
+                                writer.eexp_writer(macro_id)?
+                            };
+                            for arg in sexp.iter().skip(1) {
+                                args.write(arg)?;
+                            }
+                            args.close()?;
+                            return Ok(())
                         }
                     }
                     _ => {}
