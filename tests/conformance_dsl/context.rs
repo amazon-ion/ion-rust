@@ -132,7 +132,7 @@ impl<'a> Context<'a> {
         let (data, data_encoding) = match encoding {
             IonEncoding::Text => (to_text(self, self.fragments.iter())?, encoding),
             IonEncoding::Binary => (to_binary(self, self.fragments.iter())?, encoding),
-            IonEncoding::Unspecified => (to_binary(self, self.fragments.iter())?, IonEncoding::Binary),
+            IonEncoding::Unspecified => (to_text(self, self.fragments.iter())?, IonEncoding::Text),
         };
         let (mut parent_input, _) = self.parent_ctx.map(|c| c.input(encoding)).unwrap_or(Ok((vec!(), encoding)))?;
         parent_input.extend(data.clone());
