@@ -19,7 +19,7 @@ use crate::{try_or_some_err, IonError, IonResult};
 ///
 /// The values that the reader yields ([`LazyValue`],
 /// [`LazyList`](crate::lazy::sequence::LazyList), [`LazySExp`](crate::lazy::sequence::LazySExp),
-/// and [`LazyStruct`](crate::lazy::r#struct::LazyStruct)) are immutable references to the data
+/// and [`LazyStruct`](crate::lazy::struct::LazyStruct)) are immutable references to the data
 /// stream, and remain valid until [`Reader::next`] is called again to advance the
 /// reader to the next top level value. This means that these references can be stored, read, and
 /// re-read as long as the reader remains on the same top-level value.
@@ -215,7 +215,7 @@ pub trait IonResultIterExt<Item>: Iterator<Item = IonResult<Item>> {
         })
     }
 
-    /// Similar to [`try_filter`] and [`try_map`] above, but performs both operations in a single step.
+    /// Similar to [`try_filter`](Self::try_filter) and [`try_map`](Self::try_map) above, but performs both operations in a single step.
     fn try_filter_map<'a, MappingPredicate, Output>(
         &'a mut self,
         mut mapping_predicate: MappingPredicate,
