@@ -172,6 +172,7 @@ mod tests {
     const NUM_STRUCTS: usize = 1_000_000;
     static TEST_DATA: LazyLock<String> = LazyLock::new(test_data);
 
+    #[cfg(feature = "experimental-ion-1-1")]
     fn test_data() -> String {
         let test_data = r#"
             $ion_1_1
@@ -196,6 +197,20 @@ mod tests {
 
              // === Produces a value backed by an `ExpandedValueSource::Constructed` ===
              (:greet "Alice")
+         "#;
+        test_data.to_owned()
+    }
+
+    #[cfg(not(feature = "experimental-ion-1-1"))]
+    fn test_data() -> String {
+        let test_data = r#"
+            // === Values backed by `ExpandedValueSource::ValueLiteral` ===
+            foo
+            true
+            baz::5
+            [(), {}, ()]
+            2025T
+            "Hello"
          "#;
         test_data.to_owned()
     }
@@ -268,7 +283,8 @@ mod tests {
     }
 
     #[test]
-    fn demonstrate_try_filter_map() -> IonResult<()> {
+    #[cfg(feature = "experimental-ion-1-1")]
+    fn demonstrate_try_filter_map_1_1() -> IonResult<()> {
         let log = r#"
             $ion_1_1
             (:add_macros
