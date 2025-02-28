@@ -86,7 +86,7 @@ impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextFieldName<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding> HasRange for LazyRawTextFieldName<'top, E> {
+impl<E: TextEncoding> HasRange for LazyRawTextFieldName<'_, E> {
     fn range(&self) -> Range<usize> {
         self.matched.range()
     }

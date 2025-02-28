@@ -184,7 +184,7 @@ impl EncodingContext {
     pub fn save_io_buffer(&self) -> IoBuffer {
         match unsafe { &*self.io_buffer_source.get() } {
             IoBufferSource::IoBuffer(ref buffer) => buffer.clone(),
-            IoBufferSource::Reader(ref handle) => handle.save_io_buffer(),
+            IoBufferSource::Reader(handle) => handle.save_io_buffer(),
             IoBufferSource::None => {
                 panic!("io_buffer() called on EncodingContext before Input reference was set.")
             }
@@ -200,7 +200,7 @@ impl EncodingContext {
         //         It should be unset at the beginning of each `'top` lifetime.
         let buffer_handle: &'static dyn IoBufferHandle = unsafe { std::mem::transmute(handle) };
         let io_buffer_source = unsafe { &mut *self.io_buffer_source.get() };
-        *io_buffer_source = IoBufferSource::Reader(buffer_handle).into();
+        *io_buffer_source = IoBufferSource::Reader(buffer_handle);
     }
 
     pub fn macro_table(&self) -> &MacroTable {
@@ -569,7 +569,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         //         alias the allocator, symbol table, or macro table inside this `unsafe` scope.
         unsafe {
             // If we're holding a reference to the input data source, drop it.
-            (&mut *self.encoding_context.get()).io_buffer_source = IoBufferSource::None.into();
+            (*self.encoding_context.get()).io_buffer_source = IoBufferSource::None.into();
             // Clear the bump allocator.
             self.reset_bump_allocator();
         }

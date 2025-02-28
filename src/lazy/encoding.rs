@@ -485,7 +485,7 @@ impl Decoder for BinaryEncoding_1_1 {
 // implementation will conflict with the core `impl<T> From<T> for T` implementation.
 pub trait RawValueLiteral {}
 
-impl<'top, E: TextEncoding> RawValueLiteral for LazyRawTextValue<'top, E> {}
+impl<E: TextEncoding> RawValueLiteral for LazyRawTextValue<'_, E> {}
 impl RawValueLiteral for LazyRawBinaryValue_1_0<'_> {}
 impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_1<'top> {}
 impl RawValueLiteral for LazyRawAnyValue<'_> {}

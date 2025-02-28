@@ -86,7 +86,7 @@ impl<'a> Span<'a> {
     }
 }
 
-impl<'a> HasRange for Span<'a> {
+impl HasRange for Span<'_> {
     fn range(&self) -> Range<usize> {
         self.offset..self.offset + self.bytes.len()
     }

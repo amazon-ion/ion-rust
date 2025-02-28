@@ -211,7 +211,7 @@ pub trait IonResultIterExt<Item>: Iterator<Item = IonResult<Item>> {
     {
         self.map(move |result| {
             let element = result?;
-            Ok(map_fn(&element)?)
+            map_fn(&element)
         })
     }
 

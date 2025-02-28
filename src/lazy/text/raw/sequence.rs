@@ -75,7 +75,7 @@ impl<'data, E: TextEncoding> IntoIterator for &RawTextList<'data, E> {
     }
 }
 
-impl<'data, E: TextEncoding> Debug for RawTextList<'data, E> {
+impl<E: TextEncoding> Debug for RawTextList<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
@@ -250,7 +250,7 @@ impl<'data, E: TextEncoding> IntoIterator for &RawTextSExp<'data, E> {
     }
 }
 
-impl<'top, E: TextEncoding> Debug for RawTextSExp<'top, E> {
+impl<E: TextEncoding> Debug for RawTextSExp<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {

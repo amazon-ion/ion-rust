@@ -27,7 +27,7 @@ pub struct LazyResource<'a, Encoding: Decoder, Resource> {
     resource: Resource,
 }
 
-impl<'a, Encoding: Decoder, Resource> Deref for LazyResource<'a, Encoding, Resource> {
+impl<Encoding: Decoder, Resource> Deref for LazyResource<'_, Encoding, Resource> {
     type Target = Resource;
 
     fn deref(&self) -> &Self::Target {
@@ -165,7 +165,7 @@ mod tests {
     use std::sync::LazyLock;
 
     const NUM_STRUCTS: usize = 1_000_000;
-    static TEST_DATA: LazyLock<String> = LazyLock::new(|| test_data());
+    static TEST_DATA: LazyLock<String> = LazyLock::new(test_data);
 
     fn test_data() -> String {
         let test_data = r#"
@@ -254,7 +254,7 @@ mod tests {
         let mut reader = Reader::new(AnyEncoding, r#"1 2 3 4 5 6 7 8 9 10"#)?;
         let evens: IonResult<Vec<i64>> = reader
             .try_filter(|element| Ok(element.ion_type() == IonType::Int))
-            .try_map(|element| Ok(element.read()?.expect_i64()?))
+            .try_map(|element| element.read()?.expect_i64())
             .try_filter(|i| Ok(i % 2 == 0))
             .collect();
         drop(reader);

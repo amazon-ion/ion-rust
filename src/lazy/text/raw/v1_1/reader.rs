@@ -329,7 +329,7 @@ pub struct LazyRawTextStruct<'top, E: TextEncoding> {
     pub(crate) value: LazyRawTextValue<'top, E>,
 }
 
-impl<'top, E: TextEncoding> Debug for LazyRawTextStruct<'top, E> {
+impl<E: TextEncoding> Debug for LazyRawTextStruct<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field_result in self.iter() {

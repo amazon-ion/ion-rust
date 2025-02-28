@@ -551,7 +551,7 @@ impl<R: Read> IonDataSource for IonStream<R> {
     const IS_STREAMING: bool = true;
 
     fn buffer(&self) -> &[u8] {
-        &self.buffer.remaining_bytes()
+        self.buffer.remaining_bytes()
     }
 
     fn fill_buffer(&mut self) -> IonResult<usize> {

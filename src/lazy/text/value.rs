@@ -111,7 +111,7 @@ impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextVersionMarker<'top, E> 
     }
 }
 
-impl<'top, E: TextEncoding> HasRange for LazyRawTextVersionMarker<'top, E> {
+impl<E: TextEncoding> HasRange for LazyRawTextVersionMarker<'_, E> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
@@ -130,7 +130,7 @@ impl<'top, E: TextEncoding> RawVersionMarker<'top> for LazyRawTextVersionMarker<
 pub type LazyRawTextValue_1_0<'top> = LazyRawTextValue<'top, TextEncoding_1_0>;
 pub type LazyRawTextValue_1_1<'top> = LazyRawTextValue<'top, TextEncoding_1_1>;
 
-impl<'top, Encoding: TextEncoding> Debug for LazyRawTextValue<'top, Encoding> {
+impl<Encoding: TextEncoding> Debug for LazyRawTextValue<'_, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", Encoding::name())?;
 
@@ -153,7 +153,7 @@ impl<'top, Encoding: TextEncoding> Debug for LazyRawTextValue<'top, Encoding> {
 // These trait impls are common to all Ion versions, but require the caller to specify a type
 // parameter.
 
-impl<'top, Encoding: TextEncoding> HasRange for LazyRawTextValue<'top, Encoding> {
+impl<Encoding: TextEncoding> HasRange for LazyRawTextValue<'_, Encoding> {
     fn range(&self) -> Range<usize> {
         self.input.range()
     }
