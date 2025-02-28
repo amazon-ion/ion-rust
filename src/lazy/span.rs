@@ -73,7 +73,6 @@ impl<'a> Span<'a> {
         Self {
             bytes: &self.bytes[offset..offset + length],
             offset: self.offset + offset,
-            ..*self
         }
     }
 
@@ -81,7 +80,6 @@ impl<'a> Span<'a> {
         Self {
             bytes: &self.bytes[offset..],
             offset: self.offset + offset,
-            ..*self
         }
     }
 }

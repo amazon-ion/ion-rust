@@ -84,7 +84,12 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
             context: self.context.get_ref(),
             // SAFETY: Here we're shortening the `source`'s `'static` lifetime to this method's.
             //         `LazyValue`s are immutable, so handing out a shorter lifetime is not a problem.
-            source: unsafe { mem::transmute(self.source) },
+            source: unsafe {
+                mem::transmute::<
+                    ExpandedValueSource<'static, Encoding>,
+                    ExpandedValueSource<'top, Encoding>,
+                >(self.source)
+            },
             // TODO: Preserve variable provenance.
             variable: None,
         };
@@ -141,7 +146,7 @@ impl<'top, Encoding: Decoder> From<LazyValue<'top, Encoding>> for LazyElement<En
     }
 }
 
-impl<'top, Encoding: Decoder> TryFrom<LazyElement<Encoding>> for Element {
+impl<Encoding: Decoder> TryFrom<LazyElement<Encoding>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_element: LazyElement<Encoding>) -> Result<Self, Self::Error> {
@@ -149,7 +154,7 @@ impl<'top, Encoding: Decoder> TryFrom<LazyElement<Encoding>> for Element {
     }
 }
 
-impl<'top, Encoding: Decoder> TryFrom<&LazyElement<Encoding>> for Element {
+impl<Encoding: Decoder> TryFrom<&LazyElement<Encoding>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_element: &LazyElement<Encoding>) -> Result<Self, Self::Error> {
