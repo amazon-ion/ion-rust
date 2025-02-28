@@ -82,18 +82,28 @@ pub mod sequence;
 pub mod r#struct;
 pub mod template;
 
+/// The encoding context holds an `IoBufferSource`.
+///
+/// During initialization, it is set to `None`, indicating that there is not yet a meaningfully
+/// initialized IoBuffer.
+///
+/// When the reader's `IonInput` has populated its input buffer, the instance is set to `Reader`.
+/// The dynamic `IoBufferHandle` reference refers to the `IonInput` implementation. If the input is
+/// a stream, then the sliding window over the input stream is an `IoBuffer` instance that can be
+/// cheaply cloned. However, if the input is a fixed slice, then there is no need for a heap-allocated
+/// `IoBuffer`; the reader's `IonInput` will hold off on allocating one until it is necessary to
+/// construct a `LazyElement`. Once created, all `LazyElement`s will share the same IoBuffer instance.
 #[derive(Clone)]
 pub(crate) enum IoBufferSource {
-    // The EncodingContext does not have an IoBufferSource set yet.
-    // This is true when the reader has begun reading the next expression from input but has not yet
-    // produced a LazyValue.
+    // The EncodingContext does not have a meaningfully initialized input buffer yet.
     None,
-    // This encoding context instance belongs to the reader.
+    // The EncodingContext that owns this IoBufferSource belongs to the reader.
     // It holds a valid reference to the input source and thus can return an IoBuffer representing
     // the buffer's current contents. Doing so may or may not require heap allocation depending
     // on the underlying `IoBufferHandle` implementation.
     Reader(&'static dyn IoBufferHandle),
-    // This encoding context was previously cloned from the reader's instance.
+    // The EncodingContext that owns this IoBufferSource was belongs to a `LazyElement`;
+    // the EncodingContext was previously cloned from the reader's instance.
     // It holds an already-constructed IoBuffer that can be cheaply cloned.
     IoBuffer(IoBuffer),
 }
@@ -197,6 +207,8 @@ impl EncodingContext {
         &self.macro_table
     }
 
+    /// If there is only one strong reference to the macro table, returns a mutable reference to it.
+    /// Otherwise, clones the macro table, allowing the other referents to continue using the previous copy.
     pub fn macro_table_mut(&mut self) -> &mut MacroTable {
         Rc::make_mut(&mut self.macro_table)
     }

@@ -1,5 +1,5 @@
 use crate::lazy::decoder::Decoder;
-use crate::lazy::encoding::{BinaryEncoding_1_0, BinaryEncoding_1_1};
+use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::lazy_element::LazyElement;
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, IoBufferSource, LazyExpandedValue,
@@ -61,18 +61,6 @@ pub struct LazyValue<'top, D: Decoder> {
 }
 
 pub type LazyBinaryValue<'top> = LazyValue<'top, BinaryEncoding_1_0>;
-
-#[test]
-fn sizes() {
-    // print the size of LazyValue with various values of `D`
-
-    println!("bin 1.0 {}", size_of::<LazyValue<'_, BinaryEncoding_1_0>>());
-    println!("bin 1.1 {}", size_of::<LazyValue<'_, BinaryEncoding_1_1>>());
-    println!(
-        "ex bin 1.1 {}",
-        size_of::<LazyExpandedValue<'_, BinaryEncoding_1_0>>()
-    );
-}
 
 impl<'top, D: Decoder> LazyValue<'top, D> {
     pub(crate) fn new(expanded_value: LazyExpandedValue<'top, D>) -> LazyValue<'top, D> {
@@ -276,7 +264,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         self.expanded_value.read_resolved()
     }
 
-    pub(crate) fn context(&self) -> EncodingContextRef<'_> {
+    pub(crate) fn context(&self) -> EncodingContextRef<'top> {
         self.expanded_value.context()
     }
 
@@ -284,17 +272,25 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
         let context = self.context().context.clone();
+
         let source = if let ExpandedValueSource::ValueLiteral(raw_value) =
             self.expanded_value.source
         {
+            // If the value's source is a `ValueLiteral`, then it may hold references to bytes in the input buffer.
+            // We need to modify the source to point to heap data that is owned by `context`.
+            // First, get the `IoBufferSource` and ask it for a shared copy of the IoBuffer.
+            // SAFETY: `io_buffer_source` is an `UnsafeCell` to allow us to set it from the `StreamingRawReader`
+            //         after each top-level value. Unfortunately, that means we need to use `unsafe` to access it here.
             let IoBufferSource::IoBuffer(ref io_buffer) =
                 (unsafe { &*context.io_buffer_source.get() })
             else {
                 unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
             };
+            // Take note of all the ValueLiteral's recorded offsets.
             let value_span = raw_value.span();
             let value_offset = value_span.offset();
             let value_length = value_span.len();
+            // Now, swap out the backing data for a slice of the `IoBuffer`.
             // The value begins at stream position `value_offset`.
             // The buffer begins at `io_buffer.stream_offset()`.
             // To find the serialized value within the buffer,
@@ -306,9 +302,12 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
             let raw_value = raw_value.with_backing_data(backing_span);
             ExpandedValueSource::ValueLiteral(raw_value)
         } else {
+            // If the value is not a literal, then it lives in the bump allocator.
+            // That is to say, it is already heap data that is owned by `context`.
             self.expanded_value.source
         };
-        LazyElement::new(context, source)
+        // Now that we have upheld the invariants required by `LazyElement::new`, we can safely call it.
+        unsafe { LazyElement::new(context, source) }
     }
 }
 
