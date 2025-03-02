@@ -102,7 +102,7 @@ pub(crate) enum IoBufferSource {
     // the buffer's current contents. Doing so may or may not require heap allocation depending
     // on the underlying `IoBufferHandle` implementation.
     Reader(&'static dyn IoBufferHandle),
-    // The EncodingContext that owns this IoBufferSource was belongs to a `LazyElement`;
+    // The EncodingContext that owns this IoBufferSource belongs to a `LazyElement`;
     // the EncodingContext was previously cloned from the reader's instance.
     // It holds an already-constructed IoBuffer that can be cheaply cloned.
     IoBuffer(IoBuffer),
@@ -608,10 +608,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // SAFETY: We have an immutable reference to `self`, so it's legal for us to have an immutable
         //         reference to one of its fields.
         unsafe { &*self.raw_reader.get() }.encoding()
-    }
-
-    pub fn save_buffer(&self) -> IoBuffer {
-        unsafe { &*self.raw_reader.get() }.save_buffer()
     }
 
     /// Returns the next IVM, value, or system value as an `ExpandedStreamItem`.
