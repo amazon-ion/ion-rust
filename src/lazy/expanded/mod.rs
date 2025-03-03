@@ -1117,6 +1117,14 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
         None
     }
+
+    #[cfg(feature = "source-location")]
+    pub fn location(&self) -> Option<(usize, usize)> {
+        if let ExpandedValueSource::ValueLiteral(value) = &self.source {
+            return Some(value.location());
+        }
+        None
+    }
 }
 
 impl<'top, Encoding: Decoder> From<LazyExpandedValue<'top, Encoding>>

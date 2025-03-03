@@ -292,6 +292,11 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             ..**self
         })
     }
+
+    #[cfg(feature = "source-location")]
+    fn location(&self) -> (usize, usize) {
+        (0, 0)
+    }
 }
 
 /// Nested expressions parsed and cached while reading (e.g.) a [`LazyRawBinaryValue_1_1`].

@@ -264,6 +264,11 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         self.expanded_value.read_resolved()
     }
 
+    #[cfg(feature = "source-location")]
+    pub fn location(&self) -> Option<(usize, usize)> {
+        self.expanded_value.location()
+    }
+
     pub(crate) fn context(&self) -> EncodingContextRef<'top> {
         self.expanded_value.context()
     }
@@ -597,6 +602,44 @@ mod tests {
         let mut reader = Reader::new(v1_0::Binary, binary_ion)?;
         let result = reader.expect_next();
         assert!(matches!(result, Err(crate::IonError::Incomplete(_))));
+        Ok(())
+    }
+
+    #[cfg(feature = "source-location")]
+    #[rstest]
+    #[case::no_crlf("{foo: 1, bar: 2}\"hello\"", (1,17))]
+    #[case::cr_lf_lf("{foo: 1, bar: 2}\r\n\n\"hello\"", (3,1))]
+    #[case::lf_lf_cr("{foo: 1, bar: 2}\n\n\r\"hello\"", (4,1))]
+    #[case::cr_lf_cr("{foo: 1, bar: 2}\r\n\r\"hello\"", (3,1))]
+    #[case::cr_cr_cr("{foo: 1, bar: 2}\r\r\r\"hello\"", (4,1))]
+    #[case::cr_cr_lf("{foo: 1, bar: 2}\r\r\n\"hello\"", (3,1))]
+    #[case::lf_cr_cr("{foo: 1, bar: 2}\n\r\r\"hello\"", (4,1))]
+    #[case::lf_cr_lf("{foo: 1, bar: 2}\n\r\n\"hello\"", (3,1))]
+    #[case::lf_lf_lf("{foo: 1, bar: 2}\n\n\n\"hello\"", (4,1))]
+    #[case::newlines_after("{foo: 1, bar: 2}\"hello\"\n\n", (1, 17))]
+    #[case::tabs("{foo: 1, bar: 2}\n\t\t\t\"hello\"", (2,4))]
+    #[case::tabs_after("{foo: 1, bar: 2}\"hello\"\t\t", (1,17))]
+    #[case::mix_tabs_and_newlines("{foo: 1, bar: 2}\n\t\n\"hello\"", (3,1))]
+    #[case::long_string("{foo: 1, bar: 2}\n\n'''long \n\r\n\t hello'''", (3, 1))]
+    #[case::comment("{foo: 1, bar: 2}\n\n /*multiline \n comment*/'''long \n\r\n\t hello'''", (4, 11))]
+    fn location_test_for_second_tlv(
+        #[case] ion_text: &str,
+        #[case] expected_location: (usize, usize),
+    ) -> IonResult<()> {
+        let mut reader = Reader::new(v1_0::Text, ion_text)?;
+        let result1 = reader.expect_next();
+        assert!(result1.is_ok());
+        if let Ok(lazy_value1) = result1 {
+            let _val = lazy_value1.read();
+            // first tlv will always be (1,1) per the examples here
+            assert_eq!(lazy_value1.location().unwrap(), (1, 1));
+        }
+        let result2 = reader.expect_next();
+        assert!(result2.is_ok());
+        if let Ok(lazy_value2) = result2 {
+            let _val = lazy_value2.read();
+            assert_eq!(lazy_value2.location().unwrap(), expected_location);
+        }
         Ok(())
     }
 }

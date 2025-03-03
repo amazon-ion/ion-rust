@@ -599,7 +599,9 @@ impl<'data> From<LazyRawBinaryReader_1_1<'data>> for LazyRawAnyReader<'data> {
 impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
     fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self {
         let encoding = Self::detect_encoding(data);
-        let state = RawReaderState::new(data, 0, is_final_data, encoding);
+        let state = RawReaderState::new(data, 0,         #[cfg(feature = "source-location")]
+        0,         #[cfg(feature = "source-location")]
+        0, is_final_data, encoding);
         LazyRawAnyReader {
             new_encoding: None,
             encoding_reader: RawReaderKind::resume_at_offset(context, state),
@@ -636,6 +638,10 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
             return RawReaderState::new(
                 reader_state.data(),
                 reader_state.offset(),
+                #[cfg(feature = "source-location")]
+                reader_state.row(),
+                #[cfg(feature = "source-location")]
+                reader_state.prev_newline_offset(),
                 reader_state.is_final_data(),
                 new_encoding,
             );
@@ -684,6 +690,28 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
             Binary_1_0(r) => r.position(),
             Text_1_1(r) => r.position(),
             Binary_1_1(r) => r.position(),
+        }
+    }
+
+    #[cfg(feature = "source-location")]
+    fn row(&self) -> usize {
+        use RawReaderKind::*;
+        match &self.encoding_reader {
+            Text_1_0(r) => r.row(),
+            Binary_1_0(r) => r.row(),
+            Text_1_1(r) => r.row(),
+            Binary_1_1(r) => r.row(),
+        }
+    }
+
+    #[cfg(feature = "source-location")]
+    fn prev_newline_offset(&self) -> usize {
+        use RawReaderKind::*;
+        match &self.encoding_reader {
+            Text_1_0(r) => r.prev_newline_offset(),
+            Binary_1_0(r) => r.prev_newline_offset(),
+            Text_1_1(r) => r.prev_newline_offset(),
+            Binary_1_1(r) => r.prev_newline_offset(),
         }
     }
 
@@ -1118,6 +1146,16 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
                     LazyRawValueKind::Binary_1_1(v.with_backing_data(span))
                 }
             },
+        }
+    }
+
+    #[cfg(feature = "source-location")]
+    fn location(&self) -> (usize, usize) {
+        match &self.encoding {
+            LazyRawValueKind::Text_1_0(v) => v.location(),
+            LazyRawValueKind::Binary_1_0(v) => v.location(),
+            LazyRawValueKind::Text_1_1(v) => v.location(),
+            LazyRawValueKind::Binary_1_1(v) => v.location(),
         }
     }
 }

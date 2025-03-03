@@ -152,6 +152,11 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
             input: BinaryBuffer::new_with_offset(span.bytes(), span.offset()),
         }
     }
+
+    #[cfg(feature = "source-location")]
+    fn location(&self) -> (usize, usize) {
+        (0,0)
+    }
 }
 
 pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
