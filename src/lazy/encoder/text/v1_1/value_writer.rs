@@ -90,10 +90,10 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
     fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
         let id = macro_id.into();
         let opening_text = match id {
-            MacroIdRef::LocalName(name) => format!("(:{}", name),
-            MacroIdRef::LocalAddress(address) => format!("(:{}", address),
+            MacroIdRef::LocalName(name) => format!("(:{} ", name),
+            MacroIdRef::LocalAddress(address) => format!("(:{} ", address),
             MacroIdRef::SystemAddress(system_address) => {
-                format!("(:$ion::{}", system_address.as_usize())
+                format!("(:$ion::{} ", system_address.as_usize())
             }
         };
         TextEExpWriter_1_1::new(
