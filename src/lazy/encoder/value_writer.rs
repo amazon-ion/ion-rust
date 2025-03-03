@@ -216,6 +216,10 @@ pub(crate) use delegate_value_writer_to_self;
 pub struct FieldWriter<'field, StructWriterType> {
     name: RawSymbolRef<'field>,
     struct_writer: &'field mut StructWriterType,
+    // ValueWriterConfig is currently only meaningfully used in the binary 1.1 writer.
+    // This generic `FieldWriter` type is used by all encodings, and so does not use the
+    // `value_writer_config` field yet.
+    #[allow(dead_code)]
     value_writer_config: ValueWriterConfig,
 }
 

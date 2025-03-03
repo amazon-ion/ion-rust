@@ -426,10 +426,6 @@ pub(crate) mod private {
                 raw_fields,
             }
         }
-
-        pub fn context(&self) -> EncodingContextRef<'top> {
-            self.context
-        }
     }
 
     impl<'top, D: Decoder> Iterator for RawStructFieldExprIterator<'top, D> {
@@ -498,6 +494,7 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
 ///       would be to take a `&mut SystemReader<_>` that can maintain the encoding context while
 ///       also only paying attention to stream literals.
 pub trait TranscribeRaw<E: Encoding> {
+    #[allow(dead_code)]
     fn transcribe<'a, R: LazyRawReader<'a, E>>(&mut self, reader: &mut R) -> IonResult<()>
     where
         Self: 'a;
@@ -614,6 +611,7 @@ pub trait RawSequenceIterator<'top, D: Decoder>:
     Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
 {
     /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    #[allow(dead_code)]
     fn peek_next(&self) -> Option<IonResult<LazyRawValueExpr<'top, D>>> {
         // Because RawSequenceIterator impls are `Copy`, we can make a cheap copy of `self` and advance
         // *it* without affecting `self`.
@@ -642,6 +640,7 @@ pub trait RawStructIterator<'top, D: Decoder>:
     Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>
 {
     /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    #[allow(dead_code)]
     fn peek_next(&self) -> Option<IonResult<LazyRawFieldExpr<'top, D>>> {
         // Because RawStructIterator impls are `Copy`, we can make a cheap copy of `self` and advance
         // *it* without affecting `self`.

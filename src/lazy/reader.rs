@@ -170,6 +170,8 @@ impl<Encoding: Decoder, Input: IonInput> Iterator for LazyElementIterator<'_, En
 /// These methods are analogous to methods that already exist on `Iterator`,
 /// but automatically handle situations where the input `IonResult` is an `Err`
 /// sparing the user from writing more boilerplate.
+// This code is not used within the library but is intentionally available to tests and applications.
+#[allow(dead_code)]
 pub trait IonResultIterExt<Item>: Iterator<Item = IonResult<Item>> {
     /// Filters a stream of `IonResult` values.
     ///

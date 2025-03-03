@@ -378,9 +378,6 @@ pub enum MatchedString {
 }
 
 impl MatchedString {
-    // Strings longer than 64 bytes will allocate a larger space on the heap.
-    const STACK_ALLOC_BUFFER_CAPACITY: usize = 64;
-
     pub fn read<'data>(
         &self,
         allocator: &'data BumpAllocator,

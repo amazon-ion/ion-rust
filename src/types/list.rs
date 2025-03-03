@@ -22,7 +22,7 @@ use std::fmt::{Display, Formatter};
 pub struct List(pub Sequence);
 
 impl List {
-    pub(crate) fn new(elements: impl Into<Sequence>) -> Self {
+    pub fn new(elements: impl Into<Sequence>) -> Self {
         List(elements.into())
     }
 }

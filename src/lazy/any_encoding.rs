@@ -447,8 +447,6 @@ pub struct LazyRawAnyReader<'data> {
 
 impl LazyRawAnyReader<'_> {
     fn detect_encoding(data: &[u8]) -> IonEncoding {
-        const BINARY_1_0_IVM: &[u8] = &[0xEA, 0x01, 0x00, 0xE0];
-
         match *data {
             [0xE0, 0x01, 0x00, 0xEA, ..] => IonEncoding::Binary_1_0,
             [0xE0, 0x01, 0x01, 0xEA, ..] => IonEncoding::Binary_1_1,

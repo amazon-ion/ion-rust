@@ -6,7 +6,6 @@ use std::ops::Range;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{Decoder, RawValueExpr};
-use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::macro_evaluator::{
     AnnotateExpansion, ConditionalExpansion, EExpressionArgGroup, ExprGroupExpansion,
@@ -321,8 +320,6 @@ impl<'top, D: Decoder> Iterator for EExpressionArgsIterator<'top, D> {
         self.raw_args.size_hint()
     }
 }
-
-pub type TextEExpression_1_1<'top> = EExpression<'top, TextEncoding_1_1>;
 
 #[derive(Copy, Clone, Debug)]
 pub struct EExpArgGroupIterator<'top, D: Decoder> {

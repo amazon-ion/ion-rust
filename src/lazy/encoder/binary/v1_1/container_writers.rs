@@ -41,7 +41,6 @@ impl<'top> ContainerEncodingKind<'_, 'top> {
 }
 
 struct DelimitedEncoder<'value, 'top> {
-    start_opcode: u8,
     buffer: &'value mut BumpVec<'top, u8>,
 }
 
@@ -62,10 +61,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         write_options: ValueWriterConfig,
     ) -> Self {
         buffer.push(start_opcode);
-        let encoder = ContainerEncodingKind::Delimited(DelimitedEncoder {
-            start_opcode,
-            buffer,
-        });
+        let encoder = ContainerEncodingKind::Delimited(DelimitedEncoder { buffer });
         Self {
             allocator,
             encoder,
@@ -101,10 +97,6 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
     /// The buffer to which this ContainerWriter encodes child values.
     pub fn child_values_buffer(&mut self) -> &'_ mut BumpVec<'top, u8> {
         self.encoder.target_buffer()
-    }
-
-    pub fn has_delimited_containers(&self) -> bool {
-        matches!(self.encoder, ContainerEncodingKind::Delimited(_))
     }
 
     pub fn config(&self) -> ValueWriterConfig {

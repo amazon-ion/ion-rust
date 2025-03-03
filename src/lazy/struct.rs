@@ -2,7 +2,6 @@
 
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::{Decoder, LazyRawContainer};
-use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::r#struct::{
     ExpandedStructIterator, ExpandedStructSource, LazyExpandedField, LazyExpandedStruct,
 };
@@ -50,8 +49,6 @@ use std::fmt::{Debug, Formatter};
 pub struct LazyStruct<'top, D: Decoder> {
     pub(crate) expanded_struct: LazyExpandedStruct<'top, D>,
 }
-
-pub type LazyBinaryStruct_1_0<'top> = LazyStruct<'top, BinaryEncoding_1_0>;
 
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.

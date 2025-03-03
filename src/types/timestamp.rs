@@ -80,21 +80,11 @@ trait EmptyMantissa {
     /// sub-second precision at all. For example, `Mantissa::Digits(0)` or
     /// `Mantissa::Arbitrary(Decimal::new(0, 0))`.
     fn is_empty(&self) -> bool;
-
-    /// Returns true if the Mantissa's value is equivalent to a zero value
-    /// For example, `Mantissa::Digits(0)` or `Mantissa::Arbitrary(Decimal::new(0, x))`.
-    /// For Decimal, it ignores the exponent value for a zero coefficient.
-    fn is_zero(&self) -> bool;
 }
 
 impl EmptyMantissa for Decimal {
     fn is_empty(&self) -> bool {
         self.coefficient.is_zero() && self.exponent == 0
-    }
-
-    fn is_zero(&self) -> bool {
-        // if the coefficient is zero then ignore the exponent value
-        self.coefficient.is_zero()
     }
 }
 
@@ -105,16 +95,6 @@ impl EmptyMantissa for Mantissa {
             Mantissa::Digits(0) => true,
             // Or a Decimal with a coefficient of zero (any sign) and an exponent of zero.
             Mantissa::Arbitrary(d) => d.is_empty(),
-            _ => false,
-        }
-    }
-
-    fn is_zero(&self) -> bool {
-        match self {
-            // Look at zero digits of the DateTime's nanoseconds
-            Mantissa::Digits(0) => true,
-            // Or a Decimal with a coefficient of zero (any sign).
-            Mantissa::Arbitrary(d) => d.is_zero(),
             _ => false,
         }
     }

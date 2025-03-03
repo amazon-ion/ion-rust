@@ -1423,23 +1423,4 @@ impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
             )),
         }
     }
-
-    fn ion_type(&self) -> IonType {
-        use ExpandedValueRef::*;
-        match self {
-            Null(ion_type) => *ion_type,
-            Bool(_) => IonType::Bool,
-            Int(_) => IonType::Int,
-            Float(_) => IonType::Float,
-            Decimal(_) => IonType::Decimal,
-            Timestamp(_) => IonType::Timestamp,
-            String(_) => IonType::String,
-            Symbol(_) => IonType::Symbol,
-            Blob(_) => IonType::Blob,
-            Clob(_) => IonType::Clob,
-            SExp(_) => IonType::SExp,
-            List(_) => IonType::List,
-            Struct(_) => IonType::Struct,
-        }
-    }
 }

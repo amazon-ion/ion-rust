@@ -281,10 +281,6 @@ impl EncodedHeader for Header {
         self.ion_type_code
     }
 
-    fn low_nibble(&self) -> u8 {
-        self.low_nibble()
-    }
-
     fn is_null(&self) -> bool {
         self.ion_type_code == OpcodeType::NullNull || self.ion_type_code == OpcodeType::TypedNull
     }

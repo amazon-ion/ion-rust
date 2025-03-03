@@ -7,15 +7,9 @@ use std::mem;
 // VarInt's magnitude and byte length in the future.
 // See: https://github.com/amazon-ion/ion-rust/issues/7
 type VarIntStorage = i64;
-type VarIntSizeStorage = usize;
-
-const BITS_PER_ENCODED_BYTE: usize = 7;
-const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<VarIntStorage>() * 8;
-const MAX_ENCODED_SIZE_IN_BYTES: usize = STORAGE_SIZE_IN_BITS / BITS_PER_ENCODED_BYTE;
 
 const LOWER_6_BITMASK: u8 = 0b0011_1111;
 const LOWER_7_BITMASK: u8 = 0b0111_1111;
-const HIGHEST_BIT_VALUE: u8 = 0b1000_0000;
 
 const BITS_PER_BYTE: usize = 8;
 const BITS_PER_U64: usize = mem::size_of::<u64>() * BITS_PER_BYTE;

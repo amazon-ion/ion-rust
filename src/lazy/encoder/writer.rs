@@ -31,6 +31,8 @@ use crate::{
 
 pub(crate) struct WriterContext {
     symbol_table: SymbolTable,
+    // This will be used when we add 'managed' macro methods to the writer
+    #[allow(dead_code)]
     macro_table: MacroTable,
     num_pending_symbols: usize,
 }

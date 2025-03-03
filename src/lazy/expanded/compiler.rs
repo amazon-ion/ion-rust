@@ -275,25 +275,6 @@ impl TemplateCompiler {
         }
     }
 
-    /// Confirms that the provided `value` is a symbol with known text. If so, returns `Ok(text)`.
-    /// If not, returns a decoding error containing the specified label.
-    fn expect_symbol<'a, Encoding: Decoder>(
-        label: &str,
-        source: &mut impl Iterator<Item = IonResult<LazyValue<'a, Encoding>>>,
-    ) -> IonResult<LazyValue<'a, Encoding>> {
-        match source.next() {
-            None => IonResult::decoding_error(format!("expected {label} but found nothing")),
-            Some(Ok(value)) if value.ion_type() == IonType::Symbol => Ok(value),
-            Some(Ok(value)) => IonResult::decoding_error(format!(
-                "expected {label} but found {}",
-                value.ion_type()
-            )),
-            Some(Err(e)) => IonResult::decoding_error(format!(
-                "expected {label} but encountered an error: {e:?}"
-            )),
-        }
-    }
-
     /// Tries to pull the next `LazyValue` from the provided iterator. If the iterator is empty,
     /// returns a `IonError::Decoding` that includes the specified label.
     fn expect_next<'a, Encoding: Decoder>(
@@ -307,16 +288,6 @@ impl TemplateCompiler {
             )),
             Some(Ok(value)) => Ok(value),
         }
-    }
-
-    /// Tries to pull the next `LazyValue` from the provided iterator, confirming that it is
-    /// a symbol with text.
-    fn expect_name<'a, Encoding: Decoder>(
-        label: &str,
-        source: &mut impl Iterator<Item = IonResult<LazyValue<'a, Encoding>>>,
-    ) -> IonResult<&'a str> {
-        let value = Self::expect_next(label, source)?;
-        Self::expect_symbol_text(label, value)
     }
 
     /// Tries to pull the next `LazyValue` from the provided iterator, confirming that it is
@@ -1371,13 +1342,9 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
             }
             // It's a variable reference.
             ValueRef::Symbol(s) if s == "%" => {
-                let Some(variable_ref) = expressions.next().transpose()? else {
-                    return IonResult::decoding_error(
-                        "s-expression starts with a `.` but does not specify a variable name",
-                    );
-                };
-                let name = variable_ref.read()?.expect_symbol()?;
-                return Ok(TdlSExpKind::VariableExpansion(name));
+                let value = TemplateCompiler::expect_next("parameter name", &mut expressions)?;
+                let name = TemplateCompiler::expect_symbol_text("parameter name", value)?;
+                return Ok(TdlSExpKind::VariableExpansion(name.into()));
             }
             // Anything else means this is a sexp quasi-literal.
             _ => {

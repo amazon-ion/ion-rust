@@ -6,7 +6,6 @@ use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::binary::v1_0::value_writer::{BinaryValueWriter_1_0, MAX_INLINE_LENGTH};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
-use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
 use crate::{
@@ -73,13 +72,6 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
         } else {
             None
         };
-        Ok(self)
-    }
-
-    pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        let value_writer =
-            BinaryValueWriter_1_0::new(self.allocator, &mut self.child_values_buffer);
-        value.write_as_ion(value_writer)?;
         Ok(self)
     }
 
@@ -198,10 +190,6 @@ impl<'value, 'top> BinaryListWriter_1_0<'value, 'top> {
     ) -> IonResult<Self> {
         self.container_writer = self.container_writer.with_annotations(annotations)?;
         Ok(self)
-    }
-
-    pub(crate) fn child_values_buffer(&self) -> &[u8] {
-        self.container_writer.child_values_buffer()
     }
 }
 

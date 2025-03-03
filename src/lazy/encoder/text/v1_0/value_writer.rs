@@ -163,8 +163,6 @@ pub(crate) struct TextContainerWriter_1_0<'a, W: Write> {
     // Tracks whether the `end()` method was called (thereby emitting a closing delimiter) before
     // this value was dropped. This scenario is a contract violation and results in a panic.
     has_been_closed: bool,
-    // The enclosing context in which this container appears. (top level, list, sexp, struct)
-    parent_type: ParentType,
     // The Ion type of the container using this TextContainerWriter_1_0. This value is only
     // used for more informative error messages.
     container_type: ContainerType,
@@ -185,7 +183,6 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
         let mut container_writer = Self {
             writer,
             depth,
-            parent_type,
             container_type,
             has_been_closed: false,
             value_delimiter,

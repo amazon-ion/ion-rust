@@ -1,5 +1,4 @@
 use crate::lazy::decoder::Decoder;
-use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::lazy_element::LazyElement;
 use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, IoBufferSource, LazyExpandedValue,
@@ -59,8 +58,6 @@ use crate::{
 pub struct LazyValue<'top, D: Decoder> {
     pub(crate) expanded_value: LazyExpandedValue<'top, D>,
 }
-
-pub type LazyBinaryValue<'top> = LazyValue<'top, BinaryEncoding_1_0>;
 
 impl<'top, D: Decoder> LazyValue<'top, D> {
     pub(crate) fn new(expanded_value: LazyExpandedValue<'top, D>) -> LazyValue<'top, D> {

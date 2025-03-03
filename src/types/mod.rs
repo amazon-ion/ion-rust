@@ -142,38 +142,6 @@ impl From<ContainerType> for ParentType {
     }
 }
 
-#[derive(Debug, PartialEq, Default, Copy, Clone)]
-pub(crate) enum ScalarType {
-    #[default]
-    Null,
-    Bool,
-    Int,
-    Float,
-    Decimal,
-    Timestamp,
-    Symbol,
-    String,
-    Clob,
-    Blob,
-}
-
-impl From<ScalarType> for IonType {
-    fn from(value: ScalarType) -> Self {
-        match value {
-            ScalarType::Null => IonType::Null,
-            ScalarType::Bool => IonType::Bool,
-            ScalarType::Int => IonType::Int,
-            ScalarType::Float => IonType::Float,
-            ScalarType::Decimal => IonType::Decimal,
-            ScalarType::Timestamp => IonType::Timestamp,
-            ScalarType::Symbol => IonType::Symbol,
-            ScalarType::String => IonType::String,
-            ScalarType::Clob => IonType::Clob,
-            ScalarType::Blob => IonType::Blob,
-        }
-    }
-}
-
 pub(crate) trait CountDecimalDigits {
     fn count_decimal_digits(self) -> u32;
 }

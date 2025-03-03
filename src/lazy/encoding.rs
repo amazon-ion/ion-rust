@@ -414,10 +414,6 @@ impl TextEncoding for TextEncoding_1_1 {
     }
 }
 
-/// Marker trait for encodings that support macros.
-pub trait EncodingWithMacroSupport {}
-impl EncodingWithMacroSupport for TextEncoding_1_1 {}
-
 impl Decoder for BinaryEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_0;
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;

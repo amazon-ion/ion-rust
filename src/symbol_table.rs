@@ -38,14 +38,6 @@ impl SystemSymbolTable {
     pub fn symbol_for_address(&self, address: SymbolAddress) -> Option<Symbol> {
         self.text_for_address(address).map(Symbol::static_text)
     }
-
-    pub(crate) fn symbols_by_text(&self) -> &'static phf::Map<&'static str, usize> {
-        self.symbols_by_text
-    }
-
-    pub(crate) fn symbols_by_address(&self) -> &'static [&'static str] {
-        self.symbols_by_address
-    }
 }
 
 pub static SYSTEM_SYMBOLS_1_0: &SystemSymbolTable = &SystemSymbolTable {
@@ -189,18 +181,6 @@ impl SymbolTable {
         let sid = self.symbols_by_id.len();
         self.symbols_by_id.push(Symbol::unknown_text());
         sid
-    }
-
-    /// If `maybe_text` is `Some(text)`, this method is equivalent to `add_symbol_for_text(text)`.
-    /// If `maybe_text` is `None`, this method is equivalent to `add_placeholder()`.
-    pub(crate) fn add_symbol_or_placeholder<A: AsRef<str>>(
-        &mut self,
-        maybe_text: Option<A>,
-    ) -> SymbolId {
-        match maybe_text {
-            Some(text) => self.add_symbol_for_text(text),
-            None => self.add_placeholder(),
-        }
     }
 
     /// If defined, returns the Symbol ID associated with the provided text.

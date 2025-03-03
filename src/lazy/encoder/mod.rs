@@ -50,6 +50,8 @@ pub enum SymbolCreationPolicy {
 
 pub(crate) mod private {
     /// Prevents types outside the crate from implementing traits that extend it.
+    // This trait exists only as a visibility constraint, so the compiler considers it dead code.
+    #[allow(dead_code)]
     pub trait Sealed {}
 }
 

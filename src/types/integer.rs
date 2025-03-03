@@ -62,7 +62,7 @@ impl UInt {
     }
 
     /// Returns the number of digits in the base-10 representation of the UInteger.
-    pub(crate) fn number_of_decimal_digits(&self) -> u32 {
+    pub fn number_of_decimal_digits(&self) -> u32 {
         self.data.count_decimal_digits()
     }
 }

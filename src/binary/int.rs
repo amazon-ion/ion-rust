@@ -5,11 +5,7 @@ use crate::result::IonResult;
 use crate::Int;
 use num_traits::Zero;
 use std::io::Write;
-
-type IntStorage = i64;
 const INT_NEGATIVE_ZERO: u8 = 0x80;
-
-const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<i128>();
 
 /// Represents a fixed-length signed integer. See the
 /// [UInt and Int Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#uint-and-int-fields)
@@ -138,8 +134,6 @@ impl From<DecodedInt> for Coefficient {
 mod tests {
     use super::*;
     use crate::result::IonResult;
-
-    const READ_ERROR_MESSAGE: &str = "Failed to read an Int from the provided cursor.";
 
     fn write_int_test(value: i64, expected_bytes: &[u8]) -> IonResult<()> {
         let mut buffer: Vec<u8> = vec![];

@@ -589,12 +589,6 @@ struct UnitVariantAccess<'a, 'de> {
     de: ValueDeserializer<'a, 'de>,
 }
 
-impl<'a, 'de> UnitVariantAccess<'a, 'de> {
-    fn new(de: ValueDeserializer<'a, 'de>) -> Self {
-        UnitVariantAccess { de }
-    }
-}
-
 impl<'de> EnumAccess<'de> for UnitVariantAccess<'_, 'de> {
     type Error = IonError;
     type Variant = Self;
