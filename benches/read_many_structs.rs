@@ -440,8 +440,6 @@ mod benchmark {
                 // for now we use a manually configured context and a raw reader.
                 let mut reader = LazyRawBinaryReader_1_1::new(context_ref, binary_1_1_data);
                 let mut num_top_level_values: usize = 0;
-                // Skip past the IVM
-                reader.next().unwrap().expect_ivm().unwrap();
                 // Expect every top-level item to be an e-expression.
                 while let RawStreamItem::EExp(raw_eexp) = reader.next().unwrap() {
                     num_top_level_values += 1;

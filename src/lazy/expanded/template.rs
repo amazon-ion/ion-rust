@@ -5,7 +5,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 use std::sync::Arc;
 use compact_str::CompactString;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::ArgGroupingBitmap;
+use crate::lazy::binary::raw::v1_1::binary_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, TemplateExpansion, ValueExpr, ExprGroupExpansion, MakeTextExpansion, FlattenExpansion, ConditionalExpansion, MakeStructExpansion, MakeFieldExpansion};

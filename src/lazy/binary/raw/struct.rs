@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
-use crate::lazy::binary::immutable_buffer::BinaryBuffer;
+use crate::lazy::binary::binary_buffer::BinaryBuffer;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;

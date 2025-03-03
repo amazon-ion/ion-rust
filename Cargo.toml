@@ -18,7 +18,7 @@ exclude = [
 ]
 version = "1.0.0-rc.11"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.82"
 
 [features]
 default = []

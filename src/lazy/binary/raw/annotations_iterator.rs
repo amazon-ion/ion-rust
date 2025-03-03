@@ -1,4 +1,4 @@
-use crate::lazy::binary::immutable_buffer::BinaryBuffer;
+use crate::lazy::binary::binary_buffer::BinaryBuffer;
 use crate::{IonResult, RawSymbolRef};
 
 /// Iterates over a slice of bytes, lazily reading them as a sequence of VarUInt symbol IDs.

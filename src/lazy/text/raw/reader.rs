@@ -37,7 +37,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
         offset: usize,
         is_final_data: bool,
     ) -> LazyRawTextReader_1_0<'data> {
-        let input = TextBuffer::new_with_offset(context, data, offset, is_final_data);
+        let input = TextBuffer::with_offset(context, offset, data, is_final_data);
         LazyRawTextReader_1_0 { input }
     }
 
@@ -77,10 +77,10 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 
     fn resume(context: EncodingContextRef<'data>, saved_state: RawReaderState<'data>) -> Self {
         LazyRawTextReader_1_0 {
-            input: TextBuffer::new_with_offset(
+            input: TextBuffer::with_offset(
                 context,
-                saved_state.data(),
                 saved_state.offset(),
+                saved_state.data(),
                 saved_state.is_final_data(),
             ),
         }

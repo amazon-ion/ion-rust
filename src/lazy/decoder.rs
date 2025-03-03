@@ -64,8 +64,9 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     type Reader<'data>: LazyRawReader<'data, Self>;
     /// A value (at any depth) in the input. This can be further inspected to access either its
     /// scalar data or, if it is a container, to view it as [`Self::List`], [`Self::SExp`] or
-    /// [`Self::Struct`].  
+    /// [`Self::Struct`].
     type Value<'top>: LazyRawValue<'top, Self>;
+
     /// A list whose child values may be accessed iteratively.
     type SExp<'top>: LazyRawSequence<'top, Self>;
     /// An s-expression whose child values may be accessed iteratively.
@@ -541,7 +542,7 @@ impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_0<W> {
 fn transcribe_raw_binary_to_text<
     'a,
     W: Write + 'a,
-    InputEncoding: BinaryEncoding<'a>,
+    InputEncoding: BinaryEncoding,
     Reader: LazyRawReader<'a, InputEncoding>,
     Writer: LazyRawWriter<W>,
 >(
@@ -600,6 +601,13 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn annotations_span(&self) -> Span<'top>;
 
     fn value_span(&self) -> Span<'top>;
+
+    /// Returns a copy of the `LazyRawValue` whose backing data—the slice of bytes representing the
+    /// serialized value—has been replaced by `span`.
+    ///
+    /// This method is used when converting a `LazyValue` (which may be backed by a slice of the
+    /// input buffer) to a `LazyElement` (which needs to be backed by heap data).
+    fn with_backing_data(&self, span: Span<'top>) -> Self;
 }
 
 pub trait RawSequenceIterator<'top, D: Decoder>:

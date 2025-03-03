@@ -1232,7 +1232,7 @@ mod tests {
             let expected: Int = expected.into();
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let mut buffer = TextBuffer::new(context, data.as_bytes(), true);
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
             let matched = peek(TextBuffer::match_int).parse_next(&mut buffer).unwrap();
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
@@ -1266,7 +1266,7 @@ mod tests {
         fn expect_timestamp(data: &str, expected: Timestamp) {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let mut buffer = TextBuffer::new(context, data.as_bytes(), true);
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
             let matched = peek(TextBuffer::match_timestamp)
                 .parse_next(&mut buffer)
                 .unwrap();
@@ -1371,7 +1371,7 @@ mod tests {
         fn expect_decimal(data: &str, expected: Decimal) {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let mut buffer = TextBuffer::new(context, data.as_bytes(), true);
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
             let result = peek(TextBuffer::match_decimal).parse_next(&mut buffer);
             assert!(
                 result.is_ok(),
@@ -1452,7 +1452,7 @@ mod tests {
         fn expect_blob(data: &str, expected: &str) {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let mut buffer = TextBuffer::new(context, data.as_bytes(), true);
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
             let matched = peek(TextBuffer::match_blob)
                 .parse_next(&mut buffer)
                 .unwrap();
@@ -1492,7 +1492,7 @@ mod tests {
             // our fabricated value off of the input before reading.
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
-            let mut buffer = TextBuffer::new(context, data.as_bytes(), true);
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
             let matched = peek(TextBuffer::match_string)
                 .parse_next(&mut buffer)
                 .unwrap();
@@ -1532,7 +1532,7 @@ mod tests {
             context: EncodingContextRef<'a>,
             data: &'a str,
         ) -> IonResult<BytesRef<'a>> {
-            let mut buffer = TextBuffer::new(context, data.as_bytes(), true);
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
             // All `read_clob` usages should be accepted by the matcher, so we can `unwrap()` the
             // call to `match_clob()`.
             let matched = peek(TextBuffer::match_clob)

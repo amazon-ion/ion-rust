@@ -314,7 +314,7 @@ macro_rules! v1_0_tooling_apis {
             binary::uint::DecodedUInt,
             binary::var_int::VarInt,
             binary::var_uint::VarUInt,
-            lazy::binary::immutable_buffer::{BinaryBuffer, AnnotationsWrapper},
+            lazy::binary::binary_buffer::{BinaryBuffer, AnnotationsWrapper},
             lazy::binary::raw::type_descriptor::Header,
             lazy::raw_value_ref::RawValueRef,
             lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0 as RawBinaryWriter,
@@ -325,7 +325,7 @@ macro_rules! v1_0_tooling_apis {
             },
             lazy::binary::raw::r#struct::{LazyRawBinaryStruct_1_0 as LazyRawBinaryStruct, LazyRawBinaryFieldName_1_0 as LazyRawBinaryFieldName},
             lazy::binary::raw::value::{
-                EncodedBinaryValue,
+                BinaryValueLiteral,
                 LazyRawBinaryValue_1_0 as LazyRawBinaryValue,
                 LazyRawBinaryVersionMarker_1_0 as LazyRawBinaryVersionMarker,
                 EncodedBinaryValueData_1_0 as EncodedBinaryValueData,

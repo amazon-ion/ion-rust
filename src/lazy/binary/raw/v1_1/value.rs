@@ -5,11 +5,11 @@ use std::ops::Range;
 
 use num_traits::PrimInt;
 
-use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
 use crate::lazy::binary::raw::v1_1::LengthType;
-use crate::lazy::binary::raw::value::EncodedBinaryValue;
+use crate::lazy::binary::raw::value::BinaryValueLiteral;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::expanded::EncodingContextRef;
@@ -21,12 +21,12 @@ use crate::{
     constants,
     lazy::{
         binary::{
-            encoded_value::{EncodedHeader, EncodedValue},
+            encoded_value::{EncodedBinaryValue, EncodedHeader},
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
-                    immutable_buffer::BinaryBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES,
-                    Header, OpcodeType,
+                    binary_buffer::BinaryBuffer, type_descriptor::ION_1_1_TYPED_NULL_TYPES, Header,
+                    OpcodeType,
                 },
                 value::ValueParseResult,
             },
@@ -115,7 +115,7 @@ pub enum BinaryValueEncoding {
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryValue_1_1<'top> {
-    pub(crate) encoded_value: EncodedValue<Header>,
+    pub(crate) encoded_value: EncodedBinaryValue<Header>,
     pub(crate) input: BinaryBuffer<'top>,
     pub(crate) delimited_contents: DelimitedContents<'top>,
 }
@@ -282,6 +282,16 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
+
+    fn with_backing_data(&self, span: Span<'top>) -> Self {
+        let buffer =
+            BinaryBuffer::new_with_offset(self.input.context(), span.bytes(), span.offset());
+        let allocator = self.input.context().allocator();
+        allocator.alloc_with(move || LazyRawBinaryValue_1_1 {
+            input: buffer,
+            ..**self
+        })
+    }
 }
 
 /// Nested expressions parsed and cached while reading (e.g.) a [`LazyRawBinaryValue_1_1`].
@@ -314,7 +324,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     /// Constructs a lazy raw binary value from an input buffer slice that has been found to contain
     /// a complete `FlexUInt`.
     pub(crate) fn for_flex_uint(input: BinaryBuffer<'top>) -> Self {
-        let encoded_value = EncodedValue {
+        let encoded_value = EncodedBinaryValue {
             encoding: BinaryValueEncoding::FlexUInt,
             header: Header {
                 // It is an int, that's true.
@@ -905,7 +915,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 }
 
-impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
+impl<'top> BinaryValueLiteral<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
     fn opcode_length(&self) -> usize {
         self.encoded_value.opcode_length()
     }
