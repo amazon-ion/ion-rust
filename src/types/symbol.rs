@@ -99,7 +99,7 @@ impl Symbol {
         }
     }
 
-    pub fn static_text(text: &'static str) -> Symbol {
+    pub const fn static_text(text: &'static str) -> Symbol {
         Symbol {
             text: SymbolText::Static(text),
         }
@@ -223,6 +223,9 @@ impl Borrow<str> for Symbol {
 #[cfg(test)]
 mod symbol_tests {
     use super::*;
+
+    /// This is a test to ensure that the static_text function is const.
+    const TEST_STATIC_TEXT_IS_CONST: Symbol = Symbol::static_text("foo");
 
     #[test]
     fn ordering_and_eq() {
