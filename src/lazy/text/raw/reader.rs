@@ -24,20 +24,27 @@ impl<'data> LazyRawTextReader_1_0<'data> {
         data: &'data [u8],
         is_final_data: bool,
     ) -> LazyRawTextReader_1_0<'data> {
-        Self::new_with_offset(context, data, 0, is_final_data)
+        Self::new_with_offset_and_location(context, data, 0, #[cfg(feature = "source-location")] 0, #[cfg(feature = "source-location")] 0, is_final_data)
     }
 
     /// Constructs a `LazyRawTextReader` positioned at the beginning of the provided input stream.
     /// The provided input stream is itself a slice starting `offset` bytes from the beginning
     /// of a larger data stream. This offset is used for reporting the absolute (stream-level)
     /// position of values encountered in `data`.
-    fn new_with_offset(
+    fn new_with_offset_and_location(
         context: EncodingContextRef<'data>,
         data: &'data [u8],
         offset: usize,
+        #[cfg(feature = "source-location")]
+        row: usize,
+        #[cfg(feature = "source-location")]
+        prev_newline_offset: usize,
         is_final_data: bool,
     ) -> LazyRawTextReader_1_0<'data> {
-        let input = TextBuffer::with_offset(context, offset, data, is_final_data);
+        let input = TextBuffer::with_offset(context, offset, data,  #[cfg(feature = "source-location")]
+        row,
+                                            #[cfg(feature = "source-location")]
+                                            prev_newline_offset, is_final_data);
         LazyRawTextReader_1_0 { input }
     }
 
@@ -81,6 +88,10 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
                 context,
                 saved_state.offset(),
                 saved_state.data(),
+                #[cfg(feature = "source-location")]
+                saved_state.row(),
+                #[cfg(feature = "source-location")]
+                saved_state.prev_newline_offset(),
                 saved_state.is_final_data(),
             ),
         }
@@ -90,6 +101,10 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
         RawReaderState::new(
             self.input.bytes(),
             self.position(),
+            #[cfg(feature = "source-location")]
+            self.row(),
+            #[cfg(feature = "source-location")]
+            self.input.prev_newline_offset(),
             self.input.is_final_data(),
             self.encoding(),
         )
@@ -101,6 +116,16 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_0> for LazyRawTextReader_1_0<'da
 
     fn position(&self) -> usize {
         self.input.offset()
+    }
+
+    #[cfg(feature = "source-location")]
+    fn row(&self) -> usize {
+        self.input.row()
+    }
+
+    #[cfg(feature = "source-location")]
+    fn prev_newline_offset(&self) -> usize {
+        self.input.prev_newline_offset()
     }
 
     fn encoding(&self) -> IonEncoding {

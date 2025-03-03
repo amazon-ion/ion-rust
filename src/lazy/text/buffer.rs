@@ -142,7 +142,7 @@ impl<'top> TextBuffer<'top> {
 
     // This is for largely for testing.
     pub fn new(context: EncodingContextRef<'top>, bytes: &'top [u8]) -> TextBuffer<'top> {
-        Self::with_offset(context, 0, bytes, true)
+        Self::with_offset(context, 0, bytes, #[cfg(feature = "source-location")] 1, #[cfg(feature = "source-location")] 0, true)
     }
 
     // This is for largely for testing.
@@ -150,15 +150,19 @@ impl<'top> TextBuffer<'top> {
         context: EncodingContextRef<'top>,
         offset: usize,
         bytes: &'top [u8],
+        #[cfg(feature = "source-location")]
+        row: usize,
+        #[cfg(feature = "source-location")]
+        prev_newline_offset: usize,
         is_final_data: bool,
     ) -> TextBuffer<'top> {
         TextBuffer {
             context,
             input_span: Span::with_offset(offset, bytes),
             #[cfg(feature = "source-location")]
-            row: 1,
+            row,
             #[cfg(feature = "source-location")]
-            prev_newline_offset: 0,
+            prev_newline_offset,
             is_final_data,
         }
     }
@@ -233,6 +237,11 @@ impl<'top> TextBuffer<'top> {
     /// _Note: Column positions are calculated based on current offset and previous newline byte offset._
     pub fn column(&self) -> usize {
         self.offset() - self.prev_newline_offset + 1
+    }
+
+    #[cfg(feature = "source-location")]
+    pub(crate) fn prev_newline_offset(&self) -> usize {
+        self.prev_newline_offset
     }
 
     /// Returns the number of bytes in the buffer.
@@ -587,6 +596,16 @@ impl<'top> TextBuffer<'top> {
     /// Matches a single Ion 1.0 value.
     pub fn match_value<E: TextEncoding>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
         use ValueTokenKind::*;
+
+        let mut preserve_row = 0;
+        let mut preserve_prev_column_offset = 0;
+
+        #[cfg(feature = "source-location")]
+        {
+            preserve_row = self.row;
+            preserve_prev_column_offset = self.prev_newline_offset;
+        }
+
         dispatch! {
             |input: &mut TextBuffer<'top>| Ok(TEXT_ION_TOKEN_KINDS[input.peek_byte()? as usize]);
             NumberOrTimestamp => alt((
@@ -618,7 +637,7 @@ impl<'top> TextBuffer<'top> {
             },
         }
         .with_taken()
-        .map(|(encoded_value, input)| E::new_value(input, encoded_value))
+        .map(|(encoded_value, input)| E::new_value(TextBuffer::with_offset(input.context, input.offset(), input.bytes(), #[cfg(feature = "source-location")] preserve_row, #[cfg(feature = "source-location")] preserve_prev_column_offset, input.is_final_data), encoded_value))
         .parse_next(self)
     }
 

@@ -481,9 +481,12 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// a comment, or whitespace that the reader will traverse as part of matching the next item.
     fn position(&self) -> usize;
 
+    #[cfg(feature = "source-location")]
     fn row(&self) -> usize;
 
+    #[cfg(feature = "source-location")]
     fn prev_newline_offset(&self) -> usize;
+
     /// The Ion encoding of the stream that the reader has been processing.
     ///
     /// Note that:
@@ -611,6 +614,9 @@ pub trait LazyRawValue<'top, D: Decoder>:
     /// This method is used when converting a `LazyValue` (which may be backed by a slice of the
     /// input buffer) to a `LazyElement` (which needs to be backed by heap data).
     fn with_backing_data(&self, span: Span<'top>) -> Self;
+
+    #[cfg(feature = "source-location")]
+    fn location(&self) -> (usize, usize);
 }
 
 pub trait RawSequenceIterator<'top, D: Decoder>:
