@@ -1,5 +1,5 @@
-mod encoded_value;
-pub mod immutable_buffer;
+pub mod binary_buffer;
+pub mod encoded_value;
 pub mod raw;
 
 #[cfg(test)]

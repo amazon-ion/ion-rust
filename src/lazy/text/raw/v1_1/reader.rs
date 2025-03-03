@@ -45,10 +45,10 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
 
     fn resume(context: EncodingContextRef<'data>, saved_state: RawReaderState<'data>) -> Self {
         LazyRawTextReader_1_1 {
-            input: TextBuffer::new_with_offset(
+            input: TextBuffer::with_offset(
                 context,
-                saved_state.data(),
                 saved_state.offset(),
+                saved_state.data(),
                 saved_state.is_final_data(),
             ),
         }
@@ -269,12 +269,12 @@ impl EncodedTextMacroInvocation {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextSequenceCacheIterator<'top, E: TextEncoding<'top>> {
+pub struct RawTextSequenceCacheIterator<'top, E: TextEncoding> {
     child_exprs: &'top [LazyRawValueExpr<'top, E>],
     index: usize,
 }
 
-impl<'top, E: TextEncoding<'top>> RawTextSequenceCacheIterator<'top, E> {
+impl<'top, E: TextEncoding> RawTextSequenceCacheIterator<'top, E> {
     pub fn new(child_exprs: &'top [LazyRawValueExpr<'top, E>]) -> Self {
         Self {
             child_exprs,
@@ -283,7 +283,7 @@ impl<'top, E: TextEncoding<'top>> RawTextSequenceCacheIterator<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding<'top>> Iterator for RawTextSequenceCacheIterator<'top, E> {
+impl<'top, E: TextEncoding> Iterator for RawTextSequenceCacheIterator<'top, E> {
     type Item = IonResult<LazyRawValueExpr<'top, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -325,11 +325,11 @@ impl<'top> Iterator for TextEExpArgsIterator_1_1<'top> {
 }
 
 #[derive(Copy, Clone)]
-pub struct LazyRawTextStruct<'top, E: TextEncoding<'top>> {
+pub struct LazyRawTextStruct<'top, E: TextEncoding> {
     pub(crate) value: LazyRawTextValue<'top, E>,
 }
 
-impl<'top, E: TextEncoding<'top>> Debug for LazyRawTextStruct<'top, E> {
+impl<E: TextEncoding> Debug for LazyRawTextStruct<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field_result in self.iter() {
@@ -354,12 +354,12 @@ impl<'top, E: TextEncoding<'top>> Debug for LazyRawTextStruct<'top, E> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextStructCacheIterator<'top, E: TextEncoding<'top>> {
+pub struct RawTextStructCacheIterator<'top, E: TextEncoding> {
     field_exprs: &'top [LazyRawFieldExpr<'top, E>],
     index: usize,
 }
 
-impl<'top, E: TextEncoding<'top>> RawTextStructCacheIterator<'top, E> {
+impl<'top, E: TextEncoding> RawTextStructCacheIterator<'top, E> {
     pub fn new(field_exprs: &'top [LazyRawFieldExpr<'top, E>]) -> Self {
         Self {
             field_exprs,
@@ -368,7 +368,7 @@ impl<'top, E: TextEncoding<'top>> RawTextStructCacheIterator<'top, E> {
     }
 }
 
-impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructCacheIterator<'top, E> {
+impl<'top, E: TextEncoding> Iterator for RawTextStructCacheIterator<'top, E> {
     type Item = IonResult<LazyRawFieldExpr<'top, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -379,19 +379,19 @@ impl<'top, E: TextEncoding<'top>> Iterator for RawTextStructCacheIterator<'top, 
     }
 }
 
-impl<'top, E: TextEncoding<'top>> LazyContainerPrivate<'top, E> for LazyRawTextStruct<'top, E> {
+impl<'top, E: TextEncoding> LazyContainerPrivate<'top, E> for LazyRawTextStruct<'top, E> {
     fn from_value(value: LazyRawTextValue<'top, E>) -> Self {
         LazyRawTextStruct { value }
     }
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawContainer<'top, E> for LazyRawTextStruct<'top, E> {
+impl<'top, E: TextEncoding> LazyRawContainer<'top, E> for LazyRawTextStruct<'top, E> {
     fn as_value(&self) -> <E as Decoder>::Value<'top> {
         self.value
     }
 }
 
-impl<'top, E: TextEncoding<'top>> LazyRawStruct<'top, E> for LazyRawTextStruct<'top, E> {
+impl<'top, E: TextEncoding> LazyRawStruct<'top, E> for LazyRawTextStruct<'top, E> {
     type Iterator = RawTextStructCacheIterator<'top, E>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
@@ -448,7 +448,7 @@ mod tests {
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let macro_quux =
             TemplateCompiler::compile_from_source(context.get_ref(), "(macro quux (x) null)")?;
-        context.macro_table.add_template_macro(macro_quux)?;
+        context.macro_table_mut().add_template_macro(macro_quux)?;
         let reader = &mut LazyRawTextReader_1_1::new(context.get_ref(), data.as_bytes(), true);
 
         // $ion_1_1

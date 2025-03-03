@@ -1,7 +1,8 @@
-use crate::lazy::binary::raw::v1_1::immutable_buffer::BinaryBuffer;
+use crate::lazy::binary::raw::v1_1::binary_buffer::BinaryBuffer;
+use crate::lazy::streaming_raw_reader::IoBuffer;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
+use crate::{HasRange, IonError, IonResult};
 use std::ops::Range;
 
 /// Represents a slice of input data.
@@ -39,6 +40,10 @@ impl<'a> Span<'a> {
         Self { bytes, offset }
     }
 
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
     pub fn range(&self) -> Range<usize> {
         self.offset..self.offset + self.bytes.len()
     }
@@ -63,6 +68,26 @@ impl<'a> Span<'a> {
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
+
+    pub fn slice(&self, offset: usize, length: usize) -> Span<'a> {
+        Self {
+            bytes: &self.bytes[offset..offset + length],
+            offset: self.offset + offset,
+        }
+    }
+
+    pub fn slice_to_end(&self, offset: usize) -> Span<'a> {
+        Self {
+            bytes: &self.bytes[offset..],
+            offset: self.offset + offset,
+        }
+    }
+}
+
+impl HasRange for Span<'_> {
+    fn range(&self) -> Range<usize> {
+        self.offset..self.offset + self.bytes.len()
+    }
 }
 
 impl<'a> From<BinaryBuffer<'a>> for Span<'a> {
@@ -79,6 +104,15 @@ impl<'a> From<TextBuffer<'a>> for Span<'a> {
         Span {
             bytes: value.bytes(),
             offset: value.offset(),
+        }
+    }
+}
+
+impl<'a> From<&'a IoBuffer> for Span<'a> {
+    fn from(value: &'a IoBuffer) -> Self {
+        Span {
+            bytes: value.remaining_bytes(),
+            offset: value.stream_position(),
         }
     }
 }

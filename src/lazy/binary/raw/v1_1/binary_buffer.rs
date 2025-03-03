@@ -5,7 +5,7 @@ use std::mem::size_of;
 use std::ops::Range;
 
 use crate::binary::constants::v1_1::IVM;
-use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::encoded_value::EncodedBinaryValue;
 use crate::lazy::binary::raw::v1_1::e_expression::{
     BinaryEExpArgsIterator_1_1, BinaryEExpression_1_1,
 };
@@ -653,7 +653,7 @@ impl<'a> BinaryBuffer<'a> {
             return IonResult::incomplete("a value", header_offset);
         }
 
-        let encoded_value = EncodedValue {
+        let encoded_value = EncodedBinaryValue {
             encoding: BinaryValueEncoding::Tagged,
             header,
             // If applicable, these are populated by the caller: `read_annotated_value()`
@@ -1317,7 +1317,9 @@ mod tests {
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let template_macro =
             TemplateCompiler::compile_from_source(context.get_ref(), macro_source)?;
-        let macro_address = context.macro_table.add_template_macro(template_macro)?;
+        let macro_address = context
+            .macro_table_mut()
+            .add_template_macro(template_macro)?;
         let opcode_byte = u8::try_from(macro_address).unwrap();
         let binary_ion = encode_macro_fn(opcode_byte as usize);
         let buffer = BinaryBuffer::new(context.get_ref(), &binary_ion);

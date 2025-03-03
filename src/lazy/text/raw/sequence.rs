@@ -21,11 +21,11 @@ use crate::{IonResult, IonType};
 // ===== Lists =====
 
 #[derive(Copy, Clone)]
-pub struct RawTextList<'data, E: TextEncoding<'data>> {
+pub struct RawTextList<'data, E: TextEncoding> {
     pub(crate) value: LazyRawTextValue<'data, E>,
 }
 
-impl<'data, E: TextEncoding<'data>> RawTextList<'data, E> {
+impl<'data, E: TextEncoding> RawTextList<'data, E> {
     pub fn ion_type(&self) -> IonType {
         IonType::List
     }
@@ -38,19 +38,19 @@ impl<'data, E: TextEncoding<'data>> RawTextList<'data, E> {
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyContainerPrivate<'data, E> for RawTextList<'data, E> {
+impl<'data, E: TextEncoding> LazyContainerPrivate<'data, E> for RawTextList<'data, E> {
     fn from_value(value: LazyRawTextValue<'data, E>) -> Self {
         RawTextList { value }
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyRawContainer<'data, E> for RawTextList<'data, E> {
+impl<'data, E: TextEncoding> LazyRawContainer<'data, E> for RawTextList<'data, E> {
     fn as_value(&self) -> <E as Decoder>::Value<'data> {
         self.value
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyRawSequence<'data, E> for RawTextList<'data, E> {
+impl<'data, E: TextEncoding> LazyRawSequence<'data, E> for RawTextList<'data, E> {
     type Iterator = RawTextSequenceCacheIterator<'data, E>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
@@ -66,7 +66,7 @@ impl<'data, E: TextEncoding<'data>> LazyRawSequence<'data, E> for RawTextList<'d
     }
 }
 
-impl<'data, E: TextEncoding<'data>> IntoIterator for &RawTextList<'data, E> {
+impl<'data, E: TextEncoding> IntoIterator for &RawTextList<'data, E> {
     type Item = IonResult<LazyRawValueExpr<'data, E>>;
     type IntoIter = RawTextSequenceCacheIterator<'data, E>;
 
@@ -75,7 +75,7 @@ impl<'data, E: TextEncoding<'data>> IntoIterator for &RawTextList<'data, E> {
     }
 }
 
-impl<'data, E: TextEncoding<'data>> Debug for RawTextList<'data, E> {
+impl<E: TextEncoding> Debug for RawTextList<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
@@ -88,13 +88,13 @@ impl<'data, E: TextEncoding<'data>> Debug for RawTextList<'data, E> {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct RawTextListIterator<'data, E: TextEncoding<'data>> {
+pub struct RawTextListIterator<'data, E: TextEncoding> {
     input: TextBuffer<'data>,
     has_returned_error: bool,
     spooky: PhantomData<E>,
 }
 
-impl<'data, E: TextEncoding<'data>> RawTextListIterator<'data, E> {
+impl<'data, E: TextEncoding> RawTextListIterator<'data, E> {
     pub(crate) fn new(input: TextBuffer<'data>) -> RawTextListIterator<'data, E> {
         RawTextListIterator {
             input,
@@ -104,7 +104,7 @@ impl<'data, E: TextEncoding<'data>> RawTextListIterator<'data, E> {
     }
 }
 
-impl<'data, E: TextEncoding<'data>> Iterator for RawTextListIterator<'data, E> {
+impl<'data, E: TextEncoding> Iterator for RawTextListIterator<'data, E> {
     type Item = IonResult<LazyRawValueExpr<'data, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -141,11 +141,11 @@ impl<'data, E: TextEncoding<'data>> Iterator for RawTextListIterator<'data, E> {
 // ===== S-Expressions =====
 
 #[derive(Copy, Clone)]
-pub struct RawTextSExp<'top, E: TextEncoding<'top>> {
+pub struct RawTextSExp<'top, E: TextEncoding> {
     pub(crate) value: LazyRawTextValue<'top, E>,
 }
 
-impl<'data, E: TextEncoding<'data>> RawTextSExp<'data, E> {
+impl<'data, E: TextEncoding> RawTextSExp<'data, E> {
     pub fn ion_type(&self) -> IonType {
         IonType::SExp
     }
@@ -159,14 +159,14 @@ impl<'data, E: TextEncoding<'data>> RawTextSExp<'data, E> {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct RawTextSExpIterator<'top, E: TextEncoding<'top>> {
+pub struct RawTextSExpIterator<'top, E: TextEncoding> {
     input: TextBuffer<'top>,
     // If this iterator has returned an error, it should return `None` forever afterwards
     has_returned_error: bool,
     spooky: PhantomData<E>,
 }
 
-impl<'top, E: TextEncoding<'top>> RawTextSExpIterator<'top, E> {
+impl<'top, E: TextEncoding> RawTextSExpIterator<'top, E> {
     pub(crate) fn new(input: TextBuffer<'top>) -> RawTextSExpIterator<'top, E> {
         RawTextSExpIterator {
             input,
@@ -176,7 +176,7 @@ impl<'top, E: TextEncoding<'top>> RawTextSExpIterator<'top, E> {
     }
 }
 
-impl<'data, E: TextEncoding<'data>> Iterator for RawTextSExpIterator<'data, E> {
+impl<'data, E: TextEncoding> Iterator for RawTextSExpIterator<'data, E> {
     type Item = IonResult<LazyRawValueExpr<'data, E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -213,19 +213,19 @@ impl<'data, E: TextEncoding<'data>> Iterator for RawTextSExpIterator<'data, E> {
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyContainerPrivate<'data, E> for RawTextSExp<'data, E> {
+impl<'data, E: TextEncoding> LazyContainerPrivate<'data, E> for RawTextSExp<'data, E> {
     fn from_value(value: LazyRawTextValue<'data, E>) -> Self {
         RawTextSExp { value }
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyRawContainer<'data, E> for RawTextSExp<'data, E> {
+impl<'data, E: TextEncoding> LazyRawContainer<'data, E> for RawTextSExp<'data, E> {
     fn as_value(&self) -> <E as Decoder>::Value<'data> {
         self.value
     }
 }
 
-impl<'data, E: TextEncoding<'data>> LazyRawSequence<'data, E> for RawTextSExp<'data, E> {
+impl<'data, E: TextEncoding> LazyRawSequence<'data, E> for RawTextSExp<'data, E> {
     type Iterator = RawTextSequenceCacheIterator<'data, E>;
 
     fn annotations(&self) -> RawTextAnnotationsIterator<'data> {
@@ -241,7 +241,7 @@ impl<'data, E: TextEncoding<'data>> LazyRawSequence<'data, E> for RawTextSExp<'d
     }
 }
 
-impl<'data, E: TextEncoding<'data>> IntoIterator for &RawTextSExp<'data, E> {
+impl<'data, E: TextEncoding> IntoIterator for &RawTextSExp<'data, E> {
     type Item = IonResult<LazyRawValueExpr<'data, E>>;
     type IntoIter = RawTextSequenceCacheIterator<'data, E>;
 
@@ -250,7 +250,7 @@ impl<'data, E: TextEncoding<'data>> IntoIterator for &RawTextSExp<'data, E> {
     }
 }
 
-impl<'top, E: TextEncoding<'top>> Debug for RawTextSExp<'top, E> {
+impl<E: TextEncoding> Debug for RawTextSExp<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {

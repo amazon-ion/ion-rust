@@ -1,10 +1,10 @@
 use crate::lazy::binary::raw::type_descriptor::Header;
-use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::IonType;
 use std::ops::Range;
 
-pub(crate) trait EncodedHeader: Copy {
+pub trait EncodedHeader: Copy {
     type TypeCode;
     fn ion_type(&self) -> IonType;
     fn type_code(&self) -> Self::TypeCode;
@@ -40,7 +40,7 @@ impl EncodedHeader for Header {
 /// allowing a user to re-read (that is: parse) the body of the value as many times as necessary
 /// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
+pub struct EncodedBinaryValue<HeaderType: EncodedHeader> {
     pub(crate) encoding: BinaryValueEncoding,
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
@@ -103,7 +103,7 @@ pub(crate) struct EncodedValue<HeaderType: EncodedHeader> {
     pub total_length: usize,
 }
 
-impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
+impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
     pub fn header(&self) -> HeaderType {
         self.header
     }
@@ -266,16 +266,16 @@ impl<HeaderType: EncodedHeader> EncodedValue<HeaderType> {
 #[cfg(test)]
 mod tests {
     use crate::binary::IonTypeCode;
-    use crate::lazy::binary::encoded_value::EncodedValue;
+    use crate::lazy::binary::encoded_value::EncodedBinaryValue;
     use crate::lazy::binary::raw::type_descriptor::Header;
-    use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+    use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
     use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
     use crate::{IonResult, IonType};
 
     #[test]
     fn accessors() -> IonResult<()> {
         // 3-byte String with 1-byte annotation
-        let value = EncodedValue {
+        let value = EncodedBinaryValue {
             encoding: BinaryValueEncoding::Tagged,
             header: Header {
                 ion_type: IonType::String,

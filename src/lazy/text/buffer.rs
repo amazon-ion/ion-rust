@@ -3,7 +3,9 @@ use std::ops::Range;
 use std::str::FromStr;
 
 use winnow::ascii::alphanumeric1;
-use winnow::combinator::{alt, delimited, empty, eof, not, opt, peek, preceded, repeat, separated_pair, terminated};
+use winnow::combinator::{
+    alt, delimited, empty, eof, not, opt, peek, preceded, repeat, separated_pair, terminated,
+};
 use winnow::error::{ErrMode, Needed};
 use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
@@ -22,15 +24,17 @@ use crate::lazy::text::matched::{
     MatchedFloat, MatchedInt, MatchedString, MatchedSymbol, MatchedTimestamp,
     MatchedTimestampOffset, MatchedValue,
 };
-use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::parse_result::IonParseError;
+use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
 use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress, TextEExpression_1_1};
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
 use crate::result::DecodingError;
-use crate::{Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, TimestampPrecision};
+use crate::{
+    Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, Span, TimestampPrecision,
+};
 
 use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
@@ -44,7 +48,7 @@ use winnow::ascii::{digit0, digit1};
 /// to an `EncodedTextValue`.
 macro_rules! scalar_value_matchers {
     ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
-        $(fn $new_parser<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
+        $(fn $new_parser<E: TextEncoding>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
             $parser.map(|matched| EncodedTextValue::new(MatchedValue::$variant(matched))).parse_next(self)
         })*
     };
@@ -52,20 +56,19 @@ macro_rules! scalar_value_matchers {
 
 impl Debug for TextBuffer<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        const CHARS_TO_SHOW: usize = 64;
+        const CHARS_TO_SHOW: usize = 32;
         write!(f, "TextBuffer {{")?;
         // Try to read the next several bytes from the buffer as UTF-8...
-        let text_result = std::str::from_utf8(self.data);
-        // ...if it works, print the first 64 Unicode scalars...
+        let text_result = std::str::from_utf8(self.bytes());
+        // ...if it works, print the first 32 Unicode scalars...
         if let Ok(text) = text_result {
-            write!(
-                f,
-                "\"{}...\"",
-                text.chars().take(CHARS_TO_SHOW).collect::<String>()
-            )?;
+            let mut chars = text.chars();
+            let text_head = (&mut chars).take(CHARS_TO_SHOW).collect::<String>();
+            let ellipse = if chars.next().is_some() { "..." } else { "" };
+            write!(f, "text=\"{text_head}\"{ellipse}",)?;
         } else {
             // ...if it doesn't, print the first 32 bytes in hex.
-            write!(f, "Invalid UTF-8")?;
+            write!(f, "Invalid UTF-8, bytes=")?;
             for byte in self.bytes().iter().take(CHARS_TO_SHOW) {
                 write!(f, "{:x?} ", *byte)?;
             }
@@ -73,7 +76,8 @@ impl Debug for TextBuffer<'_> {
                 write!(f, "...{} more bytes", self.bytes().len() - CHARS_TO_SHOW)?;
             }
         }
-        write!(f, "}}")
+        let range = self.range();
+        write!(f, ", range={}..{}}}", range.start, range.end)
     }
 }
 
@@ -100,14 +104,7 @@ pub(crate) const NEWLINE_BYTES: &[u8] = b"\r\n";
 #[derive(Clone, Copy)]
 pub struct TextBuffer<'top> {
     // `data` is a slice of remaining data in the larger input stream.
-    // `offset` is the absolute position in the overall input stream where that slice begins.
-    //
-    // input: 00 01 02 03 04 05 06 07 08 09
-    //                          └────┬────┘
-    //                          data: &[u8]
-    //                          offset: 6
-    data: &'top [u8],
-    offset: usize,
+    input_span: Span<'top>,
     #[cfg(feature = "source-location")]
     // `row` is the row position of the input data in this buffer.
     row: usize,
@@ -121,35 +118,43 @@ pub struct TextBuffer<'top> {
 
 impl PartialEq for TextBuffer<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.offset == other.offset && self.data == other.data
+        self.input_span == other.input_span
     }
 }
 
 impl<'top> TextBuffer<'top> {
-    /// Constructs a new `TextBuffer` that wraps `data`, setting the view's `offset` to zero.
-    #[inline]
-    pub fn new(
+    /// Constructs a new `TextBuffer` that wraps `input_span`.
+    pub fn from_span(
         context: EncodingContextRef<'top>,
-        data: &'top [u8],
-        is_final_data: bool,
-    ) -> TextBuffer<'top> {
-        Self::new_with_offset(context, data, 0, is_final_data)
-    }
-
-    /// Constructs a new `TextBuffer` that wraps `data`, setting the view's `offset` to the
-    /// specified value. This is useful when `data` is a slice from the middle of a larger stream.
-    /// Note that `offset` is the index of the larger stream at which `data` begins and not an
-    /// offset _into_ `data`.
-    pub fn new_with_offset(
-        context: EncodingContextRef<'top>,
-        data: &'top [u8],
-        offset: usize,
+        input_span: Span<'top>,
         is_final_data: bool,
     ) -> TextBuffer<'top> {
         TextBuffer {
             context,
-            data,
-            offset,
+            input_span,
+            #[cfg(feature = "source-location")]
+            row: 1,
+            #[cfg(feature = "source-location")]
+            prev_newline_offset: 0,
+            is_final_data,
+        }
+    }
+
+    // This is for largely for testing.
+    pub fn new(context: EncodingContextRef<'top>, bytes: &'top [u8]) -> TextBuffer<'top> {
+        Self::with_offset(context, 0, bytes, true)
+    }
+
+    // This is for largely for testing.
+    pub fn with_offset(
+        context: EncodingContextRef<'top>,
+        offset: usize,
+        bytes: &'top [u8],
+        is_final_data: bool,
+    ) -> TextBuffer<'top> {
+        TextBuffer {
+            context,
+            input_span: Span::with_offset(offset, bytes),
             #[cfg(feature = "source-location")]
             row: 1,
             #[cfg(feature = "source-location")]
@@ -161,12 +166,11 @@ impl<'top> TextBuffer<'top> {
     /// Modifies the `TextBuffer` in place, discarding `num_bytes` bytes.
     pub fn consume(&mut self, num_bytes: usize) {
         debug_assert!(
-            self.data.len() >= num_bytes,
+            self.len() >= num_bytes,
             "tried to conusume {num_bytes} bytes, but only {} were available",
-            self.data.len()
+            self.len()
         );
-        self.offset += num_bytes;
-        self.data = &self.data[num_bytes..];
+        self.input_span = self.input_span.slice_to_end(num_bytes);
     }
 
     pub fn context(&self) -> EncodingContextRef<'top> {
@@ -181,8 +185,7 @@ impl<'top> TextBuffer<'top> {
     /// larger stream of which the buffer is a piece.
     pub fn slice(&self, offset: usize, length: usize) -> TextBuffer<'top> {
         TextBuffer {
-            data: &self.data[offset..offset + length],
-            offset: self.offset + offset,
+            input_span: self.input_span.slice(offset, length),
             is_final_data: true,
             ..*self
         }
@@ -195,15 +198,14 @@ impl<'top> TextBuffer<'top> {
     /// larger stream of which the buffer is a piece.
     pub fn slice_to_end(&self, offset: usize) -> TextBuffer<'top> {
         TextBuffer {
-            data: &self.data[offset..],
-            offset: self.offset + offset,
+            input_span: self.input_span.slice_to_end(offset),
             ..*self
         }
     }
 
     /// Returns a slice containing all of the buffer's bytes.
     pub fn bytes(&self) -> &'top [u8] {
-        self.data
+        self.input_span.bytes()
     }
 
     pub fn peek_byte(&self) -> IonParseResult<'top, u8> {
@@ -216,7 +218,7 @@ impl<'top> TextBuffer<'top> {
     /// Returns the number of bytes between the start of the original input byte array and the
     /// subslice of that byte array that this `TextBuffer` represents.
     pub fn offset(&self) -> usize {
-        self.offset
+        self.input_span.offset()
     }
 
     #[cfg(feature = "source-location")]
@@ -230,22 +232,22 @@ impl<'top> TextBuffer<'top> {
     /// Returns the column position for this buffer.
     /// _Note: Column positions are calculated based on current offset and previous newline byte offset._
     pub fn column(&self) -> usize {
-        self.offset - self.prev_newline_offset + 1
+        self.offset() - self.prev_newline_offset + 1
     }
 
     /// Returns the number of bytes in the buffer.
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.input_span.len()
     }
 
     /// Returns the stream byte offset range that this buffer contains.
     pub fn range(&self) -> Range<usize> {
-        self.offset..self.offset + self.len()
+        self.input_span.range()
     }
 
     /// Returns `true` if there are no bytes in the buffer. Otherwise, returns `false`.
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.input_span.is_empty()
     }
 
     /// Attempts to view the contents of the buffer as a UTF-8 `&str`.
@@ -254,7 +256,7 @@ impl<'top> TextBuffer<'top> {
         // However, this one returns a `&'data str` instead of a `&'a str`, which is to say
         // that the string that's returned lives as long as the data itself, not just the duration
         // of the lifetime introduced by this method call.
-        std::str::from_utf8(self.data).map_err(move |_| {
+        std::str::from_utf8(self.bytes()).map_err(move |_| {
             let decoding_error =
                 DecodingError::new("encountered invalid UTF-8").with_position(self.offset());
             IonError::Decoding(decoding_error)
@@ -274,7 +276,7 @@ impl<'top> TextBuffer<'top> {
     pub fn match_whitespace1(&mut self) -> IonMatchResult<'top> {
         let result = take_while(1.., WHITESPACE_BYTES).parse_next(self)?;
         #[cfg(feature = "source-location")]
-        self.update_location_metadata(result.data);
+        self.update_location_metadata(result.bytes());
        Ok(result)
     }
 
@@ -303,7 +305,7 @@ impl<'top> TextBuffer<'top> {
             // Set the previous newline offset by subtracting non newline match length from current offset,
             // where non newline match length is the non newline bytes found after last newline byte.
             if rows > 0 {
-                self.prev_newline_offset = self.offset - (data.len() - prev_newline_offset);
+                self.prev_newline_offset = self.offset() - (data.len() - prev_newline_offset);
                 self.row += rows;
             }
         }
@@ -313,7 +315,7 @@ impl<'top> TextBuffer<'top> {
     pub fn match_whitespace0(&mut self) -> IonMatchResult<'top> {
         let result = take_while(0.., WHITESPACE_BYTES).parse_next(self)?;
         #[cfg(feature = "source-location")]
-        self.update_location_metadata(result.data);
+        self.update_location_metadata(result.bytes());
         Ok(result)
     }
 
@@ -372,12 +374,12 @@ impl<'top> TextBuffer<'top> {
             .take()
             .parse_next(self)?;
         #[cfg(feature = "source-location")]
-        self.update_location_metadata(result.data);
+        self.update_location_metadata(result.bytes());
         Ok(result)
     }
 
     /// Matches an Ion version marker (e.g. `$ion_1_0` or `$ion_1_1`.)
-    pub fn match_ivm<E: TextEncoding<'top>>(
+    pub fn match_ivm<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, LazyRawTextVersionMarker<'top, E>> {
         let ((matched_major, matched_minor), matched_marker) = terminated(
@@ -396,10 +398,10 @@ impl<'top> TextBuffer<'top> {
                 .cut_err()
         })?;
         let minor_version = u8::from_str(matched_minor.as_text().unwrap()).map_err(|_| {
-                matched_major
-                    .invalid("value did not fit in an unsigned byte")
-                    .context("reading an IVM minor version")
-                    .cut_err()
+            matched_major
+                .invalid("value did not fit in an unsigned byte")
+                .context("reading an IVM minor version")
+                .cut_err()
         })?;
         let marker =
             LazyRawTextVersionMarker::<E>::new(matched_marker, major_version, minor_version);
@@ -470,14 +472,14 @@ impl<'top> TextBuffer<'top> {
     }
 
     #[inline]
-    pub(crate) fn apply_annotations<E: TextEncoding<'top>>(
+    pub(crate) fn apply_annotations<Encoding: TextEncoding>(
         &self,
         maybe_annotations: Option<TextBuffer<'top>>,
-        mut value: LazyRawTextValue<'top, E>,
-    ) -> LazyRawTextValue<'top, E> {
+        mut value: LazyRawTextValue<'top, Encoding>,
+    ) -> LazyRawTextValue<'top, Encoding> {
         // This is a separately defined function so the common case (no annotations) is more readily
         // inlined.
-        fn full_apply_annotations<'t, T: TextEncoding<'t>>(
+        fn full_apply_annotations<'t, T: TextEncoding>(
             input: &TextBuffer<'t>,
             annotations: &TextBuffer<'t>,
             value: &mut LazyRawTextValue<'t, T>,
@@ -503,7 +505,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an optional annotation sequence and a trailing value.
-    pub fn match_annotated_value<E: TextEncoding<'top>>(
+    pub fn match_annotated_value<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, E::Value<'top>> {
         let input = *self;
@@ -578,12 +580,12 @@ impl<'top> TextBuffer<'top> {
                 .map(LazyRawTextValue_1_1::from)
                 .map(RawStreamItem::Value),
         ))
-            .context("reading a v1.1 top-level expression")
+        .context("reading a v1.1 top-level expression")
         .parse_next(self)
     }
 
     /// Matches a single Ion 1.0 value.
-    pub fn match_value<E: TextEncoding<'top>>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
+    pub fn match_value<E: TextEncoding>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
         use ValueTokenKind::*;
         dispatch! {
             |input: &mut TextBuffer<'top>| Ok(TEXT_ION_TOKEN_KINDS[input.peek_byte()? as usize]);
@@ -701,7 +703,10 @@ impl<'top> TextBuffer<'top> {
             MacroIdRef::LocalAddress(address) => {
                 let Some(system_address) = SystemMacroAddress::new(address) else {
                     return self
-                        .invalid(format!("found out-of-bounds system macro address {}", address))
+                        .invalid(format!(
+                            "found out-of-bounds system macro address {}",
+                            address
+                        ))
                         .context("reading an e-expression's macro ID as a system address")
                         .cut();
                 };
@@ -729,6 +734,7 @@ impl<'top> TextBuffer<'top> {
     ///
     /// If the input does not contain the entire e-expression, returns `IonError::Incomplete(_)`.
     pub fn match_e_expression(&mut self) -> IonParseResult<'top, TextEExpression_1_1<'top>> {
+        let original_input = *self;
         let parser = |input: &mut TextBuffer<'top>| {
             let _opening_tag = "(:".parse_next(input)?;
             let id = Self::match_e_expression_id(input)?;
@@ -759,7 +765,7 @@ impl<'top> TextBuffer<'top> {
                                         param.name()
                                     ))
                                     .context("reading an e-expression")
-                                    .cut()
+                                    .cut();
                             }
                         }
                         break;
@@ -794,17 +800,16 @@ impl<'top> TextBuffer<'top> {
             let last_explicit_arg_end = arg_expr_cache
                 .last()
                 .map(|arg| arg.expr().range().end)
-                .unwrap_or(self.offset);
+                .unwrap_or(self.offset());
+
+            // Get an empty slice at the end position. This will be the backing slice for all
+            // implicitly empty arguments.
+            let empty_end_slice =
+                original_input.slice(last_explicit_arg_end - original_input.offset(), 0);
             for parameter in &parameters[arg_expr_cache.len()..] {
-                let buffer = TextBuffer::new_with_offset(
-                    self.context,
-                    EMPTY_ARG_TEXT.as_bytes(),
-                    last_explicit_arg_end,
-                    self.is_final_data(),
-                );
                 arg_expr_cache.push(EExpArg::new(
                     parameter,
-                    EExpArgExpr::ArgGroup(TextEExpArgGroup::new(parameter, buffer, &[])),
+                    EExpArgExpr::ArgGroup(TextEExpArgGroup::new(parameter, empty_end_slice, &[])),
                 ));
             }
         }
@@ -847,18 +852,20 @@ impl<'top> TextBuffer<'top> {
             return self
                 .invalid(format!("parameter '{}' has cardinality `ExactlyOne`; it cannot accept an expression group", parameter.name()))
                 .context("reading an e-expression argument with `exactly-one` cardinality")
-                .cut()
+                .cut();
         }
         let maybe_expr = Self::match_sexp_item_1_1
             .map(|expr| expr.map(EExpArgExpr::<TextEncoding_1_1>::from))
             .parse_next(self)?;
         match maybe_expr {
             Some(expr) => Ok(EExpArg::new(parameter, expr)),
-            None => self.invalid(format!(
-                "expected argument for required parameter '{}'",
-                parameter.name()
-            )).context("reading an e-expression argument with `exactly-one` cardinality")
-                .cut()
+            None => self
+                .invalid(format!(
+                    "expected argument for required parameter '{}'",
+                    parameter.name()
+                ))
+                .context("reading an e-expression argument with `exactly-one` cardinality")
+                .cut(),
         }
     }
 
@@ -930,7 +937,8 @@ impl<'top> TextBuffer<'top> {
         parameter: &'top Parameter,
     ) -> IonParseResult<'top, TextEExpArgGroup<'top>> {
         if parameter.rest_syntax_policy() == RestSyntaxPolicy::NotAllowed {
-            return self.unrecognized()
+            return self
+                .unrecognized()
                 .context("reading a parameter that does not support rest syntax")
                 .backtrack();
         }
@@ -1455,7 +1463,7 @@ impl<'top> TextBuffer<'top> {
     }
 
     /// Matches an operator symbol, which can only legally appear within an s-expression
-    pub(crate) fn match_operator<E: TextEncoding<'top>>(
+    pub(crate) fn match_operator<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, LazyRawTextValue<'top, E>> {
         one_or_more(one_of(b"!#%&*+-./;<=>?@^`|~"))
@@ -1968,9 +1976,7 @@ impl<'top> TextBuffer<'top> {
         for byte in self.bytes().iter().copied() {
             if !Self::byte_is_legal_clob_ascii(byte) {
                 let message = format!("found an illegal byte '{:0x}' in clob", byte);
-                return self.invalid(message)
-                    .context("reading a clob")
-                    .cut();
+                return self.invalid(message).context("reading a clob").cut();
             }
         }
         // Return success without consuming
@@ -2010,8 +2016,8 @@ pub trait IonParser<'top, O>: Parser<TextBuffer<'top>, O, IonParseError<'top>> {
     // No additional functionality, this is just a trait alias
 }
 
-impl<'data, O, P> IonParser<'data, O> for P where
-    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>
+impl<'top, Output, P> IonParser<'top, Output> for P where
+    P: Parser<TextBuffer<'top>, Output, IonParseError<'top>>
 {
 }
 
@@ -2028,15 +2034,15 @@ impl<'data> Stream for TextBuffer<'data> {
     type Checkpoint = Self;
 
     fn iter_offsets(&self) -> Self::IterOffsets {
-        self.data.iter_offsets()
+        self.bytes().iter_offsets()
     }
 
     fn eof_offset(&self) -> usize {
-        self.data.eof_offset()
+        self.bytes().eof_offset()
     }
 
     fn next_token(&mut self) -> Option<Self::Token> {
-        let byte = *self.data.first()?;
+        let byte = *self.bytes().first()?;
         self.consume(1);
         Some(byte)
     }
@@ -2045,11 +2051,11 @@ impl<'data> Stream for TextBuffer<'data> {
     where
         P: Fn(Self::Token) -> bool,
     {
-        self.data.offset_for(predicate)
+        self.bytes().offset_for(predicate)
     }
 
     fn offset_at(&self, tokens: usize) -> Result<usize, Needed> {
-        self.data.offset_at(tokens)
+        self.bytes().offset_at(tokens)
     }
 
     fn next_slice(&mut self, offset: usize) -> Self::Slice {
@@ -2076,7 +2082,7 @@ impl<'data> Stream for TextBuffer<'data> {
     }
 
     fn raw(&self) -> &dyn Debug {
-        &self.data
+        &self.input_span
     }
 }
 
@@ -2100,31 +2106,31 @@ impl StreamIsPartial for TextBuffer<'_> {
 
 impl<'a> winnow::stream::Compare<&'a str> for TextBuffer<'_> {
     fn compare(&self, t: &'a str) -> CompareResult {
-        self.data.compare(t.as_bytes())
+        self.bytes().compare(t.as_bytes())
     }
 }
 
 impl<'a> winnow::stream::Compare<&'a [u8]> for TextBuffer<'_> {
     fn compare(&self, t: &'a [u8]) -> CompareResult {
-        self.data.compare(t)
+        self.bytes().compare(t)
     }
 }
 
 impl<'a, const N: usize> winnow::stream::Compare<&'a [u8; N]> for TextBuffer<'_> {
     fn compare(&self, t: &'a [u8; N]) -> CompareResult {
-        self.data.compare(t.as_slice())
+        self.bytes().compare(t.as_slice())
     }
 }
 
 impl winnow::stream::Offset for TextBuffer<'_> {
     fn offset_from(&self, start: &Self) -> usize {
-        self.offset - start.offset
+        self.offset() - start.offset()
     }
 }
 
 impl FindSlice<&str> for TextBuffer<'_> {
     fn find_slice(&self, substr: &str) -> Option<Range<usize>> {
-        self.data.find_slice(substr)
+        self.bytes().find_slice(substr)
     }
 }
 
@@ -2136,39 +2142,39 @@ impl Location for TextBuffer<'_> {
 
 /// Takes a given parser and returns a new one that accepts any amount of leading whitespace before
 /// calling the original parser.
-pub fn whitespace_and_then<'data, P, O>(
+pub fn whitespace_and_then<'data, P, Output>(
     parser: P,
-) -> impl Parser<TextBuffer<'data>, O, IonParseError<'data>>
+) -> impl Parser<TextBuffer<'data>, Output, IonParseError<'data>>
 where
-    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+    P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
 {
     preceded(TextBuffer::match_optional_comments_and_whitespace, parser)
 }
 
-pub fn zero_or_more<'data, P, O>(
+pub fn zero_or_more<'data, P, Output>(
     parser: P,
 ) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
 where
-    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+    P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
 {
     repeat::<_, _, (), _, _>(.., parser).take()
 }
 
-pub fn one_or_more<'data, P, O>(
+pub fn one_or_more<'data, P, Output>(
     parser: P,
 ) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
 where
-    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+    P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
 {
     repeat::<_, _, (), _, _>(1.., parser).take()
 }
 
-pub fn n_times<'data, P, O>(
+pub fn n_times<'data, P, Output>(
     n: usize,
     parser: P,
 ) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
 where
-    P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+    P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
 {
     repeat::<_, _, (), _, _>(n, parser).take()
 }
@@ -2194,11 +2200,11 @@ mod tests {
     use rstest::rstest;
 
     /// Returns a parser that discards the output and instead reports the number of bytes that matched.
-    fn match_length<'data, P, O>(
+    fn match_length<'data, P, Output>(
         parser: P,
     ) -> impl Parser<TextBuffer<'data>, usize, IonParseError<'data>>
     where
-        P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+        P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
     {
         parser
             .with_span()
@@ -2232,24 +2238,24 @@ mod tests {
             let new_macro =
                 TemplateCompiler::compile_from_source(self.context.get_ref(), text).unwrap();
             self.context
-                .macro_table
+                .macro_table_mut()
                 .add_template_macro(new_macro)
                 .unwrap();
             self
         }
 
-        fn try_match<'data, P, O>(&'data self, parser: P) -> IonParseResult<'data, (TextBuffer<'data>, usize)>
+        fn try_match<'data, P, Output>(&'data self, parser: P) -> IonParseResult<'data, (TextBuffer<'data>, usize)>
         where
-            P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+            P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
         {
-            let mut buffer = TextBuffer::new(self.context.get_ref(), self.input.as_bytes(), true);
+            let mut buffer = TextBuffer::new(self.context.get_ref(), self.input.as_bytes());
             let matched_length = match_length(parser).parse_next(&mut buffer)?;
             Ok((buffer, matched_length))
         }
 
-        fn expect_match<'data, P, O>(&'data self, parser: P)
+        fn expect_match<'data, P, Output>(&'data self, parser: P)
         where
-            P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+            P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
         {
             let result = self.try_match(parser).unwrap_or_else(|e| {
                 panic!("Unexpected parse fail for input <{}>\n{e}", self.input)
@@ -2287,9 +2293,9 @@ mod tests {
             assert_eq!(expected_location, (result.0.row(), result.0.column()));
         }
 
-        fn expect_mismatch<'data, P, O>(&'data self, parser: P)
+        fn expect_mismatch<'data, P, Output>(&'data self, parser: P)
         where
-            P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
+            P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
         {
             let result = self.try_match(parser);
             // We expect that only part of the input will match or that the entire
@@ -2915,7 +2921,7 @@ mod tests {
     fn test_match_text_until_unescaped_str() {
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
-        let mut input = TextBuffer::new(context, r" foo bar \''' baz''' quux ".as_bytes(), true);
+        let mut input = TextBuffer::new(context, r" foo bar \''' baz''' quux ".as_bytes());
         let (matched, contains_escapes) = input.match_text_until_unescaped_str(r#"'''"#).unwrap();
         assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");
         assert!(contains_escapes);

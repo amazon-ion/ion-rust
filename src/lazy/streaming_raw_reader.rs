@@ -1,14 +1,16 @@
-use std::cell::UnsafeCell;
-use std::fs::File;
-use std::io;
-use std::io::{BufReader, Read, StdinLock};
-use std::marker::PhantomData;
-
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
-use crate::{IonError, IonResult, LazyRawValue};
+use crate::{IonError, IonResult, LazyRawValue, Span};
+use std::cell::{OnceCell, UnsafeCell};
+use std::fs::File;
+use std::io;
+use std::io::{BufReader, Read, StdinLock};
+use std::marker::PhantomData;
+use std::mem::MaybeUninit;
+use std::ops::DerefMut;
+use std::rc::Rc;
 
 /// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
 pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
@@ -92,6 +94,10 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             input: input.into_data_source().into(),
             stream_position: 0,
         }
+    }
+
+    pub(crate) fn save_buffer(&self) -> IoBuffer {
+        unsafe { &*self.input.get() }.save_io_buffer()
     }
 
     /// Gets a reference to the data source and tries to fill its buffer.
@@ -241,6 +247,11 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                 }
             }
 
+            // At this point, `self.input` is no longer being modified.
+            // We can hand out a reference to it that's good for the duration of 'top.
+            let io_buffer_handle: &dyn IoBufferHandle = self.input.get_mut();
+            unsafe { context.set_io_buffer_handle(io_buffer_handle) };
+
             return result;
         }
     }
@@ -250,9 +261,15 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     }
 }
 
+// This is a separate trait so it can be `dyn`-compatible.
+pub trait IoBufferHandle {
+    /// Creates an inexpensive copy of the I/O buffer with no lifetime.
+    fn save_io_buffer(&self) -> IoBuffer;
+}
+
 /// An input source--typically an implementation of either `AsRef<[u8]>` or `io::Read`--from which
 /// Ion can be read, paying the cost of buffering and I/O copies only when necessary.
-pub trait IonDataSource {
+pub trait IonDataSource: IoBufferHandle {
     /// If `true`, the current contents of the buffer may not be the complete stream.
     const IS_STREAMING: bool;
 
@@ -267,6 +284,10 @@ pub trait IonDataSource {
     /// Marks `number_of_bytes` in the buffer as having been read. The caller is responsible for
     /// confirming that the buffer contains at least `number_of_bytes` bytes.
     fn consume(&mut self, number_of_bytes: usize);
+
+    /// Returns the number of bytes that have been consumed from the data source.
+    /// This is also the offset at which the data returned by [`buffer`](Self::buffer) begins.
+    fn position(&self) -> usize;
 }
 
 /// A fixed slice of Ion data that does not grow; it wraps an implementation of `AsRef<[u8]>` such
@@ -279,6 +300,10 @@ pub struct IonSlice<SliceType> {
     source: SliceType,
     // The offset of the first byte that hasn't yet been consumed.
     position: usize,
+    // When a LazyValue is saved, this is initialized by cloning the source data into an `Rc`.
+    // Once initialized, that source data can be cheaply shared by all values in the buffer without
+    // requiring a lifetime.
+    shared_stream_data: OnceCell<Rc<[u8]>>,
 }
 
 impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
@@ -287,6 +312,7 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
         Self {
             source: bytes,
             position: 0,
+            shared_stream_data: OnceCell::new(),
         }
     }
 
@@ -295,6 +321,29 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
     #[inline]
     fn stream_bytes(&self) -> &[u8] {
         self.source.as_ref()
+    }
+
+    #[inline]
+    pub fn stream_span(&self) -> Span<'_> {
+        Span::with_offset(0, self.source.as_ref())
+    }
+}
+
+impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
+    fn save_io_buffer(&self) -> IoBuffer {
+        // If this is the first time this has been called, creates an Rc<[u8]> with a copy of the
+        // input stream. Otherwise, returns a clone of the previously constructed Rc<[u8]>.
+        let bytes = self
+            .shared_stream_data
+            .get_or_init(|| Rc::from(self.stream_bytes()))
+            .clone();
+        // In an IonSlice, the `bytes` represent the entire stream.
+        // Therefore, they always begin at stream position `0`.
+        let stream_position = 0;
+        // The offset within the bytes where the content of this IoBuffer begins.
+        let local_offset = self.position;
+        let local_end = bytes.len();
+        IoBuffer::new(stream_position, bytes, local_offset, local_end)
     }
 }
 
@@ -325,6 +374,151 @@ impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
             self.buffer()
         );
     }
+
+    fn position(&self) -> usize {
+        self.position
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct IoBuffer {
+    // The offset at which buffer's first byte (that is: self.buffer[0]) appears in the overall
+    // stream. This byte may or may not have been consumed.
+    stream_offset: usize,
+    // This is `Rc<[u8]>` instead of `Rc<Vec<u8>>` because the latter would require double indirection.
+    bytes: Rc<[u8]>,
+    // The index of the first occupied byte in the buffer. If local_offset==local_end, no bytes
+    // are occupied.
+    local_offset: usize,
+    // The index of the first unoccupied byte in the buffer *at or after* `local_offset`.
+    local_end: usize,
+}
+
+impl IoBuffer {
+    pub fn new(
+        stream_offset: usize,
+        bytes: impl Into<Rc<[u8]>>,
+        local_offset: usize,
+        local_end: usize,
+    ) -> Self {
+        debug_assert!(
+            local_offset <= local_end,
+            "local_offset {local_offset} must be <= local_end {local_end}"
+        );
+        let bytes = bytes.into();
+        debug_assert!(
+            local_end <= bytes.len(),
+            "local_end {local_end} must be < bytes.len {}",
+            bytes.len()
+        );
+        Self {
+            stream_offset,
+            bytes,
+            local_offset,
+            local_end,
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            stream_offset: 0,
+            bytes: Self::alloc_zeroed(capacity),
+            local_offset: 0,
+            local_end: 0,
+        }
+    }
+
+    pub fn stream_offset(&self) -> usize {
+        self.stream_offset
+    }
+
+    pub fn stream_position(&self) -> usize {
+        self.stream_offset + self.local_offset
+    }
+
+    pub fn remaining_capacity(&self) -> usize {
+        self.bytes.len() - self.local_end
+    }
+
+    pub fn len(&self) -> usize {
+        self.local_end - self.local_offset
+    }
+
+    pub fn all_bytes(&self) -> &[u8] {
+        &self.bytes[..self.local_end]
+    }
+
+    pub fn remaining_bytes(&self) -> &[u8] {
+        &self.bytes[self.local_offset..self.local_end]
+    }
+
+    pub fn read_from<R: Read>(&mut self, input: &mut R) -> IonResult<usize> {
+        if self.local_offset > 0 {
+            // We've consumed bytes (advancing `position`) and can therefore reclaim some of the
+            // space at the beginning of our buffer.
+            self.shift_remaining_bytes_to_index_zero();
+        }
+        if self.remaining_capacity() == 0 {
+            // If we're out of space, double the size of the buffer and fill it with zeros
+            // before proceeding.
+            self.grow();
+        }
+        // Attempt to read as many bytes as will fit in the currently allocated capacity beyond
+        // `limit`.
+        let available_range = self.local_end..;
+        let bytes_read = input.read(&mut self.make_data_mut()[available_range])?;
+
+        // Update `self.limit` to mark the newly read in bytes as available.
+        self.local_end += bytes_read;
+        Ok(bytes_read)
+    }
+
+    fn grow(&mut self) {
+        let mut new_buffer = Self::alloc_zeroed(self.bytes.len() * 2);
+        Rc::get_mut(&mut new_buffer).unwrap()[..self.bytes.len()]
+            .copy_from_slice(self.remaining_bytes());
+        std::mem::swap(&mut self.bytes, &mut new_buffer);
+    }
+
+    pub fn consume(&mut self, number_of_bytes: usize) {
+        self.local_offset += number_of_bytes;
+        debug_assert!(self.local_offset <= self.local_end);
+    }
+
+    /// If there is only one reference to the data, returns a mutable reference to it.
+    /// Otherwise, creates a new buffer. The old one will be dropped when it is no longer in use.
+    fn make_data_mut(&mut self) -> &mut [u8] {
+        Rc::make_mut(&mut self.bytes)
+    }
+
+    fn alloc_zeroed(size: usize) -> Rc<[u8]> {
+        // Get a ref-counted, heap-allocated byte slice.
+        let mut memory = Rc::new_uninit_slice(size);
+        // Zero out that memory.
+        let mut mut_ref = Rc::get_mut(&mut memory).unwrap();
+        mut_ref.deref_mut().fill(MaybeUninit::new(0u8));
+        // SAFETY: Now that the slice is full of zeroes (which are valid `u8`s),
+        //         we can treat it like a regular Rc<[u8]>.
+        unsafe { std::mem::transmute(memory) }
+    }
+
+    /// Moves all of the bytes in the range `self.position..self.limit` to the beginning of the buffer,
+    /// reclaiming space that was previously occupied by bytes that have since been consumed.
+    fn shift_remaining_bytes_to_index_zero(&mut self) {
+        // Shift everything after `remaining_data_start_index` to the beginning of the Vec and
+        // update the limit.
+        let remaining_data_range = self.local_offset..self.local_end;
+        let number_of_bytes = remaining_data_range.len();
+        self.stream_offset += self.local_offset;
+        self.local_end = number_of_bytes;
+        self.local_offset = 0;
+        self.make_data_mut().copy_within(remaining_data_range, 0);
+        debug_assert!(self.len() == self.local_end - self.local_offset);
+    }
+
+    fn as_span(&self) -> Span<'_> {
+        Span::from(self)
+    }
 }
 
 /// A buffered reader for types that don't implement AsRef<[u8]>
@@ -332,12 +526,7 @@ pub struct IonStream<R: Read> {
     // The input source
     input: R,
     // A buffer containing a sliding window of data from `input`.
-    buffer: Vec<u8>,
-    // The index of the first occupied byte in the buffer. If position==limit, no bytes
-    // are occupied.
-    position: usize,
-    // The index of the first unoccupied byte in the buffer *at or after* `position`.
-    limit: usize,
+    buffer: IoBuffer,
 }
 
 impl<R: Read> IonStream<R> {
@@ -346,26 +535,15 @@ impl<R: Read> IonStream<R> {
     pub fn new(input: R) -> Self {
         IonStream {
             input,
-            buffer: vec![0u8; Self::DEFAULT_IO_BUFFER_SIZE],
-            // The index of the first occupied byte in the buffer
-            position: 0,
-            // The index of the first unoccupied byte in the buffer *at or after* `position`.
-            limit: 0,
+            buffer: IoBuffer::with_capacity(DEFAULT_IO_BUFFER_SIZE),
         }
     }
 }
 
-impl<R: Read> IonStream<R> {
-    /// Moves all of the bytes in the range `self.position..self.limit` to the beginning of the buffer,
-    /// reclaiming space that was previously occupied by bytes that have since been consumed.
-    fn shift_remaining_bytes_to_index_zero(&mut self) {
-        // Shift everything after `remaining_data_start_index` to the beginning of the Vec and
-        // update the limit.
-        let remaining_data_range = self.position..self.limit;
-        self.limit = remaining_data_range.len();
-        self.position = 0;
-        self.buffer.copy_within(remaining_data_range, 0);
-        debug_assert!(self.buffer().len() == self.limit - self.position);
+impl<R: Read> IoBufferHandle for IonStream<R> {
+    fn save_io_buffer(&self) -> IoBuffer {
+        // `self.buffer` is reference counted, so we can cheaply clone it.
+        self.buffer.clone()
     }
 }
 
@@ -373,33 +551,19 @@ impl<R: Read> IonDataSource for IonStream<R> {
     const IS_STREAMING: bool = true;
 
     fn buffer(&self) -> &[u8] {
-        &self.buffer[self.position..self.limit]
+        self.buffer.remaining_bytes()
     }
 
     fn fill_buffer(&mut self) -> IonResult<usize> {
-        if self.position > 0 {
-            // We've consumed bytes (advancing `position`) and can therefore reclaim some of the
-            // space at the beginning of our buffer.
-            self.shift_remaining_bytes_to_index_zero();
-        }
-        if self.buffer.len() == self.limit {
-            // If we're out of space, double the size of the buffer and fill it with zeros
-            // before proceeding. (The bytes must be set to a value to avoid undefined behavior;
-            // zero is a conventional choice. The value will never be used anyway.)
-            self.buffer.resize(self.buffer.len() * 2, 0);
-        }
-        // Attempt to read as many bytes as will fit in the currently allocated capacity beyond
-        // `limit`.
-        let bytes_read = self.input.read(&mut self.buffer[self.limit..])?;
-
-        // Update `self.limit` to mark the newly read in bytes as available.
-        self.limit += bytes_read;
-        Ok(bytes_read)
+        self.buffer.read_from(&mut self.input)
     }
 
     fn consume(&mut self, number_of_bytes: usize) {
-        self.position += number_of_bytes;
-        debug_assert!(self.position <= self.limit);
+        self.buffer.consume(number_of_bytes);
+    }
+
+    fn position(&self) -> usize {
+        self.buffer.stream_position()
     }
 }
 

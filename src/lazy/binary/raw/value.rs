@@ -6,8 +6,8 @@ use std::{fmt, mem};
 
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
-use crate::lazy::binary::encoded_value::EncodedValue;
-use crate::lazy::binary::immutable_buffer::BinaryBuffer;
+use crate::lazy::binary::binary_buffer::BinaryBuffer;
+use crate::lazy::binary::encoded_value::EncodedBinaryValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryStruct_1_0;
 use crate::lazy::binary::raw::sequence::{
@@ -75,7 +75,7 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_0<'top> {
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Clone, Copy)]
 pub struct LazyRawBinaryValue_1_0<'top> {
-    pub(crate) encoded_value: EncodedValue<Header>,
+    pub(crate) encoded_value: EncodedBinaryValue<Header>,
     pub(crate) input: BinaryBuffer<'top>,
 }
 
@@ -145,9 +145,16 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
         let local_range = (range.start - self.input.offset())..(range.end - self.input.offset());
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
+
+    fn with_backing_data(&self, span: Span<'top>) -> Self {
+        Self {
+            encoded_value: self.encoded_value,
+            input: BinaryBuffer::new_with_offset(span.bytes(), span.offset()),
+        }
+    }
 }
 
-pub trait EncodedBinaryValue<'top, D: Decoder>: LazyRawValue<'top, D> {
+pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
     fn opcode_length(&self) -> usize;
     fn length_length(&self) -> usize;
     fn body_length(&self) -> usize;
@@ -240,7 +247,7 @@ pub trait EncodedBinaryValue<'top, D: Decoder>: LazyRawValue<'top, D> {
     }
 }
 
-impl<'top> EncodedBinaryValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
+impl<'top> BinaryValueLiteral<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
     fn opcode_length(&self) -> usize {
         self.encoded_value.opcode_length()
     }

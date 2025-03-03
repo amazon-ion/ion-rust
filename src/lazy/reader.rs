@@ -8,7 +8,7 @@ use crate::lazy::system_reader::SystemReader;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult};
+use crate::{try_or_some_err, IonError, IonResult};
 
 /// An Ion reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -62,12 +62,6 @@ use crate::{IonError, IonResult};
 /// ```
 pub struct Reader<Encoding: Decoder, Input: IonInput> {
     system_reader: SystemReader<Encoding, Input>,
-}
-
-pub(crate) enum NextApplicationValue<'top, D: Decoder> {
-    ApplicationValue(LazyValue<'top, D>),
-    SystemValue,
-    EndOfStream,
 }
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
@@ -125,10 +119,8 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 }
 
-use crate::lazy::{
-    expanded::template::TemplateMacro,
-    text::raw::v1_1::reader::MacroAddress,
-};
+use crate::lazy::expanded::lazy_element::LazyElement;
+use crate::lazy::{expanded::template::TemplateMacro, text::raw::v1_1::reader::MacroAddress};
 
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
@@ -139,7 +131,21 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 
     pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        self.system_reader.expanding_reader.register_template(template_macro)
+        self.system_reader
+            .expanding_reader
+            .register_template(template_macro)
+    }
+}
+
+impl<Encoding: Decoder, Input: IonInput> Iterator for Reader<Encoding, Input> {
+    type Item = IonResult<LazyElement<Encoding>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next() {
+            Ok(None) => None,
+            Ok(Some(lazy_value)) => Some(Ok(lazy_value.to_owned())),
+            Err(e) => Some(Err(e)),
+        }
     }
 }
 
@@ -147,9 +153,95 @@ pub struct LazyElementIterator<'iter, Encoding: Decoder, Input: IonInput> {
     lazy_reader: &'iter mut Reader<Encoding, Input>,
 }
 
-impl<Encoding: Decoder, Input: IonInput> Iterator
-    for LazyElementIterator<'_, Encoding, Input>
+impl<Encoding: Decoder, Input: IonInput> Iterator for LazyElementIterator<'_, Encoding, Input> {
+    type Item = IonResult<LazyElement<Encoding>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.lazy_reader.next() {
+            Ok(None) => None,
+            Ok(Some(lazy_value)) => Some(Ok(lazy_value.to_owned())),
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+/// Extension methods for iterators that return an `IonResult`.
+///
+/// These methods are analogous to methods that already exist on `Iterator`,
+/// but automatically handle situations where the input `IonResult` is an `Err`
+/// sparing the user from writing more boilerplate.
+pub trait IonResultIterExt<Item>: Iterator<Item = IonResult<Item>> {
+    /// Filters a stream of `IonResult` values.
+    ///
+    /// If the current value is an `Err`, it is passed through as that error.
+    /// If the current value is `Ok` but the predicate does not approve its contents,
+    /// the value is discarded.
+    /// Otherwise, passes the value through without modification.
+    fn try_filter<FalliblePredicate>(
+        &mut self,
+        mut predicate: FalliblePredicate,
+    ) -> impl Iterator<Item = IonResult<Item>>
+    where
+        FalliblePredicate: FnMut(&Item) -> IonResult<bool>,
+    {
+        self.filter_map(move |result| {
+            let element = match result {
+                Ok(element) => element,
+                Err(e) => return Some(Err(e)),
+            };
+
+            match predicate(&element) {
+                Ok(true) => Some(Ok(element)),
+                Ok(false) => None,
+                Err(e) => Some(Err(e)),
+            }
+        })
+    }
+
+    /// Maps a stream of `IonResult<Item>` values to `IonResult<Output>` items.
+    ///
+    /// If the current value is an `Err`, it is passed through as that error.
+    /// If the current value is `Ok`, applies the `map_fn` and passes its result through.
+    fn try_map<MapFn, Output>(
+        &mut self,
+        mut map_fn: MapFn,
+    ) -> impl Iterator<Item = IonResult<Output>>
+    where
+        MapFn: FnMut(&Item) -> IonResult<Output>,
+    {
+        self.map(move |result| {
+            let element = result?;
+            map_fn(&element)
+        })
+    }
+
+    /// Similar to [`try_filter`](Self::try_filter) and [`try_map`](Self::try_map) above, but performs both operations in a single step.
+    fn try_filter_map<'a, MappingPredicate, Output>(
+        &'a mut self,
+        mut mapping_predicate: MappingPredicate,
+    ) -> impl Iterator<Item = IonResult<Output>>
+    where
+        MappingPredicate: FnMut(&Item) -> IonResult<Option<Output>> + 'a,
+    {
+        self.filter_map(move |item_result| {
+            let item = try_or_some_err!(item_result);
+            mapping_predicate(&item).transpose()
+        })
+    }
+}
+
+impl<Item, T> IonResultIterExt<Item> for T
+where
+    T: Iterator<Item = IonResult<Item>>,
 {
+    // Uses default implementations
+}
+
+pub struct ElementIterator<'iter, Encoding: Decoder, Input: IonInput> {
+    lazy_reader: &'iter mut Reader<Encoding, Input>,
+}
+
+impl<Encoding: Decoder, Input: IonInput> Iterator for ElementIterator<'_, Encoding, Input> {
     type Item = IonResult<Element>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -162,7 +254,10 @@ impl<Encoding: Decoder, Input: IonInput> Iterator
 }
 
 impl<Encoding: Decoder, Input: IonInput> ElementReader for Reader<Encoding, Input> {
-    type ElementIterator<'a> = LazyElementIterator<'a, Encoding, Input> where Self: 'a,;
+    type ElementIterator<'a>
+        = ElementIterator<'a, Encoding, Input>
+    where
+        Self: 'a;
 
     fn read_next_element(&mut self) -> IonResult<Option<Element>> {
         let lazy_value = match self.next()? {
@@ -174,7 +269,7 @@ impl<Encoding: Decoder, Input: IonInput> ElementReader for Reader<Encoding, Inpu
     }
 
     fn elements(&mut self) -> Self::ElementIterator<'_> {
-        LazyElementIterator { lazy_reader: self }
+        ElementIterator { lazy_reader: self }
     }
 }
 

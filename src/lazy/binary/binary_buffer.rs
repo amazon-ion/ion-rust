@@ -7,10 +7,10 @@ use crate::binary::constants::v1_0::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::lazy::binary::encoded_value::EncodedValue;
+use crate::lazy::binary::encoded_value::EncodedBinaryValue;
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryFieldName_1_0;
 use crate::lazy::binary::raw::type_descriptor::{Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS};
-use crate::lazy::binary::raw::v1_1::immutable_buffer::AnnotationsEncoding;
+use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::LazyRawFieldExpr;
@@ -703,7 +703,7 @@ impl<'a> BinaryBuffer<'a> {
             );
         }
 
-        let encoded_value = EncodedValue {
+        let encoded_value = EncodedBinaryValue {
             encoding: BinaryValueEncoding::Tagged,
             header,
             // If applicable, these are populated by the caller: `read_annotated_value()`
