@@ -597,7 +597,9 @@ impl<'top> TextBuffer<'top> {
     pub fn match_value<E: TextEncoding>(&mut self) -> IonParseResult<'top, E::Value<'top>> {
         use ValueTokenKind::*;
 
+        #[allow(unused)]
         let mut preserve_row = 0;
+        #[allow(unused)]
         let mut preserve_prev_column_offset = 0;
 
         #[cfg(feature = "source-location")]
