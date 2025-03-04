@@ -7,7 +7,7 @@ use value_writer::SequenceWriter;
 
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
-use crate::{IonEncoding, IonResult};
+use crate::IonResult;
 
 pub mod annotate;
 pub mod annotation_seq;
@@ -71,9 +71,6 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
     fn output_mut(&mut self) -> &mut W;
 
     fn write_version_marker(&mut self) -> IonResult<()>;
-
-    #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
-    fn encoding(&self) -> IonEncoding;
 }
 
 #[cfg(test)]

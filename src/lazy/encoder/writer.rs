@@ -58,13 +58,13 @@ pub(crate) struct Writer<E: Encoding, Output: Write> {
 }
 
 // These aliases are used for selectively re-exporting writer types in lib.rs.
-#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
+#[allow(dead_code)]
 pub type TextWriter_1_0<Output> = Writer<TextEncoding_1_0, Output>;
-#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
+#[allow(dead_code)]
 pub type BinaryWriter_1_0<Output> = Writer<BinaryEncoding_1_0, Output>;
-#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
+#[allow(dead_code)]
 pub type TextWriter_1_1<Output> = Writer<TextEncoding_1_1, Output>;
-#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
+#[allow(dead_code)]
 pub type BinaryWriter_1_1<Output> = Writer<BinaryEncoding_1_1, Output>;
 
 #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
