@@ -23,6 +23,9 @@ use std::ops::Deref;
 ///
 /// See [`LazyElement::read`] for an example.
 pub struct LazyResource<'a, Encoding: Decoder, Resource> {
+    // This field is never read from, so the compiler considers it dead code.
+    // However, it is necessary to keep the `LazyValue` alive while the `Resource` is borrowed.
+    #[allow(dead_code)]
     value: LazyValue<'a, Encoding>,
     resource: Resource,
 }
@@ -132,6 +135,7 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
     }
 
     /// Returns the encoding context that this `LazyElement` uses to read its data.
+    #[allow(dead_code)]
     pub(crate) fn context(&self) -> LazyResource<'_, Encoding, EncodingContextRef<'_>> {
         let value = self.as_lazy_value();
         let resource = value.context();
@@ -167,10 +171,6 @@ mod tests {
     use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::lazy::reader::IonResultIterExt;
     use crate::{AnyEncoding, Element, IonResult, IonType, Reader, Sequence};
-    use std::sync::LazyLock;
-
-    const NUM_STRUCTS: usize = 1_000_000;
-    static TEST_DATA: LazyLock<String> = LazyLock::new(test_data);
 
     #[cfg(feature = "experimental-ion-1-1")]
     fn test_data() -> String {

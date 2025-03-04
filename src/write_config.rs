@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::writer::Writer;
-use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, OutputFromBytes, TextEncoding_1_0,
     TextEncoding_1_1,
@@ -51,31 +50,6 @@ impl<E: Encoding> WriteConfig<E> {
         let mut writer = Writer::new(self.clone(), output)?;
         writer.write_all(values)?;
         writer.close()
-    }
-
-    #[cfg(feature = "experimental-reader-writer")]
-    pub fn build_writer<W: io::Write>(self, output: W) -> IonResult<Writer<E, W>> {
-        Writer::new(self, output)
-    }
-
-    // When the experimental-reader-writer feature is disabled, this method is `pub(crate)` instead
-    // of `pub`
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    pub(crate) fn build_writer<W: io::Write>(self, output: W) -> IonResult<Writer<E, W>> {
-        Writer::new(self, output)
-    }
-
-    #[cfg(feature = "experimental-tooling-apis")]
-    /// Builds a writer based on writer configuration
-    pub fn build_raw_writer<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
-        E::Writer::build(self, output)
-    }
-
-    // When the experimental-tooling-apis feature is disabled, this method is `pub(crate)` instead
-    // of `pub`
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn build_raw_writer<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
-        E::Writer::build(self, output)
     }
 }
 

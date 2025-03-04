@@ -119,7 +119,6 @@ mod tests {
     use super::*;
 
     struct TestReader<'data> {
-        context: EncodingContextRef<'data>,
         reader: LazyRawTextReader_1_0<'data>,
     }
 
@@ -283,7 +282,6 @@ mod tests {
         let encoding_context = EncodingContext::empty();
         let reader = &mut TestReader {
             reader: LazyRawTextReader_1_0::new(encoding_context.get_ref(), data.as_bytes(), true),
-            context: encoding_context.get_ref(),
         };
 
         assert_eq!(reader.next()?.expect_ivm()?.major_minor(), (1, 0));

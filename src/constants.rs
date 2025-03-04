@@ -16,6 +16,7 @@ pub(crate) mod v1_0 {
         "$ion_shared_symbol_table", // $9
     ];
 
+    #[allow(dead_code)]
     pub(crate) mod system_symbol_ids {
         pub const ION: usize = 1;
         pub const ION_1_0: usize = 2;
@@ -45,7 +46,6 @@ pub(crate) mod v1_0 {
 }
 
 pub(crate) mod v1_1 {
-    use crate::types::SymbolAddress;
     use phf::phf_map;
 
     pub mod constants {
@@ -118,6 +118,7 @@ pub(crate) mod v1_1 {
         "use",                      // $63
     ];
 
+    #[allow(dead_code)]
     pub mod system_symbols {
         use crate::raw_symbol_ref::SystemSymbol_1_1;
 
@@ -198,12 +199,4 @@ pub(crate) mod v1_1 {
         "add_macros"               => 62,
         "use"                      => 63,
     };
-
-    pub fn address_for_text(text: &str) -> Option<usize> {
-        SYSTEM_SYMBOL_TEXT_TO_ID.get(text).copied()
-    }
-
-    pub fn symbol_text_for_address(address: SymbolAddress) -> Option<&'static str> {
-        SYSTEM_SYMBOLS.get(address - 1).copied()
-    }
 }

@@ -111,16 +111,6 @@ impl Symbol {
         }
     }
 
-    /// Converts this symbol into a shared one
-    pub(crate) fn into_shared(self) -> Symbol {
-        match self.text {
-            SymbolText::Shared(text) => Symbol::shared(text),
-            SymbolText::Owned(text) => Symbol::shared(text.into()),
-            SymbolText::Static(text) => Symbol::shared(text.into()),
-            SymbolText::Unknown => Symbol::unknown_text(),
-        }
-    }
-
     pub fn text(&self) -> Option<&str> {
         self.text.text()
     }
@@ -226,6 +216,12 @@ mod symbol_tests {
 
     /// This is a test to ensure that the static_text function is const.
     const TEST_STATIC_TEXT_IS_CONST: Symbol = Symbol::static_text("foo");
+
+    #[test]
+    fn test_static_text_is_const() {
+        // Uses the above `const` to prevent it from being considered dead code.
+        assert_eq!(TEST_STATIC_TEXT_IS_CONST, "foo")
+    }
 
     #[test]
     fn ordering_and_eq() {

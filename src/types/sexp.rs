@@ -22,7 +22,7 @@ use std::fmt::{Display, Formatter};
 pub struct SExp(pub Sequence);
 
 impl SExp {
-    pub(crate) fn new(elements: impl Into<Sequence>) -> Self {
+    pub fn new(elements: impl Into<Sequence>) -> Self {
         SExp(elements.into())
     }
 }

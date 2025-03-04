@@ -8,7 +8,6 @@ pub trait EncodedHeader: Copy {
     type TypeCode;
     fn ion_type(&self) -> IonType;
     fn type_code(&self) -> Self::TypeCode;
-    fn low_nibble(&self) -> u8;
 
     fn is_null(&self) -> bool;
 }
@@ -22,10 +21,6 @@ impl EncodedHeader for Header {
 
     fn type_code(&self) -> Self::TypeCode {
         self.ion_type_code
-    }
-
-    fn low_nibble(&self) -> u8 {
-        self.length_code
     }
 
     fn is_null(&self) -> bool {
@@ -122,6 +117,7 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
 
     /// Returns an offset Range that contains this value's type descriptor byte and any additional
     /// bytes used to encode the `length`.
+    #[allow(dead_code)]
     pub fn header_range(&self) -> Range<usize> {
         let start = self.header_offset;
         let end = start + self.header_length();
@@ -148,11 +144,13 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
     /// The offset of the first byte following the header (including length bytes, if present).
     /// If `value_length()` returns zero, this offset is actually the first byte of
     /// the next encoded value and should not be read.
+    #[allow(dead_code)]
     pub fn value_body_offset(&self) -> usize {
         self.header_offset + self.header_length()
     }
 
     /// Returns an offset Range containing any bytes following the header.
+    #[allow(dead_code)]
     pub fn value_body_range(&self) -> Range<usize> {
         let start = self.value_body_offset();
         let end = start + self.value_body_length;
@@ -160,6 +158,7 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
     }
 
     /// Returns the index of the first byte that is beyond the end of the current value's encoding.
+    #[allow(dead_code)]
     pub fn value_end_exclusive(&self) -> usize {
         self.value_body_offset() + self.value_body_length
     }
@@ -176,6 +175,7 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
     ///
     /// In Ion 1.1, the annotations header contains an opcode and (in the case of opcode 0xE9) a
     /// FlexUInt representing the sequence length.
+    #[allow(dead_code)]
     pub fn annotations_header_length(&self) -> usize {
         self.annotations_header_length as usize
     }
@@ -195,6 +195,7 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
 
     /// Returns the offset range of the bytes in the stream that encoded the value's annotations
     /// sequence.
+    #[allow(dead_code)]
     pub fn annotations_sequence_range(&self) -> Range<usize> {
         let wrapper_offset = self
             .annotations_offset()

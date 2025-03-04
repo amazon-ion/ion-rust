@@ -12,7 +12,7 @@ use crate::IonType;
 /// without re-parsing its header information each time.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct EncodedTextValue<'top, E: TextEncoding> {
-    // Each encoded text value has up to three components, appearing in the following order:
+    // Each encoded text value has one or two components, appearing in the following order:
     //
     //     [annotations? | data ]
     //
@@ -44,16 +44,6 @@ impl<'top, E: TextEncoding> EncodedTextValue<'top, E> {
     pub(crate) fn new(matched_value: MatchedValue<'top, E>) -> EncodedTextValue<'top, E> {
         EncodedTextValue {
             data_offset: 0,
-            matched_value,
-        }
-    }
-
-    pub(crate) fn with_offset(
-        offset: u16,
-        matched_value: MatchedValue<'top, E>,
-    ) -> EncodedTextValue<'top, E> {
-        EncodedTextValue {
-            data_offset: offset,
             matched_value,
         }
     }

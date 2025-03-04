@@ -176,10 +176,6 @@ impl<'data> DataSource<'data> {
         }
     }
 
-    pub(crate) fn buffer(&self) -> BinaryBuffer<'data> {
-        self.buffer
-    }
-
     fn advance_to_next_item(&mut self) -> IonResult<BinaryBuffer<'data>> {
         if self.buffer.len() < self.bytes_to_skip {
             return IonResult::incomplete(

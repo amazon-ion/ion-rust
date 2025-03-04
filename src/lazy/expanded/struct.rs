@@ -13,7 +13,7 @@ use crate::lazy::expanded::{
     LazyExpandedValue,
 };
 use crate::result::IonFailure;
-use crate::{try_next, try_or_some_err, EExpression, HasRange, IonResult, RawSymbolRef, SymbolRef};
+use crate::{try_next, try_or_some_err, EExpression, HasRange, IonResult, SymbolRef};
 use std::ops::Range;
 
 #[cfg(feature = "experimental-tooling-apis")]
@@ -98,30 +98,6 @@ impl<'top, D: Decoder> LazyExpandedField<'top, D> {
     }
 }
 
-impl<'top, D: Decoder> LazyExpandedField<'top, D> {
-    fn from_raw_field(
-        context: EncodingContextRef<'top>,
-        name: D::FieldName<'top>,
-        value: impl Into<LazyExpandedValue<'top, D>>,
-    ) -> Self {
-        Self {
-            name: LazyExpandedFieldName::RawName(context, name),
-            value: value.into(),
-        }
-    }
-
-    fn from_template(
-        template: TemplateMacroRef<'top>,
-        name: SymbolRef<'top>,
-        value: impl Into<LazyExpandedValue<'top, D>>,
-    ) -> Self {
-        Self {
-            name: LazyExpandedFieldName::TemplateName(template, name),
-            value: value.into(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum LazyExpandedFieldName<'top, D: Decoder> {
     RawName(EncodingContextRef<'top>, D::FieldName<'top>),
@@ -152,14 +128,6 @@ impl<'top, D: Decoder> LazyExpandedFieldName<'top, D> {
         Some(raw_name)
     }
 
-    pub(crate) fn read_raw(&self) -> IonResult<RawSymbolRef<'top>> {
-        match self {
-            LazyExpandedFieldName::RawName(_, name) => name.read(),
-            LazyExpandedFieldName::TemplateName(_, name) => Ok((*name).into()),
-            LazyExpandedFieldName::MakeField(name) => Ok((*name).into()),
-        }
-    }
-
     pub fn range(&self) -> Option<Range<usize>> {
         use LazyExpandedFieldName::*;
         match self {
@@ -181,19 +149,6 @@ pub enum ExpandedStructSource<'top, D: Decoder> {
     MakeStruct(Environment<'top, D>, MacroExprArgsIterator<'top, D>),
     // The single-field struct was produced by the `make_field` macro
     MakeField(LazyExpandedField<'top, D>),
-}
-
-impl<'top, D: Decoder> ExpandedStructSource<'top, D> {
-    fn environment(&self) -> Environment<'top, D> {
-        match self {
-            ExpandedStructSource::ValueLiteral(_) => Environment::empty(),
-            ExpandedStructSource::Template(environment, _, _) => *environment,
-            ExpandedStructSource::MakeStruct(environment, _) => *environment,
-            ExpandedStructSource::MakeField(_field) => {
-                unreachable!("make_field structs never need to supply an environment")
-            }
-        }
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -313,10 +268,6 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         // and use it for parts.
         let ExpandedStructIterator { source, state } = self.iter();
         FieldExprIterator::new(source, state)
-    }
-
-    fn environment(&self) -> Environment<'top, D> {
-        self.source.environment()
     }
 
     pub fn bump_iter(&self) -> &'top mut ExpandedStructIterator<'top, D> {

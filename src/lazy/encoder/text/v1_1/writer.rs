@@ -10,7 +10,7 @@ use crate::text::whitespace_config::{
     COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
 };
 use crate::write_config::WriteConfigKind;
-use crate::{ContextWriter, IonEncoding, IonResult, TextFormat, WriteConfig};
+use crate::{ContextWriter, IonResult, TextFormat, WriteConfig};
 
 // Text Ion 1.1 is a syntactic superset of Ion 1.0. The types comprising this writer implementation
 // delegates nearly all of their functionality to the 1.0 text writer.
@@ -101,10 +101,6 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
             .space_between_top_level_values;
         write!(self.writer_1_0.output, "$ion_1_1{space_between}")?;
         Ok(())
-    }
-
-    fn encoding(&self) -> IonEncoding {
-        IonEncoding::Text_1_1
     }
 }
 

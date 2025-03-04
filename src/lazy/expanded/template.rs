@@ -167,7 +167,7 @@ pub struct MacroSignature {
 }
 
 impl MacroSignature {
-    fn with_parameter(
+    pub fn with_parameter(
         mut self,
         name: impl Into<String>,
         encoding: ParameterEncoding,
@@ -197,7 +197,7 @@ impl MacroSignature {
     }
 
     /// Constructs a new instance of a signature with no arguments (the signature of a "constant" template).
-    pub(crate) fn constant() -> Self {
+    pub fn constant() -> Self {
         Self::new(Vec::new()).unwrap()
     }
 
@@ -229,7 +229,7 @@ impl MacroSignature {
     pub fn bitmap_size_in_bytes(&self) -> usize {
         const BITS_PER_VARIADIC_PARAM: usize = 2;
         const BITS_PER_BYTE: usize = 8;
-        ((self.num_variadic_params * BITS_PER_VARIADIC_PARAM) + 7) / 8
+        ((self.num_variadic_params * BITS_PER_VARIADIC_PARAM) + 7) / BITS_PER_BYTE
     }
 }
 
@@ -536,12 +536,6 @@ pub struct TemplateStructFieldExprIterator<'top, D: Decoder> {
     template: TemplateMacroRef<'top>,
     nested_expressions: &'top [TemplateBodyExpr],
     index: usize,
-}
-
-impl<'top, D: Decoder> TemplateStructFieldExprIterator<'top, D> {
-    pub fn context(&self) -> EncodingContextRef<'top> {
-        self.context
-    }
 }
 
 impl<'top, D: Decoder> TemplateStructFieldExprIterator<'top, D> {

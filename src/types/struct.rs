@@ -91,10 +91,6 @@ impl<'a> FieldIterator<'a> {
             values: Some(data.iter()),
         }
     }
-
-    fn empty() -> FieldIterator<'static> {
-        FieldIterator { values: None }
-    }
 }
 
 impl<'a> Iterator for FieldIterator<'a> {
@@ -261,16 +257,6 @@ impl Struct {
     /// Returns an iterator over all of the values associated with the specified field name.
     pub fn get_all<A: AsSymbolRef>(&self, field_name: A) -> impl Iterator<Item = &Element> {
         self.fields.get_all(field_name)
-    }
-
-    #[allow(clippy::map_identity)]
-    // ^-- This is a temporary workaround for a bug in Clippy that should be fixed in the next release.
-    // See: https://github.com/rust-lang/rust-clippy/issues/9280
-    pub(crate) fn get_index(&self, field_index: usize) -> Option<(&Symbol, &Element)> {
-        self.fields
-            .by_index
-            .get(field_index)
-            .map(|(name, value)| (name, value))
     }
 }
 

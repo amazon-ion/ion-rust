@@ -120,8 +120,7 @@ impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
 
 #[derive(Copy, Clone, Debug)]
 pub struct NeverEExpArgIterator<'top, D: Decoder> {
-    spooky: PhantomData<&'top D>,
-    never: Never,
+    spooky: PhantomData<(&'top D, Never)>,
 }
 
 impl<'top, D: Decoder> Iterator for NeverEExpArgIterator<'top, D> {
@@ -134,8 +133,7 @@ impl<'top, D: Decoder> Iterator for NeverEExpArgIterator<'top, D> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct NeverArgGroup<'top, D: Decoder> {
-    spooky: PhantomData<&'top D>,
-    never: Never,
+    spooky: PhantomData<(&'top D, Never)>,
 }
 
 impl<'top, D: Decoder> IntoIterator for NeverArgGroup<'top, D> {
@@ -149,8 +147,7 @@ impl<'top, D: Decoder> IntoIterator for NeverArgGroup<'top, D> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct NeverArgGroupIterator<'top, D: Decoder> {
-    spooky: PhantomData<&'top D>,
-    never: Never,
+    spooky: PhantomData<(&'top D, Never)>,
 }
 
 impl<'top, D: Decoder> Iterator for NeverArgGroupIterator<'top, D> {

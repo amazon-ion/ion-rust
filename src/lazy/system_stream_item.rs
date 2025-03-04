@@ -9,7 +9,8 @@ use crate::{ExpandedStreamItem, IonError, IonResult, LazySExp};
 
 /// System stream elements that a SystemReader may encounter.
 #[non_exhaustive]
-pub enum SystemStreamItem<'top, D: Decoder> {
+#[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
+pub(crate) enum SystemStreamItem<'top, D: Decoder> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(D::VersionMarker<'top>),
@@ -23,6 +24,12 @@ pub enum SystemStreamItem<'top, D: Decoder> {
     EndOfStream(EndPosition),
 }
 
+// Clippy complains that `as_` methods should return a reference. In this case, all of the types
+// are `Copy`, so returning a copy isn't a problem.
+#[allow(clippy::wrong_self_convention)]
+// When `SystemStreamItem` is not publicly visible, these methods are considered dead code
+// because they are only used in unit tests and not by the library itself.
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<'top, D: Decoder> SystemStreamItem<'top, D> {
     /// Returns an [`ExpandedStreamItem`] view of this item.
     pub fn as_expanded_stream_item(&self) -> ExpandedStreamItem<'top, D> {
@@ -35,26 +42,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
             EndOfStream(e) => ExpandedStreamItem::EndOfStream(*e),
         }
     }
-}
 
-impl<D: Decoder> Debug for SystemStreamItem<'_, D> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SystemStreamItem::VersionMarker(marker) => {
-                write!(f, "version marker v{}.{}", marker.major(), marker.minor())
-            }
-            SystemStreamItem::SymbolTable(_) => write!(f, "a symbol table"),
-            SystemStreamItem::EncodingDirective(_) => write!(f, "an encoding directive"),
-            SystemStreamItem::Value(value) => write!(f, "{}", value.ion_type()),
-            SystemStreamItem::EndOfStream(_) => write!(f, "<nothing>"),
-        }
-    }
-}
-
-// Clippy complains that `as_` methods should return a reference. In this case, all of the types
-// are `Copy`, so returning a copy isn't a problem.
-#[allow(clippy::wrong_self_convention)]
-impl<'top, D: Decoder> SystemStreamItem<'top, D> {
     /// If this item is an Ion version marker (IVM), returns `Some(version_marker)` indicating the
     /// version. Otherwise, returns `None`.
     pub fn as_version_marker(&self) -> Option<D::VersionMarker<'top>> {
@@ -141,5 +129,19 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
             SystemStreamItem::EndOfStream(end) => return Some(RawStreamItem::EndOfStream(*end)),
         };
         value.raw().map(RawStreamItem::Value)
+    }
+}
+
+impl<D: Decoder> Debug for SystemStreamItem<'_, D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SystemStreamItem::VersionMarker(marker) => {
+                write!(f, "version marker v{}.{}", marker.major(), marker.minor())
+            }
+            SystemStreamItem::SymbolTable(_) => write!(f, "a symbol table"),
+            SystemStreamItem::EncodingDirective(_) => write!(f, "an encoding directive"),
+            SystemStreamItem::Value(value) => write!(f, "{}", value.ion_type()),
+            SystemStreamItem::EndOfStream(_) => write!(f, "<nothing>"),
+        }
     }
 }

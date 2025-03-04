@@ -301,7 +301,8 @@ impl Deref for EncodingContextRef<'_> {
 
 /// A reader that evaluates macro invocations in the data stream and surfaces the resulting
 /// raw values to the caller.
-pub struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
+#[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
+pub(crate) struct ExpandingReader<Encoding: Decoder, Input: IonInput> {
     raw_reader: UnsafeCell<StreamingRawReader<Encoding, Input>>,
     // The expanding raw reader needs to be able to return multiple values from a single expression.
     // For example, if the raw reader encounters this e-expression:
@@ -418,12 +419,6 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         // If the user is able to call this method, the PendingLst is not being modified and it's
         // safe to immutably reference.
         unsafe { &*self.pending_context_changes.get() }
-    }
-
-    pub fn pending_lst_mut(&mut self) -> &mut PendingContextChanges {
-        // SAFETY: If the caller has a `&mut` reference to `self`, it is the only mutable reference
-        //         that can modify `self.pending_lst`.
-        unsafe { &mut *self.pending_context_changes.get() }
     }
 
     #[inline]
@@ -823,7 +818,8 @@ impl<Encoding: Decoder> Debug for ExpandedValueSource<'_, Encoding> {
 /// Unlike `RawStreamItem`, `ExpandedStreamItem` _also_ includes ephemeral values that were produced
 /// by evaluating the e-expressions. Additionally, system values are identified and surfaced as
 /// either `SymbolTable`s or `EncodingDirectives`s.
-pub enum ExpandedStreamItem<'top, D: Decoder> {
+#[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
+pub(crate) enum ExpandedStreamItem<'top, D: Decoder> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(D::VersionMarker<'top>),
@@ -839,6 +835,7 @@ pub enum ExpandedStreamItem<'top, D: Decoder> {
     EndOfStream(EndPosition),
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<'top, D: Decoder> ExpandedStreamItem<'top, D> {
     /// Returns `true` if this item was produced by evaluating a macro. Otherwise, returns `false`.
     pub fn is_ephemeral(&self) -> bool {
@@ -1421,25 +1418,6 @@ impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
                 element,
                 index,
             )),
-        }
-    }
-
-    fn ion_type(&self) -> IonType {
-        use ExpandedValueRef::*;
-        match self {
-            Null(ion_type) => *ion_type,
-            Bool(_) => IonType::Bool,
-            Int(_) => IonType::Int,
-            Float(_) => IonType::Float,
-            Decimal(_) => IonType::Decimal,
-            Timestamp(_) => IonType::Timestamp,
-            String(_) => IonType::String,
-            Symbol(_) => IonType::Symbol,
-            Blob(_) => IonType::Blob,
-            Clob(_) => IonType::Clob,
-            SExp(_) => IonType::SExp,
-            List(_) => IonType::List,
-            Struct(_) => IonType::Struct,
         }
     }
 }

@@ -24,12 +24,6 @@ use crate::result::IonFailure;
 use crate::types::float::{FloatRepr, SmallestFloatRepr};
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
-/// The initial size of the bump-allocated buffer created to hold a container's child elements.
-// This number was chosen somewhat arbitrarily and can be updated as needed.
-// TODO: Writers could track the largest container size they've seen and use that as their initial
-//       size to minimize reallocations.
-const DEFAULT_CONTAINER_BUFFER_SIZE: usize = 512;
-
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     encoding_buffer: &'value mut BumpVec<'top, u8>,
@@ -104,10 +98,6 @@ impl BinaryValueWriter_1_1<'_, '_> {
     #[inline]
     fn push_bytes(&mut self, bytes: &[u8]) {
         self.encoding_buffer.extend_from_slice_copy(bytes)
-    }
-
-    pub(crate) fn buffer(&self) -> &[u8] {
-        self.encoding_buffer.as_slice()
     }
 
     pub fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
@@ -331,8 +321,11 @@ impl BinaryValueWriter_1_1<'_, '_> {
         const NUM_HOUR_BITS: u32 = 5;
         const NUM_MINUTE_BITS: u32 = 6;
         const NUM_SECOND_BITS: u32 = 6;
+
         // The number of bits dedicated to representing the offset (known or unknown/UTC) in a short-form timestamp
+        #[allow(dead_code)]
         const NUM_UNKNOWN_OR_UTC_BITS: u32 = 1;
+        #[allow(dead_code)]
         const NUM_KNOWN_OFFSET_BITS: u32 = 7;
 
         // The bit offsets of each time unit within the encoding
@@ -449,6 +442,9 @@ impl BinaryValueWriter_1_1<'_, '_> {
         const NUM_DAY_BITS: u32 = 5;
         const NUM_HOUR_BITS: u32 = 5;
         const NUM_MINUTE_BITS: u32 = 6;
+        // Not currently used in the implementation, but helpful to have among the other fields
+        // for documentation.
+        #[allow(dead_code)]
         const NUM_SECOND_BITS: u32 = 6;
         // The number of bits dedicated to representing the offset in a long-form timestamp
         const NUM_OFFSET_BITS: u32 = 12;
@@ -676,8 +672,7 @@ impl BinaryValueWriter_1_1<'_, '_> {
         self,
         macro_id: impl Into<MacroIdRef<'a>>,
     ) -> IonResult<<Self as ValueWriter>::EExpWriter> {
-        // Thresholds above which an address must be encoded using each available encoding.
-        const MIN_4_BIT_ADDRESS: usize = 0;
+        // Thresholds within which an address can be encoded using the specified number of bits.
         const MAX_4_BIT_ADDRESS: usize = 63;
 
         const MIN_12_BIT_ADDRESS: usize = 64;
@@ -804,7 +799,7 @@ pub struct BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     value_writer_config: ValueWriterConfig,
 }
 
-impl<'top> BinaryAnnotatedValueWriter_1_1<'_, 'top> {
+impl BinaryAnnotatedValueWriter_1_1<'_, '_> {
     fn encode_annotations(&mut self) {
         match self.annotations.as_slice() {
             [] => {
@@ -827,10 +822,6 @@ impl<'top> BinaryAnnotatedValueWriter_1_1<'_, 'top> {
         }
     }
 
-    fn write_flex_sym_annotation(buffer: &mut BumpVec<'top, u8>, annotation: impl AsRawSymbolRef) {
-        FlexSym::encode_symbol(buffer, annotation);
-    }
-
     #[cold]
     fn write_length_prefixed_flex_sym_annotation_sequence(&mut self) {
         // Create a temporary buffer and encode all of the annotations into it
@@ -844,10 +835,6 @@ impl<'top> BinaryAnnotatedValueWriter_1_1<'_, 'top> {
         FlexUInt::write(self.buffer, annotations_buffer.len()).unwrap();
         self.buffer
             .extend_from_slice_copy(annotations_buffer.as_slice());
-    }
-
-    fn local_buffer(&mut self) -> &mut BumpVec<'top, u8> {
-        &mut *self.buffer
     }
 }
 
@@ -939,10 +926,6 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
         let writer =
             BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.value_writer_config);
         writer
-    }
-
-    pub(crate) fn buffer(&self) -> &[u8] {
-        self.buffer.as_slice()
     }
 }
 

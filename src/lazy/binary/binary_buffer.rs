@@ -261,15 +261,10 @@ impl<'a> BinaryBuffer<'a> {
     /// See: <https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields>
     pub fn read_var_int(self) -> ParseResult<'a, VarInt> {
         const BITS_PER_ENCODED_BYTE: usize = 7;
-        const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<i64>() * 8;
+        const STORAGE_SIZE_IN_BITS: usize = mem::size_of::<i64>() * BITS_PER_BYTE;
         const MAX_ENCODED_SIZE_IN_BYTES: usize = STORAGE_SIZE_IN_BITS / BITS_PER_ENCODED_BYTE;
 
-        const LOWER_6_BITMASK: u8 = 0b0011_1111;
-        const LOWER_7_BITMASK: u8 = 0b0111_1111;
-        const HIGHEST_BIT_VALUE: u8 = 0b1000_0000;
-
         const BITS_PER_BYTE: usize = 8;
-        const BITS_PER_U64: usize = mem::size_of::<u64>() * BITS_PER_BYTE;
 
         // Unlike VarUInt's encoding, the first byte in a VarInt is a special case because
         // bit #6 (0-indexed, from the right) indicates whether the value is positive (0) or

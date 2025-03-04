@@ -2,7 +2,6 @@
 
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
-use std::ops::Neg;
 
 use num_traits::Zero;
 
@@ -103,22 +102,6 @@ impl Coefficient {
     /// Returns true if the Coefficient represents a zero of any sign.
     pub fn is_zero(&self) -> bool {
         self.magnitude().is_zero()
-    }
-
-    /// If the value can fit in an i64, return it as such. This is useful for
-    /// inline representations.
-    pub(crate) fn as_i64(&self) -> Option<i64> {
-        if self.is_negative_zero() {
-            // Returning an unsigned zero would be lossy.
-            return None;
-        }
-        match i64::try_from(self.magnitude.data) {
-            Ok(signed) => match self.sign {
-                Sign::Negative => Some(signed.neg()),
-                Sign::Positive => Some(signed),
-            },
-            Err(_) => None,
-        }
     }
 
     /// If the value can be represented as an `i128`, return it as such.

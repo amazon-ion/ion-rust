@@ -15,10 +15,10 @@ use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
+use crate::symbol_table::SYSTEM_SYMBOLS_1_1;
 use crate::types::SymbolAddress;
 use crate::v1_1::FlexUInt;
 use crate::{
-    constants,
     lazy::{
         binary::{
             encoded_value::{EncodedBinaryValue, EncodedHeader},
@@ -367,13 +367,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     /// Returns `true` if this value has a non-empty annotations sequence; otherwise, returns `false`.
-    fn has_annotations(&'top self) -> bool {
+    pub fn has_annotations(&'top self) -> bool {
         <&'top Self as LazyRawValue<'top, BinaryEncoding_1_1>>::has_annotations(&self)
     }
 
     /// Returns an `BinaryBuffer` that contains the bytes comprising this value's encoded
     /// annotations sequence.
-    fn annotations_sequence(&self) -> BinaryBuffer<'top> {
+    pub fn annotations_sequence(&self) -> BinaryBuffer<'top> {
         let annotations_header_length = self.encoded_value.annotations_header_length as usize;
         let sequence_length = self.encoded_value.annotations_sequence_length as usize;
         let sequence = self.input.slice(annotations_header_length, sequence_length);
@@ -869,9 +869,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 // as `Text`.
                 // Read the next byte after the opcode as a 1-byte FixedUInt address.
                 let symbol_address = self.read_system_symbol_address()?;
-                // SYSTEM_SYMBOLS does not contain $0...
-                let text = constants::v1_1::SYSTEM_SYMBOLS[symbol_address - 1];
-                // ...so all of its indexes are shifted by one.  ^^^^^^^^^^^^^^^^^^
+                let text = SYSTEM_SYMBOLS_1_1
+                    .text_for_address(symbol_address)
+                    .ok_or_else(|| {
+                        IonError::decoding_error(format!(
+                            "found invalid system symbol address {symbol_address}"
+                        ))
+                    })?;
                 Ok(RawSymbolRef::Text(text))
             }
             other => unreachable!("invalid Opcode type found for symbol: {:?}", other),

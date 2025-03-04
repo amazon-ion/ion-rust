@@ -17,15 +17,10 @@ use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
     AnyEncoding, Catalog, Int, IonError, IonResult, IonType, LazyField, LazySExp, LazyStruct,
-    RawSymbolRef, Symbol, SymbolTable, ValueRef,
+    Symbol, SymbolTable, ValueRef,
 };
 use std::ops::Deref;
 use std::sync::Arc;
-
-// Symbol IDs used for processing symbol table structs
-const ION_SYMBOL_TABLE: RawSymbolRef<'_> = RawSymbolRef::SymbolId(3);
-const IMPORTS: RawSymbolRef<'_> = RawSymbolRef::SymbolId(6);
-const SYMBOLS: RawSymbolRef<'_> = RawSymbolRef::SymbolId(7);
 
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -81,14 +76,16 @@ const SYMBOLS: RawSymbolRef<'_> = RawSymbolRef::SymbolId(7);
 ///# #[cfg(not(feature = "experimental-reader-writer"))]
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
-pub struct SystemReader<Encoding: Decoder, Input: IonInput> {
+#[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
+pub(crate) struct SystemReader<Encoding: Decoder, Input: IonInput> {
     pub(crate) expanding_reader: ExpandingReader<Encoding, Input>,
 }
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
 #[derive(Default)]
-pub struct PendingContextChanges {
+#[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
+pub(crate) struct PendingContextChanges {
     pub(crate) switch_to_version: Option<IonVersion>,
     pub(crate) has_changes: bool,
     pub(crate) is_lst_append: bool,
@@ -99,6 +96,7 @@ pub struct PendingContextChanges {
     pub(crate) new_active_module: Option<EncodingModule>,
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl PendingContextChanges {
     pub fn new() -> Self {
         Self {
@@ -129,6 +127,7 @@ impl PendingContextChanges {
     }
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     pub fn new(
         config: impl Into<ReadConfig<Encoding>>,
@@ -317,34 +316,6 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         Ok(())
     }
 
-    fn process_module_definition(
-        _pending_changes: &mut PendingContextChanges,
-        module: LazySExp<'_, Encoding>,
-    ) -> IonResult<()> {
-        let mut args = module.iter();
-        // We've already looked at and validated the `name` to get to this point. We can skip it.
-        let _operation = args.next(); // 'module'
-        let module_name = Self::expect_next_sexp_value("a module name", &mut args)?;
-        let module_name_text = Self::expect_symbol_text("a module name", module_name)?;
-        let symbol_table_value =
-            Self::expect_next_sexp_value("a `symbol_table` operation", &mut args)?;
-        let symbol_table_operation =
-            Self::expect_sexp("a `symbol_table` operation", symbol_table_value)?;
-        let macro_table_value =
-            Self::expect_next_sexp_value("a `macro_table` operation", &mut args)?;
-        let macro_table_operation =
-            Self::expect_sexp("a `macro_table` operation", macro_table_value)?;
-
-        let symbol_table = Self::process_symbol_table_definition(symbol_table_operation)?;
-        let macro_table = Self::process_macro_table_definition(macro_table_operation)?;
-
-        // TODO: Register the new module in `pending_changes`.
-        let _encoding_module =
-            EncodingModule::new(module_name_text.to_owned(), macro_table, symbol_table);
-
-        Ok(())
-    }
-
     fn process_symbol_table_definition(
         operation: LazySExp<'_, Encoding>,
     ) -> IonResult<SymbolTable> {
@@ -447,18 +418,6 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         iter.next().transpose()?.ok_or_else(|| {
             IonError::decoding_error(format!(
                 "expected {label} but found no more values in the s-expression"
-            ))
-        })
-    }
-
-    fn expect_sexp<'a>(
-        label: &str,
-        value: LazyValue<'a, Encoding>,
-    ) -> IonResult<LazySExp<'a, Encoding>> {
-        value.read()?.expect_sexp().map_err(|_| {
-            IonError::decoding_error(format!(
-                "expected an s-expression representing {label} but found a {}",
-                value.ion_type()
             ))
         })
     }
@@ -623,8 +582,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     let version: usize = match import.get("version")? {
                         Some(ValueRef::Int(i)) if i > Int::ZERO => usize::try_from(i)
                             .map_err(|_|
-                            IonError::decoding_error(format!("found a symbol table import (name='{name}') with a version number too high to support: {i}")),
-                        ),
+                                         IonError::decoding_error(format!("found a symbol table import (name='{name}') with a version number too high to support: {i}")),
+                            ),
                         // If there's no version, a non-int version, or a version <= 0, we treat it
                         // as version 1.
                         _ => Ok(1),
@@ -674,6 +633,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     }
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<Input: IonInput> SystemReader<AnyEncoding, Input> {
     pub fn detected_encoding(&self) -> IonEncoding {
         self.expanding_reader.detected_encoding()
@@ -780,10 +740,6 @@ mod tests {
 
     use crate::lazy::encoder::value_writer::AnnotatableWriter;
     use crate::{MapCatalog, SharedSymbolTable};
-
-    fn system_reader_for<I: IonInput>(ion: I) -> SystemReader<AnyEncoding, I> {
-        SystemReader::new(AnyEncoding, ion)
-    }
 
     fn system_reader_with_catalog_for<Input: IonInput>(
         input: Input,

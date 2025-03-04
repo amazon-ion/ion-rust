@@ -2,7 +2,6 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 
 use crate::lazy::decoder::Decoder;
-use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::sequence::{
     ExpandedListIterator, ExpandedSExpIterator, LazyExpandedList, LazyExpandedSExp,
 };
@@ -59,8 +58,6 @@ pub struct LazyList<'top, D: Decoder> {
     pub(crate) expanded_list: LazyExpandedList<'top, D>,
 }
 
-pub type LazyBinarySequence<'top, 'data> = LazyList<'top, BinaryEncoding_1_0>;
-
 impl<'top, D: Decoder> LazyList<'top, D> {
     pub(crate) fn new(expanded_list: LazyExpandedList<'top, D>) -> Self {
         Self { expanded_list }
@@ -75,11 +72,6 @@ impl<'top, D: Decoder> LazyList<'top, D> {
 
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn expanded(&self) -> LazyExpandedList<'top, D> {
-        self.expanded_list
-    }
-
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn expanded(&self) -> LazyExpandedList<'top, D> {
         self.expanded_list
     }
 

@@ -188,6 +188,8 @@ impl_write_as_ion_value_for_iterable!(Vec<T>, T);
 impl_write_as_ion_value_for_iterable!(&[T], T);
 impl_write_as_ion_value_for_iterable!([T; N], T, const N: usize);
 
+// This code is not used within the library but is intentionally available to tests and applications.
+#[allow(dead_code)]
 pub trait WriteAsSExp<T>: Sized
 where
     T: WriteAsIon,
@@ -432,6 +434,8 @@ impl<D: Decoder> WriteAsIon for WriteableEExpArg<'_, D> {
 }
 
 /// Wrapper type for `WriteableEExpArgGroup`s that implements `WriteAsIon`.
+// This is not yet implemented.
+#[allow(dead_code)]
 pub struct WriteableEExpArgGroup<'a, D: Decoder> {
     arg_group: <<D as Decoder>::EExp<'a> as RawEExpression<'a, D>>::ArgGroup,
     spooky: PhantomData<&'a D>,

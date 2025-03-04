@@ -118,6 +118,8 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     /// cannot change formats (for example: from binary to text or vice-versa). Therefore, the value
     /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
     /// that follows the IVM.
+    // This is currently unused, but provided for symmetry with `is_binary`.
+    #[allow(dead_code)]
     fn is_text(&self) -> bool {
         self.stream_encoding_before_marker().is_text()
     }
@@ -426,10 +428,6 @@ pub(crate) mod private {
                 raw_fields,
             }
         }
-
-        pub fn context(&self) -> EncodingContextRef<'top> {
-            self.context
-        }
     }
 
     impl<'top, D: Decoder> Iterator for RawStructFieldExprIterator<'top, D> {
@@ -461,6 +459,9 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// Constructs a new raw reader using decoder `D` that will read from `data`.
     /// `data` must be the beginning of the stream. To continue reading from the middle of a
     /// stream, see [`resume_at_offset`](Self::resume).
+    // This is widely used in unit tests, which is the primary codebase where one might wish to
+    // initialize a LazyRawReader implementation.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self;
 
     /// Constructs a new raw reader using decoder `D` that will read from `data`.
@@ -498,6 +499,7 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
 ///       would be to take a `&mut SystemReader<_>` that can maintain the encoding context while
 ///       also only paying attention to stream literals.
 pub trait TranscribeRaw<E: Encoding> {
+    #[allow(dead_code)]
     fn transcribe<'a, R: LazyRawReader<'a, E>>(&mut self, reader: &mut R) -> IonResult<()>
     where
         Self: 'a;
@@ -614,6 +616,7 @@ pub trait RawSequenceIterator<'top, D: Decoder>:
     Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
 {
     /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    #[allow(dead_code)]
     fn peek_next(&self) -> Option<IonResult<LazyRawValueExpr<'top, D>>> {
         // Because RawSequenceIterator impls are `Copy`, we can make a cheap copy of `self` and advance
         // *it* without affecting `self`.
@@ -642,6 +645,7 @@ pub trait RawStructIterator<'top, D: Decoder>:
     Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawFieldExpr<'top, D>>>
 {
     /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    #[allow(dead_code)]
     fn peek_next(&self) -> Option<IonResult<LazyRawFieldExpr<'top, D>>> {
         // Because RawStructIterator impls are `Copy`, we can make a cheap copy of `self` and advance
         // *it* without affecting `self`.

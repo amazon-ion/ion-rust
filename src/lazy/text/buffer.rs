@@ -92,8 +92,6 @@ impl Debug for TextBuffer<'_> {
 /// '\x0C', Form feed
 pub(crate) const WHITESPACE_BYTES: &[u8] = b" \t\r\n\x09\x0B\x0C";
 
-pub(crate) const NEWLINE_BYTES: &[u8] = b"\r\n";
-
 /// A slice of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a text Ion stream.
 ///
@@ -277,7 +275,7 @@ impl<'top> TextBuffer<'top> {
         let result = take_while(1.., WHITESPACE_BYTES).parse_next(self)?;
         #[cfg(feature = "source-location")]
         self.update_location_metadata(result.bytes());
-       Ok(result)
+        Ok(result)
     }
 
     #[cfg(feature = "source-location")]
@@ -291,17 +289,20 @@ impl<'top> TextBuffer<'top> {
             // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
             // Adding 1 to the index because we want to include everything after the newline -
             // if newline is at index 5, we want to start counting from index 6 (5 + 1).
-            let (_, rows, prev_newline_offset) = data.iter().enumerate().fold((false, 0, 0), |(follows_cr, rows, offset), (i, b) | {
-                match (b, follows_cr) {
-                    // When there's a '\r', add a row and update the offset as this newline offset value
-                    (b'\r', _) => (true, rows + 1, i + 1),
-                    // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
-                    (b'\n', false) => (false, rows + 1, i + 1),
-                    // When there's '\n' immediately following '\r', update the offset without adding a row
-                    (b'\n', true) => (false, rows, i + 1),
-                    _ => (false, rows, offset),
-                }
-            });
+            let (_, rows, prev_newline_offset) = data.iter().enumerate().fold(
+                (false, 0, 0),
+                |(follows_cr, rows, offset), (i, b)| {
+                    match (b, follows_cr) {
+                        // When there's a '\r', add a row and update the offset as this newline offset value
+                        (b'\r', _) => (true, rows + 1, i + 1),
+                        // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
+                        (b'\n', false) => (false, rows + 1, i + 1),
+                        // When there's '\n' immediately following '\r', update the offset without adding a row
+                        (b'\n', true) => (false, rows, i + 1),
+                        _ => (false, rows, offset),
+                    }
+                },
+            );
             // Set the previous newline offset by subtracting non newline match length from current offset,
             // where non newline match length is the non newline bytes found after last newline byte.
             if rows > 0 {
@@ -796,16 +797,20 @@ impl<'top> TextBuffer<'top> {
             // If we reach this point, the rest syntax check in the argument parsing logic above
             // has already verified that using rest syntax was legal. We can add empty argument
             // groups for each missing expression.
-            const EMPTY_ARG_TEXT: &str = "(: /* no expression specified */ )";
+
+            // Find the end of the last explicit argument. If there were no explicit arguments,
+            // then the 'end' is the TextBuffer's stream offset. (i.e. self.offset())
             let last_explicit_arg_end = arg_expr_cache
                 .last()
                 .map(|arg| arg.expr().range().end)
                 .unwrap_or(self.offset());
 
-            // Get an empty slice at the end position. This will be the backing slice for all
-            // implicitly empty arguments.
+            // Get an empty slice at the end position that we just calculated.
+            // This will be the backing slice for all implicitly empty arguments.
             let empty_end_slice =
                 original_input.slice(last_explicit_arg_end - original_input.offset(), 0);
+
+            // Add an empty argument group for each remaining argument to the expr cache.
             for parameter in &parameters[arg_expr_cache.len()..] {
                 arg_expr_cache.push(EExpArg::new(
                     parameter,
@@ -2244,7 +2249,10 @@ mod tests {
             self
         }
 
-        fn try_match<'data, P, Output>(&'data self, parser: P) -> IonParseResult<'data, (TextBuffer<'data>, usize)>
+        fn try_match<'data, P, Output>(
+            &'data self,
+            parser: P,
+        ) -> IonParseResult<'data, (TextBuffer<'data>, usize)>
         where
             P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
         {
@@ -2272,8 +2280,11 @@ mod tests {
         }
 
         #[cfg(feature = "source-location")]
-        fn expect_match_location<'data, P, O>(&'data self, parser: P, expected_location: (usize, usize))
-        where
+        fn expect_match_location<'data, P, O>(
+            &'data self,
+            parser: P,
+            expected_location: (usize, usize),
+        ) where
             P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
         {
             let result = self.try_match(parser).unwrap_or_else(|e| {
@@ -2955,7 +2966,10 @@ mod tests {
     #[case::mix_tabs_and_newlines("\n\t\n", (3,1))]
     #[cfg(feature = "source-location")]
     fn expect_whitespace(#[case] input: &str, #[case] expected_location: (usize, usize)) {
-        MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_whitespace0), expected_location);
+        MatchTest::new_1_0(input).expect_match_location(
+            match_length(TextBuffer::match_whitespace0),
+            expected_location,
+        );
     }
 
     #[rstest]
@@ -2970,8 +2984,14 @@ mod tests {
     #[case::newline_inside_comment("/*multiline \n comment*/", (2,11))]
     #[case::newlines_inside_comment("/*this is a \n multiline \n comment*/", (3,11))]
     #[cfg(feature = "source-location")]
-    fn expect_whitespace_with_comment(#[case] input: &str, #[case] expected_location: (usize, usize)) {
-        MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_optional_comments_and_whitespace), expected_location);
+    fn expect_whitespace_with_comment(
+        #[case] input: &str,
+        #[case] expected_location: (usize, usize),
+    ) {
+        MatchTest::new_1_0(input).expect_match_location(
+            match_length(TextBuffer::match_optional_comments_and_whitespace),
+            expected_location,
+        );
     }
 
     #[rstest]
@@ -2986,7 +3006,8 @@ mod tests {
     #[case::single_segment_with_whitespace("'''long \n\r\n\t hello'''", (3, 11))]
     #[cfg(feature = "source-location")]
     fn expect_newline_long_text(#[case] input: &str, #[case] expected_location: (usize, usize)) {
-        MatchTest::new_1_0(input).expect_match_location(match_length(TextBuffer::match_string), expected_location);
+        MatchTest::new_1_0(input)
+            .expect_match_location(match_length(TextBuffer::match_string), expected_location);
     }
 
     #[test]

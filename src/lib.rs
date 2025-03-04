@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::bare_urls)]
@@ -416,6 +415,8 @@ pub(crate) mod v1_1 {
     #[cfg(not(feature = "experimental-reader-writer"))]
     v1_1_reader_writer!(pub(crate));
 }
+
+pub use lazy::reader::IonResultIterExt;
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
