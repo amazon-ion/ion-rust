@@ -17,7 +17,7 @@ use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, EncodingContext, IonError, IonInput, IonResult, IonType, Macro, MacroKind,
+    AnyEncoding, EncodingContext, IonError, IonInput, IonResult, IonType, MacroDef, MacroKind,
     MacroTable, Reader, Symbol, SymbolRef,
 };
 use phf::phf_set;
@@ -399,7 +399,7 @@ impl TemplateCompiler {
     }
 
     /// Confirms that the selected macro is legal to use as a parameter encoding.
-    pub fn validate_macro_shape_for_encoding(macro_ref: &Macro) -> IonResult<()> {
+    pub fn validate_macro_shape_for_encoding(macro_ref: &MacroDef) -> IonResult<()> {
         if macro_ref.signature().len() == 0 {
             // This macro had to have a name to reach the validation step, so we can safely `unwrap()` it.
             return IonResult::decoding_error(format!(
@@ -414,7 +414,7 @@ impl TemplateCompiler {
         context: EncodingContextRef<'_>,
         pending_macros: &'a MacroTable,
         macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> Option<Arc<Macro>> {
+    ) -> Option<Arc<MacroDef>> {
         let macro_id = macro_id.into();
         // Since this ID is unqualified, it must be in either...
         // ...the local namespace, having just been defined...
@@ -428,7 +428,7 @@ impl TemplateCompiler {
         context: EncodingContextRef<'_>,
         module_name: &'a str,
         macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> Option<Arc<Macro>> {
+    ) -> Option<Arc<MacroDef>> {
         let macro_id = macro_id.into();
         match module_name {
             // If the module is `$ion`, this refers to the system module.
@@ -847,7 +847,7 @@ impl TemplateCompiler {
     fn compile_macro<'top, D: Decoder>(
         tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
-        macro_ref: Arc<Macro>,
+        macro_ref: Arc<MacroDef>,
         mut arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<()> {
         // If this macro doesn't accept any parameters but arg expressions have been passed,
@@ -992,7 +992,7 @@ impl TemplateCompiler {
     fn insert_placeholder_none_invocations<D: Decoder>(
         tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
-        macro_ref: &Macro,
+        macro_ref: &MacroDef,
         index: usize,
     ) -> Result<(), IonError> {
         // There are fewer args than parameters. That's ok as long as all of the remaining
@@ -1074,7 +1074,7 @@ impl TemplateCompiler {
     fn resolve_macro_id_expr<D: Decoder>(
         tdl_context: TdlContext<'_>,
         id_expr: LazyValue<'_, D>,
-    ) -> IonResult<Option<Arc<Macro>>> {
+    ) -> IonResult<Option<Arc<MacroDef>>> {
         let macro_id = match id_expr.read()? {
             ValueRef::Symbol(s) => {
                 if let Some(name) = s.text() {
@@ -1292,7 +1292,7 @@ enum TdlSExpKind<'a, D: Decoder> {
     ///     (macro_id /*...*/)
     /// * Associated `Rc<Macro>` is a reference to the macro definition to which the `macro_id` referred.
     /// * Associated iterator returns the s-expression's remaining child expressions.
-    MacroInvocation(Arc<Macro>, SExpIterator<'a, D>),
+    MacroInvocation(Arc<MacroDef>, SExpIterator<'a, D>),
     /// An expression group being passed as an argument to a macro invocation.
     ///     (.. /*...*/)
     /// * Associated `Parameter` is the parameter to which this arg expression group is being passed.
@@ -1394,7 +1394,7 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
             ));
         }
 
-        let special_form_macro: &Arc<Macro> = match operation_name {
+        let special_form_macro: &Arc<MacroDef> = match operation_name {
             // The 'literal' operation exists only at compile time...
             "literal" => return Ok(TdlSExpKind::Literal(expressions)),
             // ...while the cardinality tests are implemented as different flavors of
@@ -1413,21 +1413,21 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
     }
 }
 
-pub static IF_NONE_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_NONE_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_none", MacroKind::IfNone));
 
-pub static IF_SOME_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_SOME_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_some", MacroKind::IfSome));
 
-pub static IF_SINGLE_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_SINGLE_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_single", MacroKind::IfSingle));
 
-pub static IF_MULTI_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_MULTI_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_multi", MacroKind::IfMulti));
 
-fn initialize_cardinality_test_macro(name: &str, kind: MacroKind) -> Arc<Macro> {
+fn initialize_cardinality_test_macro(name: &str, kind: MacroKind) -> Arc<MacroDef> {
     let context = EncodingContext::empty();
-    let definition = Macro::new(
+    let definition = MacroDef::new(
         Some(name.into()),
         TemplateCompiler::compile_signature(
             context.get_ref(),
@@ -1460,7 +1460,7 @@ mod tests {
         ExprRange, ParameterEncoding, TemplateBodyExpr, TemplateMacro, TemplateValue,
     };
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
-    use crate::{Int, IntoAnnotations, IonResult, IonVersion, Macro, Symbol};
+    use crate::{Int, IntoAnnotations, IonResult, IonVersion, MacroDef, Symbol};
     use rustc_hash::FxHashMap;
     use std::sync::Arc;
 
@@ -1490,7 +1490,7 @@ mod tests {
     fn expect_macro(
         definition: &TemplateMacro,
         index: usize,
-        expected_macro: Arc<Macro>,
+        expected_macro: Arc<MacroDef>,
         expected_num_args: usize,
     ) -> IonResult<()> {
         expect_step(

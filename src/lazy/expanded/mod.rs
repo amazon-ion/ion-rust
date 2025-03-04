@@ -48,7 +48,7 @@ use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
-use crate::lazy::expanded::macro_table::{Macro, MacroTable, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::macro_table::{MacroDef, MacroTable, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
@@ -278,13 +278,13 @@ impl<'top> EncodingContextRef<'top> {
         &self.context.macro_table
     }
 
-    pub(crate) fn none_macro(&self) -> Arc<Macro> {
+    pub(crate) fn none_macro(&self) -> Arc<MacroDef> {
         ION_1_1_SYSTEM_MACROS
             .clone_macro_with_name("none")
             .expect("`none` macro in system macro table")
     }
 
-    pub(crate) fn values_macro(&self) -> Arc<Macro> {
+    pub(crate) fn values_macro(&self) -> Arc<MacroDef> {
         ION_1_1_SYSTEM_MACROS
             .clone_macro_with_name("values")
             .expect("`values` macro in system macro table")
@@ -880,12 +880,12 @@ impl<'top, V: RawValueLiteral, Encoding: Decoder<Value<'top> = V>> From<V>
 /// A variable found in the body of a template macro.
 #[derive(Debug, Copy, Clone)]
 pub struct TemplateVariableReference<'top> {
-    macro_ref: &'top Macro,
+    macro_ref: &'top MacroDef,
     signature_index: u16,
 }
 
 impl<'top> TemplateVariableReference<'top> {
-    pub fn new(macro_ref: &'top Macro, signature_index: u16) -> Self {
+    pub fn new(macro_ref: &'top MacroDef, signature_index: u16) -> Self {
         Self {
             macro_ref,
             signature_index,
@@ -896,7 +896,7 @@ impl<'top> TemplateVariableReference<'top> {
         self.macro_ref.signature().parameters()[self.signature_index()].name()
     }
 
-    pub fn host_macro(&self) -> &'top Macro {
+    pub fn host_macro(&self) -> &'top MacroDef {
         self.macro_ref
     }
 

@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Macro {
+pub struct MacroDef {
     name: Option<CompactString>,
     signature: MacroSignature,
     kind: MacroKind,
@@ -35,7 +35,7 @@ pub struct Macro {
     expansion_analysis: ExpansionAnalysis,
 }
 
-impl Macro {
+impl MacroDef {
     pub fn named(
         name: impl Into<CompactString>,
         signature: MacroSignature,
@@ -54,7 +54,7 @@ impl Macro {
     }
 
     pub fn from_template_macro(template_macro: TemplateMacro) -> Self {
-        Macro::new(
+        MacroDef::new(
             template_macro.name,
             template_macro.signature,
             MacroKind::Template(template_macro.body),
@@ -130,11 +130,11 @@ pub enum MacroKind {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MacroRef<'top> {
     id: MacroIdRef<'top>,
-    reference: &'top Macro,
+    reference: &'top MacroDef,
 }
 
 impl<'top> MacroRef<'top> {
-    pub fn new(macro_id: MacroIdRef<'top>, reference: &'top Macro) -> Self {
+    pub fn new(macro_id: MacroIdRef<'top>, reference: &'top MacroDef) -> Self {
         Self {
             id: macro_id,
             reference,
@@ -155,7 +155,7 @@ impl<'top> MacroRef<'top> {
         self.id
     }
 
-    pub fn reference(&self) -> &'top Macro {
+    pub fn reference(&self) -> &'top MacroDef {
         self.reference
     }
 
@@ -176,7 +176,7 @@ impl<'top> MacroRef<'top> {
 #[derive(Debug, Clone)]
 pub struct MacroTable {
     // Stores `Rc` references to the macro definitions to make cloning the table's contents cheaper.
-    macros_by_address: Vec<Arc<Macro>>,
+    macros_by_address: Vec<Arc<MacroDef>>,
     // Maps names to an address that can be used to query the Vec above.
     macros_by_name: FxHashMap<CompactString, usize>,
 }
@@ -201,7 +201,7 @@ impl MacroTable {
     // is expected to change as development continues. It is currently used in several unit tests.
     pub const FIRST_USER_MACRO_ID: usize = Self::NUM_SYSTEM_MACROS;
 
-    fn compile_system_macros() -> Vec<Arc<Macro>> {
+    fn compile_system_macros() -> Vec<Arc<MacroDef>> {
         // This is wrapped in a `RefCell` in order to allow two different closures to hold
         // runtime-checked mutating references to the context. This overhead is minimal and is only
         // paid during the initialization of the singleton system macro table.
@@ -210,7 +210,7 @@ impl MacroTable {
         // Creates a `Macro` from a TDL expression
         let template = |source: &str| {
             // Compile the given TDL source expression using the current context.
-            let macro_ref = Arc::new(Macro::from_template_macro(
+            let macro_ref = Arc::new(MacroDef::from_template_macro(
                 TemplateCompiler::compile_from_source(bootstrap_context.borrow().get_ref(), source)
                     .unwrap(),
             ));
@@ -229,7 +229,7 @@ impl MacroTable {
                        kind: MacroKind,
                        expansion_analysis: ExpansionAnalysis| {
             // Construct a macro from the provided parameters using the current context.
-            let macro_ref = Arc::new(Macro::named(
+            let macro_ref = Arc::new(MacroDef::named(
                 name,
                 TemplateCompiler::compile_signature(
                     bootstrap_context.borrow().get_ref(),
@@ -483,18 +483,18 @@ impl MacroTable {
         Some(MacroRef { id, reference })
     }
 
-    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Arc<Macro>> {
+    pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Arc<MacroDef>> {
         let address = *self.macros_by_name.get(name)?;
         let reference = self.macros_by_address.get(address)?;
         Some(Arc::clone(reference))
     }
 
-    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Arc<Macro>> {
+    pub(crate) fn clone_macro_with_address(&self, address: usize) -> Option<Arc<MacroDef>> {
         let reference = self.macros_by_address.get(address)?;
         Some(Arc::clone(reference))
     }
 
-    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef<'_>) -> Option<Arc<Macro>> {
+    pub(crate) fn clone_macro_with_id(&self, macro_id: MacroIdRef<'_>) -> Option<Arc<MacroDef>> {
         use MacroIdRef::*;
         match macro_id {
             LocalName(name) => self.clone_macro_with_name(name),
@@ -515,7 +515,7 @@ impl MacroTable {
             self.macros_by_name.insert(name.clone(), id);
         }
 
-        let new_macro = Macro::new(
+        let new_macro = MacroDef::new(
             template.name,
             template.signature,
             MacroKind::Template(template.body),
@@ -526,7 +526,7 @@ impl MacroTable {
         Ok(id)
     }
 
-    pub(crate) fn append_macro(&mut self, macro_ref: &Arc<Macro>) -> IonResult<()> {
+    pub(crate) fn append_macro(&mut self, macro_ref: &Arc<MacroDef>) -> IonResult<()> {
         let next_id = self.len();
         if let Some(name) = macro_ref.clone_name() {
             if self.macros_by_name.contains_key(name.as_str()) {
