@@ -218,6 +218,12 @@ mod symbol_tests {
     const TEST_STATIC_TEXT_IS_CONST: Symbol = Symbol::static_text("foo");
 
     #[test]
+    fn test_static_text_is_const() {
+        // Uses the above `const` to prevent it from being considered dead code.
+        assert_eq!(TEST_STATIC_TEXT_IS_CONST, "foo")
+    }
+
+    #[test]
     fn ordering_and_eq() {
         let mut symbols = vec![
             Symbol::owned("foo"),
