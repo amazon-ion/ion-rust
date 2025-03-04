@@ -117,6 +117,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
     // TODO: The lower-level readers support a 'peek' operation; it isn't currently exposed at higher
     //      levels because that would require storing ephemeral values that are peeked.
     //      We should either remove this feature or finish it.
+    //      See: https://github.com/amazon-ion/ion-rust/issues/925
     pub fn peek_next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,

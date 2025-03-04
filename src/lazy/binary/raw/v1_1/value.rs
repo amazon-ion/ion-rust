@@ -869,7 +869,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 // as `Text`.
                 // Read the next byte after the opcode as a 1-byte FixedUInt address.
                 let symbol_address = self.read_system_symbol_address()?;
-                // SYSTEM_SYMBOLS does not contain $0...
                 let text = SYSTEM_SYMBOLS_1_1
                     .text_for_address(symbol_address)
                     .ok_or_else(|| {
@@ -877,7 +876,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                             "found invalid system symbol address {symbol_address}"
                         ))
                     })?;
-                // ...so all of its indexes are shifted by one.  ^^^^^^^^^^^^^^^^^^
                 Ok(RawSymbolRef::Text(text))
             }
             other => unreachable!("invalid Opcode type found for symbol: {:?}", other),
