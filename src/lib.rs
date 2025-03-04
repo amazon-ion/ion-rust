@@ -416,6 +416,8 @@ pub(crate) mod v1_1 {
     v1_1_reader_writer!(pub(crate));
 }
 
+pub use lazy::reader::IonResultIterExt;
+
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 #[non_exhaustive]

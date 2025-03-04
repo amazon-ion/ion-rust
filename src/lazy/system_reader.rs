@@ -76,14 +76,16 @@ use std::sync::Arc;
 ///# #[cfg(not(feature = "experimental-reader-writer"))]
 ///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
-pub struct SystemReader<Encoding: Decoder, Input: IonInput> {
+#[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
+pub(crate) struct SystemReader<Encoding: Decoder, Input: IonInput> {
     pub(crate) expanding_reader: ExpandingReader<Encoding, Input>,
 }
 
 // If the reader encounters a symbol table in the stream, it will store all of the symbols that
 // the table defines in this structure so that they may be applied when the reader next advances.
 #[derive(Default)]
-pub struct PendingContextChanges {
+#[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
+pub(crate) struct PendingContextChanges {
     pub(crate) switch_to_version: Option<IonVersion>,
     pub(crate) has_changes: bool,
     pub(crate) is_lst_append: bool,
@@ -94,6 +96,7 @@ pub struct PendingContextChanges {
     pub(crate) new_active_module: Option<EncodingModule>,
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl PendingContextChanges {
     pub fn new() -> Self {
         Self {
@@ -124,6 +127,7 @@ impl PendingContextChanges {
     }
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     pub fn new(
         config: impl Into<ReadConfig<Encoding>>,
@@ -578,8 +582,8 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                     let version: usize = match import.get("version")? {
                         Some(ValueRef::Int(i)) if i > Int::ZERO => usize::try_from(i)
                             .map_err(|_|
-                            IonError::decoding_error(format!("found a symbol table import (name='{name}') with a version number too high to support: {i}")),
-                        ),
+                                         IonError::decoding_error(format!("found a symbol table import (name='{name}') with a version number too high to support: {i}")),
+                            ),
                         // If there's no version, a non-int version, or a version <= 0, we treat it
                         // as version 1.
                         _ => Ok(1),
@@ -629,6 +633,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
     }
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<Input: IonInput> SystemReader<AnyEncoding, Input> {
     pub fn detected_encoding(&self) -> IonEncoding {
         self.expanding_reader.detected_encoding()

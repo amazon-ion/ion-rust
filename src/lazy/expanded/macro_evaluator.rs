@@ -1529,10 +1529,6 @@ impl<'top> TemplateExpansion<'top> {
         }
     }
 
-    pub fn definition(&self) -> TemplateMacroRef<'top> {
-        self.template
-    }
-
     pub(crate) fn next<'data: 'top, D: Decoder>(
         &mut self,
         context: EncodingContextRef<'top>,

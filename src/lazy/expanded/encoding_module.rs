@@ -8,6 +8,8 @@ pub struct EncodingModule {
     symbol_table: SymbolTable,
 }
 
+// Many of these methods will be used when multi-module support is added.
+#[allow(dead_code)]
 impl EncodingModule {
     pub fn new(name: String, macro_table: MacroTable, symbol_table: SymbolTable) -> Self {
         Self {

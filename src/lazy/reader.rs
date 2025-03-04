@@ -122,6 +122,11 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
 use crate::lazy::expanded::lazy_element::LazyElement;
 use crate::lazy::{expanded::template::TemplateMacro, text::raw::v1_1::reader::MacroAddress};
 
+// TODO: The Reader is now able to understand encoding directives, so it would be good to
+//       conditionally compile these using `#[cfg(test)]`. However, these methods are still used by
+//       some of the benchmarks, which are not `cfg`-detectable. The benchmarks to be updated to
+//       include encoding directives in each data stream.
+#[allow(dead_code)]
 impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     // TODO: Remove this when the reader can understand 1.1 encoding directives.
     pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
@@ -171,7 +176,6 @@ impl<Encoding: Decoder, Input: IonInput> Iterator for LazyElementIterator<'_, En
 /// but automatically handle situations where the input `IonResult` is an `Err`
 /// sparing the user from writing more boilerplate.
 // This code is not used within the library but is intentionally available to tests and applications.
-#[allow(dead_code)]
 pub trait IonResultIterExt<Item>: Iterator<Item = IonResult<Item>> {
     /// Filters a stream of `IonResult` values.
     ///
@@ -281,10 +285,9 @@ mod tests {
     use crate::element::Element;
     use crate::lazy::encoder::writer::Writer;
     use crate::lazy::encoding::BinaryEncoding_1_0;
-    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
-    use crate::{ion_list, ion_sexp, ion_struct, v1_0, v1_1, Int, IonResult, IonType, MacroTable};
+    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Int, IonResult, IonType};
 
     use super::*;
 
@@ -379,6 +382,12 @@ mod tests {
         assert_eq!(reader.read_next_element()?, None);
         Ok(())
     }
+}
+
+#[cfg(all(test, feature="experimental-ion-1-1"))]
+mod tests_1_1 {
+    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
+    use crate::{v1_1, IonResult, MacroTable, Reader};
 
     fn expand_macro_test(
         macro_source: &str,
@@ -405,7 +414,6 @@ mod tests {
         test_fn(reader)
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn expand_binary_template_macro() -> IonResult<()> {
         let macro_source = "(macro seventeen () 17)";
@@ -416,7 +424,6 @@ mod tests {
         })
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn expand_binary_template_macro_with_one_arg() -> IonResult<()> {
         let macro_source = r#"
@@ -443,7 +450,6 @@ mod tests {
         })
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn expand_binary_template_macro_with_multiple_outputs() -> IonResult<()> {
         let macro_source = r#"

@@ -118,6 +118,8 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     /// cannot change formats (for example: from binary to text or vice-versa). Therefore, the value
     /// returned by this method will be true for the stream prior to the IVM _and_ for the stream
     /// that follows the IVM.
+    // This is currently unused, but provided for symmetry with `is_binary`.
+    #[allow(dead_code)]
     fn is_text(&self) -> bool {
         self.stream_encoding_before_marker().is_text()
     }
@@ -457,6 +459,9 @@ pub trait LazyRawReader<'data, D: Decoder>: Sized {
     /// Constructs a new raw reader using decoder `D` that will read from `data`.
     /// `data` must be the beginning of the stream. To continue reading from the middle of a
     /// stream, see [`resume_at_offset`](Self::resume).
+    // This is widely used in unit tests, which is the primary codebase where one might wish to
+    // initialize a LazyRawReader implementation.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self;
 
     /// Constructs a new raw reader using decoder `D` that will read from `data`.

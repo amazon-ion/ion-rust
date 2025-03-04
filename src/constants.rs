@@ -118,6 +118,7 @@ pub(crate) mod v1_1 {
         "use",                      // $63
     ];
 
+    #[allow(dead_code)]
     pub mod system_symbols {
         use crate::raw_symbol_ref::SystemSymbol_1_1;
 

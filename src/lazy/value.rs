@@ -64,14 +64,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         LazyValue { expanded_value }
     }
 
-    #[cfg(feature = "experimental-tooling-apis")]
     pub fn symbol_table(&self) -> &SymbolTable {
-        self.expanded_value.context.symbol_table()
-    }
-
-    // When the `experimental-tooling-apis` feature is disabled, this method is `pub(crate)`
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn symbol_table(&self) -> &SymbolTable {
         self.expanded_value.context.symbol_table()
     }
 
@@ -119,32 +112,14 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     /// Returns the `LazyExpandedValue` backing this `LazyValue`. The expanded value can be used to
     /// determine whether this value was part of the data stream, part of a template, or constructed
     /// by a macro invocation.
-    #[cfg(feature = "experimental-tooling-apis")]
     pub fn expanded(&self) -> LazyExpandedValue<'top, D> {
-        self.expanded_value
-    }
-
-    // When the tooling feature is not enabled, this method is not `pub`.
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn expanded(&self) -> LazyExpandedValue<'top, D> {
         self.expanded_value
     }
 
     /// If this value came from a raw value literal encoded in the data stream (that is: it was not
     /// an ephemeral value resulting from macro expansion), returns that encoding's representation
     /// of the raw value. Otherwise, returns `None`.
-    #[cfg(feature = "experimental-tooling-apis")]
     pub fn raw(&self) -> Option<D::Value<'top>> {
-        if let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source() {
-            Some(raw_value)
-        } else {
-            None
-        }
-    }
-
-    // When the tooling feature is not enabled, this method is not `pub`.
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn raw(&self) -> Option<D::Value<'top>> {
         if let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source() {
             Some(raw_value)
         } else {
@@ -265,7 +240,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         self.expanded_value.context()
     }
 
-    pub fn to_owned(&self) -> LazyElement<D> {
+    pub fn to_owned(self) -> LazyElement<D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
         let context = self.context().context.clone();

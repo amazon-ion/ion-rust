@@ -75,11 +75,6 @@ impl<'top, D: Decoder> LazyList<'top, D> {
         self.expanded_list
     }
 
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn expanded(&self) -> LazyExpandedList<'top, D> {
-        self.expanded_list
-    }
-
     pub fn as_value(&self) -> LazyValue<'top, D> {
         let expanded_value = match self.expanded_list.source {
             ExpandedListSource::ValueLiteral(v) => {

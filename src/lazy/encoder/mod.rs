@@ -72,6 +72,7 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
 
     fn write_version_marker(&mut self) -> IonResult<()>;
 
+    #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
     fn encoding(&self) -> IonEncoding;
 }
 
