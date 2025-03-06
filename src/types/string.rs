@@ -1,4 +1,4 @@
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use crate::text::text_formatter::FmtValueFormatter;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -127,7 +127,7 @@ impl IonEq for Str {
     }
 }
 
-impl IonOrd for Str {
+impl IonDataOrd for Str {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
     }

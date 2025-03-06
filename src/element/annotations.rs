@@ -1,5 +1,5 @@
 use crate::element::iterators::{AnnotationsIntoIter, SymbolsIterator};
-use crate::ion_data::{IonDataHash, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd};
 use crate::Symbol;
 use std::cmp::Ordering;
 use std::hash::Hasher;
@@ -142,7 +142,7 @@ impl IntoIterator for Annotations {
     }
 }
 
-impl IonOrd for Annotations {
+impl IonDataOrd for Annotations {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.symbols.ion_cmp(&other.symbols)
     }

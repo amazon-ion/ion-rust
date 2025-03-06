@@ -1,5 +1,5 @@
 use crate::decimal::coefficient::Sign;
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use crate::result::{IonError, IonFailure, IonResult};
 use crate::types::{CountDecimalDigits, Decimal};
 use chrono::{
@@ -727,7 +727,7 @@ impl IonEq for Timestamp {
     }
 }
 
-impl IonOrd for Timestamp {
+impl IonDataOrd for Timestamp {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         // Compare by point in time
         let ord = self.cmp(other);

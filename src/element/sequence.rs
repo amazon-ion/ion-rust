@@ -1,7 +1,7 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
 use crate::element::Element;
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
 use crate::IonResult;
@@ -189,7 +189,7 @@ impl IonEq for Sequence {
     }
 }
 
-impl IonOrd for Sequence {
+impl IonDataOrd for Sequence {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.elements.ion_cmp(&other.elements)
     }

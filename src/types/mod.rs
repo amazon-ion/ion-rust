@@ -31,7 +31,7 @@ pub use string::Str;
 pub use symbol::Symbol;
 pub use timestamp::{HasMinute, Mantissa, Timestamp, TimestampBuilder, TimestampPrecision};
 
-use crate::ion_data::{IonDataHash, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd};
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -87,7 +87,7 @@ impl IonType {
     }
 }
 
-impl IonOrd for IonType {
+impl IonDataOrd for IonType {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
     }

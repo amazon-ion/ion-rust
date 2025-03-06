@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 
 use crate::decimal::coefficient::{Coefficient, Sign};
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use crate::result::{IonError, IonFailure};
 use crate::{Int, IonResult, UInt};
 use num_traits::Zero;
@@ -215,7 +215,7 @@ impl IonEq for Decimal {
     }
 }
 
-impl IonOrd for Decimal {
+impl IonDataOrd for Decimal {
     // Numerical order (least to greatest) and then by number of significant figures (least to greatest)
     fn ion_cmp(&self, other: &Self) -> Ordering {
         let sign_cmp = self.coefficient.sign().cmp(&other.coefficient.sign());

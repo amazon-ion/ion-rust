@@ -1,4 +1,4 @@
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
@@ -36,7 +36,7 @@ impl IonEq for Bytes {
     }
 }
 
-impl IonOrd for Bytes {
+impl IonDataOrd for Bytes {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
     }

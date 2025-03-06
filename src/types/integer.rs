@@ -1,4 +1,4 @@
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use crate::result::IonFailure;
 use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
@@ -299,7 +299,7 @@ impl IonEq for Int {
     }
 }
 
-impl IonOrd for Int {
+impl IonDataOrd for Int {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
     }

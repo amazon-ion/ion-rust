@@ -32,7 +32,7 @@ use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
@@ -74,7 +74,7 @@ impl IonEq for Value {
     }
 }
 
-impl IonOrd for Value {
+impl IonDataOrd for Value {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         use Value::*;
 
@@ -359,7 +359,7 @@ impl IonEq for Element {
 // 1. Ion type -- It is a logical way to group Ion values, and it is the cheapest comparison
 // 2. Annotations -- the vast majority of Ion values have few annotations, so this should usually be cheap
 // 3. Value -- compared using IonOrd
-impl IonOrd for Element {
+impl IonDataOrd for Element {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         let ord = self.ion_type().ion_cmp(&other.ion_type());
         if !ord.is_eq() {

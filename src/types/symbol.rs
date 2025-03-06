@@ -1,4 +1,4 @@
-use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
 use crate::result::IonFailure;
 use crate::{IonResult, SymbolRef};
 use std::borrow::Borrow;
@@ -129,7 +129,7 @@ impl IonEq for Symbol {
     }
 }
 
-impl IonOrd for Symbol {
+impl IonDataOrd for Symbol {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
     }

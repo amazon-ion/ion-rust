@@ -11,7 +11,7 @@ use std::ops::Deref;
 use crate::{Encoding, IonResult, ValueWriter, WriteAsIon, WriteConfig};
 pub(crate) use ion_data_hash::{ion_data_hash_bool, ion_data_hash_f64, IonDataHash};
 pub(crate) use ion_eq::{ion_eq_bool, ion_eq_f64, IonEq};
-pub(crate) use ion_ord::{ion_cmp_bool, ion_cmp_f64, IonOrd};
+pub(crate) use ion_ord::{ion_cmp_bool, ion_cmp_f64, IonDataOrd};
 
 /// A wrapper for lifting Ion compatible data into using Ion-oriented comparisons (versus the Rust
 /// value semantics). This enables the default semantics to be what a Rust user expects for native
@@ -84,15 +84,15 @@ impl<T: Display> Display for IonData<T> {
     }
 }
 
-impl<T: IonEq + IonOrd> PartialOrd for IonData<T> {
+impl<T: IonEq + IonDataOrd> PartialOrd for IonData<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<T: IonEq + IonOrd> Ord for IonData<T> {
+impl<T: IonEq + IonDataOrd> Ord for IonData<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        IonOrd::ion_cmp(&self.0, &other.0)
+        IonDataOrd::ion_cmp(&self.0, &other.0)
     }
 }
 
@@ -128,7 +128,7 @@ impl<T: WriteAsIon> WriteAsIon for IonData<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ion_data::{IonDataHash, IonEq, IonOrd};
+    use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
     use crate::lazy::encoding::TextEncoding_1_0;
     use crate::{Element, IonData, Symbol, WriteConfig};
     use rstest::*;
@@ -150,7 +150,7 @@ mod tests {
     #[case::vec_element(|s| Element::read_all(s).unwrap().into() )]
     #[case::rc_vec_element(|s| Rc::new(Element::read_all(s).unwrap()).into() )]
     #[case::box_pin_rc_vec_box_arc_element(|s| Box::new(Pin::new(Rc::new(vec![Box::new(Arc::new(Element::read_one(s).unwrap()))]))).into() )]
-    fn can_wrap_data<T: IonEq + IonOrd + IonDataHash + Debug>(
+    fn can_wrap_data<T: IonEq + IonDataOrd + IonDataHash + Debug>(
         #[case] the_fn: impl Fn(&'static str) -> IonData<T>,
     ) {
         let id1: IonData<_> = the_fn("nan");
