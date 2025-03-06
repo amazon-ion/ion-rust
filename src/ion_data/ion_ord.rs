@@ -2,25 +2,28 @@ use std::cmp::Ordering;
 use std::ops::Deref;
 
 /// Trait used for delegating [Ord] and [PartialOrd] in [IonData](crate::IonData).
-/// Implementations of [IonOrd] must be consistent with [IonEq](crate::ion_data::IonEq).
+/// Implementations of [IonDataOrd] must be consistent with [IonEq](crate::ion_data::IonEq).
 /// Since there is no total ordering in the Ion specification, do not write any code that depends on
 /// a specific order being preserved. Only depend on the fact that a total ordering does exist.
-pub(crate) trait IonOrd {
+///
+/// This trait is named `IonDataOrd` (rather than `IonOrd`) to indicate that it is an implementation
+/// detail of `IonData` rather than being part of any Ion specification.
+pub(crate) trait IonDataOrd {
     // Intentionally not public—this trait is exposed via `impl Ord for IonData`.
     // Called ion_cmp to avoid shadowing with Ord::cmp
     fn ion_cmp(&self, other: &Self) -> Ordering;
 }
 
-impl<R: Deref> IonOrd for R
+impl<R: Deref> IonDataOrd for R
 where
-    R::Target: IonOrd,
+    R::Target: IonDataOrd,
 {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         R::Target::ion_cmp(self, other)
     }
 }
 
-impl<T: IonOrd> IonOrd for [T] {
+impl<T: IonDataOrd> IonDataOrd for [T] {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         let mut i0 = self.iter();
         let mut i1 = other.iter();
@@ -42,12 +45,19 @@ impl<T: IonOrd> IonOrd for [T] {
 
 /// Checks Ion ordering for [`f64`].
 ///
-/// We cannot implement [`IonOrd`] directly on [`f64`]. If [`IonOrd`] is implemented directly on
-/// [`f64`], then _any_ blanket impl of [`IonOrd`] for a standard library trait will cause
+/// We cannot implement [`IonDataOrd`] directly on [`f64`]. If [`IonDataOrd`] is implemented directly on
+/// [`f64`], then _any_ blanket impl of [`IonDataOrd`] for a standard library trait will cause
 /// `error[E0119]: conflicting implementations of trait` because [`f64`] is an external type (and
 /// "upstream crates may add a new impl of trait `std::ops::Deref` for type `f64` in future versions").
 pub(crate) fn ion_cmp_f64(this: &f64, that: &f64) -> Ordering {
-    this.total_cmp(that)
+    // f64.total_cmp treats various NaN values as non-equivalent. The Ion specification, however,
+    // treats all NaNs as equivalent, so we need logic to handle that difference.
+    match (this.is_nan(), that.is_nan()) {
+        (false, false) => this.total_cmp(that),
+        (false, true) => Ordering::Less,
+        (true, false) => Ordering::Greater,
+        (true, true) => Ordering::Equal,
+    }
 }
 
 /// Checks Ion ordering for [`bool`].

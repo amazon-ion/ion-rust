@@ -3,12 +3,13 @@
 use std::cmp::Ordering;
 
 use crate::decimal::coefficient::{Coefficient, Sign};
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
 use crate::{Int, IonResult, UInt};
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Neg;
 
 pub mod coefficient;
@@ -214,7 +215,7 @@ impl IonEq for Decimal {
     }
 }
 
-impl IonOrd for Decimal {
+impl IonDataOrd for Decimal {
     // Numerical order (least to greatest) and then by number of significant figures (least to greatest)
     fn ion_cmp(&self, other: &Self) -> Ordering {
         let sign_cmp = self.coefficient.sign().cmp(&other.coefficient.sign());
@@ -233,6 +234,14 @@ impl IonOrd for Decimal {
         // Finally, compare the number of significant figures.
         // Since we know the numeric value is the same, we only need to look at the exponents here.
         self.exponent.cmp(&other.exponent).reverse()
+    }
+}
+
+impl IonDataHash for Decimal {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        state.write_i8(self.coefficient.sign() as i8);
+        self.coefficient.magnitude().hash(state);
+        state.write_i64(self.exponent);
     }
 }
 
