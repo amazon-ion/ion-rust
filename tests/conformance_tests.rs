@@ -83,7 +83,7 @@ mod ion_tests {
             "Invalid bare reference",            // Expected Signal "no such macro: noSuchMacro"
             "Malformed macro references",        // ExpectedSignal "Malformed macro-ref"
             "Invoking constant macros",          // Expected Signal "Too many arguments"
-            "Local macros shadow system macros", // Cold not find macro with id $ion
+            "Local macros shadow system macros", // Could not find macro with id $ion
             "Qualified references",              // Mismatched Produce
             "Local references",                  // Mismatched Produce
             "Local names shadow `use`d names"    // found operation name with non-symbol type: sexp
