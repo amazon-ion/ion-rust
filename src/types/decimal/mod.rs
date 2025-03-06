@@ -3,12 +3,13 @@
 use std::cmp::Ordering;
 
 use crate::decimal::coefficient::{Coefficient, Sign};
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonOrd};
 use crate::result::{IonError, IonFailure};
 use crate::{Int, IonResult, UInt};
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Neg;
 
 pub mod coefficient;
@@ -233,6 +234,14 @@ impl IonOrd for Decimal {
         // Finally, compare the number of significant figures.
         // Since we know the numeric value is the same, we only need to look at the exponents here.
         self.exponent.cmp(&other.exponent).reverse()
+    }
+}
+
+impl IonDataHash for Decimal {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        state.write_i8(self.coefficient.sign() as i8);
+        self.coefficient.magnitude().hash(state);
+        state.write_i64(self.exponent);
     }
 }
 

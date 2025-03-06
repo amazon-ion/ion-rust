@@ -1,5 +1,5 @@
 use crate::decimal::coefficient::Sign;
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonOrd};
 use crate::result::{IonError, IonFailure, IonResult};
 use crate::types::{CountDecimalDigits, Decimal};
 use chrono::{
@@ -9,11 +9,12 @@ use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default, Hash)]
 pub enum TimestampPrecision {
     /// Year-level precision (e.g. `2020T`)
     #[default]
@@ -761,6 +762,45 @@ impl IonOrd for Timestamp {
             [Some(_), None] => Ordering::Greater,
             [Some(o1), Some(o2)] => o1.local_minus_utc().cmp(&o2.local_minus_utc()),
         }
+    }
+}
+
+impl IonDataHash for Timestamp {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.precision.hash(state);
+        let self_dt = self.date_time;
+        self_dt.year().hash(state);
+        if self.precision >= TimestampPrecision::Month {
+            self_dt.month().hash(state)
+        }
+        if self.precision >= TimestampPrecision::Day {
+            self_dt.day().hash(state)
+        }
+        if self.precision >= TimestampPrecision::HourAndMinute {
+            self_dt.hour().hash(state);
+            self_dt.minute().hash(state);
+        }
+        if self.precision == TimestampPrecision::Second {
+            self_dt.second().hash(state);
+
+            let fractional_seconds_scale = self.fractional_seconds_scale();
+            match fractional_seconds_scale {
+                None |
+                Some(0) => {}
+                Some(1..=9) => {
+                    fractional_seconds_scale.unwrap().hash(state);
+                    self.fractional_seconds_as_nanoseconds()
+                        .unwrap()
+                        .hash(state);
+                }
+                Some(_) => {
+                    self.fractional_seconds_as_decimal()
+                        .unwrap()
+                        .ion_data_hash(state);
+                }
+            }
+        }
+        self.offset.hash(state);
     }
 }
 

@@ -1,7 +1,8 @@
 use crate::element::iterators::{AnnotationsIntoIter, SymbolsIterator};
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonDataHash, IonOrd};
 use crate::Symbol;
 use std::cmp::Ordering;
+use std::hash::Hasher;
 
 /// An ordered sequence of symbols that convey additional, application-specific information about
 /// their associated Ion value.
@@ -144,6 +145,12 @@ impl IntoIterator for Annotations {
 impl IonOrd for Annotations {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.symbols.ion_cmp(&other.symbols)
+    }
+}
+
+impl IonDataHash for Annotations {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.symbols.ion_data_hash(state)
     }
 }
 

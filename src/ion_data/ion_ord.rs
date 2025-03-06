@@ -47,7 +47,14 @@ impl<T: IonOrd> IonOrd for [T] {
 /// `error[E0119]: conflicting implementations of trait` because [`f64`] is an external type (and
 /// "upstream crates may add a new impl of trait `std::ops::Deref` for type `f64` in future versions").
 pub(crate) fn ion_cmp_f64(this: &f64, that: &f64) -> Ordering {
-    this.total_cmp(that)
+    // f64.total_cmp treats various NaN values as non-equivalent. The Ion specification, however,
+    // treats all NaNs as equivalent, so we need logic to handle that difference.
+    match (this.is_nan(), that.is_nan()) {
+        (false, false) => this.total_cmp(that),
+        (false, true) => Ordering::Less,
+        (true, false) => Ordering::Greater,
+        (true, true) => Ordering::Equal,
+    }
 }
 
 /// Checks Ion ordering for [`bool`].

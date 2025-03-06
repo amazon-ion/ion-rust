@@ -1,12 +1,15 @@
+mod ion_data_hash;
 mod ion_eq;
 mod ion_ord;
 
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::ops::Deref;
 
 use crate::{Encoding, IonResult, ValueWriter, WriteAsIon, WriteConfig};
+pub(crate) use ion_data_hash::{ion_data_hash_bool, ion_data_hash_f64, IonDataHash};
 pub(crate) use ion_eq::{ion_eq_bool, ion_eq_f64, IonEq};
 pub(crate) use ion_ord::{ion_cmp_bool, ion_cmp_f64, IonOrd};
 
@@ -37,6 +40,9 @@ pub(crate) use ion_ord::{ion_cmp_bool, ion_cmp_f64, IonOrd};
 /// __WARNING__—The Ion specification does _not_ define a total ordering over all Ion values. Do
 /// not depend on getting any particular result from [Ord]. Use it only as an opaque total ordering
 /// over all [IonData]. _The algorithm used for [Ord] may change between versions._
+///
+/// __WARNING__—The hashing algorithm is _not_ the same as the
+/// [Ion Hash Algorithm](https://amazon-ion.github.io/ion-hash). _The algorithm used for [Hash] may change between versions._
 #[derive(Debug, Clone)]
 pub struct IonData<T>(T);
 
@@ -90,6 +96,12 @@ impl<T: IonEq + IonOrd> Ord for IonData<T> {
     }
 }
 
+impl<T: IonDataHash> Hash for IonData<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        IonDataHash::ion_data_hash(&self.0, state)
+    }
+}
+
 impl<T: WriteAsIon> WriteAsIon for IonData<T> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         self.0.write_as_ion(writer)
@@ -116,12 +128,13 @@ impl<T: WriteAsIon> WriteAsIon for IonData<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ion_data::{IonEq, IonOrd};
+    use crate::ion_data::{IonDataHash, IonEq, IonOrd};
     use crate::lazy::encoding::TextEncoding_1_0;
     use crate::{Element, IonData, Symbol, WriteConfig};
     use rstest::*;
     use std::boxed::Box;
     use std::fmt::Debug;
+    use std::hash::{DefaultHasher, Hash, Hasher};
     use std::pin::Pin;
     use std::rc::Rc;
     use std::sync::Arc;
@@ -137,12 +150,17 @@ mod tests {
     #[case::vec_element(|s| Element::read_all(s).unwrap().into() )]
     #[case::rc_vec_element(|s| Rc::new(Element::read_all(s).unwrap()).into() )]
     #[case::box_pin_rc_vec_box_arc_element(|s| Box::new(Pin::new(Rc::new(vec![Box::new(Arc::new(Element::read_one(s).unwrap()))]))).into() )]
-    fn can_wrap_data<T: IonEq + IonOrd + Debug>(
+    fn can_wrap_data<T: IonEq + IonOrd + IonDataHash + Debug>(
         #[case] the_fn: impl Fn(&'static str) -> IonData<T>,
     ) {
         let id1: IonData<_> = the_fn("nan");
         let id2: IonData<_> = the_fn("nan");
         assert_eq!(id1, id2);
+        let mut h1 = DefaultHasher::default();
+        let mut h2 = DefaultHasher::default();
+        id1.hash(&mut h1);
+        id2.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
 
         let id1: IonData<_> = the_fn("1.00");
         let id2: IonData<_> = the_fn("1.0");

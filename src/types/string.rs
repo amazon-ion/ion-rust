@@ -1,7 +1,8 @@
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonOrd};
 use crate::text::text_formatter::FmtValueFormatter;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 
 /// An owned, immutable in-memory representation of an Ion `string`.
 ///
@@ -129,5 +130,11 @@ impl IonEq for Str {
 impl IonOrd for Str {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
+    }
+}
+
+impl IonDataHash for Str {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.hash(state)
     }
 }

@@ -24,6 +24,7 @@ pub use annotations::{Annotations, IntoAnnotations};
 pub use sequence::{OwnedSequenceIterator, Sequence};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::hash::Hasher;
 use std::io;
 
 use crate::{ion_data, Decimal, Int, IonResult, IonType, Str, Symbol, SymbolRef, Timestamp};
@@ -31,7 +32,7 @@ use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonEq, IonOrd};
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
@@ -113,6 +114,28 @@ impl IonOrd for Value {
             List(this) => compare!(List(that) => this.ion_cmp(that)),
             SExp(this) => compare!(SExp(that) => this.ion_cmp(that)),
             Struct(this) => compare!(Struct(that) => this.ion_cmp(that)),
+        }
+    }
+}
+
+impl IonDataHash for Value {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        use Value::*;
+        self.ion_type().ion_data_hash(state);
+        match self {
+            Null(_) => state.write_u8(0),
+            Bool(this) => ion_data::ion_data_hash_bool(*this, state),
+            Int(this) => this.ion_data_hash(state),
+            Float(this) => ion_data::ion_data_hash_f64(*this, state),
+            Decimal(this) => this.ion_data_hash(state),
+            Timestamp(this) => this.ion_data_hash(state),
+            Symbol(this) => this.ion_data_hash(state),
+            String(this) => this.ion_data_hash(state),
+            Clob(this) => this.ion_data_hash(state),
+            Blob(this) => this.ion_data_hash(state),
+            List(this) => this.ion_data_hash(state),
+            SExp(this) => this.ion_data_hash(state),
+            Struct(this) => this.ion_data_hash(state),
         }
     }
 }
@@ -354,6 +377,13 @@ impl IonOrd for Element {
         let v1 = self.value();
         let v2 = other.value();
         v1.ion_cmp(v2)
+    }
+}
+
+impl IonDataHash for Element {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.annotations.ion_data_hash(state);
+        self.value.ion_data_hash(state);
     }
 }
 
