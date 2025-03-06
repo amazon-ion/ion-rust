@@ -118,7 +118,9 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
     fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self {
         Self::resume(
             context,
-            RawReaderState::new(data, 0, is_final_data, IonEncoding::Binary_1_0),
+            RawReaderState::new(data, 0,         #[cfg(feature = "source-location")]
+            0,         #[cfg(feature = "source-location")]
+            0, is_final_data, IonEncoding::Binary_1_0),
         )
     }
 
@@ -137,6 +139,10 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
         RawReaderState::new(
             &self.data.buffer.bytes()[self.data.bytes_to_skip..],
             stream_offset,
+            #[cfg(feature = "source-location")]
+            0,
+            #[cfg(feature = "source-location")]
+            0,
             // The binary readers do not care whether the data is final because they can detect
             // incomplete values in any case. They always report `false` for simplicity.
             false,
@@ -150,6 +156,16 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
 
     fn position(&self) -> usize {
         self.data.buffer.offset() + self.data.bytes_to_skip
+    }
+
+    #[cfg(feature = "source-location")]
+    fn row(&self) -> usize {
+        0
+    }
+
+    #[cfg(feature = "source-location")]
+    fn prev_newline_offset(&self) -> usize {
+        0
     }
 
     fn encoding(&self) -> IonEncoding {
