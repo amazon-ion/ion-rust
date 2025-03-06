@@ -1,6 +1,6 @@
 use crate::element::builders::StructBuilder;
 use crate::element::Element;
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::Symbol;
@@ -8,6 +8,7 @@ use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
+use std::hash::Hasher;
 
 // A convenient type alias for a vector capable of storing a single `usize` inline
 // without heap allocation. This type should not be used in public interfaces directly.
@@ -325,7 +326,7 @@ impl IonEq for Struct {
     }
 }
 
-impl IonOrd for Struct {
+impl IonDataOrd for Struct {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         let mut these_fields = self.fields.by_index.iter().collect::<Vec<_>>();
         let mut those_fields = other.fields.by_index.iter().collect::<Vec<_>>();
@@ -355,7 +356,18 @@ fn ion_cmp_field(this: &&(Symbol, Element), that: &&(Symbol, Element)) -> Orderi
     if !ord.is_eq() {
         return ord;
     }
-    IonOrd::ion_cmp(&this.1, &that.1)
+    IonDataOrd::ion_cmp(&this.1, &that.1)
+}
+
+impl IonDataHash for Struct {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        let mut these_fields = self.fields.by_index.iter().collect::<Vec<_>>();
+        these_fields.sort_by(ion_cmp_field);
+        for (name, value) in these_fields {
+            name.ion_data_hash(state);
+            value.ion_data_hash(state);
+        }
+    }
 }
 
 #[cfg(test)]

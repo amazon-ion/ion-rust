@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use std::fs::read;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::MAIN_SEPARATOR_STR as PATH_SEPARATOR;
 use test_generator::test_resources;
 
@@ -62,20 +63,33 @@ fn ion_data_eq_ord_consistency(file_name: &str) {
     }
 }
 
-fn check_group<T: Ord + Debug>(
+fn check_group<T: Ord + Debug + Hash>(
     group_index: usize,
     sequence: &Sequence,
     lifter_fn: impl Fn(&Element) -> T,
 ) {
     for (this_index, a) in sequence.into_iter().enumerate() {
         let this = lifter_fn(a);
+        let this_hash = {
+            let mut h = DefaultHasher::new();
+            this.hash(&mut h);
+            h.finish()
+        };
         for (that_index, b) in sequence.into_iter().enumerate() {
             let that = lifter_fn(b);
+            let that_hash = {
+                let mut h = DefaultHasher::new();
+                that.hash(&mut h);
+                h.finish()
+            };
             assert_eq!(this, that,
                        "in group {group_index}, index {this_index} ({this:?}) was not IonData::eq to index {that_index} ({that:?})"
             );
             assert_eq!(this.cmp(&that), Ordering::Equal,
                        "in group {group_index}, index {this_index} ({this:?}) was not Ordering::Equal to index {that_index} ({that:?})"
+            );
+            assert_eq!(this_hash, that_hash,
+                       "in group {group_index}, index {this_index} ({this:?}) did not produce the same IonData::hash as index {that_index} ({that:?})"
             );
         }
     }

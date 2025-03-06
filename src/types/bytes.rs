@@ -1,5 +1,6 @@
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 
 /// An owned, immutable byte array.
 /// ```rust
@@ -35,9 +36,15 @@ impl IonEq for Bytes {
     }
 }
 
-impl IonOrd for Bytes {
+impl IonDataOrd for Bytes {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
+    }
+}
+
+impl IonDataHash for Bytes {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
     }
 }
 
