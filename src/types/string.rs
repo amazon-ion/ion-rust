@@ -1,4 +1,4 @@
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::text::text_formatter::FmtValueFormatter;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};

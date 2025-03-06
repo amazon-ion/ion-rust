@@ -1,4 +1,4 @@
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 

@@ -1,7 +1,7 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
 use crate::element::Element;
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
 use crate::IonResult;

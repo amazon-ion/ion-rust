@@ -32,7 +32,7 @@ use crate::{Blob, Bytes, Clob, List, SExp, Struct};
 // Re-export the Value variant types and traits so they can be accessed directly from this module.
 use crate::element::builders::{SequenceBuilder, StructBuilder};
 use crate::element::reader::ElementReader;
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;

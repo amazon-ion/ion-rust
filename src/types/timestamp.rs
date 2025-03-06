@@ -1,5 +1,5 @@
 use crate::decimal::coefficient::Sign;
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure, IonResult};
 use crate::types::{CountDecimalDigits, Decimal};
 use chrono::{
@@ -785,8 +785,7 @@ impl IonDataHash for Timestamp {
 
             let fractional_seconds_scale = self.fractional_seconds_scale();
             match fractional_seconds_scale {
-                None |
-                Some(0) => {}
+                None | Some(0) => {}
                 Some(1..=9) => {
                     fractional_seconds_scale.unwrap().hash(state);
                     self.fractional_seconds_as_nanoseconds()

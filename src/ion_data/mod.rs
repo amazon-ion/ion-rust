@@ -128,7 +128,7 @@ impl<T: WriteAsIon> WriteAsIon for IonData<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+    use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
     use crate::lazy::encoding::TextEncoding_1_0;
     use crate::{Element, IonData, Symbol, WriteConfig};
     use rstest::*;

@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 
 use crate::decimal::coefficient::{Coefficient, Sign};
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
 use crate::{Int, IonResult, UInt};
 use num_traits::Zero;

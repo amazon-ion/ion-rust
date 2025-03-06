@@ -1,6 +1,6 @@
 use crate::element::builders::StructBuilder;
 use crate::element::Element;
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::Symbol;

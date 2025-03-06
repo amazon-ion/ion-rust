@@ -1,4 +1,4 @@
-use crate::ion_data::{IonDataHash, IonEq, IonDataOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
 use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
