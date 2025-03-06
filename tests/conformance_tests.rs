@@ -6,88 +6,160 @@ use conformance_dsl::prelude::*;
 
 use test_generator::test_resources;
 
+use std::sync::LazyLock;
+
 
 mod ion_tests {
     use super::*;
 
-    type SkipList = &'static [&'static str];
+    #[derive(Default)]
+    struct SkipItem {
+        /// The source file containing one or more conformance tests.
+        source: &'static str,
+        /// The canonicalized path to the source, resolved at runtime.
+        canonicalized_source: Option<String>,
+        /// A list of tests found within the source to skip; if empty, all tests are skipped.
+        tests: &'static [&'static str],
+    }
+
+    impl SkipItem {
+        fn canonicalize(&self) -> Option<Self>{
+            match std::fs::canonicalize(self.source) {
+                Ok(path_buf) => Some(Self { canonicalized_source: Some(path_buf.to_string_lossy().to_string()), ..*self }),
+                Err(_) => None,
+            }
+        }
+    }
+
+    // TODO: Turn this into a macro that doesn't have to be re-stated for every skip.
+    macro_rules! skip {
+        ( $l:literal ) => {
+            SkipItem { source: $l, canonicalized_source: None, tests: &[] }
+        };
+        ( $l:literal, $($t:literal),+
+        ) => {
+            SkipItem {source: $l, canonicalized_source: None, tests: &[ $($t),+ ] }
+        }
+    }
+
+    type SkipList = &'static [SkipItem];
     static GLOBAL_CONFORMANCE_SKIPLIST: SkipList = &[
-        // half-float not implemented
-        "ion-tests/conformance/data_model/float.ion",
+        skip!("ion-tests/conformance/data_model/float.ion",
+            "Ion 1.1 binary" // PANIC: not yet implemented: implement half-precision floats
+        ),
         // e-expression transcription
-        "ion-tests/conformance/demos/metaprogramming.ion",
-        "ion-tests/conformance/eexp/arg_inlining.ion",
-        "ion-tests/conformance/eexp/element_inlining.ion",
-        "ion-tests/conformance/eexp/basic_system_macros.ion",
-        "ion-tests/conformance/ion_encoding/mactab.ion",
-        "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion",
-        "ion-tests/conformance/ion_encoding/module/macro/template/literal_form.ion",
-        "ion-tests/conformance/ion_encoding/module/macro/template/quasiliteral.ion",
-        "ion-tests/conformance/ion_encoding/module/macro/template/variable_reference.ion",
-        "ion-tests/conformance/ion_encoding/module/macro/template/if.ion",
-        "ion-tests/conformance/ion_encoding/module/macro/trivial/literal_value.ion",
-        "ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_ee.ion",
+        skip!("ion-tests/conformance/demos/metaprogramming.ion"),
+        skip!("ion-tests/conformance/eexp/arg_inlining.ion"),
+        skip!("ion-tests/conformance/eexp/basic_system_macros.ion"),
+        skip!("ion-tests/conformance/ion_encoding/mactab.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/template/literal_form.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/template/quasiliteral.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/template/variable_reference.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/template/if.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/literal_value.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_ee.ion"),
         // Error: Mismatched denotes
-        "ion-tests/conformance/eexp/binary/tagless_types.ion",
+        skip!("ion-tests/conformance/eexp/binary/tagless_types.ion"),
         // Error: Unexpected EOF
-        "ion-tests/conformance/eexp/binary/argument_encoding.ion",
+        skip!("ion-tests/conformance/eexp/binary/argument_encoding.ion"),
         // Error: Mismatched Produce
-        "ion-tests/conformance/ion_encoding/symtab.ion",
-        "ion-tests/conformance/ion_encoding/load_symtab.ion",
-        "ion-tests/conformance/ion_encoding/trivial_forms.ion",
-        "ion-tests/conformance/ion_encoding/module/trivial.ion",
-        "ion-tests/conformance/ion_encoding/module/macro_table.ion",
-        "ion-tests/conformance/system_macros/add_macros.ion",
-        "ion-tests/conformance/ion_literal.ion",
-        "ion-tests/conformance/system_symbols.ion",
+        skip!("ion-tests/conformance/ion_encoding/symtab.ion"),
+        skip!("ion-tests/conformance/ion_encoding/load_symtab.ion"),
+        skip!("ion-tests/conformance/ion_encoding/trivial_forms.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/trivial.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro_table.ion"),
+        skip!("ion-tests/conformance/system_macros/add_macros.ion"),
+        skip!("ion-tests/conformance/ion_literal.ion"),
+        skip!("ion-tests/conformance/system_symbols.ion"),
         // Error: found operation name with non-symbol type: sexp
-        "ion-tests/conformance/ion_encoding/module/load_symtab.ion",
-        "ion-tests/conformance/ion_encoding/module/symtab.ion",
+        skip!("ion-tests/conformance/ion_encoding/module/load_symtab.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/symtab.ion"),
         // Error: Too few arguments.
-        "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_tl.ion",
+        skip!("ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_tl.ion"),
         // Error: "Invalid macro name:"
-        "ion-tests/conformance/ion_encoding/module/macro/trivial/signature.ion",
-        // Error: ExpectedSignal: No such macro: NoSuchMacro
-        "ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_tl.ion",
+        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/signature.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_tl.ion",
+            "Invalid bare reference",            // Expected Signal "no such macro: noSuchMacro"
+            "Malformed macro references",        // ExpectedSignal "Malformed macro-ref"
+            "Invoking constant macros",          // Expected Signal "Too many arguments"
+            "Local macros shadow system macros", // Could not find macro with id $ion
+            "Qualified references",              // Mismatched Produce
+            "Local references",                  // Mismatched Produce
+            "Local names shadow `use`d names"    // found operation name with non-symbol type: sexp
+        ),
         // Error: ExpectedSIgnal: invalid argument
-        "ion-tests/conformance/system_macros/add_symbols.ion",
-        "ion-tests/conformance/system_macros/set_macros.ion",
-        "ion-tests/conformance/system_macros/set_symbols.ion",
+        skip!("ion-tests/conformance/system_macros/add_symbols.ion"),
+        skip!("ion-tests/conformance/system_macros/set_macros.ion"),
+        skip!("ion-tests/conformance/system_macros/set_symbols.ion"),
         // Error: Decoding Error: macro none signature has 0 parameters(s), e-expression had an
         // extra argument.
-        "ion-tests/conformance/system_macros/default.ion",
+        skip!("ion-tests/conformance/system_macros/default.ion"),
         // System macro delta not yet implemented
-        "ion-tests/conformance/system_macros/delta.ion",
+        skip!("ion-tests/conformance/system_macros/delta.ion"),
         // System macro make_decimal not yet implemented
-        "ion-tests/conformance/system_macros/make_decimal.ion",
+        skip!("ion-tests/conformance/system_macros/make_decimal.ion"),
         // System macro repeat not yet implemented
-        "ion-tests/conformance/system_macros/repeat.ion",
+        skip!("ion-tests/conformance/system_macros/repeat.ion"),
         // System macro parse_ion not yet implemented
-        "ion-tests/conformance/system_macros/parse_ion.ion",
+        skip!("ion-tests/conformance/system_macros/parse_ion.ion"),
         // System macro sum not yet implemented
-        "ion-tests/conformance/system_macros/sum.ion",
+        skip!("ion-tests/conformance/system_macros/sum.ion"),
         // System macro make_timestamp not yet implemented
-        "ion-tests/conformance/system_macros/make_timestamp.ion",
+        skip!("ion-tests/conformance/system_macros/make_timestamp.ion"),
         // Expected Signal: invalid macro definition
-        "ion-tests/conformance/tdl/expression_groups.ion",
+        skip!("ion-tests/conformance/tdl/expression_groups.ion"),
         // Mismatched encodings for nested contexts.
-        "ion-tests/conformance/ivm.ion",
+        skip!("ion-tests/conformance/ivm.ion"),
         // Decoding error "expected struct but found a null.struct"
-        "ion-tests/conformance/local_symtab.ion",
+        skip!("ion-tests/conformance/local_symtab.ion"),
         // Encoding error: "symbol value ID $10 is not in the symbol table"
-        "ion-tests/conformance/local_symtab_imports.ion",
+        skip!("ion-tests/conformance/local_symtab_imports.ion"),
     ];
+
+    static CANONICAL_SKIP_LIST: LazyLock<Vec<SkipItem>> = LazyLock::new(|| {
+        GLOBAL_CONFORMANCE_SKIPLIST
+            .iter()
+            .filter_map(|skip| skip.canonicalize())
+            .collect()
+    });
 
     #[test_resources("ion-tests/conformance/**/*.ion")]
     fn conformance(file_name: &str) {
-        // Test for skip list. Convert windows '\\' separators into '/' to match skiplist.
-        if !GLOBAL_CONFORMANCE_SKIPLIST.iter().any(|f| *f == file_name.replace("\\", "/")) {
-            println!("TESTING: {}", file_name);
-            let collection = TestCollection::load(file_name).expect("unable to load test file");
+        let file_name: String = std::fs::canonicalize(file_name).unwrap().to_string_lossy().into();
+        let mut total_tests: usize = 0;
+        let mut total_skipped: usize = 0;
 
-            collection.run().expect("failed to run collection");
-        } else {
+        // Having a file_name in the skip list just means we ignore some part of it.. not
+        // necessarily the whole file. If we don't specify a list of test names, then we ignore the
+        // whole thing.
+        let skip_item = CANONICAL_SKIP_LIST.iter().find(|item| item.canonicalized_source.as_ref().is_some_and(|source| *source == file_name));
+        if skip_item.is_some_and(|item| item.tests.is_empty()) {
             println!("SKIPPING: {}", file_name);
+            return;
         }
+
+        let skip_tests: &[&'static str] = skip_item.map(|item| item.tests).unwrap_or(&[]);
+
+        let collection = TestCollection::load(&file_name).expect("unable to load test file");
+
+        for test in collection.iter() {
+            total_tests += 1;
+            let name = if let Some(name) = &test.name {
+                if skip_tests.contains(&name.as_str()) {
+                    println!("Skipping: {} => \"{}\"", file_name, name);
+                    total_skipped += 1;
+                    continue;
+                }
+                name
+            } else {
+                ""
+            };
+
+            println!("TESTING: {} => {}", file_name, name);
+            test.run().expect("test failed");
+        }
+
+        println!("SUMMARY: {} : Total Tests {} :  Skipped {}", file_name, total_tests, total_skipped);
     }
 }
