@@ -367,7 +367,7 @@ impl WriteAsIon for ProxyElement<'_> {
                                 writer.eexp_writer(macro_id)?
                             };
                             for arg in sexp.iter().skip(1) {
-                                args.write(arg)?;
+                                args.write(ProxyElement(arg, self.1))?;
                             }
                             args.close()?;
                             return Ok(())

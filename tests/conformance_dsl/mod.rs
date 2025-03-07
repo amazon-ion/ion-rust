@@ -474,7 +474,8 @@ mod tests {
     fn test_eexp_transcription() {
         let tests: &[&str] = &[
             "(ion_1_1 (toplevel ('#$:make_list' (1 2))) (produces [1, 2]) )",
-            "(ion_1_1 (mactab (macro twice (x*) (.values (%x) (%x)))) (toplevel ('#$:twice' foo)) (produces foo foo))"
+            "(ion_1_1 (mactab (macro twice (x*) (.values (%x) (%x)))) (toplevel ('#$:twice' foo)) (produces foo foo))",
+            "(ion_1_1 (toplevel ('#$:make_list' (1 2) ('#$:make_list' (3 4)))) (produces [1, 2, 3, 4]) )",
         ];
 
         for test in tests {
