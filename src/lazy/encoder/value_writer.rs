@@ -77,6 +77,8 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     type StructWriter: StructWriter;
     type EExpWriter: EExpWriter<Resources = ()>;
 
+    // TODO: Add an associated type for MacroHandle
+
     fn write_null(self, ion_type: IonType) -> IonResult<()>;
     fn write_bool(self, value: bool) -> IonResult<()>;
     fn write_i64(self, value: i64) -> IonResult<()>;

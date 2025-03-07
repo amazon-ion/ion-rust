@@ -280,7 +280,7 @@ mod tests {
 
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let macro_foo =
-            TemplateCompiler::compile_from_source(context.get_ref(), "(macro foo (x*) null)")?;
+            TemplateCompiler::compile_from_source(context.macro_table(), "(macro foo (x*) null)")?;
         context.macro_table_mut().add_template_macro(macro_foo)?;
         let mut reader =
             LazyRawTextReader_1_1::new(context.get_ref(), encoded_text.as_bytes(), true);

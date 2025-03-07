@@ -376,26 +376,29 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 "expected a macro table definition operation, but found: {operation:?}"
             ));
         }
-        let mut macro_table = MacroTable::empty();
+        let mut new_macro_table = MacroTable::empty();
         for arg in args {
             let arg = arg?;
             let context = operation.expanded_sexp.context;
             match arg.read()? {
                 ValueRef::SExp(macro_def_sexp) => {
-                    let new_macro =
-                        TemplateCompiler::compile_from_sexp(context, &macro_table, macro_def_sexp)?;
-                    macro_table.add_template_macro(new_macro)?;
+                    let new_macro = TemplateCompiler::compile_from_sexp(
+                        context.macro_table(),
+                        &new_macro_table,
+                        macro_def_sexp,
+                    )?;
+                    new_macro_table.add_template_macro(new_macro)?;
                 }
                 ValueRef::Symbol(module_name)
                     if module_name == v1_1::constants::DEFAULT_MODULE_NAME =>
                 {
                     let active_mactab = operation.expanded().context.macro_table();
-                    macro_table.append_all_macros_from(active_mactab)?;
+                    new_macro_table.append_all_macros_from(active_mactab)?;
                 }
                 ValueRef::Symbol(module_name)
                     if module_name == v1_1::system_symbols::ION.text() =>
                 {
-                    macro_table.append_all_macros_from(&ION_1_1_SYSTEM_MACROS)?;
+                    new_macro_table.append_all_macros_from(&ION_1_1_SYSTEM_MACROS)?;
                 }
                 ValueRef::Symbol(_module_name) => {
                     todo!("re-exporting macros from a module other than _")
@@ -408,7 +411,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                 }
             }
         }
-        Ok(macro_table)
+        Ok(new_macro_table)
     }
 
     fn expect_next_sexp_value<'a>(

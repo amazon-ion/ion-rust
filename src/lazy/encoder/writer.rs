@@ -20,16 +20,15 @@ use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
-use crate::lazy::expanded::EncodingContextRef;
-use crate::lazy::never::Never;
+use crate::lazy::expanded::macro_table::Macro;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    AnyEncoding, ContextWriter, Decimal, Decoder, Element, ElementWriter, Int, IonError, IonInput,
-    IonResult, IonType, IonVersion, LazySExp, MacroTable, RawSymbolRef, Reader, Symbol,
-    SymbolTable, TemplateMacro, Timestamp, UInt, Value,
+    AnyEncoding, ContextWriter, Decimal, Element, ElementWriter, Int, IonInput, IonResult, IonType,
+    IonVersion, MacroTable, RawSymbolRef, Reader, Symbol, SymbolTable, TemplateCompiler, Timestamp,
+    UInt, Value,
 };
 
 pub(crate) struct WriterContext {
@@ -39,9 +38,6 @@ pub(crate) struct WriterContext {
     macro_table: MacroTable,
     num_pending_symbols: usize,
     num_pending_macros: usize,
-    // Each time the encoding context is modified, this value will be bumped.
-    // This allows Macro handles to determine if they may have been invalidated.
-    version: u32,
 }
 
 impl WriterContext {
@@ -51,7 +47,6 @@ impl WriterContext {
             macro_table,
             num_pending_symbols: 0,
             num_pending_macros: 0,
-            version: 0,
         }
     }
 }
@@ -101,20 +96,32 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(writer)
     }
 
-    pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<TemplateMacro> {
+    pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
         let mut reader = Reader::new(AnyEncoding, source)?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
 
         // Self::compile_from_sexp(context, &MacroTable::empty(), macro_def_sexp)
-        todo!()
-    }
+        let template_macro = TemplateCompiler::compile_from_sexp(
+            &self.context.macro_table,
+            &MacroTable::empty(),
+            macro_def_sexp,
+        )?;
 
-    fn compile_from_sexp<'a: 'b, 'b, Encoding: Decoder>(
-        context: EncodingContextRef<'a>,
-        pending_macros: &'b MacroTable,
-        macro_def_sexp: LazySExp<'a, Encoding>,
-    ) -> Result<TemplateMacro, IonError> {
-        todo!()
+        let address = self
+            .context
+            .macro_table
+            .add_template_macro(template_macro)?;
+        self.context.num_pending_macros += 1;
+        let macro_def = self
+            .context
+            .macro_table
+            .clone_macro_with_address(address)
+            .expect("macro freshly placed at address is missing");
+        let macro_handle = Macro::new(
+            macro_def,
+            u32::try_from(address).expect("unsupported address size"),
+        );
+        Ok(macro_handle)
     }
 
     pub fn output(&self) -> &Output {
@@ -140,7 +147,12 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
                 IonVersion::v1_1 => self.write_append_symbols_directive()?,
             }
             self.context.num_pending_symbols = 0;
-            self.context.version += 1;
+        }
+
+        // TODO: In Ion 1.1, new symbols and new macros could be added using the same directive.
+        if self.context.num_pending_macros > 0 {
+            self.write_append_macros_directive()?;
+            self.context.num_pending_macros = 0;
         }
 
         self.directive_writer.flush()?;
@@ -200,6 +212,38 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         new_symbol_list.close()?;
 
         lst.close()
+    }
+
+    fn write_append_macros_directive(&mut self) -> IonResult<()> {
+        let Self {
+            context,
+            directive_writer,
+            ..
+        } = self;
+
+        let mut directive = directive_writer
+            .value_writer()
+            .with_annotations("$ion")?
+            .sexp_writer()?;
+
+        directive
+            .write_symbol(v1_1::system_symbols::MODULE)?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
+
+        let pending_macros = context
+            .macro_table
+            .macros_tail(context.num_pending_macros)
+            .iter()
+            // Only user-defined template macros can be added to the macro table.
+            .map(|m| m.require_template());
+
+        let mut macro_table = directive.sexp_writer()?;
+        macro_table
+            .write_symbol(v1_1::system_symbols::MACRO_TABLE)?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?
+            .write_list(pending_macros)?;
+        macro_table.close()?;
+        directive.close()
     }
 
     /// Helper method to encode an LST append containing pending symbols.
@@ -826,9 +870,8 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
 }
 
 impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
-    // TODO: This is a placeholder impl.
     type ExprGroupWriter<'group>
-        = Never
+        = <V::EExpWriter as EExpWriter>::ExprGroupWriter<'group>
     where
         Self: 'group;
 
@@ -838,7 +881,7 @@ impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        todo!("application expr group writer")
+        self.raw_eexp_writer.expr_group_writer()
     }
 }
 
@@ -861,8 +904,8 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_1, FieldNameEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef, SequenceWriter,
-        StructWriter, SystemReader, ValueWriter, Writer,
+        v1_1, EExpWriter, FieldNameEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef,
+        SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
     };
 
     fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
@@ -1124,33 +1167,21 @@ mod tests {
     }
 
     #[test]
-    fn encoding_context_versions() -> IonResult<()> {
-        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-        assert_eq!(writer.context.version, 0);
-        let mut struct_writer = writer
-            .value_writer()
-            .struct_writer()?
-            .with_field_name_encoding(FieldNameEncoding::SymbolIds);
-        struct_writer.write("foo", 0)?;
-        struct_writer.close()?;
+    fn define_new_macro() -> IonResult<()> {
+        let mut writer = Writer::new(v1_1::Text.with_format(TextFormat::Lines), Vec::new())?;
+        let point3d =
+            writer.compile_macro("(macro point3d (x y z) Point3D::{x: (%x), y: (%y), z: (%z)})")?;
+        let greet =
+            writer.compile_macro("(macro greet (name) (.make_string 'hello, ' (%name)))")?;
+        let identity = writer.compile_macro("(macro identity (x*) (%x))")?;
         writer.flush()?;
-        // We added a symbol, new version.
-        assert_eq!(writer.context.version, 1);
-        writer.write(1)?.write(2)?.write(3)?;
+        let mut eexp_writer = writer.eexp_writer(&identity)?;
+        let mut group_writer = eexp_writer.expr_group_writer()?;
+        group_writer.write_all(&["foo", "bar", "baz"])?;
+        group_writer.close()?;
+        eexp_writer.close()?;
         writer.flush()?;
-        // No change.
-        assert_eq!(writer.context.version, 1);
-        writer.write([true, false])?;
-        writer.flush()?;
-        // No change.
-        assert_eq!(writer.context.version, 1);
-        writer
-            .value_writer()
-            .with_symbol_value_encoding(SymbolValueEncoding::SymbolIds)
-            .write_symbol("Mercury")?;
-        writer.flush()?;
-        // New symbol, new version.
-        assert_eq!(writer.context.version, 2);
+        println!("output:\n{}", std::str::from_utf8(writer.output()).unwrap());
         Ok(())
     }
 }

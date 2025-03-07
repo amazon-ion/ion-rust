@@ -1311,7 +1311,7 @@ mod tests {
     ) -> IonResult<()> {
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let template_macro =
-            TemplateCompiler::compile_from_source(context.get_ref(), macro_source)?;
+            TemplateCompiler::compile_from_source(context.macro_table(), macro_source)?;
         let macro_address = context
             .macro_table_mut()
             .add_template_macro(template_macro)?;

@@ -12,7 +12,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
+use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
@@ -200,6 +200,14 @@ impl<'data> From<&'data str> for MacroIdRef<'data> {
 impl From<SystemMacroAddress> for MacroIdRef<'_> {
     fn from(system_macro_address: SystemMacroAddress) -> Self {
         MacroIdRef::SystemAddress(system_macro_address)
+    }
+}
+
+impl<'a> From<&'a Macro> for MacroIdRef<'a> {
+    fn from(mac: &'a Macro) -> Self {
+        mac.name()
+            .map(MacroIdRef::LocalName)
+            .unwrap_or_else(move || MacroIdRef::LocalAddress(mac.address()))
     }
 }
 
@@ -435,7 +443,7 @@ mod tests {
 
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let macro_quux =
-            TemplateCompiler::compile_from_source(context.get_ref(), "(macro quux (x) null)")?;
+            TemplateCompiler::compile_from_source(context.macro_table(), "(macro quux (x) null)")?;
         context.macro_table_mut().add_template_macro(macro_quux)?;
         let reader = &mut LazyRawTextReader_1_1::new(context.get_ref(), data.as_bytes(), true);
 

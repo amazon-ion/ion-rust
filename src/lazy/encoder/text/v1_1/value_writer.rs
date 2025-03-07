@@ -351,7 +351,7 @@ impl<'group, W: Write> TextExprGroupWriter<'group, W> {
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
-            depth,
+            depth + 1,
             parent_type,
             ContainerType::SExp,
             "(::",

@@ -3,7 +3,7 @@ use crate::lazy::expanded::template::{
     MacroSignature, ParameterCardinality, ParameterEncoding, TemplateBody, TemplateElement,
     TemplateMacro, TemplateMacroRef, TemplateValue,
 };
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{
     AnnotatableWriter, EncodingContext, IonResult, IonType, IonVersion, SequenceWriter,
@@ -15,6 +15,17 @@ use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::cell::RefCell;
 use std::sync::{Arc, LazyLock};
+
+impl From<TemplateMacro> for MacroDef {
+    fn from(template: TemplateMacro) -> Self {
+        MacroDef::new(
+            template.name,
+            template.signature,
+            MacroKind::Template(template.body),
+            template.expansion_analysis,
+        )
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MacroDef {
@@ -92,6 +103,16 @@ impl MacroDef {
     }
     pub fn kind(&self) -> &MacroKind {
         &self.kind
+    }
+
+    pub fn require_template(&self) -> TemplateMacroRef<'_> {
+        if let MacroKind::Template(body) = &self.kind() {
+            return TemplateMacroRef::new(&self, body);
+        }
+        unreachable!(
+            "caller required a template macro but found {:?}",
+            self.kind()
+        )
     }
 
     pub fn expansion_analysis(&self) -> ExpansionAnalysis {
@@ -390,7 +411,7 @@ impl<'top> MacroRef<'top> {
     }
 }
 
-/// A handle to a macro table entry.
+/// An owned handle to a macro table entry.
 /// If the encoding context changes after this handle is created, it may be invalidated.
 /// In this case, creating an e-expression writer with this handle will produce an `Err`.
 #[allow(dead_code)]
@@ -399,11 +420,28 @@ pub struct Macro {
     definition: Arc<MacroDef>,
     // The address at which the macro was stored.
     address: u32,
-    // The macro table version that was in effect when this `Macro` handle was created.
-    // When a macro is invoked by the user by passing a `&Macro`, we need to confirm that it's still
-    // at the same location it used to be at. If it isn't, we'll raise an error.
-    // TODO: Think this through, doc more
-    mactab_version: u32,
+    // TODO: For now, all macros live in the default module.
+}
+
+impl Macro {
+    pub fn new(definition: Arc<MacroDef>, address: u32) -> Self {
+        Self {
+            definition,
+            address,
+        }
+    }
+
+    pub fn address(&self) -> MacroAddress {
+        self.address as usize
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.definition.name()
+    }
+
+    pub fn signature(&self) -> &MacroSignature {
+        self.definition.signature()
+    }
 }
 
 /// Allows callers to resolve a macro ID (that is: name or address) to a [`MacroKind`], confirming
@@ -446,8 +484,11 @@ impl MacroTable {
         let template = |source: &str| {
             // Compile the given TDL source expression using the current context.
             let macro_ref = Arc::new(MacroDef::from_template_macro(
-                TemplateCompiler::compile_from_source(bootstrap_context.borrow().get_ref(), source)
-                    .unwrap(),
+                TemplateCompiler::compile_from_source(
+                    bootstrap_context.borrow().macro_table(),
+                    source,
+                )
+                .unwrap(),
             ));
             // Add the new macro to the context so 'downstream' macros can invoke it.
             bootstrap_context
@@ -785,6 +826,11 @@ impl MacroTable {
         self.macros_by_address.clear();
         self.append_all_macros_from(&ION_1_1_SYSTEM_MACROS).unwrap()
     }
+
+    pub(crate) fn macros_tail(&self, num_tail_macros: usize) -> &[Arc<MacroDef>] {
+        let num_macros = self.macros_by_address.len();
+        &self.macros_by_address[num_macros - num_tail_macros..]
+    }
 }
 
 #[cfg(all(test, feature = "experimental-ion-1-1"))]
@@ -802,7 +848,7 @@ mod tests {
         // Compile the source to a `TemplateMacro`.
         let context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let compiled_template =
-            TemplateCompiler::compile_from_source(context.get_ref(), macro_source)?;
+            TemplateCompiler::compile_from_source(context.macro_table(), macro_source)?;
         let compiled_macro = MacroDef::from_template_macro(compiled_template.clone());
         let template_ref = TemplateMacroRef::new(&compiled_macro, compiled_template.body());
         // Serialize the template macro to text, then read it back.

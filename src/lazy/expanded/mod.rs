@@ -38,7 +38,6 @@ use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
@@ -48,7 +47,7 @@ use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
-use crate::lazy::expanded::macro_table::{MacroDef, MacroTable, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::macro_table::{MacroDef, MacroTable};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
@@ -238,7 +237,7 @@ impl EncodingContext {
     // TODO: These methods are temporary; they will be removed once shared modules are supported.
     pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         let template_macro: TemplateMacro =
-            TemplateCompiler::compile_from_source(self.get_ref(), template_definition)?;
+            TemplateCompiler::compile_from_source(self.macro_table(), template_definition)?;
         self.register_template(template_macro)
     }
 
@@ -276,18 +275,6 @@ impl<'top> EncodingContextRef<'top> {
 
     pub fn macro_table(&self) -> &'top MacroTable {
         &self.context.macro_table
-    }
-
-    pub(crate) fn none_macro(&self) -> Arc<MacroDef> {
-        ION_1_1_SYSTEM_MACROS
-            .clone_macro_with_name("none")
-            .expect("`none` macro in system macro table")
-    }
-
-    pub(crate) fn values_macro(&self) -> Arc<MacroDef> {
-        ION_1_1_SYSTEM_MACROS
-            .clone_macro_with_name("values")
-            .expect("`values` macro in system macro table")
     }
 }
 
@@ -386,7 +373,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 
     fn compile_template(&self, template_definition: &str) -> IonResult<TemplateMacro> {
-        TemplateCompiler::compile_from_source(self.context(), template_definition)
+        TemplateCompiler::compile_from_source(self.context().macro_table(), template_definition)
     }
 
     fn add_macro(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
