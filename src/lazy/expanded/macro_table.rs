@@ -1,10 +1,15 @@
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::template::{
-    MacroSignature, TemplateBody, TemplateMacro, TemplateMacroRef,
+    MacroSignature, ParameterCardinality, ParameterEncoding, TemplateBody, TemplateElement,
+    TemplateMacro, TemplateMacroRef, TemplateValue,
 };
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::result::IonFailure;
-use crate::{EncodingContext, IonResult, IonType, IonVersion, TemplateCompiler};
+use crate::{
+    AnnotatableWriter, EncodingContext, IonResult, IonType, IonVersion, SequenceWriter,
+    StructWriter, SymbolRef, TemplateBodyExpr, TemplateBodyExprKind, TemplateCompiler, ValueWriter,
+    WriteAsIon,
+};
 use compact_str::CompactString;
 use delegate::delegate;
 use rustc_hash::{FxBuildHasher, FxHashMap};
@@ -103,6 +108,219 @@ impl MacroDef {
     }
 }
 
+impl WriteAsIon for TemplateMacroRef<'_> {
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        let mut outer_sexp = writer.sexp_writer()?;
+        outer_sexp.write_symbol("macro")?;
+        if let Some(name) = &self.name {
+            outer_sexp.write_symbol(name.as_str())?;
+        }
+        // If there isn't a name, it's an anonymous macro. Move on to writing the signature.
+        write_macro_signature_as_ion(outer_sexp.value_writer(), self.signature())?;
+        let body = self.body();
+        // The first expression on the compiled 'tape' version of the body contains all of the subexpressions.
+        let root_expr = body.expressions().first().expect("empty body");
+        debug_assert!(root_expr.expr_range().len() == body.expressions.len());
+        write_body_expr_as_ion(outer_sexp.value_writer(), *self, root_expr)?;
+        outer_sexp.close()
+    }
+}
+
+fn write_macro_signature_as_ion<V: ValueWriter>(
+    value_writer: V,
+    macro_signature: &MacroSignature,
+) -> IonResult<()> {
+    let mut signature = value_writer.sexp_writer()?;
+    for param in macro_signature.parameters() {
+        let value_writer = signature.value_writer();
+        match param.encoding() {
+            ParameterEncoding::Tagged => value_writer.write_symbol(param.name())?,
+            ParameterEncoding::FlexUInt => value_writer
+                .with_annotations("flex_uint")?
+                .write_symbol(param.name())?,
+            ParameterEncoding::MacroShaped(_) => todo!(),
+        };
+        let cardinality_modifier = match param.cardinality() {
+            ParameterCardinality::ExactlyOne => None,
+            ParameterCardinality::ZeroOrOne => Some("?"),
+            ParameterCardinality::ZeroOrMore => Some("*"),
+            ParameterCardinality::OneOrMore => Some("+"),
+        };
+        if let Some(modifier) = cardinality_modifier {
+            signature.write_symbol(modifier)?;
+        }
+    }
+    signature.close()
+}
+
+fn write_body_expr_as_ion<V: ValueWriter>(
+    value_writer: V,
+    template_macro: TemplateMacroRef<'_>,
+    body_expr: &TemplateBodyExpr,
+) -> IonResult<()> {
+    use TemplateBodyExprKind::*;
+    let expr_range = body_expr.expr_range();
+    match body_expr.kind() {
+        Element(body_element) => {
+            let element = TemplateElement::new(template_macro, body_element, expr_range);
+            write_template_element_as_ion(value_writer, element)
+        }
+        Variable(variable) => {
+            let mut sexp_writer = value_writer.sexp_writer()?;
+            let parameter = &template_macro.signature().parameters()[variable.signature_index()];
+            sexp_writer
+                .write_symbol("%")?
+                .write_symbol(parameter.name())?;
+            sexp_writer.close()
+        }
+        MacroInvocation(invocation_expr) => {
+            let mut sexp_writer = value_writer.sexp_writer()?;
+            let Some(macro_name) = &invocation_expr.invoked_macro.name else {
+                // TODO: When compiling the macro, store the address of the macro invocation in the
+                //       TemplateBodyMacroInvocation along with the Arc<MacroDef>. If the macro is
+                //       anonymous, we can use the address instead.
+                todo!("serializing invocations of anonymous macros")
+            };
+            sexp_writer
+                .write_symbol(".")?
+                .write_symbol(macro_name.as_str())?;
+
+            // All of the expressions after the first one are arguments to the invocation.
+            let macro_args_start = expr_range.start() + 1;
+            let num_arg_exprs = expr_range.len() - 1;
+            let macro_args_end = macro_args_start + num_arg_exprs;
+            let arg_exprs = &template_macro.body().expressions()[macro_args_start..macro_args_end];
+
+            let mut arg_expr_index: usize = 0;
+            while arg_expr_index < num_arg_exprs {
+                let arg_expr = arg_exprs.get(arg_expr_index).unwrap_or_else(|| {
+                    panic!(
+                        "arg expr index {arg_expr_index} out of bounds, arg_exprs.len()={}",
+                        arg_exprs.len()
+                    )
+                });
+                // If this is an expression group...
+                if matches!(arg_expr.kind(), ExprGroup(_))
+                    // ...and it contains all of the remaining expressions...
+                    && arg_expr.expr_range().end() >= macro_args_end
+                {
+                    // ...then we can write all of the expressions inline, taking advantage of rest syntax.
+                    let nested_exprs = &arg_exprs[1..];
+                    write_sequence_contents(&mut sexp_writer, template_macro, nested_exprs)?;
+                    arg_expr_index += arg_expr.num_expressions();
+                    continue;
+                }
+                write_body_expr_as_ion(sexp_writer.value_writer(), template_macro, arg_expr)?;
+                arg_expr_index += arg_expr.num_expressions();
+            }
+            sexp_writer.close()
+        }
+        ExprGroup(_parameter) => {
+            let nested_exprs_start = expr_range.start() + 1;
+            let group_end = expr_range.end();
+            let expressions = &template_macro.body().expressions()[nested_exprs_start..group_end];
+            let mut sexp_writer = value_writer.sexp_writer()?;
+            sexp_writer.write_symbol("..")?;
+            write_sequence_contents(&mut sexp_writer, template_macro, expressions)?;
+            sexp_writer.close()
+        }
+    }
+}
+
+fn write_template_element_as_ion<V: ValueWriter>(
+    value_writer: V,
+    element: TemplateElement<'_>,
+) -> IonResult<()> {
+    let annotations = element.annotations();
+    use TemplateValue::*;
+    let value_writer = value_writer.with_annotations(annotations)?;
+    match element.value() {
+        Null(ion_type) => value_writer.write_null(*ion_type),
+        Bool(b) => value_writer.write_bool(*b),
+        Int(i) => value_writer.write_int(i),
+        Float(f) => value_writer.write_f64(*f),
+        Decimal(d) => value_writer.write_decimal(d),
+        Timestamp(t) => value_writer.write_timestamp(t),
+        Symbol(s) => value_writer.write_symbol(s),
+        String(s) => value_writer.write_string(s),
+        Clob(c) => value_writer.write_clob(c),
+        Blob(b) => value_writer.write_blob(b),
+        List => write_template_sequence_element(
+            value_writer.list_writer()?,
+            element.template(),
+            element.nested_expressions(),
+        ),
+        SExp => write_template_sequence_element(
+            value_writer.sexp_writer()?,
+            element.template(),
+            element.nested_expressions(),
+        ),
+        Struct(_field_index) => write_template_struct_element(element, value_writer),
+    }
+}
+
+fn write_template_sequence_element<S: SequenceWriter>(
+    mut sequence: S,
+    template_macro: TemplateMacroRef<'_>,
+    expressions: &[TemplateBodyExpr],
+) -> IonResult<S::Resources> {
+    write_sequence_contents(&mut sequence, template_macro, expressions)?;
+    sequence.close()
+}
+
+fn write_sequence_contents<S: SequenceWriter>(
+    parent_writer: &mut S,
+    template_macro: TemplateMacroRef<'_>,
+    expressions: &[TemplateBodyExpr],
+) -> IonResult<()> {
+    let mut expr_index: usize = 0;
+    while expr_index < expressions.len() {
+        let expression = expressions
+            .get(expr_index)
+            .expect("expr group expr out of bounds");
+        write_body_expr_as_ion(parent_writer.value_writer(), template_macro, expression)?;
+        expr_index += expression.num_expressions();
+    }
+    Ok(())
+}
+
+fn write_template_struct_element<V: ValueWriter>(
+    element: TemplateElement<'_>,
+    value_writer: V,
+) -> IonResult<()> {
+    let mut struct_writer = value_writer.struct_writer()?;
+    let mut expr_index: usize = 0;
+    let nested_expressions = element.nested_expressions();
+    while expr_index < nested_expressions.len() {
+        let name_element = nested_expressions
+            .get(expr_index)
+            .expect("out of bounds")
+            .kind()
+            // In a template, struct field names are always literals.
+            .require_element();
+        let name: SymbolRef<'_> = match &name_element.value {
+            TemplateValue::Symbol(s) => s.into(),
+            TemplateValue::String(s) => s.text().into(),
+            _ => unreachable!("template struct field had a non-text field name"),
+        };
+        let value_expr_address = expr_index + 1;
+        let value_expr = nested_expressions
+            .get(value_expr_address)
+            .expect("template struct had field name with no value");
+
+        write_body_expr_as_ion(
+            struct_writer.field_writer(name),
+            element.template(),
+            value_expr,
+        )?;
+
+        // Move beyond the current value expression.
+        expr_index = value_expr_address + value_expr.num_expressions();
+    }
+
+    struct_writer.close()
+}
+
 /// The kinds of macros supported by
 /// [`MacroEvaluator`](crate::MacroEvaluator)
 /// This list parallels
@@ -127,6 +345,7 @@ pub enum MacroKind {
     ToDo,
 }
 
+/// A Macro reference that is guaranteed to be valid for its lifespan.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MacroRef<'top> {
     id: MacroIdRef<'top>,
@@ -169,6 +388,22 @@ impl<'top> MacroRef<'top> {
             pub fn must_produce_exactly_one_value(&self) -> bool;
         }
     }
+}
+
+/// A handle to a macro table entry.
+/// If the encoding context changes after this handle is created, it may be invalidated.
+/// In this case, creating an e-expression writer with this handle will produce an `Err`.
+#[allow(dead_code)]
+pub struct Macro {
+    // The compiled definition of the macro.
+    definition: Arc<MacroDef>,
+    // The address at which the macro was stored.
+    address: u32,
+    // The macro table version that was in effect when this `Macro` handle was created.
+    // When a macro is invoked by the user by passing a `&Macro`, we need to confirm that it's still
+    // at the same location it used to be at. If it isn't, we'll raise an error.
+    // TODO: Think this through, doc more
+    mactab_version: u32,
 }
 
 /// Allows callers to resolve a macro ID (that is: name or address) to a [`MacroKind`], confirming
@@ -549,5 +784,64 @@ impl MacroTable {
         self.macros_by_name.clear();
         self.macros_by_address.clear();
         self.append_all_macros_from(&ION_1_1_SYSTEM_MACROS).unwrap()
+    }
+}
+
+#[cfg(all(test, feature = "experimental-ion-1-1"))]
+mod tests {
+    use crate::lazy::expanded::template::TemplateMacroRef;
+    use crate::{
+        v1_1, Element, EncodingContext, IonResult, IonVersion, MacroDef, TemplateCompiler,
+        WriteAsIon,
+    };
+    use rstest::rstest;
+
+    fn serialization_test(macro_source: &str) -> IonResult<()> {
+        // Read the macro source directly to get the expected Ion.
+        let expected = Element::read_one(macro_source)?;
+        // Compile the source to a `TemplateMacro`.
+        let context = EncodingContext::for_ion_version(IonVersion::v1_1);
+        let compiled_template =
+            TemplateCompiler::compile_from_source(context.get_ref(), macro_source)?;
+        let compiled_macro = MacroDef::from_template_macro(compiled_template.clone());
+        let template_ref = TemplateMacroRef::new(&compiled_macro, compiled_template.body());
+        // Serialize the template macro to text, then read it back.
+        let encoded_text = template_ref.encode_as(v1_1::Text)?;
+        let actual = Element::read_one(&encoded_text)?;
+        println!("{encoded_text}");
+        // Confirm the round-tripped Element is Ion-equal to the expected one.
+        assert_eq!(
+            actual, expected,
+            "actual\n{actual:?}\nwas not equal to expected\n{expected:?}"
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    // No params, scalar body
+    #[case::constant_bool(r#" (macro True () true) "#)]
+    #[case::constant_str(r#" (macro pi () 3.141592654) "#)]
+    #[case::constant_timestamp(r#" (macro today () 2025-03-06T) "#)]
+    // No params, container body
+    #[case::constant_list(r#" (macro list () [1, 2, 3]) "#)]
+    #[case::constant_sexp(r#" (macro sexp () (1 2 3)) "#)]
+    #[case::constant_struct(r#" (macro strukt () {a: 1, b: 2, c: 3}) "#)]
+    // No params, macro invocation body
+    #[case::constant_values(r#" (macro abc123 () (.values a b c 1 2 3))"#)]
+    // One param, includes variable reference
+    #[case::identity(r#" (macro identity (x) (%x)) "#)]
+    // Multiple params, includes macro invocation and variable references.
+    #[case::identitwo(r#" (macro identitwo (x y) (.values (%x) (%y))) "#)]
+    #[case::identithree(r#" (macro identithree (x y z) (.values (%x) (.values (%y) (%z)))) "#)]
+    // Variadic params
+    #[case::zero_or_one(r#" (macro foo (x y?) {x: (%x), y: (%y)}) "#)]
+    #[case::zero_or_more(r#" (macro foo (x y*) {x: (%x), y: (%y)}) "#)]
+    #[case::one_or_more(r#" (macro foo (x y+) {x: (%x), y: (%y)}) "#)]
+    #[case::assorted(r#" (macro foo (w x? y* z+) {w: (%w), x: (%x), y: (%y), z: (%z)}) "#)]
+    // Tagless encoding
+    #[case::flex_uint(r#" (macro foo (flex_uint::x) (%x))"#)]
+    #[case::flex_uint(r#" (macro foo (flex_uint::x* flex_uint::y+ flex_uint::z?) (%x))"#)]
+    fn serialize_template_macro(#[case] macro_source: &str) -> IonResult<()> {
+        serialization_test(macro_source)
     }
 }

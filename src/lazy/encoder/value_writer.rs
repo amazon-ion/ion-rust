@@ -48,9 +48,14 @@ pub trait ContextWriter {
 
 pub trait EExpWriter: SequenceWriter {
     // TODO: more methods for writing tagless encodings
+    type ExprGroupWriter<'group>
+    where
+        Self: 'group;
     fn write_flex_uint(&mut self, _value: impl Into<UInt>) -> IonResult<()> {
         todo!("current only implemented for binary 1.1 to enable unit testing for the reader")
     }
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>>;
 }
 
 pub trait AnnotatableWriter {

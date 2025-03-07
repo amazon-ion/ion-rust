@@ -156,16 +156,16 @@ impl<W: Write> Sealed for TextValueWriter_1_0<'_, W> {}
 /// and struct writer.
 pub(crate) struct TextContainerWriter_1_0<'a, W: Write> {
     // Holds a reference to the output stream and a whitespace config
-    writer: &'a mut LazyRawTextWriter_1_0<W>,
+    pub(crate) writer: &'a mut LazyRawTextWriter_1_0<W>,
     // The depth at which this container's child values appear. This value is used for formatting
     // indentation where applicable.
-    depth: usize,
+    pub(crate) depth: usize,
     // Tracks whether the `end()` method was called (thereby emitting a closing delimiter) before
     // this value was dropped. This scenario is a contract violation and results in a panic.
     has_been_closed: bool,
     // The Ion type of the container using this TextContainerWriter_1_0. This value is only
     // used for more informative error messages.
-    container_type: ContainerType,
+    pub(crate) container_type: ContainerType,
     value_delimiter: &'static str,
     trailing_delimiter: &'static str,
 }

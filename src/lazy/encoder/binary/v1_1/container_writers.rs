@@ -7,6 +7,7 @@ use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::never::Never;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{v1_1, ContextWriter, Encoding, IonResult, UInt};
 
@@ -447,8 +448,18 @@ impl SequenceWriter for BinaryEExpWriter_1_1<'_, '_> {
 }
 
 impl EExpWriter for BinaryEExpWriter_1_1<'_, '_> {
+    // TODO: Using text group writer as placeholder impl
+    type ExprGroupWriter<'group>
+        = Never
+    where
+        Self: 'group;
+
     fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
         FlexUInt::write(self.buffer, value)?;
         Ok(())
+    }
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        todo!("binary expr group serialization")
     }
 }

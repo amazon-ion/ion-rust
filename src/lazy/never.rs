@@ -76,7 +76,16 @@ impl MakeValueWriter for Never {
     }
 }
 
-impl EExpWriter for Never {}
+impl EExpWriter for Never {
+    type ExprGroupWriter<'group>
+        = Never
+    where
+        Self: 'group;
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        todo!()
+    }
+}
 
 impl AnnotatableWriter for Never {
     type AnnotatedValueWriter<'a>

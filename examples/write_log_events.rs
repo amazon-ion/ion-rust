@@ -7,10 +7,14 @@ use ion_rs::*;
 
 fn main() -> IonResult<()> {
     #[cfg(not(feature = "experimental"))]
-    panic!("This example requires the 'experimental' feature to work.");
+    {
+        println!("This example requires the 'experimental' feature to work. Rebuild it with the flag `--features experimental`.");
+    }
 
     #[cfg(feature = "experimental")]
-    example::write_log_events()
+    example::write_log_events()?;
+
+    Ok(())
 }
 
 #[cfg(feature = "experimental")]
@@ -67,6 +71,7 @@ mod example {
         // Encode the log events as Ion 1.1 data
         let buf_writer = BufWriter::new(ion_1_1_file.as_file());
         let mut ion_writer = v1_1::RawBinaryWriter::new(buf_writer)?;
+
         for event in &events {
             ion_writer.write(SerializeWithMacros(event))?;
         }
@@ -78,6 +83,7 @@ mod example {
             .metadata()
             .expect("failed to read Ion 1.0 file length")
             .len();
+
         let size_in_1_1 = ion_1_1_file
             .as_file()
             .metadata()

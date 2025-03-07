@@ -657,8 +657,9 @@ impl Debug for TemplateBodyExpr {
             TemplateBodyExprKind::Element(e) => write!(f, "{e:?}"),
             TemplateBodyExprKind::Variable(v) => write!(f, "{v:?}"),
             TemplateBodyExprKind::MacroInvocation(i) => write!(f, "{i:?}"),
-            TemplateBodyExprKind::ExprGroup(g) => write!(f, "{g:?}")
-        }
+            TemplateBodyExprKind::ExprGroup(g) => write!(f, "expr_group(param={:?})", g.name()),
+        }?;
+        write!(f, ", expr_range={:?}", self.expr_range)
     }
 }
 

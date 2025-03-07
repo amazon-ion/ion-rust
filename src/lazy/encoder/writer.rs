@@ -20,13 +20,16 @@ use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
+use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::never::Never;
 use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    ContextWriter, Decimal, Element, ElementWriter, Int, IonResult, IonType, IonVersion,
-    MacroTable, RawSymbolRef, Symbol, SymbolTable, Timestamp, UInt, Value,
+    AnyEncoding, ContextWriter, Decimal, Decoder, Element, ElementWriter, Int, IonError, IonInput,
+    IonResult, IonType, IonVersion, LazySExp, MacroTable, RawSymbolRef, Reader, Symbol,
+    SymbolTable, TemplateMacro, Timestamp, UInt, Value,
 };
 
 pub(crate) struct WriterContext {
@@ -35,6 +38,10 @@ pub(crate) struct WriterContext {
     #[allow(dead_code)]
     macro_table: MacroTable,
     num_pending_symbols: usize,
+    num_pending_macros: usize,
+    // Each time the encoding context is modified, this value will be bumped.
+    // This allows Macro handles to determine if they may have been invalidated.
+    version: u32,
 }
 
 impl WriterContext {
@@ -43,6 +50,8 @@ impl WriterContext {
             symbol_table,
             macro_table,
             num_pending_symbols: 0,
+            num_pending_macros: 0,
+            version: 0,
         }
     }
 }
@@ -92,6 +101,22 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(writer)
     }
 
+    pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<TemplateMacro> {
+        let mut reader = Reader::new(AnyEncoding, source)?;
+        let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
+
+        // Self::compile_from_sexp(context, &MacroTable::empty(), macro_def_sexp)
+        todo!()
+    }
+
+    fn compile_from_sexp<'a: 'b, 'b, Encoding: Decoder>(
+        context: EncodingContextRef<'a>,
+        pending_macros: &'b MacroTable,
+        macro_def_sexp: LazySExp<'a, Encoding>,
+    ) -> Result<TemplateMacro, IonError> {
+        todo!()
+    }
+
     pub fn output(&self) -> &Output {
         &self.output
     }
@@ -115,6 +140,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
                 IonVersion::v1_1 => self.write_append_symbols_directive()?,
             }
             self.context.num_pending_symbols = 0;
+            self.context.version += 1;
         }
 
         self.directive_writer.flush()?;
@@ -800,9 +826,19 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
 }
 
 impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
+    // TODO: This is a placeholder impl.
+    type ExprGroupWriter<'group>
+        = Never
+    where
+        Self: 'group;
+
     // Default methods
     fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
         self.raw_eexp_writer.write_flex_uint(value)
+    }
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        todo!("application expr group writer")
     }
 }
 
@@ -1085,5 +1121,36 @@ mod tests {
                 (RawSymbolRef::Text("name"), &[0x09]), // FlexSym 4, SID $4,
             ],
         )
+    }
+
+    #[test]
+    fn encoding_context_versions() -> IonResult<()> {
+        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+        assert_eq!(writer.context.version, 0);
+        let mut struct_writer = writer
+            .value_writer()
+            .struct_writer()?
+            .with_field_name_encoding(FieldNameEncoding::SymbolIds);
+        struct_writer.write("foo", 0)?;
+        struct_writer.close()?;
+        writer.flush()?;
+        // We added a symbol, new version.
+        assert_eq!(writer.context.version, 1);
+        writer.write(1)?.write(2)?.write(3)?;
+        writer.flush()?;
+        // No change.
+        assert_eq!(writer.context.version, 1);
+        writer.write([true, false])?;
+        writer.flush()?;
+        // No change.
+        assert_eq!(writer.context.version, 1);
+        writer
+            .value_writer()
+            .with_symbol_value_encoding(SymbolValueEncoding::SymbolIds)
+            .write_symbol("Mercury")?;
+        writer.flush()?;
+        // New symbol, new version.
+        assert_eq!(writer.context.version, 2);
+        Ok(())
     }
 }

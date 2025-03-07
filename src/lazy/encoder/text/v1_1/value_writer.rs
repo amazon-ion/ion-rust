@@ -15,6 +15,7 @@ use crate::types::{ContainerType, ParentType};
 use crate::{
     v1_1, ContextWriter, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWriterConfig,
 };
+use compact_str::format_compact;
 use delegate::delegate;
 use std::io::Write;
 
@@ -90,10 +91,10 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
     fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
         let id = macro_id.into();
         let opening_text = match id {
-            MacroIdRef::LocalName(name) => format!("(:{} ", name),
-            MacroIdRef::LocalAddress(address) => format!("(:{} ", address),
+            MacroIdRef::LocalName(name) => format_compact!("(:{} ", name),
+            MacroIdRef::LocalAddress(address) => format_compact!("(:{} ", address),
             MacroIdRef::SystemAddress(system_address) => {
-                format!("(:$ion::{} ", system_address.as_usize())
+                format_compact!("(:$ion::{} ", system_address.as_usize())
             }
         };
         TextEExpWriter_1_1::new(
@@ -102,7 +103,6 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
             self.value_writer_1_0.parent_type,
             // Pretend we're in a sexp for syntax purposes
             ContainerType::SExp,
-            // TODO: Reusable buffer
             opening_text.as_str(),
             " ",
             match self.value_writer_1_0.parent_type {
@@ -319,6 +319,68 @@ impl<'value, W: Write + 'value> MakeValueWriter for TextEExpWriter_1_1<'value, W
     }
 }
 
-impl<'value, W: Write + 'value> EExpWriter for TextEExpWriter_1_1<'value, W> {
+impl<'eexp, W: Write + 'eexp> EExpWriter for TextEExpWriter_1_1<'eexp, W> {
+    type ExprGroupWriter<'group>
+        = TextExprGroupWriter<'group, W>
+    where
+        Self: 'group;
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        TextExprGroupWriter::new(
+            self.container_writer.writer,
+            self.container_writer.depth,
+            self.container_writer.container_type.into(),
+            " ",
+        )
+    }
     // Default SequenceWriter methods
+}
+
+pub struct TextExprGroupWriter<'group, W: Write> {
+    // There is no expr group writer in 1.0 to which we can delegate,
+    // but we can re-use the TextContainerWriter_1_0 for a lot of the formatting.
+    container_writer: TextContainerWriter_1_0<'group, W>,
+}
+
+impl<'group, W: Write> TextExprGroupWriter<'group, W> {
+    pub(crate) fn new(
+        writer: &'group mut LazyRawTextWriter_1_0<W>,
+        depth: usize,
+        parent_type: ParentType,
+        trailing_delimiter: &'static str,
+    ) -> IonResult<Self> {
+        let container_writer = TextContainerWriter_1_0::new(
+            writer,
+            depth,
+            parent_type,
+            ContainerType::SExp,
+            "(::",
+            " ",
+            trailing_delimiter,
+        )?;
+        Ok(Self { container_writer })
+    }
+}
+
+impl<'group, W: Write> MakeValueWriter for TextExprGroupWriter<'group, W> {
+    fn make_value_writer(&mut self) -> <Self as ContextWriter>::NestedValueWriter<'_> {
+        TextValueWriter_1_1 {
+            value_writer_1_0: self.container_writer.value_writer(),
+        }
+    }
+}
+
+impl<'group, W: Write> SequenceWriter for TextExprGroupWriter<'group, W> {
+    type Resources = ();
+
+    fn close(self) -> IonResult<Self::Resources> {
+        self.container_writer.close(")")
+    }
+}
+
+impl<'group, W: Write> ContextWriter for TextExprGroupWriter<'group, W> {
+    type NestedValueWriter<'a>
+        = TextValueWriter_1_1<'a, W>
+    where
+        Self: 'a;
 }
