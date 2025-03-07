@@ -47,23 +47,39 @@ mod ion_tests {
         skip!("ion-tests/conformance/data_model/float.ion",
             "Ion 1.1 binary" // PANIC: not yet implemented: implement half-precision floats
         ),
-        // e-expression transcription
+        // Mismatched produces due to symbol id transcription.
+        skip!("ion-tests/conformance/core/toplevel_produces.ion"),
+        // Unrecognized encoding 'int8'
         skip!("ion-tests/conformance/demos/metaprogramming.ion"),
+        // error: flatten only accepts sequences
         skip!("ion-tests/conformance/eexp/arg_inlining.ion"),
+        // Out dated macro invocation in TDL syntax
         skip!("ion-tests/conformance/eexp/basic_system_macros.ion"),
+        // Mismatched produces, due to out-of-date encoding block
         skip!("ion-tests/conformance/ion_encoding/mactab.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion"),
+        skip!("ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion",
+            "? parameters", // Parameter used incorrectly in tdl.
+            "* parameters"  // Parameter used incorrectly in tdl.
+        ),
+        // Incorrectly constructed macro table.
         skip!("ion-tests/conformance/ion_encoding/module/macro/template/literal_form.ion"),
+        // Incorrectly used parameters in TDL.
         skip!("ion-tests/conformance/ion_encoding/module/macro/template/quasiliteral.ion"),
+        // Incorrectly used parameters in TDL.
         skip!("ion-tests/conformance/ion_encoding/module/macro/template/variable_reference.ion"),
+        // Incorrectly used parameters in TDL
         skip!("ion-tests/conformance/ion_encoding/module/macro/template/if.ion"),
+        // Incorrectly constructed macro table / module.
         skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/literal_value.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_ee.ion"),
-        // Error: Mismatched denotes
+        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_ee.ion",
+            "Invocation by address" // Cannot find macro with id "M"; invalid macro invocation
+                                    // syntax.
+        ),
+        // Error: Unrecognized encoding (of various forms: flex_sym, uint8, uint16, uint32, etc)
         skip!("ion-tests/conformance/eexp/binary/tagless_types.ion"),
-        // Error: Unexpected EOF
+        // Error: Unexpected EOF and unrecognized encodings.
         skip!("ion-tests/conformance/eexp/binary/argument_encoding.ion"),
-        // Error: Mismatched Produce
+        // Error: Mismatched Produces; incorrect symbol table creation.
         skip!("ion-tests/conformance/ion_encoding/symtab.ion"),
         skip!("ion-tests/conformance/ion_encoding/load_symtab.ion"),
         skip!("ion-tests/conformance/ion_encoding/trivial_forms.ion"),
@@ -107,6 +123,10 @@ mod ion_tests {
         skip!("ion-tests/conformance/system_macros/sum.ion"),
         // System macro make_timestamp not yet implemented
         skip!("ion-tests/conformance/system_macros/make_timestamp.ion"),
+        // Annot clause not currently supported.
+        skip!("ion-tests/conformance/system_macros/annotate.ion"),
+        // error reading struct: `make_field`'s first argument must be a text value
+        skip!("ion-tests/conformance/system_macros/make_field.ion"),
         // Expected Signal: invalid macro definition
         skip!("ion-tests/conformance/tdl/expression_groups.ion"),
         // Mismatched encodings for nested contexts.
