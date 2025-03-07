@@ -53,6 +53,7 @@ pub(crate) enum ConformanceErrorKind {
     MismatchedDenotes,
     UnexpectedValue,
     UnknownVersion,
+    UnexpectedContinuation,
 }
 
 impl From<std::io::Error> for ConformanceErrorKind {
@@ -153,6 +154,7 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
     // let clause: Clause = Clause::try_from(seq)?;
     let mut doc_like = T::default();
     let mut sequence_idx = 0;
+    let mut continuation = continuation::Continuation::None;
 
     // We have an optional name as the second argument..
     if let Some(elem) = clause.body.first().filter(|e| e.ion_type() == IonType::String) {
@@ -186,12 +188,35 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
             let Some(seq) = element.as_sequence() else {
                 return Err(ConformanceErrorKind::ExpectedClause)
             };
-            let clause: Clause = seq.clone().try_into().expect("unable to convert to clause");
-            match continuation::parse_continuation(clause) {
-                Ok(c) => doc_like.set_continuation(c),
+
+            let inner_clause: Clause = seq.clone().try_into().expect("unable to convert to clause");
+            match continuation::parse_continuation(inner_clause) {
+                Ok(c) => {
+                    use continuation::Continuation::*;
+                    continuation = match continuation {
+                        None => c,
+                        Each(..) | Then(..) => Extensions(vec!(continuation, c)),
+                        Extensions(ref mut exts) => {
+                            exts.push(c.clone());
+                            continuation
+                        }
+                        _ => {
+                            // We cannot mix continuations and extensions
+                            return Err(ConformanceErrorKind::UnexpectedContinuation);
+                        }
+                    };
+
+                    // If we have a continuation already, we need to extend it to Extensions.
+                    let expect_more = continuation.is_extension() && (sequence_idx + 1) < clause.body.len();
+                    if !expect_more {
+                        doc_like.set_continuation(continuation);
+                        break;
+                    }
+
+                    sequence_idx += 1;
+                }
                 Err(e) => return Err(e),
             }
-            break;
         }
     }
     Ok(doc_like)
@@ -484,6 +509,26 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
                 .run()
                 .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
+        }
+    }
+
+    #[test]
+    fn test_then_clauses() {
+        let test =
+            r#"(ion_1_1 (mactab (macro foo () bar))
+                 (then (text "(:foo)")
+                       (produces bar))
+                 (then (text "(:foo)")
+                       (produces halb))
+               )
+            "#;
+        println!("Testing: {}", test);
+        let doc = Document::from_str(test)
+            .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e));
+        println!("Document: {:?}", doc);
+        match doc.run() {
+            Err(_) => (),
+            Ok(_) => panic!("Unexpected successful test evaluation"),
         }
     }
 }
