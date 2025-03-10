@@ -83,7 +83,9 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
     fn new(context: EncodingContextRef<'data>, data: &'data [u8], is_final_data: bool) -> Self {
         Self::resume(
             context,
-            RawReaderState::new(data, 0, is_final_data, IonEncoding::Binary_1_1),
+            RawReaderState::new(data, 0,         #[cfg(feature = "source-location")]
+            0,         #[cfg(feature = "source-location")]
+            0, is_final_data, IonEncoding::Binary_1_1),
         )
     }
 
@@ -95,6 +97,10 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
         RawReaderState::new(
             self.input.bytes(),
             self.position(),
+            #[cfg(feature = "source-location")]
+            0,
+            #[cfg(feature = "source-location")]
+            0,
             // The binary reader doesn't care about `is_final`, so we just use `false`.
             false,
             self.encoding(),
@@ -107,6 +113,16 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_1> for LazyRawBinaryReader_1_1
 
     fn position(&self) -> usize {
         self.input.offset()
+    }
+
+    #[cfg(feature = "source-location")]
+    fn row(&self) -> usize {
+        0
+    }
+
+    #[cfg(feature = "source-location")]
+    fn prev_newline_offset(&self) -> usize {
+        0
     }
 
     fn encoding(&self) -> IonEncoding {

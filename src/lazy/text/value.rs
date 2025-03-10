@@ -73,6 +73,16 @@ impl<'top, Encoding: TextEncoding> LazyRawTextValue<'top, Encoding> {
         Span::with_offset(start, bytes)
     }
 
+    #[cfg(feature = "source-location")]
+    fn row(&self) -> usize {
+        self.input.row()
+    }
+
+    #[cfg(feature = "source-location")]
+    fn column(&self) -> usize {
+        self.input.column()
+    }
+
     /// Returns the total number of bytes used to represent the current value, including its
     /// annotations (if any) and its value.
     pub fn total_length(&self) -> usize {
@@ -230,6 +240,11 @@ impl<'top, Encoding: TextEncoding> LazyRawValue<'top, Encoding>
             input: TextBuffer::from_span(self.input.context(), span, true),
             ..*self
         }
+    }
+
+    #[cfg(feature = "source-location")]
+    fn location(&self) -> (usize, usize) {
+        (self.row(), self.column())
     }
 }
 
