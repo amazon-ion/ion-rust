@@ -1,9 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
-use std::ops::Range;
-
 use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
@@ -22,9 +18,14 @@ use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
-use crate::{v1_1, Encoding, IonResult};
-
+use crate::result::IonFailure;
+use crate::{v1_1, Encoding, IonResult, MacroTable};
+use compact_str::CompactString;
+use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Range;
 use winnow::Parser;
+
 pub struct LazyRawTextReader_1_1<'data> {
     input: TextBuffer<'data>,
 }
@@ -165,12 +166,113 @@ pub(crate) mod system_macros {
     pub const USE: SystemMacroAddress = SystemMacroAddress(0x17);
 }
 
+pub struct ResolvedId<'a> {
+    name: Option<&'a str>,
+    address: MacroAddress,
+}
+
+impl<'a> ResolvedId<'a> {
+    pub fn new(name: Option<&'a str>, address: MacroAddress) -> Self {
+        Self { name, address }
+    }
+
+    pub fn name(&self) -> Option<&'a str> {
+        self.name
+    }
+
+    pub fn address(&self) -> MacroAddress {
+        self.address
+    }
+}
+
+/// Types that may be able to be resolved to a macro ID.
+/// This is used by the writer to accept user-specified types to an ID based on the current encoding context.
+pub trait MacroIdLike<'a>: Sized {
+    fn as_macro_id_ref(&self) -> MacroIdRef<'a>;
+
+    fn prefer_name(&self) -> MacroIdRef<'a> {
+        // By default, change nothing.
+        self.as_macro_id_ref()
+    }
+
+    fn prefer_address(&self) -> MacroIdRef<'a> {
+        // By default, change nothing.
+        self.as_macro_id_ref()
+    }
+
+    fn resolve(self, macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
+        use MacroIdRef::*;
+        let id = self.as_macro_id_ref();
+        match id {
+            LocalName(name) => {
+                if let Some(address) = macro_table.address_for_name(name) {
+                    return Ok(ResolvedId::new(Some(name), address));
+                };
+            }
+            LocalAddress(address) => {
+                if let Some(name) = macro_table
+                    .macro_at_address(address)
+                    .and_then(|macro_ref| macro_ref.name())
+                {
+                    return Ok(ResolvedId::new(Some(name), address));
+                }
+            }
+            SystemAddress(_system_address) => {
+                todo!("resolving qualified macro IDs")
+            }
+        };
+        IonResult::encoding_error(format!("could not find macro with ID {id:?}"))
+    }
+}
+
+impl<'a, T> MacroIdLike<'a> for T
+where
+    MacroIdRef<'a>: From<T>,
+    T: Copy,
+{
+    fn as_macro_id_ref(&self) -> MacroIdRef<'a> {
+        (*self).into()
+    }
+}
+
+impl<'a> MacroIdLike<'a> for ResolvedId<'a> {
+    fn as_macro_id_ref(&self) -> MacroIdRef<'a> {
+        self.prefer_name()
+    }
+
+    fn prefer_name(&self) -> MacroIdRef<'a> {
+        match self.name() {
+            Some(name) => MacroIdRef::LocalName(name),
+            None => MacroIdRef::LocalAddress(self.address()),
+        }
+    }
+
+    fn prefer_address(&self) -> MacroIdRef<'a> {
+        MacroIdRef::LocalAddress(self.address())
+    }
+
+    fn resolve(self, _macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
+        // ResolvedId is already resolved
+        Ok(self)
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MacroIdRef<'data> {
     LocalName(&'data str),
     LocalAddress(usize),
     SystemAddress(SystemMacroAddress),
     // TODO: Addresses and qualified names
+}
+
+impl<'top> MacroIdRef<'top> {
+    pub fn to_owned(&self) -> MacroId {
+        match self {
+            MacroIdRef::LocalName(name) => MacroId::LocalName(CompactString::from(*name)),
+            MacroIdRef::LocalAddress(address) => MacroId::LocalAddress(*address),
+            MacroIdRef::SystemAddress(address) => MacroId::SystemAddress(*address),
+        }
+    }
 }
 
 impl Display for MacroIdRef<'_> {
@@ -182,6 +284,12 @@ impl Display for MacroIdRef<'_> {
                 write!(f, "$ion::{}", address.as_usize())
             }
         }
+    }
+}
+
+impl From<u32> for MacroIdRef<'_> {
+    fn from(address: u32) -> Self {
+        MacroIdRef::LocalAddress(address as usize)
     }
 }
 
@@ -203,11 +311,52 @@ impl From<SystemMacroAddress> for MacroIdRef<'_> {
     }
 }
 
-impl<'a> From<&'a Macro> for MacroIdRef<'a> {
-    fn from(mac: &'a Macro) -> Self {
-        mac.name()
-            .map(MacroIdRef::LocalName)
-            .unwrap_or_else(move || MacroIdRef::LocalAddress(mac.address()))
+impl<'a> MacroIdLike<'a> for &'a Macro {
+    fn as_macro_id_ref(&self) -> MacroIdRef<'a> {
+        MacroIdRef::LocalAddress(self.address())
+    }
+
+    fn prefer_name(&self) -> MacroIdRef<'a> {
+        match self.name() {
+            Some(name) => MacroIdRef::LocalName(name),
+            None => MacroIdRef::LocalAddress(self.address()),
+        }
+    }
+
+    fn prefer_address(&self) -> MacroIdRef<'a> {
+        MacroIdRef::LocalAddress(self.address())
+    }
+
+    fn resolve(self, _macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
+        // TODO: Confirm that the macro at the saved address is the same one
+        Ok(ResolvedId::new(self.name(), self.address()))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum MacroId {
+    LocalName(CompactString),
+    LocalAddress(usize),
+    SystemAddress(SystemMacroAddress),
+    // TODO: Qualified names and addresses
+}
+
+impl MacroId {
+    pub fn as_ref(&self) -> MacroIdRef<'_> {
+        match self {
+            MacroId::LocalName(name) => MacroIdRef::LocalName(name.as_str()),
+            MacroId::LocalAddress(address) => MacroIdRef::LocalAddress(*address),
+            MacroId::SystemAddress(address) => MacroIdRef::SystemAddress(*address),
+        }
+    }
+}
+
+impl<'a, T> From<T> for MacroId
+where
+    T: Into<MacroIdRef<'a>>,
+{
+    fn from(value: T) -> Self {
+        value.into().to_owned()
     }
 }
 

@@ -8,7 +8,7 @@ use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter
 use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, SequenceWriter, StructWriter, ValueWriter,
 };
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::{ContainerType, ParentType};
@@ -88,8 +88,8 @@ impl<'value, W: Write + 'value> ValueWriter for TextValueWriter_1_1<'value, W> {
         })
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
-        let id = macro_id.into();
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
+        let id = macro_id.prefer_name();
         let opening_text = match id {
             MacroIdRef::LocalName(name) => format_compact!("(:{} ", name),
             MacroIdRef::LocalAddress(address) => format_compact!("(:{} ", address),
@@ -173,7 +173,7 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_1<'va
         })
     }
 
-    fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, _macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
         IonResult::encoding_error("e-expressions cannot have annotations")
     }
 }

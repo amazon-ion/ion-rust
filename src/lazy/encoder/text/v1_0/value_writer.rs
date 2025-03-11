@@ -1,3 +1,4 @@
+use crate::lazy::text::raw::v1_1::reader::MacroIdLike;
 use std::fmt::Formatter;
 use std::io::Write;
 
@@ -12,7 +13,6 @@ use crate::lazy::encoder::value_writer::{
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::never::Never;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
@@ -517,6 +517,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
 
     // Ion 1.0 does not support macros
     type EExpWriter = Never;
+
     fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
         use crate::IonType::*;
         self.write_indentation()?;
@@ -672,7 +673,7 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
             self.value_delimiter,
         )
     }
-    fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, _macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
         IonResult::encoding_error("macros are not supported in Ion 1.0")
     }
 }

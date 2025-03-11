@@ -401,7 +401,7 @@ impl<'top> MacroRef<'top> {
 
     delegate! {
         to self.reference {
-            pub fn name(&'top self) -> Option<&'top str>;
+            pub fn name(&self) -> Option<&'top str>;
             pub fn signature(self) -> &'top MacroSignature;
             pub fn kind(&self) -> &'top MacroKind;
             pub fn expansion_analysis(&self) -> ExpansionAnalysis;
@@ -415,16 +415,18 @@ impl<'top> MacroRef<'top> {
 /// If the encoding context changes after this handle is created, it may be invalidated.
 /// In this case, creating an e-expression writer with this handle will produce an `Err`.
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct Macro {
     // The compiled definition of the macro.
     definition: Arc<MacroDef>,
-    // The address at which the macro was stored.
-    address: u32,
+    // The address where the macro resides (if compiled) OR the ID that was used to look it up (if retrieved).
+    address: MacroAddress,
+    // TODO: For now, aliasing macros on export is not possible. Later, we may wish to retain the name used at lookup.
     // TODO: For now, all macros live in the default module.
 }
 
 impl Macro {
-    pub fn new(definition: Arc<MacroDef>, address: u32) -> Self {
+    pub fn new(definition: Arc<MacroDef>, address: MacroAddress) -> Self {
         Self {
             definition,
             address,
@@ -432,7 +434,11 @@ impl Macro {
     }
 
     pub fn address(&self) -> MacroAddress {
-        self.address as usize
+        self.address
+    }
+
+    pub fn id(&self) -> MacroIdRef<'_> {
+        MacroIdRef::LocalAddress(self.address)
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -739,6 +745,20 @@ impl MacroTable {
             MacroIdRef::SystemAddress(system_address) => {
                 ION_1_1_SYSTEM_MACROS.macro_at_address(system_address.as_usize())
             }
+        }
+    }
+
+    pub fn address_for_id<'a, 'b, I: Into<MacroIdRef<'b>>>(&'a self, id: I) -> Option<usize> {
+        let id = id.into();
+        match id {
+            MacroIdRef::LocalName(name) => self.macros_by_name.get(name).copied(),
+            MacroIdRef::LocalAddress(address) if address >= self.macros_by_address.len() => None,
+            MacroIdRef::LocalAddress(address) => Some(address),
+            // If they're asking the user table for a system address, report that we couldn't find it.
+            // TODO: Replace this enum variant with a `QualifiedAddress`.
+            // We cannot look the macro up in the system macro table because the meaning of the
+            // returned address would be ambiguous—into which macro table does the `usize` index?
+            MacroIdRef::SystemAddress(_system_address) => None,
         }
     }
 

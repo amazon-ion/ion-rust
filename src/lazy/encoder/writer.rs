@@ -21,7 +21,7 @@ use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
 use crate::lazy::expanded::macro_table::Macro;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
@@ -117,11 +117,24 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             .macro_table
             .clone_macro_with_address(address)
             .expect("macro freshly placed at address is missing");
-        let macro_handle = Macro::new(
-            macro_def,
-            u32::try_from(address).expect("unsupported address size"),
-        );
+        let macro_handle = Macro::new(macro_def, address);
         Ok(macro_handle)
+    }
+
+    /// Gets a macro with the provided ID from the default module.
+    pub fn get_macro<'a>(&self, id: impl Into<MacroIdRef<'a>>) -> IonResult<Macro> {
+        let id = id.into();
+        let macro_table = &self.context.macro_table;
+        let Some(address) = macro_table.address_for_id(id) else {
+            return IonResult::encoding_error(format!(
+                "no macro with the specified ID ({id:?}) found"
+            ));
+        };
+        let macro_def = macro_table
+            .clone_macro_with_address(address)
+            .expect("macro was just confirmed to be at this address");
+
+        Ok(Macro::new(macro_def, address))
     }
 
     pub fn output(&self) -> &Output {
@@ -230,6 +243,12 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             .write_symbol(v1_1::system_symbols::MODULE)?
             .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
 
+        let mut symbols_sexp = directive.sexp_writer()?;
+        symbols_sexp
+            .write_symbol(v1_1::system_symbols::SYMBOL_TABLE)?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
+        symbols_sexp.close()?;
+
         let pending_macros = context
             .macro_table
             .macros_tail(context.num_pending_macros)
@@ -241,7 +260,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         macro_table
             .write_symbol(v1_1::system_symbols::MACRO_TABLE)?
             .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?
-            .write_list(pending_macros)?;
+            .write_all(pending_macros)?;
         macro_table.close()?;
         directive.close()
     }
@@ -610,11 +629,11 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         ))
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
         Ok(ApplicationEExpWriter::new(
             self.encoding,
             self.value_writer_config,
-            self.raw_value_writer.eexp_writer(macro_id)?,
+            self.raw_value_writer.eexp_writer(macro_id)?, // HERE
         ))
     }
 }
@@ -904,8 +923,8 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_1, EExpWriter, FieldNameEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef,
-        SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
+        v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
+        RawSymbolRef, SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
     };
 
     fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
@@ -1169,19 +1188,39 @@ mod tests {
     #[test]
     fn define_new_macro() -> IonResult<()> {
         let mut writer = Writer::new(v1_1::Text.with_format(TextFormat::Lines), Vec::new())?;
-        let point3d =
-            writer.compile_macro("(macro point3d (x y z) Point3D::{x: (%x), y: (%y), z: (%z)})")?;
-        let greet =
-            writer.compile_macro("(macro greet (name) (.make_string 'hello, ' (%name)))")?;
+
+        // Define a macro
         let identity = writer.compile_macro("(macro identity (x*) (%x))")?;
-        writer.flush()?;
+
+        // Invoke that macro
         let mut eexp_writer = writer.eexp_writer(&identity)?;
         let mut group_writer = eexp_writer.expr_group_writer()?;
         group_writer.write_all(&["foo", "bar", "baz"])?;
         group_writer.close()?;
         eexp_writer.close()?;
+
         writer.flush()?;
-        println!("output:\n{}", std::str::from_utf8(writer.output()).unwrap());
+
+        // Confirm the output is as expected
+        let output = writer.output().as_slice();
+
+        println!("output:\n{}", std::str::from_utf8(output).unwrap());
+
+        let actual = Element::read_all(output)?;
+
+        let expected = Element::read_all(
+            r#"
+            "foo"
+            "bar"
+            "baz"
+        "#,
+        )?;
+
+        assert_eq!(
+            actual, expected,
+            "// actual\n{actual:?}\n// !=\n// expected\n{expected:?}"
+        );
+
         Ok(())
     }
 }

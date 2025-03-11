@@ -17,7 +17,7 @@ use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{ContextWriter, Decimal, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
 
@@ -36,6 +36,12 @@ impl<'top> HasSpan<'top> for Never {
 impl HasRange for Never {
     fn range(&self) -> Range<usize> {
         unreachable!("<Never as HasSpan>::range")
+    }
+}
+
+impl Into<MacroIdRef<'_>> for Never {
+    fn into(self) -> MacroIdRef<'static> {
+        unreachable!("<Never as Into<MacroIdRef>>::into")
     }
 }
 

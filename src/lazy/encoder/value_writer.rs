@@ -1,7 +1,7 @@
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::MacroIdLike;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp, UInt};
 
@@ -77,8 +77,6 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     type StructWriter: StructWriter;
     type EExpWriter: EExpWriter<Resources = ()>;
 
-    // TODO: Add an associated type for MacroHandle
-
     fn write_null(self, ion_type: IonType) -> IonResult<()>;
     fn write_bool(self, value: bool) -> IonResult<()>;
     fn write_i64(self, value: i64) -> IonResult<()>;
@@ -95,7 +93,7 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     fn list_writer(self) -> IonResult<Self::ListWriter>;
     fn sexp_writer(self) -> IonResult<Self::SExpWriter>;
     fn struct_writer(self) -> IonResult<Self::StructWriter>;
-    fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter>;
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>;
 
     fn write(self, value: impl WriteAsIon) -> IonResult<()> {
         value.write_as_ion(self)
@@ -199,7 +197,7 @@ macro_rules! delegate_value_writer_to {
                 fn struct_writer(self) -> IonResult<Self::StructWriter>;
                 fn eexp_writer<'a>(
                     self,
-                    macro_id: impl Into<MacroIdRef<'a>>,
+                    macro_id: impl MacroIdLike<'a>,
                  ) -> IonResult<Self::EExpWriter>;
 
             }
@@ -462,9 +460,9 @@ pub trait SequenceWriter: MakeValueWriter {
     }
 
     fn eexp_writer<'a>(
-        &'a mut self,
-        macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> IonResult<<Self::NestedValueWriter<'a> as ValueWriter>::EExpWriter> {
+        &mut self,
+        macro_id: impl MacroIdLike<'a>,
+    ) -> IonResult<<Self::NestedValueWriter<'_> as ValueWriter>::EExpWriter> {
         self.value_writer().eexp_writer(macro_id)
     }
 
