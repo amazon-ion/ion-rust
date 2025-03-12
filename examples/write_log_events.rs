@@ -20,6 +20,7 @@ fn main() -> IonResult<()> {
 #[cfg(feature = "experimental")]
 mod example {
     use chrono::{DateTime, FixedOffset};
+    use ion_rs::v1_1::Macro;
     use ion_rs::*;
     use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
@@ -59,21 +60,41 @@ mod example {
             ion_1_1_file.path().to_string_lossy(),
         );
 
-        // Encode the log events as Ion 1.0 data
         let buf_writer = BufWriter::new(ion_1_0_file.as_file());
-        let mut ion_writer = v1_0::RawBinaryWriter::new(buf_writer)?;
+        let mut ion_writer = Writer::new(v1_0::Binary, buf_writer)?;
+
+        // === Encode the log events as Ion 1.0 data ===
+
         for event in &events {
             ion_writer.write(SerializeWithoutMacros(event))?;
         }
         ion_writer.flush()?;
         drop(ion_writer);
 
-        // Encode the log events as Ion 1.1 data
+        // === Encode the log events as Ion 1.1 data ===
         let buf_writer = BufWriter::new(ion_1_1_file.as_file());
-        let mut ion_writer = v1_1::RawBinaryWriter::new(buf_writer)?;
+        let mut ion_writer = Writer::new(v1_1::Binary, buf_writer)?;
+
+        let thread_name_macro = ion_writer.compile_macro(&format!(
+            r#"
+            (macro thread_name (suffix) (.make_string {THREAD_NAME_PREFIX} (%suffix) ))
+            "#,
+        ))?;
+
+        // For each kind of log statement, compile the associated macro source.
+        // This registers the macro with this writer.
+        let log_macros = log_statements
+            .iter()
+            .map(|log_statement| ion_writer.compile_macro(&log_statement.macro_source))
+            .collect::<IonResult<Vec<Macro>>>()?;
+
+        let macros = Macros {
+            log_statements: log_macros,
+            thread_name: thread_name_macro,
+        };
 
         for event in &events {
-            ion_writer.write(SerializeWithMacros(event))?;
+            ion_writer.write(SerializeWithMacros(event, &macros))?;
         }
         ion_writer.flush()?;
         drop(ion_writer);
@@ -118,6 +139,7 @@ mod example {
         log_level: String,
         format: String,
         parameter_types: Vec<ParameterType>,
+        macro_source: String,
     }
 
     impl LogStatement {
@@ -128,12 +150,33 @@ mod example {
             format: impl Into<String>,
             parameter_types: impl Into<Vec<ParameterType>>,
         ) -> Self {
+            let format = format.into();
+            let macro_source = format!(
+                r#"
+                    (macro
+                        s{index} // Macro name
+                        (timestamp thread_id thread_name parameters) // Signature (parameter list)
+                        // Template
+                        {{ // (Double braces for `format!` escaping)
+                            loggerName: "{class_name}", // (Single braces for `format!` interpolation)
+                            logLevel: {log_level},
+                            format: "{format}",
+                            timestamp: (%timestamp),
+                            thread_id: (%thread_id),
+                            thread_name: (%thread_name),
+                            parameters: (%parameters)
+                        }}
+                    )
+                "#
+            );
+            println!("{macro_source}");
             Self {
                 index,
                 logger_name: format!("{PACKAGE_NAME}.{class_name}"),
                 log_level: log_level.to_string(),
                 format: format.into(),
                 parameter_types: parameter_types.into(),
+                macro_source,
             }
         }
     }
@@ -164,6 +207,11 @@ mod example {
         String(String),
     }
 
+    struct Macros {
+        thread_name: Macro,
+        log_statements: Vec<Macro>,
+    }
+
     // ===== Serialization logic for the above types =====
 
     impl WriteAsIon for Parameter {
@@ -179,7 +227,7 @@ mod example {
     // the future, as types will be able to define both a macro-ized serialization and a no-macros
     // serialization, allowing the writer to choose whichever is more appropriate.
     struct SerializeWithoutMacros<'a, 'b>(&'a LogEvent<'b>);
-    struct SerializeWithMacros<'a, 'b>(&'a LogEvent<'b>);
+    struct SerializeWithMacros<'a, 'b>(&'a LogEvent<'b>, &'a Macros);
 
     // When serializing without macros (usually in Ion 1.0), we write out a struct with each
     // field name/value pair. In the case of recurring strings, we take the liberty of writing
@@ -191,14 +239,16 @@ mod example {
             let mut struct_ = writer.struct_writer()?;
             struct_
                 //            v--- Each field name is a symbol ID
-                .write(10, event.timestamp)?
-                .write(11, event.thread_id)?
-                .write(12, &event.thread_name)?
-                //                 v--- The fixed strings from the log statement are also SIDs
-                .write(13, RawSymbolRef::SymbolId(17))? // logger name
-                .write(14, RawSymbolRef::SymbolId(18))? // log level
-                .write(15, RawSymbolRef::SymbolId(19))? // format
-                .write(16, &event.parameters)?;
+                .write("timestamp", event.timestamp)?
+                .write("threadId", event.thread_id)?
+                .write("threadName", &event.thread_name)?
+                .write(
+                    "loggerName",
+                    SymbolRef::with_text(&event.statement.logger_name),
+                )?
+                .write("logLevel", SymbolRef::with_text(&event.statement.log_level))? // log level
+                .write("format", SymbolRef::with_text(&event.statement.format))? // format
+                .write("parameters", &event.parameters)?;
             struct_.close()
         }
     }
@@ -206,12 +256,13 @@ mod example {
     // When leveraging macros, the thread name's recurring prefix can be elided from the output.
     // This wrapper type is used by the `SerializeWithMacros` type to change to serialization
     // behavior for the thread name.
-    struct ThreadName<'a>(&'a str);
+    struct ThreadName<'a>(&'a str, &'a Macro);
 
     impl WriteAsIon for ThreadName<'_> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            let thread_name_macro = self.1;
             // ID 12 chosen arbitrarily, but aligns with Ion 1.0 encoding above
-            let mut eexp = writer.eexp_writer(12)?;
+            let mut eexp = writer.eexp_writer(thread_name_macro)?;
             eexp
                 // Ignore the part of the thread name that starts with the recurring prefix.
                 .write(&self.0[THREAD_NAME_PREFIX.len()..])?;
@@ -221,12 +272,15 @@ mod example {
 
     impl WriteAsIon for SerializeWithMacros<'_, '_> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-            let event = self.0;
-            let mut eexp = writer.eexp_writer(event.statement.index)?;
+            let SerializeWithMacros(event, macros) = *self;
+            let statement_index = event.statement.index;
+            let thread_name_macro = &macros.thread_name;
+            let log_statement_macro = &macros.log_statements[statement_index];
+            let mut eexp = writer.eexp_writer(log_statement_macro)?;
             eexp.write(event.timestamp)?
                 .write(event.thread_id)?
                 // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
-                .write(ThreadName(&event.thread_name))?
+                .write(ThreadName(&event.thread_name, thread_name_macro))?
                 .write(&event.parameters)?;
             eexp.close()
         }

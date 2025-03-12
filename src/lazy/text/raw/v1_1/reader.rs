@@ -225,6 +225,28 @@ pub trait MacroIdLike<'a>: Sized {
     }
 }
 
+impl<'a> MacroIdLike<'a> for &'a Macro {
+    fn as_macro_id_ref(&self) -> MacroIdRef<'a> {
+        MacroIdRef::LocalAddress(self.address())
+    }
+
+    fn prefer_name(&self) -> MacroIdRef<'a> {
+        match self.name() {
+            Some(name) => MacroIdRef::LocalName(name),
+            None => MacroIdRef::LocalAddress(self.address()),
+        }
+    }
+
+    fn prefer_address(&self) -> MacroIdRef<'a> {
+        MacroIdRef::LocalAddress(self.address())
+    }
+
+    fn resolve(self, _macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
+        // TODO: Confirm that the macro at the saved address is the same one
+        Ok(ResolvedId::new(self.name(), self.address()))
+    }
+}
+
 impl<'a, T> MacroIdLike<'a> for T
 where
     MacroIdRef<'a>: From<T>,
@@ -287,12 +309,6 @@ impl Display for MacroIdRef<'_> {
     }
 }
 
-impl From<u32> for MacroIdRef<'_> {
-    fn from(address: u32) -> Self {
-        MacroIdRef::LocalAddress(address as usize)
-    }
-}
-
 impl From<usize> for MacroIdRef<'_> {
     fn from(address: usize) -> Self {
         MacroIdRef::LocalAddress(address)
@@ -308,28 +324,6 @@ impl<'data> From<&'data str> for MacroIdRef<'data> {
 impl From<SystemMacroAddress> for MacroIdRef<'_> {
     fn from(system_macro_address: SystemMacroAddress) -> Self {
         MacroIdRef::SystemAddress(system_macro_address)
-    }
-}
-
-impl<'a> MacroIdLike<'a> for &'a Macro {
-    fn as_macro_id_ref(&self) -> MacroIdRef<'a> {
-        MacroIdRef::LocalAddress(self.address())
-    }
-
-    fn prefer_name(&self) -> MacroIdRef<'a> {
-        match self.name() {
-            Some(name) => MacroIdRef::LocalName(name),
-            None => MacroIdRef::LocalAddress(self.address()),
-        }
-    }
-
-    fn prefer_address(&self) -> MacroIdRef<'a> {
-        MacroIdRef::LocalAddress(self.address())
-    }
-
-    fn resolve(self, _macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
-        // TODO: Confirm that the macro at the saved address is the same one
-        Ok(ResolvedId::new(self.name(), self.address()))
     }
 }
 

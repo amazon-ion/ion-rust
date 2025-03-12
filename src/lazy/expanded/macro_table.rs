@@ -415,9 +415,12 @@ impl<'top> MacroRef<'top> {
 /// If the encoding context changes after this handle is created, it may be invalidated.
 /// In this case, creating an e-expression writer with this handle will produce an `Err`.
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Macro {
     // The compiled definition of the macro.
+    // TODO: This could be a `Weak` Arc, allowing this macro handle
+    //       to naturally expire when the host module is no longer
+    //       being used by the writer.
     definition: Arc<MacroDef>,
     // The address where the macro resides (if compiled) OR the ID that was used to look it up (if retrieved).
     address: MacroAddress,

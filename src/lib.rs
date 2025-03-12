@@ -252,6 +252,7 @@ macro_rules! v1_1_reader_writer {
         $visibility use crate::{
             lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
             lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
+            lazy::expanded::macro_table::Macro
         };
     };
 }
