@@ -1,14 +1,11 @@
 //! This program demonstrates implementing WriteAsIon using Ion 1.1's e-expressions for a more
-//! compact encoding. It uses raw-level writer APIs that end users are unlikely to leverage.
-//! Ion 1.1 is not yet finalized; the encoding produced by this example and the APIs it uses
-//! are very likely to change.
-
+//! compact encoding.
 use ion_rs::*;
 
 fn main() -> IonResult<()> {
     #[cfg(not(feature = "experimental"))]
     {
-        println!("This example requires the 'experimental' feature to work. Rebuild it with the flag `--features experimental`.");
+        eprintln!("This example requires the 'experimental' feature to work. Rebuild it with the flag `--features experimental`.");
     }
 
     #[cfg(feature = "experimental")]
@@ -60,44 +57,42 @@ mod example {
             ion_1_1_file.path().to_string_lossy(),
         );
 
-        let buf_writer = BufWriter::new(ion_1_0_file.as_file());
-        let mut ion_writer = Writer::new(v1_0::Binary, buf_writer)?;
-
         // === Encode the log events as Ion 1.0 data ===
-
-        for event in &events {
-            ion_writer.write(SerializeWithoutMacros(event))?;
-        }
-        ion_writer.flush()?;
-        drop(ion_writer);
+        // First, we initialize a writer...
+        let mut ion_writer = Writer::new(v1_0::Binary, BufWriter::new(ion_1_0_file.as_file()))?;
+        // ...then we encode all of the events...
+        ion_writer.write_all(events.iter().map(|e| SerializeWithoutMacros(e)))?;
+        // ...finally, we close the writer, consuming it.
+        ion_writer.close()?;
 
         // === Encode the log events as Ion 1.1 data ===
-        let buf_writer = BufWriter::new(ion_1_1_file.as_file());
-        let mut ion_writer = Writer::new(v1_1::Binary, buf_writer)?;
+        // First, we initialize a writer...
+        let mut ion_writer = Writer::new(v1_1::Binary, BufWriter::new(ion_1_1_file.as_file()))?;
 
-        let thread_name_macro = ion_writer.compile_macro(&format!(
-            r#"
-            (macro thread_name (suffix) (.make_string {THREAD_NAME_PREFIX} (%suffix) ))
-            "#,
-        ))?;
-
-        // For each kind of log statement, compile the associated macro source.
-        // This registers the macro with this writer.
-        let log_macros = log_statements
-            .iter()
-            .map(|log_statement| ion_writer.compile_macro(&log_statement.macro_source))
-            .collect::<IonResult<Vec<Macro>>>()?;
-
-        let macros = Macros {
-            log_statements: log_macros,
-            thread_name: thread_name_macro,
+        // ...then we define some macros that we intend to use to encode our log data...
+        let macros = LogEventMacros {
+            thread_name: ion_writer.compile_macro(
+                // This macro includes the prefix common to all thread names, allowing the writer to only encode
+                // the suffix of each.
+                &format!(
+                    r#"
+                    (macro thread_name (suffix) (.make_string {THREAD_NAME_PREFIX} (%suffix) ))
+                "#
+                ),
+            )?,
+            log_statements: log_statements
+                .iter()
+                // As you'll see later, each LogStatement has an associated macro definition in text.
+                .map(|log_statement| ion_writer.compile_macro(&log_statement.macro_source))
+                .collect::<IonResult<Vec<Macro>>>()?,
         };
 
-        for event in &events {
-            ion_writer.write(SerializeWithMacros(event, &macros))?;
-        }
-        ion_writer.flush()?;
-        drop(ion_writer);
+        // ...then we encode all of the events using the macros we just defined...
+        ion_writer.write_all(events.iter().map(|e| SerializeWithMacros(e, &macros)))?;
+        // ...finally, we close the writer, consuming it.
+        ion_writer.close()?;
+
+        // === Encoded file size comparison ===
 
         let size_in_1_0 = ion_1_0_file
             .as_file()
@@ -127,12 +122,6 @@ mod example {
 
     // A log statement in the fictional codebase
     #[derive(Debug)]
-    // This struct has several fields that get populated but which are not (yet) used: `logger_name`
-    // `log_level`, and `format`. Currently, the encoded output for Ion 1.0 writes these as symbol
-    // IDs and Ion 1.1 refers to them as part of a macro. In both cases, however, the encoding
-    // context is not written out in the resulting Ion stream.
-    // TODO: Include the symbol/macro table definitions in the resulting output stream.
-    #[allow(dead_code)]
     struct LogStatement {
         index: usize,
         logger_name: String,
@@ -207,13 +196,15 @@ mod example {
         String(String),
     }
 
-    struct Macros {
+    // ===== Serialization logic for the above types =====
+
+    // A simple container to store macros related to serializing LogEvent
+    struct LogEventMacros {
         thread_name: Macro,
         log_statements: Vec<Macro>,
     }
 
-    // ===== Serialization logic for the above types =====
-
+    // Defines how a `Parameter` is serialized as Ion
     impl WriteAsIon for Parameter {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             match self {
@@ -227,12 +218,10 @@ mod example {
     // the future, as types will be able to define both a macro-ized serialization and a no-macros
     // serialization, allowing the writer to choose whichever is more appropriate.
     struct SerializeWithoutMacros<'a, 'b>(&'a LogEvent<'b>);
-    struct SerializeWithMacros<'a, 'b>(&'a LogEvent<'b>, &'a Macros);
+    struct SerializeWithMacros<'a, 'b>(&'a LogEvent<'b>, &'a LogEventMacros);
 
     // When serializing without macros (usually in Ion 1.0), we write out a struct with each
-    // field name/value pair. In the case of recurring strings, we take the liberty of writing
-    // out symbol IDs instead of the full text; this silent type coercion from string to symbol
-    // is technically data loss, but results in a much more compact encoding.
+    // field name/value pair.
     impl WriteAsIon for SerializeWithoutMacros<'_, '_> {
         fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
             let event = self.0;
@@ -253,8 +242,23 @@ mod example {
         }
     }
 
+    impl WriteAsIon for SerializeWithMacros<'_, '_> {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            let SerializeWithMacros(event, macros) = *self;
+
+            // Create an e-expression writer to invoke the macro corresponding to this log statement.
+            let mut eexp = writer.eexp_writer(&macros.log_statements[event.statement.index])?;
+            eexp.write(event.timestamp)?
+                .write(event.thread_id)?
+                // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
+                .write(ThreadName(&event.thread_name, &macros.thread_name))?
+                .write(&event.parameters)?;
+            eexp.close()
+        }
+    }
+
     // When leveraging macros, the thread name's recurring prefix can be elided from the output.
-    // This wrapper type is used by the `SerializeWithMacros` type to change to serialization
+    // This wrapper type is used by the `SerializeWithMacros` type to change the serialization
     // behavior for the thread name.
     struct ThreadName<'a>(&'a str, &'a Macro);
 
@@ -270,34 +274,23 @@ mod example {
         }
     }
 
-    impl WriteAsIon for SerializeWithMacros<'_, '_> {
-        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-            let SerializeWithMacros(event, macros) = *self;
-            let statement_index = event.statement.index;
-            let thread_name_macro = &macros.thread_name;
-            let log_statement_macro = &macros.log_statements[statement_index];
-            let mut eexp = writer.eexp_writer(log_statement_macro)?;
-            eexp.write(event.timestamp)?
-                .write(event.thread_id)?
-                // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
-                .write(ThreadName(&event.thread_name, thread_name_macro))?
-                .write(&event.parameters)?;
-            eexp.close()
-        }
-    }
-
     // ===== Random generation of sample data =====
 
+    // Any time we need an integer, we'll generate a random one between 0 and 5,000.
     const INT_PARAMETER_RANGE: Range<i64> = 0..5_000;
     fn generate_int_parameter(rng: &mut StdRng) -> Parameter {
         Parameter::Int(rng.gen_range(INT_PARAMETER_RANGE))
     }
 
+    // Any time we need a string, we'll select one at random from this collection of plural nouns.
     fn generate_string_parameter(rng: &mut StdRng) -> Parameter {
         const WORDS: &[&str] = &["users", "transactions", "accounts", "customers", "waffles"];
         Parameter::String(WORDS.choose(rng).unwrap().to_string())
     }
 
+    // These are the log statements that our fictional program contains.
+    // Each log event will be associated with a randomly selected log statement and its parameters
+    // will be populated using the methods above.
     fn log_statements() -> Vec<LogStatement> {
         use ParameterType::*;
         vec![
