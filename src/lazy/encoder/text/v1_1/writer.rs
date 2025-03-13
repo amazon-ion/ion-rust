@@ -116,7 +116,7 @@ mod tests {
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::macro_evaluator::RawEExpression;
     use crate::lazy::expanded::EncodingContext;
-    use crate::lazy::text::raw::v1_1::reader::{system_macros, LazyRawTextReader_1_1, MacroIdRef};
+    use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
         v1_1, Annotatable, Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef,
@@ -280,7 +280,7 @@ mod tests {
 
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let macro_foo =
-            TemplateCompiler::compile_from_source(context.get_ref(), "(macro foo (x*) null)")?;
+            TemplateCompiler::compile_from_source(context.macro_table(), "(macro foo (x*) null)")?;
         context.macro_table_mut().add_template_macro(macro_foo)?;
         let mut reader =
             LazyRawTextReader_1_1::new(context.get_ref(), encoded_text.as_bytes(), true);
@@ -358,7 +358,8 @@ mod tests {
     #[test]
     fn test_system_eexp() -> IonResult<()> {
         let mut writer = Writer::new(v1_1::Text, vec![])?;
-        let mut macro_args = writer.eexp_writer(system_macros::MAKE_STRING)?;
+        let make_string = writer.get_macro("make_string")?;
+        let mut macro_args = writer.eexp_writer(&make_string)?;
         macro_args
             .write("foo")?
             .write("bar")?

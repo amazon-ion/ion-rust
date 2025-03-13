@@ -17,7 +17,7 @@ use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{ContextWriter, Decimal, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
 
@@ -36,6 +36,12 @@ impl<'top> HasSpan<'top> for Never {
 impl HasRange for Never {
     fn range(&self) -> Range<usize> {
         unreachable!("<Never as HasSpan>::range")
+    }
+}
+
+impl From<Never> for MacroIdRef<'_> {
+    fn from(_value: Never) -> Self {
+        unreachable!("From<Never> for MacroIdRef<'_>")
     }
 }
 
@@ -76,7 +82,16 @@ impl MakeValueWriter for Never {
     }
 }
 
-impl EExpWriter for Never {}
+impl EExpWriter for Never {
+    type ExprGroupWriter<'group>
+        = Never
+    where
+        Self: 'group;
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        todo!()
+    }
+}
 
 impl AnnotatableWriter for Never {
     type AnnotatedValueWriter<'a>
