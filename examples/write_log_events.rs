@@ -141,21 +141,25 @@ mod example {
         ) -> Self {
             let format = format.into();
             let macro_source = format!(
+                // Note that there are two levels of interpolation in this string literal.
+                // The `format!` macro will process it first, replacing variable names in single
+                // braces (like `{class_name}`) with the corresponding text, and replacing
+                // double braces (like the `{{...}}` surrounding the template) with single braces.
+                // The resulting string is our macro source, which will be compiled by the Writer.
                 r#"
-                    (macro
-                        s{index} // Macro name
-                        (timestamp thread_id thread_name parameters) // Signature (parameter list)
-                        // Template
-                        {{ // (Double braces for `format!` escaping)
-                            loggerName: "{class_name}", // (Single braces for `format!` interpolation)
-                            logLevel: {log_level},
-                            format: "{format}",
-                            timestamp: (%timestamp),
-                            thread_id: (%thread_id),
-                            thread_name: (%thread_name),
-                            parameters: (%parameters)
-                        }}
-                    )
+(macro
+    ls{index:<42} // Name
+    (timestamp thread_id thread_name parameters) // Signature
+    {{                                            // Template
+        loggerName: "{class_name}",
+        logLevel: {log_level},
+        format: "{format}",
+        timestamp: (%timestamp),
+        thread_id: (%thread_id),
+        thread_name: (%thread_name),
+        parameters: (%parameters)
+    }}
+)
                 "#
             );
             println!("{macro_source}");
@@ -235,8 +239,8 @@ mod example {
                     "loggerName",
                     SymbolRef::with_text(&event.statement.logger_name),
                 )?
-                .write("logLevel", SymbolRef::with_text(&event.statement.log_level))? // log level
-                .write("format", SymbolRef::with_text(&event.statement.format))? // format
+                .write("logLevel", SymbolRef::with_text(&event.statement.log_level))?
+                .write("format", SymbolRef::with_text(&event.statement.format))?
                 .write("parameters", &event.parameters)?;
             struct_.close()
         }
