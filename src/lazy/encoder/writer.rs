@@ -96,6 +96,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(writer)
     }
 
+    /// Takes a TDL expression representing a macro definition and returns a `Macro` that can
+    /// later be invoked by passing it to [`Writer::eexp_writer()`].
     pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
         let mut reader = Reader::new(AnyEncoding, source)?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
