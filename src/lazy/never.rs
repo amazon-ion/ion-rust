@@ -39,9 +39,9 @@ impl HasRange for Never {
     }
 }
 
-impl Into<MacroIdRef<'_>> for Never {
-    fn into(self) -> MacroIdRef<'static> {
-        unreachable!("<Never as Into<MacroIdRef>>::into")
+impl From<Never> for MacroIdRef<'_> {
+    fn from(_value: Never) -> Self {
+        unreachable!("From<Never> for MacroIdRef<'_>")
     }
 }
 

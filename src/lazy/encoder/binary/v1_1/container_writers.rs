@@ -7,7 +7,6 @@ use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::never::Never;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{v1_1, ContextWriter, Encoding, IonResult, UInt};
 
@@ -408,6 +407,10 @@ pub struct BinaryEExpWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     buffer: &'value mut BumpVec<'top, u8>,
     value_writer_config: ValueWriterConfig,
+    // TODO: Hold a reference to the macro signature and advance to the next parameter on
+    //       each method call. Any time a value is written:
+    //       * compare its type to the parameter to make sure it's legal.
+    //       * see if the parameter's cardinality requires an update to the arg encoding bitmap
 }
 
 impl<'value, 'top> BinaryEExpWriter_1_1<'value, 'top> {
@@ -447,10 +450,9 @@ impl SequenceWriter for BinaryEExpWriter_1_1<'_, '_> {
     }
 }
 
-impl EExpWriter for BinaryEExpWriter_1_1<'_, '_> {
-    // TODO: Using text group writer as placeholder impl
+impl<'top> EExpWriter for BinaryEExpWriter_1_1<'_, 'top> {
     type ExprGroupWriter<'group>
-        = Never
+        = BinaryEExpGroupWriter<'group, 'top>
     where
         Self: 'group;
 
@@ -460,6 +462,37 @@ impl EExpWriter for BinaryEExpWriter_1_1<'_, '_> {
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        todo!("binary expr group serialization")
+        Ok(BinaryEExpGroupWriter {
+            allocator: self.allocator,
+            buffer: self.buffer,
+            value_writer_config: self.value_writer_config,
+        })
+    }
+}
+
+pub struct BinaryEExpGroupWriter<'group, 'top> {
+    allocator: &'top BumpAllocator,
+    buffer: &'group mut BumpVec<'top, u8>,
+    value_writer_config: ValueWriterConfig,
+}
+
+impl<'top> ContextWriter for BinaryEExpGroupWriter<'_, 'top> {
+    type NestedValueWriter<'a>
+        = BinaryValueWriter_1_1<'a, 'top>
+    where
+        Self: 'a;
+}
+
+impl MakeValueWriter for BinaryEExpGroupWriter<'_, '_> {
+    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
+        BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.value_writer_config)
+    }
+}
+
+impl SequenceWriter for BinaryEExpGroupWriter<'_, '_> {
+    type Resources = ();
+
+    fn close(self) -> IonResult<Self::Resources> {
+        Ok(())
     }
 }

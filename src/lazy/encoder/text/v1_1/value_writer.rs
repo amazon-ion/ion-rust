@@ -271,6 +271,9 @@ pub struct TextEExpWriter_1_1<'value, W: Write> {
     // There is no e-exp writer in 1.0 to which we can delegate,
     // but we can re-use the TextContainerWriter_1_0 for a lot of the formatting.
     container_writer: TextContainerWriter_1_0<'value, W>,
+    // TODO: Hold a reference to the macro signature and advance to the next parameter on
+    //       each method call. Any time a value is written, compare its type to the parameter to
+    //       make sure it's legal.
 }
 
 impl<'value, W: Write> TextEExpWriter_1_1<'value, W> {
@@ -362,7 +365,7 @@ impl<'group, W: Write> TextExprGroupWriter<'group, W> {
     }
 }
 
-impl<'group, W: Write> MakeValueWriter for TextExprGroupWriter<'group, W> {
+impl<W: Write> MakeValueWriter for TextExprGroupWriter<'_, W> {
     fn make_value_writer(&mut self) -> <Self as ContextWriter>::NestedValueWriter<'_> {
         TextValueWriter_1_1 {
             value_writer_1_0: self.container_writer.value_writer(),
@@ -370,7 +373,7 @@ impl<'group, W: Write> MakeValueWriter for TextExprGroupWriter<'group, W> {
     }
 }
 
-impl<'group, W: Write> SequenceWriter for TextExprGroupWriter<'group, W> {
+impl<W: Write> SequenceWriter for TextExprGroupWriter<'_, W> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
@@ -378,7 +381,7 @@ impl<'group, W: Write> SequenceWriter for TextExprGroupWriter<'group, W> {
     }
 }
 
-impl<'group, W: Write> ContextWriter for TextExprGroupWriter<'group, W> {
+impl<W: Write> ContextWriter for TextExprGroupWriter<'_, W> {
     type NestedValueWriter<'a>
         = TextValueWriter_1_1<'a, W>
     where

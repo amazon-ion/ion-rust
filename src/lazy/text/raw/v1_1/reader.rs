@@ -287,9 +287,9 @@ pub enum MacroIdRef<'data> {
     // TODO: Addresses and qualified names
 }
 
-impl<'top> MacroIdRef<'top> {
-    pub fn to_owned(&self) -> MacroId {
-        match self {
+impl MacroIdRef<'_> {
+    pub fn to_owned(self) -> MacroId {
+        match &self {
             MacroIdRef::LocalName(name) => MacroId::LocalName(CompactString::from(*name)),
             MacroIdRef::LocalAddress(address) => MacroId::LocalAddress(*address),
             MacroIdRef::SystemAddress(address) => MacroId::SystemAddress(*address),

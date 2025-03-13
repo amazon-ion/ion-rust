@@ -2888,7 +2888,7 @@ mod tests {
     fn write_macro_invocations() -> IonResult<()> {
         encoding_test(
             |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
-                let mut args = writer.eexp_writer(0usize)?;
+                let mut args = writer.eexp_writer(0)?;
                 args.write_symbol("foo")?
                     .write_symbol("bar")?
                     .write_symbol("baz")?;

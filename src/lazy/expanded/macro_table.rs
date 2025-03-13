@@ -107,7 +107,7 @@ impl MacroDef {
 
     pub fn require_template(&self) -> TemplateMacroRef<'_> {
         if let MacroKind::Template(body) = &self.kind() {
-            return TemplateMacroRef::new(&self, body);
+            return TemplateMacroRef::new(self, body);
         }
         unreachable!(
             "caller required a template macro but found {:?}",
@@ -418,11 +418,8 @@ impl<'top> MacroRef<'top> {
 #[derive(Clone, Debug)]
 pub struct Macro {
     // The compiled definition of the macro.
-    // TODO: This could be a `Weak` Arc, allowing this macro handle
-    //       to naturally expire when the host module is no longer
-    //       being used by the writer.
     definition: Arc<MacroDef>,
-    // The address where the macro resides (if compiled) OR the ID that was used to look it up (if retrieved).
+    // The macro table address at which the MacroDef resides.
     address: MacroAddress,
     // TODO: For now, aliasing macros on export is not possible. Later, we may wish to retain the name used at lookup.
     // TODO: For now, all macros live in the default module.

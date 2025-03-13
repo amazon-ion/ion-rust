@@ -100,7 +100,6 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         let mut reader = Reader::new(AnyEncoding, source)?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
 
-        // Self::compile_from_sexp(context, &MacroTable::empty(), macro_def_sexp)
         let template_macro = TemplateCompiler::compile_from_sexp(
             &self.context.macro_table,
             &MacroTable::empty(),
@@ -234,6 +233,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             ..
         } = self;
 
+        // TODO: Once expression group serialization is complete, this can be replaced by a call
+        //       to the `add_macros` system macro.
         let mut directive = directive_writer
             .value_writer()
             .with_annotations("$ion")?
@@ -1195,7 +1196,7 @@ mod tests {
         // Invoke that macro
         let mut eexp_writer = writer.eexp_writer(&identity)?;
         let mut group_writer = eexp_writer.expr_group_writer()?;
-        group_writer.write_all(&["foo", "bar", "baz"])?;
+        group_writer.write_all(["foo", "bar", "baz"])?;
         group_writer.close()?;
         eexp_writer.close()?;
 

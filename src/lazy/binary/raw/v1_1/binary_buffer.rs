@@ -1616,7 +1616,7 @@ mod tests {
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
         // Invoke each of the macros we just defined in order.
         for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
-            let macro_n = writer.compile_macro(&format!("(macro m{address} () {address})"))?;
+            let macro_n = writer.compile_macro(format!("(macro m{address} () {address})"))?;
             writer.eexp_writer(&macro_n)?.close()?;
         }
         let data = writer.close()?;
