@@ -452,7 +452,7 @@ impl SequenceWriter for BinaryEExpWriter_1_1<'_, '_> {
 
 impl<'top> EExpWriter for BinaryEExpWriter_1_1<'_, 'top> {
     type ExprGroupWriter<'group>
-        = BinaryEExpGroupWriter<'group, 'top>
+        = BinaryExprGroupWriter<'group, 'top>
     where
         Self: 'group;
 
@@ -462,34 +462,30 @@ impl<'top> EExpWriter for BinaryEExpWriter_1_1<'_, 'top> {
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        Ok(BinaryEExpGroupWriter {
-            allocator: self.allocator,
-            buffer: self.buffer,
-            value_writer_config: self.value_writer_config,
-        })
+        todo!("safe binary expression group serialization")
     }
 }
 
-pub struct BinaryEExpGroupWriter<'group, 'top> {
+pub struct BinaryExprGroupWriter<'group, 'top> {
     allocator: &'top BumpAllocator,
     buffer: &'group mut BumpVec<'top, u8>,
     value_writer_config: ValueWriterConfig,
 }
 
-impl<'top> ContextWriter for BinaryEExpGroupWriter<'_, 'top> {
+impl<'top> ContextWriter for BinaryExprGroupWriter<'_, 'top> {
     type NestedValueWriter<'a>
         = BinaryValueWriter_1_1<'a, 'top>
     where
         Self: 'a;
 }
 
-impl MakeValueWriter for BinaryEExpGroupWriter<'_, '_> {
+impl MakeValueWriter for BinaryExprGroupWriter<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.value_writer_config)
     }
 }
 
-impl SequenceWriter for BinaryEExpGroupWriter<'_, '_> {
+impl SequenceWriter for BinaryExprGroupWriter<'_, '_> {
     type Resources = ();
 
     fn close(self) -> IonResult<Self::Resources> {
