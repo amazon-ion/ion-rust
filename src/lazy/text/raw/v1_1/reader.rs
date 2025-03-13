@@ -166,6 +166,8 @@ pub(crate) mod system_macros {
     pub const USE: SystemMacroAddress = SystemMacroAddress(0x17);
 }
 
+/// An identifier that has been resolved/validated in the `MacroTable`.
+/// When writing an e-expression, a `MacroIdRef<'_>` will be turned into a `ResolvedId`.
 pub struct ResolvedId<'a> {
     name: Option<&'a str>,
     address: MacroAddress,
