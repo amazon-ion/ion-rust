@@ -14,8 +14,8 @@ use crate::{Int, UInt};
 /// When the magnitude is zero, the `Sign` can be used to distinguish between -0 and 0.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Sign {
-    Negative,
-    Positive,
+    Negative = -1,
+    Positive = 1,
 }
 
 /// A signed integer that can be used as the coefficient of a [`Decimal`](crate::Decimal) value.
@@ -292,5 +292,11 @@ mod coefficient_tests {
         // Zeros
         assert_eq!(Int::try_from(Coefficient::new(0)), Ok(Int::from(0)));
         assert!(Int::try_from(Coefficient::negative_zero()).is_err());
+    }
+
+    #[test]
+    fn test_casting_sign() {
+        assert_eq!(-1, Sign::Negative as i8);
+        assert_eq!(1, Sign::Positive as i8);
     }
 }

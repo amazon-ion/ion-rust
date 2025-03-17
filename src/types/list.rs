@@ -1,10 +1,11 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
-use crate::ion_data::IonEq;
+use crate::ion_data::{IonDataHash, IonEq};
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::{Element, Sequence};
 use delegate::delegate;
 use std::fmt::{Display, Formatter};
+use std::hash::Hasher;
 
 /// An in-memory representation of an Ion list.
 /// ```
@@ -43,6 +44,12 @@ impl IonEq for List {
     fn ion_eq(&self, other: &Self) -> bool {
         // The inner `Sequence` of both Lists are IonEq
         self.0.ion_eq(&other.0)
+    }
+}
+
+impl IonDataHash for List {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.0.ion_data_hash(state)
     }
 }
 
