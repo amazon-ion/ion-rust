@@ -17,7 +17,7 @@ use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, EncodingContext, IonError, IonInput, IonResult, IonType, Macro, MacroKind,
+    AnyEncoding, EncodingContext, IonError, IonInput, IonResult, IonType, MacroDef, MacroKind,
     MacroTable, Reader, Symbol, SymbolRef,
 };
 use phf::phf_set;
@@ -216,14 +216,14 @@ impl TemplateCompiler {
     /// to the template without interpretation. `(literal ...)` does not appear in the compiled
     /// template as there is nothing more for it to do at expansion time.
     pub fn compile_from_source(
-        context: EncodingContextRef<'_>,
+        active_macros: &MacroTable,
         source: impl IonInput,
     ) -> IonResult<TemplateMacro> {
         // TODO: This is a rudimentary implementation that surfaces terse errors.
         let mut reader = Reader::new(AnyEncoding, source)?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
 
-        Self::compile_from_sexp(context, &MacroTable::empty(), macro_def_sexp)
+        Self::compile_from_sexp(active_macros, &MacroTable::empty(), macro_def_sexp)
     }
 
     /// Pulls the next value from the provided source and confirms that it is a symbol whose
@@ -321,7 +321,7 @@ impl TemplateCompiler {
 
     /// Interprets the annotations on the parameter name to determine its encoding.
     fn encoding_for<Encoding: Decoder>(
-        context: EncodingContextRef<'_>,
+        active_macros: &MacroTable,
         pending_macros: &MacroTable,
         parameter: LazyValue<'_, Encoding>,
     ) -> IonResult<ParameterEncoding> {
@@ -371,7 +371,7 @@ impl TemplateCompiler {
         // If it's an unqualified name, look for the associated macro in the local scope.
         if let (encoding_name, None) = (annotation1, annotation2) {
             if let Some(macro_ref) =
-                Self::resolve_unqualified_macro_id(context, pending_macros, encoding_name)
+                Self::resolve_unqualified_macro_id(active_macros, pending_macros, encoding_name)
             {
                 Self::validate_macro_shape_for_encoding(&macro_ref)?;
                 return Ok(ParameterEncoding::MacroShaped(macro_ref));
@@ -388,7 +388,7 @@ impl TemplateCompiler {
         // At this point we know that we have a qualified name. Look it up in the active encoding
         // context.
         let (module_name, encoding_name) = (annotation1, annotation2.unwrap());
-        let macro_ref = Self::resolve_qualified_macro_id(context, module_name, encoding_name)
+        let macro_ref = Self::resolve_qualified_macro_id(active_macros, module_name, encoding_name)
             .ok_or_else(|| {
                 IonError::decoding_error(format!(
                     "unrecognized encoding '{encoding_name}' specified for parameter"
@@ -399,7 +399,7 @@ impl TemplateCompiler {
     }
 
     /// Confirms that the selected macro is legal to use as a parameter encoding.
-    pub fn validate_macro_shape_for_encoding(macro_ref: &Macro) -> IonResult<()> {
+    pub fn validate_macro_shape_for_encoding(macro_ref: &MacroDef) -> IonResult<()> {
         if macro_ref.signature().len() == 0 {
             // This macro had to have a name to reach the validation step, so we can safely `unwrap()` it.
             return IonResult::decoding_error(format!(
@@ -411,38 +411,36 @@ impl TemplateCompiler {
     }
 
     pub fn resolve_unqualified_macro_id<'a>(
-        context: EncodingContextRef<'_>,
+        active_macros: &'a MacroTable,
         pending_macros: &'a MacroTable,
         macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> Option<Arc<Macro>> {
+    ) -> Option<Arc<MacroDef>> {
         let macro_id = macro_id.into();
         // Since this ID is unqualified, it must be in either...
         // ...the local namespace, having just been defined...
         pending_macros
             .clone_macro_with_id(macro_id)
             // ...or in the active encoding environment.
-            .or_else(|| context.macro_table().clone_macro_with_id(macro_id))
+            .or_else(|| active_macros.clone_macro_with_id(macro_id))
     }
 
     pub fn resolve_qualified_macro_id<'a>(
-        context: EncodingContextRef<'_>,
+        macro_table: &MacroTable,
         module_name: &'a str,
         macro_id: impl Into<MacroIdRef<'a>>,
-    ) -> Option<Arc<Macro>> {
+    ) -> Option<Arc<MacroDef>> {
         let macro_id = macro_id.into();
         match module_name {
             // If the module is `$ion`, this refers to the system module.
             "$ion" => ION_1_1_SYSTEM_MACROS.clone_macro_with_id(macro_id),
             // If the module is `_`, this refers to the active encoding module.
-            v1_1::constants::DEFAULT_MODULE_NAME => {
-                context.macro_table().clone_macro_with_id(macro_id)
-            }
+            v1_1::constants::DEFAULT_MODULE_NAME => macro_table.clone_macro_with_id(macro_id),
             _ => todo!("qualified references to modules other than `_` (found `{module_name}`"),
         }
     }
 
     pub fn compile_from_sexp<'a: 'b, 'b, Encoding: Decoder>(
-        context: EncodingContextRef<'a>,
+        active_macros: &'b MacroTable,
         pending_macros: &'b MacroTable,
         macro_def_sexp: LazySExp<'a, Encoding>,
     ) -> Result<TemplateMacro, IonError> {
@@ -457,7 +455,8 @@ impl TemplateCompiler {
         // The `params` clause of the macro definition is an s-expression enumerating the parameters
         // that the macro accepts. For example: `(flex_uint::x, y*, z?)`.
         let params_clause = Self::expect_sexp("an s-expression defining parameters", &mut values)?;
-        let signature = Self::compile_signature_from_sexp(context, pending_macros, params_clause)?;
+        let signature =
+            Self::compile_signature_from_sexp(active_macros, pending_macros, params_clause)?;
         let body = Self::expect_next("the template body", &mut values)?;
         let expansion_analysis = Self::analyze_body_expr(body)?;
         let mut compiled_body = TemplateBody {
@@ -466,7 +465,7 @@ impl TemplateCompiler {
         };
         // Information that will be propagated to each subexpression
         let tdl_context = TdlContext {
-            context,
+            active_macros,
             pending_macros,
             signature: &signature,
         };
@@ -504,11 +503,11 @@ impl TemplateCompiler {
         let mut reader = Reader::new(AnyEncoding, source)?;
         let empty_macro_table = MacroTable::empty();
         let params_clause = reader.expect_next()?.read()?.expect_sexp()?;
-        Self::compile_signature_from_sexp(context, &empty_macro_table, params_clause)
+        Self::compile_signature_from_sexp(context.macro_table(), &empty_macro_table, params_clause)
     }
 
     fn compile_signature_from_sexp<D: Decoder>(
-        context: EncodingContextRef<'_>,
+        active_macros: &MacroTable,
         pending_macros: &MacroTable,
         params_clause: LazySExp<'_, D>,
     ) -> IonResult<MacroSignature> {
@@ -525,7 +524,7 @@ impl TemplateCompiler {
         while let Some(item) = param_items.next().transpose()? {
             is_final_parameter |= param_items.peek().is_none();
             let name = Self::expect_symbol_text("a parameter name", item)?.to_owned();
-            let parameter_encoding = Self::encoding_for(context, pending_macros, item)?;
+            let parameter_encoding = Self::encoding_for(active_macros, pending_macros, item)?;
 
             use ParameterCardinality::*;
             let mut cardinality = ExactlyOne;
@@ -847,7 +846,7 @@ impl TemplateCompiler {
     fn compile_macro<'top, D: Decoder>(
         tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
-        macro_ref: Arc<Macro>,
+        macro_ref: Arc<MacroDef>,
         mut arguments: impl Iterator<Item = IonResult<LazyValue<'top, D>>>,
     ) -> IonResult<()> {
         // If this macro doesn't accept any parameters but arg expressions have been passed,
@@ -937,7 +936,9 @@ impl TemplateCompiler {
                 Self::compile_macro(
                     tdl_context,
                     definition,
-                    tdl_context.context.none_macro(),
+                    ION_1_1_SYSTEM_MACROS
+                        .clone_macro_with_name("none")
+                        .expect("`none` macro in system macro table"),
                     std::iter::empty::<Result<LazyValue<'_, D>, IonError>>(),
                 )
             } else {
@@ -992,7 +993,7 @@ impl TemplateCompiler {
     fn insert_placeholder_none_invocations<D: Decoder>(
         tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
-        macro_ref: &Macro,
+        macro_ref: &MacroDef,
         index: usize,
     ) -> Result<(), IonError> {
         // There are fewer args than parameters. That's ok as long as all of the remaining
@@ -1010,7 +1011,9 @@ impl TemplateCompiler {
             Self::compile_macro(
                 tdl_context,
                 definition,
-                tdl_context.context.none_macro(),
+                ION_1_1_SYSTEM_MACROS
+                    .clone_macro_with_name("none")
+                    .expect("`none` macro in system macro table"),
                 std::iter::empty::<Result<LazyValue<'_, D>, IonError>>(),
             )?;
         }
@@ -1074,7 +1077,7 @@ impl TemplateCompiler {
     fn resolve_macro_id_expr<D: Decoder>(
         tdl_context: TdlContext<'_>,
         id_expr: LazyValue<'_, D>,
-    ) -> IonResult<Option<Arc<Macro>>> {
+    ) -> IonResult<Option<Arc<MacroDef>>> {
         let macro_id = match id_expr.read()? {
             ValueRef::Symbol(s) => {
                 if let Some(name) = s.text() {
@@ -1099,13 +1102,13 @@ impl TemplateCompiler {
         let mut annotations = id_expr.annotations();
         let maybe_macro = if let Some(module_name) = annotations.next().transpose()? {
             Self::resolve_qualified_macro_id(
-                tdl_context.context,
+                tdl_context.active_macros,
                 module_name.expect_text()?,
                 macro_id,
             )
         } else {
             Self::resolve_unqualified_macro_id(
-                tdl_context.context,
+                tdl_context.active_macros,
                 tdl_context.pending_macros,
                 macro_id,
             )
@@ -1154,7 +1157,9 @@ impl TemplateCompiler {
         // Update the macro step to reflect the number of child expressions it contains
         let invocation_expr_range = ExprRange::new(expr_group_start_index..arguments_end);
         definition.expressions[expr_group_start_index] = TemplateBodyExpr::macro_invocation(
-            tdl_context.context.values_macro(),
+            ION_1_1_SYSTEM_MACROS
+                .clone_macro_with_name("values")
+                .expect("`none` macro in system macro table"),
             invocation_expr_range,
         );
         Ok(())
@@ -1292,7 +1297,7 @@ enum TdlSExpKind<'a, D: Decoder> {
     ///     (macro_id /*...*/)
     /// * Associated `Rc<Macro>` is a reference to the macro definition to which the `macro_id` referred.
     /// * Associated iterator returns the s-expression's remaining child expressions.
-    MacroInvocation(Arc<Macro>, SExpIterator<'a, D>),
+    MacroInvocation(Arc<MacroDef>, SExpIterator<'a, D>),
     /// An expression group being passed as an argument to a macro invocation.
     ///     (.. /*...*/)
     /// * Associated `Parameter` is the parameter to which this arg expression group is being passed.
@@ -1386,7 +1391,7 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
             || (!operation.has_annotations()
             // ...and has not been shadowed by a user-defined macro name, it's a special form.
             && tdl_context.pending_macros.macro_with_name(operation_name).is_none()
-            && tdl_context.context.macro_table.macro_with_name(operation_name).is_none()));
+            && tdl_context.active_macros.macro_with_name(operation_name).is_none()));
 
         if !is_special_form {
             return IonResult::decoding_error(format!(
@@ -1394,7 +1399,7 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
             ));
         }
 
-        let special_form_macro: &Arc<Macro> = match operation_name {
+        let special_form_macro: &Arc<MacroDef> = match operation_name {
             // The 'literal' operation exists only at compile time...
             "literal" => return Ok(TdlSExpKind::Literal(expressions)),
             // ...while the cardinality tests are implemented as different flavors of
@@ -1413,21 +1418,21 @@ impl<'top, D: Decoder> TdlSExpKind<'top, D> {
     }
 }
 
-pub static IF_NONE_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_NONE_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_none", MacroKind::IfNone));
 
-pub static IF_SOME_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_SOME_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_some", MacroKind::IfSome));
 
-pub static IF_SINGLE_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_SINGLE_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_single", MacroKind::IfSingle));
 
-pub static IF_MULTI_MACRO: LazyLock<Arc<Macro>> =
+pub static IF_MULTI_MACRO: LazyLock<Arc<MacroDef>> =
     LazyLock::new(|| initialize_cardinality_test_macro("if_multi", MacroKind::IfMulti));
 
-fn initialize_cardinality_test_macro(name: &str, kind: MacroKind) -> Arc<Macro> {
+fn initialize_cardinality_test_macro(name: &str, kind: MacroKind) -> Arc<MacroDef> {
     let context = EncodingContext::empty();
-    let definition = Macro::new(
+    let definition = MacroDef::new(
         Some(name.into()),
         TemplateCompiler::compile_signature(
             context.get_ref(),
@@ -1442,9 +1447,9 @@ fn initialize_cardinality_test_macro(name: &str, kind: MacroKind) -> Arc<Macro> 
 
 #[derive(Copy, Clone)]
 struct TdlContext<'top> {
-    // The encoding context that was active when compilation began. The body of the macro we're
-    // compiling may reference macros and/or symbols found in the active encoding context.
-    pub context: EncodingContextRef<'top>,
+    // The macro table that was active when compilation began. The body of the new macro we're
+    // compiling may reference existing macros and/or symbols found in the active encoding context.
+    pub active_macros: &'top MacroTable,
     // Macros that were defined in the same encoding directive. They can be referenced by new
     // macros being defined, but have not yet been added to the encoding context.
     pub pending_macros: &'top MacroTable,
@@ -1456,14 +1461,14 @@ struct TdlContext<'top> {
 #[cfg(test)]
 mod tests {
     use crate::lazy::expanded::compiler::TemplateCompiler;
+    use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
     use crate::lazy::expanded::template::{
         ExprRange, ParameterEncoding, TemplateBodyExpr, TemplateMacro, TemplateValue,
     };
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
-    use crate::{Int, IntoAnnotations, IonResult, IonVersion, Macro, Symbol};
+    use crate::{Int, IntoAnnotations, IonResult, IonVersion, MacroDef, Symbol};
     use rustc_hash::FxHashMap;
     use std::sync::Arc;
-
     // XXX: The tests in this module compile inputs and expect a specific output. There is no "correct"
     // output, only correct behavior. As such, these tests are fragile; it is possible that optimizing
     // the compiler to produce different output will cause these tests to fail. That does not necessarily
@@ -1490,7 +1495,7 @@ mod tests {
     fn expect_macro(
         definition: &TemplateMacro,
         index: usize,
-        expected_macro: Arc<Macro>,
+        expected_macro: Arc<MacroDef>,
         expected_num_args: usize,
     ) -> IonResult<()> {
         expect_step(
@@ -1578,7 +1583,7 @@ mod tests {
 
         let expression = "(macro foo () 42)";
 
-        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::Int(42.into()))?;
@@ -1592,7 +1597,7 @@ mod tests {
 
         let expression = "(macro foo () [1, 2, 3])";
 
-        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_value(&template, 0, TemplateValue::List)?;
@@ -1609,7 +1614,7 @@ mod tests {
 
         let expression = r#"(macro foo () (.values 42 "hello" false))"#;
 
-        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 0);
         expect_macro(
@@ -1632,7 +1637,7 @@ mod tests {
         let expression =
             "(macro foo (x y z) [100, [200, a::b::300], (%x), {y: [true, false, (%z)]}])";
 
-        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
         expect_value(&template, 0, TemplateValue::List)?;
         expect_value(&template, 1, TemplateValue::Int(Int::from(100)))?;
         expect_value(&template, 2, TemplateValue::List)?;
@@ -1658,7 +1663,7 @@ mod tests {
 
         let expression = "(macro identity (x) (%x))";
 
-        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().len(), 1);
         expect_variable(&template, 0, 0)?;
@@ -1672,7 +1677,7 @@ mod tests {
 
         let expression = "(macro identity (flex_uint::x) (%x))";
 
-        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
         assert_eq!(template.name(), "identity");
         assert_eq!(template.signature().len(), 1);
         assert_eq!(
@@ -1704,13 +1709,27 @@ mod tests {
                         (.values (%x) ))))
         "#;
 
-        let template = TemplateCompiler::compile_from_source(context.get_ref(), expression)?;
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
         assert_eq!(template.name(), "foo");
         assert_eq!(template.signature().len(), 1);
         // Outer `values`
-        expect_macro(&template, 0, context.values_macro(), 9)?;
+        expect_macro(
+            &template,
+            0,
+            ION_1_1_SYSTEM_MACROS
+                .clone_macro_with_name("values")
+                .unwrap(),
+            9,
+        )?;
         // First argument: `(values x)`
-        expect_macro(&template, 2, context.values_macro(), 1)?;
+        expect_macro(
+            &template,
+            2,
+            ION_1_1_SYSTEM_MACROS
+                .clone_macro_with_name("values")
+                .unwrap(),
+            1,
+        )?;
         expect_variable(&template, 3, 0)?;
         // Second argument: `(literal (values x))`
         // Notice that the `literal` is not part of the compiled output, only its arguments

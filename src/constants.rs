@@ -124,6 +124,7 @@ pub(crate) mod v1_1 {
 
         pub const ION: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(1);
         pub const ENCODING: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(10);
+        pub const MACRO_TABLE: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(14);
         pub const SYMBOL_TABLE: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(15);
         pub const MODULE: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(16);
         pub const EMPTY_TEXT: SystemSymbol_1_1 = SystemSymbol_1_1::new_unchecked(33);

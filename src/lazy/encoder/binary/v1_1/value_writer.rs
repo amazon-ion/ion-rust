@@ -18,7 +18,7 @@ use crate::lazy::encoder::value_writer_config::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, SymbolValueEncoding,
     ValueWriterConfig,
 };
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::float::{FloatRepr, SmallestFloatRepr};
@@ -670,7 +670,7 @@ impl BinaryValueWriter_1_1<'_, '_> {
 
     fn eexp_writer<'a>(
         self,
-        macro_id: impl Into<MacroIdRef<'a>>,
+        macro_id: impl MacroIdLike<'a>,
     ) -> IonResult<<Self as ValueWriter>::EExpWriter> {
         // Thresholds within which an address can be encoded using the specified number of bits.
         const MAX_4_BIT_ADDRESS: usize = 63;
@@ -681,9 +681,11 @@ impl BinaryValueWriter_1_1<'_, '_> {
         const MIN_20_BIT_ADDRESS: usize = 4_160;
         const MAX_20_BIT_ADDRESS: usize = 1_052_735;
 
-        match macro_id.into() {
+        // Try to get an address from the provided MacroIdLike-thing.
+        let id_ref: MacroIdRef<'_> = macro_id.prefer_address();
+        match id_ref {
+            // We can't invoke e-expressions by name in binary, so if it can't provide an address that's a problem.
             MacroIdRef::LocalName(_name) => {
-                // This would be handled by the system writer
                 return IonResult::encoding_error(
                     "the raw binary writer cannot encode macros by name",
                 );
@@ -900,7 +902,7 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> 
         self.value_writer().struct_writer()
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
         if !self.annotations.is_empty() {
             return IonResult::encoding_error("e-expressions cannot have annotations");
         }
@@ -2553,7 +2555,7 @@ mod tests {
                 &[
                     // Struct with FlexUInt length
                     0xFD,
-                    // FlexUInt length 21 
+                    // FlexUInt length 21
                     0x2B,
                     // FlexUInt symbol ID 4
                     0x09,

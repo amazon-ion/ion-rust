@@ -1311,7 +1311,7 @@ mod tests {
     ) -> IonResult<()> {
         let mut context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let template_macro =
-            TemplateCompiler::compile_from_source(context.get_ref(), macro_source)?;
+            TemplateCompiler::compile_from_source(context.macro_table(), macro_source)?;
         let macro_address = context
             .macro_table_mut()
             .add_template_macro(template_macro)?;
@@ -1607,28 +1607,17 @@ mod tests {
 
     #[test]
     fn roundtrip_macro_addresses_up_to_20_bits() -> IonResult<()> {
-        use std::fmt::Write;
-
         // This is a large enough value that many macros will be encoded using 20 bits.
         // However, it is not large enough to fully exercise the 20-bit encoding space. To do that,
         // we would need approximately 1 million macros, which takes too much time to execute in a
         // debug build.
         const MAX_TEST_MACRO_ADDRESS: usize = 6_000;
 
-        // Construct an encoding directive that defines this number of macros. Each macro will expand
-        // to its own address.
-        let mut macro_definitions = String::from("$ion::\n(module _\n  (macro_table _\n");
-        for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
-            writeln!(macro_definitions, "    (macro m{address} () {address})")?;
-        }
-        macro_definitions.push_str("  )\n)\n");
-        let encoding_directive = Element::read_one(macro_definitions)?;
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-        writer.write(&encoding_directive)?;
-
         // Invoke each of the macros we just defined in order.
         for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
-            writer.eexp_writer(address)?.close()?;
+            let macro_n = writer.compile_macro(format!("(macro m{address} () {address})"))?;
+            writer.eexp_writer(&macro_n)?.close()?;
         }
         let data = writer.close()?;
 
