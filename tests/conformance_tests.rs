@@ -49,7 +49,7 @@ mod ion_tests {
         ),
         // Mismatched produces due to symbol id transcription.
         skip!("ion-tests/conformance/core/toplevel_produces.ion"),
-        // Unrecognized encoding 'int8'
+        // Unrecognized encoding 'int8' (only flex_uint appears to be supported)
         skip!("ion-tests/conformance/demos/metaprogramming.ion"),
         // error: flatten only accepts sequences
         skip!("ion-tests/conformance/eexp/arg_inlining.ion"),
@@ -58,8 +58,9 @@ mod ion_tests {
         // Mismatched produces, due to out-of-date encoding block
         skip!("ion-tests/conformance/ion_encoding/mactab.ion"),
         skip!("ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion",
-            "? parameters", // Parameter used incorrectly in tdl.
-            "* parameters"  // Parameter used incorrectly in tdl.
+            "? parameters", // NEED: Conformance DSL support for expression groups.
+            "+ parameters", // NEED: Conformance DSL support for expression groups.
+            "* parameters"  // NEED: Conformande DSL support for expression groups.
         ),
         // Incorrectly constructed macro table.
         skip!("ion-tests/conformance/ion_encoding/module/macro/template/literal_form.ion"),
