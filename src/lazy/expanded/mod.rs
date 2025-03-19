@@ -539,14 +539,10 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         marker: <Encoding as Decoder>::VersionMarker<'top>,
     ) -> IonResult<SystemStreamItem<'top, Encoding>> {
         let new_version = marker.stream_version_after_marker()?;
-        // If this is the first item in the stream or we're changing versions, we need to ensure
-        // the encoding context is set up for this version.
-        if marker.range().start == 0 || new_version != marker.stream_version_before_marker() {
-            // SAFETY: Version markers do not hold a reference to the symbol table.
-            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
-            pending_changes.switch_to_version = Some(new_version);
-            pending_changes.has_changes = true;
-        }
+        // SAFETY: Version markers do not hold a reference to the symbol table.
+        let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+        pending_changes.switch_to_version = Some(new_version);
+        pending_changes.has_changes = true;
         Ok(SystemStreamItem::VersionMarker(marker))
     }
 
