@@ -265,6 +265,18 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 pub trait IoBufferHandle {
     /// Creates an inexpensive copy of the I/O buffer with no lifetime.
     fn save_io_buffer(&self) -> IoBuffer;
+
+    /// Represents the row position for the I/O buffer.
+    #[cfg(feature = "lazy-source-location")]
+    fn row(&self) -> usize;
+
+    /// Represents the previous newline offset for the I/O buffer.
+    #[cfg(feature = "lazy-source-location")]
+    fn prev_newline_offset(&self) -> usize;
+
+    /// Represents offsets of all the newlines for the I/O buffer.
+    #[cfg(feature = "lazy-source-location")]
+    fn newlines(&self) -> &[usize];
 }
 
 /// An input source--typically an implementation of either `AsRef<[u8]>` or `io::Read`--from which
@@ -300,6 +312,9 @@ pub struct IonSlice<SliceType> {
     source: SliceType,
     // The offset of the first byte that hasn't yet been consumed.
     position: usize,
+    #[cfg(feature = "lazy-source-location")]
+    // The offset of the last byte that has been consumed previously.
+    prev_position: usize,
     // When a LazyValue is saved, this is initialized by cloning the source data into an `Rc`.
     // Once initialized, that source data can be cheaply shared by all values in the buffer without
     // requiring a lifetime.
@@ -312,6 +327,8 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
         Self {
             source: bytes,
             position: 0,
+            #[cfg(feature = "lazy-source-location")]
+            prev_position: 0,
             shared_stream_data: OnceCell::new(),
         }
     }
@@ -345,6 +362,64 @@ impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
         let local_end = bytes.len();
         IoBuffer::new(stream_position, bytes, local_offset, local_end)
     }
+
+    #[cfg(feature = "lazy-source-location")]
+    fn row(&self) -> usize {
+        // Update row for location metadata
+        let available_range = ..self.prev_position;
+        let data  = &self.stream_bytes()[available_range];
+        if !data.is_empty() {
+            // Calculate `rows` based on occurrence of newline bytes. If we encounter:
+            // 1. b'\r' then increment row count by 1.
+            // 2.a. If there was no b'\r' encountered before b'\n' then increment row count by 1.
+            // 2.b. If there was no b'\r' encountered before b'\n' then don't increment as b'\r\n' should be counted as 1 based on windows line ending pattern.
+           let (_, rows) = data.iter().fold((false, 0), |(follows_cr, rows), b| {
+                match (b, follows_cr) {
+                    // When there's a '\r', add a row
+                    (b'\r', _) => (true, rows + 1),
+                    // When there's a '\n' not after '\r', add a row
+                    (b'\n', false) => (false, rows + 1),
+                    // When there's '\n' immediately following '\r' without adding a row
+                    (b'\n', true) => (false, rows),
+                    _ => (false, rows),
+                }
+            });
+
+            rows + 1
+        } else {
+            1
+        }
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    fn prev_newline_offset(&self) -> usize {
+        // Update previous newline offset for location metadata
+        let available_range = ..self.prev_position;
+        let data  = &self.stream_bytes()[available_range];
+        if !data.is_empty() {
+            // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
+            // Adding 1 to the index because we want to include everything after the newline -
+            // if newline is at index 5, we want to start counting from index 6 (5 + 1).
+            let prev_newline_offset = data.iter().enumerate().fold(0, |offset, (i, b)| {
+                match b {
+                    // When there's a '\r' or '\n', update the offset as this newline offset value
+                    b'\r' | b'\n' => i + 1,
+                  _ => offset,
+                }
+            });
+
+            prev_newline_offset
+        } else {
+            1
+        }
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    fn newlines(&self) -> &[usize] {
+        // This will act as a no-op, as for `IonSlice` we don't need to rely on newlines.
+        // It is only used by `IonStream`, to help keep track of all past newlines offsets.
+        &[]
+    }
 }
 
 impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
@@ -363,6 +438,10 @@ impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
     }
 
     fn consume(&mut self, number_of_bytes: usize) {
+        #[cfg(feature = "lazy-source-location")]
+        {
+            self.prev_position = self.position;
+        }
         self.position += number_of_bytes;
         // In debug/test builds, this will fail noisily if something attempts to consume more data
         // than the backing array contains.
@@ -392,6 +471,12 @@ pub struct IoBuffer {
     local_offset: usize,
     // The index of the first unoccupied byte in the buffer *at or after* `local_offset`.
     local_end: usize,
+    // Represents all previous newline offsets for the buffer.
+    #[cfg(feature = "lazy-source-location")]
+    prev_newline_offsets: Vec<usize>,
+    // Represents row position for the buffer.
+    #[cfg(feature = "lazy-source-location")]
+    row: usize,
 }
 
 impl IoBuffer {
@@ -416,6 +501,10 @@ impl IoBuffer {
             bytes,
             local_offset,
             local_end,
+            #[cfg(feature = "lazy-source-location")]
+            prev_newline_offsets: Vec::new(),
+            #[cfg(feature = "lazy-source-location")]
+            row: 1
         }
     }
 
@@ -425,6 +514,10 @@ impl IoBuffer {
             bytes: Self::alloc_zeroed(capacity),
             local_offset: 0,
             local_end: 0,
+            #[cfg(feature = "lazy-source-location")]
+            prev_newline_offsets: Vec::new(),
+            #[cfg(feature = "lazy-source-location")]
+            row: 1
         }
     }
 
@@ -452,6 +545,51 @@ impl IoBuffer {
         &self.bytes[self.local_offset..self.local_end]
     }
 
+    #[cfg(feature = "lazy-source-location")]
+    pub(crate) fn prev_newline_offset(&self) -> usize {
+        // gets the last newline offset, otherwise returns default value `0`.
+        *self.prev_newline_offsets.last().unwrap_or(&0)
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    pub fn row(&self) -> usize {
+        self.row
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    pub fn column(&self) -> usize {
+        self.stream_offset - self.prev_newline_offset() + 1
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    fn update_location_metadata(&mut self, range: (usize, usize)) {
+        let data = &self.bytes[range.0..range.1];
+        if !data.is_empty()  {
+            // Calculate `rows` based on occurrence of newline bytes. If we encounter:
+            // 1. b'\r' then increment row count by 1.
+            // 2.a. If there was no b'\r' encountered before b'\n' then increment row count by 1.
+            // 2.b. If there was no b'\r' encountered before b'\n' then don't increment as b'\r\n' should be counted as 1 based on windows line ending pattern.
+            // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
+            // Adding 1 to the index because we want to include everything after the newline -
+            // if newline is at index 5, we want to start counting from index 6 (5 + 1).
+            let (_, rows, prev_newline_offsets) = data.iter().enumerate().fold((false, 0, vec![]), |(follows_cr, rows, mut offset), (i, b)| {
+                match (b, follows_cr) {
+                    // When there's a '\r', add a row and update the offset as this newline offset value
+                    (b'\r', _) =>  { offset.push(self.stream_offset + range.0 + i + 1);  (true, rows + 1, offset) },
+                    // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
+                    (b'\n', false) => { offset.push(self.stream_offset + range.0 + i + 1); (false, rows + 1, offset) },
+                    // When there's '\n' immediately following '\r', update the offset without adding a row
+                    (b'\n', true) => { offset.pop(); offset.push(self.stream_offset + range.0 + i + 1);  (false, rows, offset) },
+                    _ => (false, rows, offset),
+                }
+            });
+
+            // set all previous newline offsets by extending with these `prev_newline_offset`
+            self.prev_newline_offsets.extend(prev_newline_offsets);
+            self.row += rows;
+        }
+    }
+
     pub fn read_from<R: Read>(&mut self, input: &mut R) -> IonResult<usize> {
         if self.local_offset > 0 {
             // We've consumed bytes (advancing `position`) and can therefore reclaim some of the
@@ -466,10 +604,15 @@ impl IoBuffer {
         // Attempt to read as many bytes as will fit in the currently allocated capacity beyond
         // `limit`.
         let available_range = self.local_end..;
-        let bytes_read = input.read(&mut self.make_data_mut()[available_range])?;
+        let bytes_read = input.read(&mut self.make_data_mut()[available_range.clone()])?;
 
         // Update `self.limit` to mark the newly read in bytes as available.
         self.local_end += bytes_read;
+
+        #[cfg(feature = "lazy-source-location")]
+        if bytes_read > 0 {
+            self.update_location_metadata((available_range.start, self.local_end));
+        }
         Ok(bytes_read)
     }
 
@@ -544,6 +687,21 @@ impl<R: Read> IoBufferHandle for IonStream<R> {
     fn save_io_buffer(&self) -> IoBuffer {
         // `self.buffer` is reference counted, so we can cheaply clone it.
         self.buffer.clone()
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    fn row(&self) -> usize {
+        self.buffer.row()
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    fn prev_newline_offset(&self) -> usize {
+        self.buffer.prev_newline_offset()
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    fn newlines(&self) -> &[usize] {
+        &self.buffer.prev_newline_offsets
     }
 }
 
