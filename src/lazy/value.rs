@@ -499,13 +499,11 @@ impl<'top, D: Decoder> TryFrom<AnnotationsIterator<'top, D>> for Annotations {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
-    use std::io::{Cursor, Read};
     use num_traits::Float;
     use rstest::*;
 
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonStream, IonType, Reader, Symbol, Timestamp};
+    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonType, Reader, Symbol, Timestamp};
     use crate::{Element, IntoAnnotatedElement};
 
     #[test]
@@ -627,6 +625,7 @@ mod tests {
     #[case::mix_tabs_and_newlines("{foo: 1, bar: 2}\n\t\n\"hello\"", (3,1))]
     #[case::long_string("{foo: 1, bar: 2}\n\n'''long \n\r\n\t hello'''", (3, 1))]
     #[case::comment("{foo: 1, bar: 2}\n\n /*multiline \n comment*/'''long \n\r\n\t hello'''", (4, 11))]
+    #[case::on_same_line_as_preceding_multiline_value("{\n  foo: 1,\n  bar: 2\n}\"hello\"", (4, 2))]
     fn location_test_for_second_tlv(
         #[case] ion_text: &str,
         #[case] expected_location: (usize, usize),
@@ -665,10 +664,15 @@ mod tests {
     #[case::mix_tabs_and_newlines(vec!["{foo: 1, bar: 2}\n\t\n\"hello\""], (3,1))]
     #[case::long_string(vec!["{foo: 1, bar: 2}\n\n'''long \n\r\n\t hello'''"], (3, 1))]
     #[case::comment(vec!["{foo: 1, bar: 2}\n\n", "/*multiline \n comment*/","'''long \n\r\n\t hello'''"], (4, 11))]
+    #[case::on_same_line_as_preceding_multiline_value(vec!["{\n  foo: 1,\n  bar: 2\n}\"hello\""], (4, 2))]
     fn location_test_for_second_tlv_in_stream(
         #[case] ion_text: Vec<&str>,
         #[case] expected_location: (usize, usize),
     ) -> IonResult<()> {
+        use std::io;
+        use std::io::{Cursor, Read};
+        use crate::IonStream;
+
         let input_chunks = ion_text.as_slice();
         // Wrapping each string in an `io::Chain`
         let mut input: Box<dyn Read> = Box::new(io::empty());
