@@ -270,13 +270,13 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
 
     #[cfg(feature = "lazy-source-location")]
     pub fn location(&self) -> Option<(usize, usize)> {
-        let mut context = self.expanded_value.context();
+        let context = self.expanded_value.context();
         // set the value start and end positions, this help in location calculation
         if let Some(span) = self.expanded_value.span() {
-            context.set_value_start(span.offset() + 1);
-            context.set_value_end(span.offset() + span.len());
+            context.location(span.offset() + 1)
+        } else {
+            context.location(0)
         }
-        context.location()
     }
 
     pub fn to_owned(&self) -> LazyElement<D> {

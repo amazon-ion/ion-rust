@@ -178,7 +178,7 @@ impl EncodingContext {
     }
 
     pub fn get_ref(&self) -> EncodingContextRef<'_> {
-        EncodingContextRef { context: self, value_start: 0, value_end: 0 }
+        EncodingContextRef { context: self }
     }
 
     pub fn save_io_buffer(&self) -> IoBuffer {
@@ -259,13 +259,11 @@ impl EncodingContext {
 #[derive(Debug, Copy, Clone)]
 pub struct EncodingContextRef<'top> {
     pub(crate) context: &'top EncodingContext,
-    pub(crate) value_start: usize,
-    pub(crate) value_end: usize,
 }
 
 impl<'top> EncodingContextRef<'top> {
     pub fn new(context: &'top EncodingContext) -> Self {
-        Self { context, value_start: 0, value_end: 0 }
+        Self { context }
     }
 
     pub fn allocator(&self) -> &'top BumpAllocator {
@@ -292,19 +290,8 @@ impl<'top> EncodingContextRef<'top> {
             .expect("`values` macro in system macro table")
     }
 
-
     #[cfg(feature = "lazy-source-location")]
-    pub fn set_value_start(&mut self, start: usize) {
-        self.value_start = start;
-    }
-
-    #[cfg(feature = "lazy-source-location")]
-    pub fn set_value_end(&mut self, end: usize) {
-        self.value_end = end;
-    }
-
-    #[cfg(feature = "lazy-source-location")]
-    pub fn location(&self) -> Option<(usize, usize)> {
+    pub fn location(&self, value_start: usize) -> Option<(usize, usize)> {
         match unsafe { &*self.io_buffer_source.get() } {
             IoBufferSource::IoBuffer(ref buffer) => Some((buffer.row(), buffer.column())),
             IoBufferSource::Reader(handle) => {
@@ -314,26 +301,25 @@ impl<'top> EncodingContextRef<'top> {
                 if prev_newline == 0 {
                     // If no newlines have been encountered yet, we're on the first row
                     // The column is the start position of the value
-                    Some((1, self.value_start))
+                    Some((1, value_start))
                 } else {
                     // If newlines have been encountered
-                    if self.value_start > prev_newline {
+                    if value_start > prev_newline {
                         // If the value starts after the last newline,
                         // we're on the current row and can calculate the column
-                        Some((current_row, self.value_start - prev_newline))
+                        Some((current_row, value_start - prev_newline))
                     } else {
                         // If the value starts before or at the last newline,
                         // we need to find the correct row and column
                         if let Some(last_newline_pos) = handle.newlines().iter().enumerate()
-                            .take_while(|&(_index, pos)| pos <= &self.value_start)
-                            .last() {
+                            .rfind(|&(_index, pos)| pos <= &value_start) {
                             // Found the last newline before or at the value start
                             // Row is the index of this newline + 2 (1-indexed and we're on the next line)
                             // Column is the distance from this newline to the value start
-                            Some((last_newline_pos.0 + 2, self.value_start - *last_newline_pos.1))
+                            Some((last_newline_pos.0 + 2, value_start - *last_newline_pos.1))
                         } else {
                             // If we couldn't find a newline, we're on the first row
-                            Some((1, self.value_start))
+                            Some((1, value_start))
                         }
                     }
                 }
@@ -341,8 +327,6 @@ impl<'top> EncodingContextRef<'top> {
             IoBufferSource::None => None
         }
     }
-
-
 }
 
 impl Deref for EncodingContextRef<'_> {

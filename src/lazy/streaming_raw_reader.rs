@@ -313,7 +313,7 @@ pub struct IonSlice<SliceType> {
     // The offset of the first byte that hasn't yet been consumed.
     position: usize,
     #[cfg(feature = "lazy-source-location")]
-    // The offset of the last byte that has been consumed previously.
+    // The offset of the last byte that was consumed before the most recent consume operation.
     prev_position: usize,
     // When a LazyValue is saved, this is initialized by cloning the source data into an `Rc`.
     // Once initialized, that source data can be cheaply shared by all values in the buffer without
@@ -474,9 +474,6 @@ pub struct IoBuffer {
     // Represents all previous newline offsets for the buffer.
     #[cfg(feature = "lazy-source-location")]
     prev_newline_offsets: Vec<usize>,
-    // Represents row position for the buffer.
-    #[cfg(feature = "lazy-source-location")]
-    row: usize,
 }
 
 impl IoBuffer {
@@ -503,8 +500,6 @@ impl IoBuffer {
             local_end,
             #[cfg(feature = "lazy-source-location")]
             prev_newline_offsets: Vec::new(),
-            #[cfg(feature = "lazy-source-location")]
-            row: 1
         }
     }
 
@@ -516,8 +511,6 @@ impl IoBuffer {
             local_end: 0,
             #[cfg(feature = "lazy-source-location")]
             prev_newline_offsets: Vec::new(),
-            #[cfg(feature = "lazy-source-location")]
-            row: 1
         }
     }
 
@@ -548,12 +541,12 @@ impl IoBuffer {
     #[cfg(feature = "lazy-source-location")]
     pub(crate) fn prev_newline_offset(&self) -> usize {
         // gets the last newline offset, otherwise returns default value `0`.
-        *self.prev_newline_offsets.last().unwrap_or(&0)
+        self.prev_newline_offsets.last().copied().unwrap_or(0 )
     }
 
     #[cfg(feature = "lazy-source-location")]
     pub fn row(&self) -> usize {
-        self.row
+        self.prev_newline_offsets.len() + 1
     }
 
     #[cfg(feature = "lazy-source-location")]
@@ -572,21 +565,20 @@ impl IoBuffer {
             // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
             // Adding 1 to the index because we want to include everything after the newline -
             // if newline is at index 5, we want to start counting from index 6 (5 + 1).
-            let (_, rows, prev_newline_offsets) = data.iter().enumerate().fold((false, 0, vec![]), |(follows_cr, rows, mut offset), (i, b)| {
+            let (_, prev_newline_offsets) = data.iter().enumerate().fold((false, vec![]), |(follows_cr, mut offset), (i, b)| {
                 match (b, follows_cr) {
                     // When there's a '\r', add a row and update the offset as this newline offset value
-                    (b'\r', _) =>  { offset.push(self.stream_offset + range.0 + i + 1);  (true, rows + 1, offset) },
+                    (b'\r', _) =>  { offset.push(self.stream_offset + range.0 + i + 1);  (true, offset) },
                     // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
-                    (b'\n', false) => { offset.push(self.stream_offset + range.0 + i + 1); (false, rows + 1, offset) },
+                    (b'\n', false) => { offset.push(self.stream_offset + range.0 + i + 1); (false, offset) },
                     // When there's '\n' immediately following '\r', update the offset without adding a row
-                    (b'\n', true) => { offset.pop(); offset.push(self.stream_offset + range.0 + i + 1);  (false, rows, offset) },
-                    _ => (false, rows, offset),
+                    (b'\n', true) => { offset.pop(); offset.push(self.stream_offset + range.0 + i + 1);  (false, offset) },
+                    _ => (false, offset),
                 }
             });
 
             // set all previous newline offsets by extending with these `prev_newline_offset`
             self.prev_newline_offsets.extend(prev_newline_offsets);
-            self.row += rows;
         }
     }
 
