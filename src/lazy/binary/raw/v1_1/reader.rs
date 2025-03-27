@@ -556,6 +556,7 @@ mod tests {
         Ok(())
     }
 
+    #[test]
     fn blobs() -> IonResult<()> {
         let data: Vec<u8> = vec![
             0xe0, 0x01, 0x01, 0xea, // IVM

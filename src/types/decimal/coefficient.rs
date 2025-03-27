@@ -2,7 +2,6 @@
 
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
-use std::ops::Neg;
 
 use num_traits::Zero;
 
@@ -15,8 +14,8 @@ use crate::{Int, UInt};
 /// When the magnitude is zero, the `Sign` can be used to distinguish between -0 and 0.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Sign {
-    Negative,
-    Positive,
+    Negative = -1,
+    Positive = 1,
 }
 
 /// A signed integer that can be used as the coefficient of a [`Decimal`](crate::Decimal) value.
@@ -103,22 +102,6 @@ impl Coefficient {
     /// Returns true if the Coefficient represents a zero of any sign.
     pub fn is_zero(&self) -> bool {
         self.magnitude().is_zero()
-    }
-
-    /// If the value can fit in an i64, return it as such. This is useful for
-    /// inline representations.
-    pub(crate) fn as_i64(&self) -> Option<i64> {
-        if self.is_negative_zero() {
-            // Returning an unsigned zero would be lossy.
-            return None;
-        }
-        match i64::try_from(self.magnitude.data) {
-            Ok(signed) => match self.sign {
-                Sign::Negative => Some(signed.neg()),
-                Sign::Positive => Some(signed),
-            },
-            Err(_) => None,
-        }
     }
 
     /// If the value can be represented as an `i128`, return it as such.
@@ -309,5 +292,11 @@ mod coefficient_tests {
         // Zeros
         assert_eq!(Int::try_from(Coefficient::new(0)), Ok(Int::from(0)));
         assert!(Int::try_from(Coefficient::negative_zero()).is_err());
+    }
+
+    #[test]
+    fn test_casting_sign() {
+        assert_eq!(-1, Sign::Negative as i8);
+        assert_eq!(1, Sign::Positive as i8);
     }
 }

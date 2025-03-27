@@ -20,11 +20,6 @@ macro_rules! create_new_slice_iterator_type {
                     values: Some(data.iter()),
                 }
             }
-
-            // Define a constructor that takes no parameters and returns an empty iterator
-            pub(crate) fn empty() -> $iterator_name<'static> {
-                $iterator_name { values: None }
-            }
         }
 
         // Implement the Iterator trait for our new type

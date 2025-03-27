@@ -7,7 +7,7 @@ use value_writer::SequenceWriter;
 
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
-use crate::{IonEncoding, IonResult};
+use crate::IonResult;
 
 pub mod annotate;
 pub mod annotation_seq;
@@ -50,6 +50,8 @@ pub enum SymbolCreationPolicy {
 
 pub(crate) mod private {
     /// Prevents types outside the crate from implementing traits that extend it.
+    // This trait exists only as a visibility constraint, so the compiler considers it dead code.
+    #[allow(dead_code)]
     pub trait Sealed {}
 }
 
@@ -69,8 +71,6 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
     fn output_mut(&mut self) -> &mut W;
 
     fn write_version_marker(&mut self) -> IonResult<()>;
-
-    fn encoding(&self) -> IonEncoding;
 }
 
 #[cfg(test)]

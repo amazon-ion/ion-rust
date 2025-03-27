@@ -5,7 +5,6 @@ use thiserror::Error;
 
 pub type ConversionOperationResult<FromType, ToType> =
     Result<ToType, ConversionOperationError<FromType, ToType>>;
-pub type ConversionResult<ToType> = Result<ToType, ConversionError>;
 
 /// Represents a mismatch during conversion between the expected type and the actual value's type.
 #[derive(Clone, Debug, Error, PartialEq)]

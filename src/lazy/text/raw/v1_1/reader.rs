@@ -133,6 +133,9 @@ impl SystemMacroAddress {
     }
 }
 
+// Several of these are not used yet. Rather than leave gaps until we have an internal use case
+// for them, we simply allow dead code in this module.
+#[allow(dead_code)]
 pub(crate) mod system_macros {
     use crate::lazy::text::raw::v1_1::reader::SystemMacroAddress;
 
@@ -161,9 +164,6 @@ pub(crate) mod system_macros {
     pub const ADD_MACROS: SystemMacroAddress = SystemMacroAddress(0x16);
     pub const USE: SystemMacroAddress = SystemMacroAddress(0x17);
 }
-
-/// The index at which a value expression can be found within a template's body.
-pub type TemplateBodyExprAddress = usize;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MacroIdRef<'data> {
@@ -253,18 +253,6 @@ impl<'top> TextEExpression_1_1<'top> {
             id,
             arg_cache,
         }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct EncodedTextMacroInvocation {
-    // The ID always begins at index 2 (after the opening `(:`). The parameters follow the ID.
-    id_length: u16,
-}
-
-impl EncodedTextMacroInvocation {
-    pub fn new(id_length: u16) -> Self {
-        Self { id_length }
     }
 }
 

@@ -66,10 +66,6 @@ impl<'data> IonParseError<'data> {
         Err(ErrMode::Cut(self))
     }
 
-    pub(crate) fn backtrack_err(self) -> ErrMode<Self> {
-        ErrMode::Backtrack(self)
-    }
-
     pub(crate) fn backtrack<T>(self) -> IonParseResult<'data, T> {
         Err(ErrMode::Backtrack(self))
     }

@@ -10,6 +10,9 @@ use ion_rs::{Element, ElementReader, Sequence};
 
 #[derive(Clone, Debug)]
 pub(crate) enum Continuation {
+    // Used internally.
+    None,
+
     // expectations
 
     // Verify that reading the current document produces the expected data provided.
@@ -71,7 +74,12 @@ impl Continuation {
                 Err(_e) => Ok(()),
                 Ok(_) => Err(ConformanceErrorKind::ExpectedSignal(msg.to_owned()))?,
             },
+            Continuation::None => unreachable!(),
         }
+    }
+
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Self::Then(..) | Self::Each(..))
     }
 }
 

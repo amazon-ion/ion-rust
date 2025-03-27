@@ -25,7 +25,7 @@ use crate::lazy::expanded::e_expression::{
 };
 use crate::lazy::expanded::sequence::{Environment, ExpandedSequenceIterator};
 use crate::lazy::expanded::template::{
-    ParameterEncoding, TemplateBodyVariableReference, TemplateExprGroup, TemplateMacroInvocation,
+    ParameterEncoding, TemplateExprGroup, TemplateMacroInvocation,
     TemplateMacroInvocationArgsIterator, TemplateMacroRef,
 };
 use crate::lazy::expanded::LazyExpandedValue;
@@ -224,7 +224,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         self.kind
     }
 
-    fn arguments(&self) -> MacroExprArgsIterator<'top, D> {
+    pub fn arguments(&self) -> MacroExprArgsIterator<'top, D> {
         use MacroExprKind::*;
         let args_kind = match &self.kind {
             TemplateMacro(m) => MacroExprArgsKind::<'top, D>::TemplateMacro(m.arguments()),
@@ -277,16 +277,6 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
             return Ok(ExpansionCardinality::Single);
         }
         Ok(ExpansionCardinality::Multi)
-    }
-
-    pub(crate) fn context(&self) -> EncodingContextRef<'top> {
-        use MacroExprKind::*;
-        match self.kind {
-            TemplateMacro(t) => t.context(),
-            TemplateArgGroup(g) => g.context(),
-            EExp(e) => e.context(),
-            EExpArgGroup(g) => g.context(),
-        }
     }
 }
 
@@ -357,34 +347,6 @@ impl<'top, D: Decoder> Iterator for MacroExprArgsIterator<'top, D> {
             MacroExprArgsKind::TemplateArgGroup(g) => g.size_hint(),
             MacroExprArgsKind::EExp(e) => e.size_hint(),
             MacroExprArgsKind::EExpArgGroup(g) => g.size_hint(),
-        }
-    }
-}
-
-/// A single expression appearing in argument position within a macro invocation.
-#[derive(Debug, Copy, Clone)]
-pub enum ArgExpr<'top, D: Decoder> {
-    /// An Ion value that requires no further evaluation.
-    // `LazyExpandedValue` can be backed by either a stream value or a template value, so it covers
-    // both contexts.
-    ValueLiteral(LazyExpandedValue<'top, D>),
-    /// A variable name that requires expansion.
-    // Variable references can only appear in template macro invocations.
-    Variable(TemplateBodyVariableReference),
-    /// A macro invocation that requires evaluation.
-    MacroInvocation(MacroExpr<'top, D>),
-}
-
-impl<'top, D: Decoder> ArgExpr<'top, D> {
-    /// If this `ArgExpr` is a variable reference, resolves it to an expression from its originating
-    /// environment. Returns an `ArgValueExpr` which is the value literal or macro invocation to
-    /// which the variable referred.
-    /// Otherwise, passes through the value literal or macro invocation.
-    pub(crate) fn resolve(&self, environment: Environment<'top, D>) -> ValueExpr<'top, D> {
-        match self {
-            ArgExpr::ValueLiteral(value) => ValueExpr::ValueLiteral(*value),
-            ArgExpr::Variable(variable) => environment.require_expr(variable.signature_index()),
-            ArgExpr::MacroInvocation(invocation) => ValueExpr::MacroInvocation(*invocation),
         }
     }
 }
@@ -583,18 +545,6 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             MacroExpansionStep::FinalStep(Some(ValueExpr::ValueLiteral(value))) => Ok(value),
             // If the expansion produces anything other than a final value, there's a bug.
             _ => unreachable!("expansion of {self:?} was required to produce exactly one value"),
-        }
-    }
-
-    /// Construct a new `MacroExpansion` and populate its evaluation environment as needed.
-    pub(crate) fn initialize(
-        invocation_to_evaluate: MacroExpr<'top, D>,
-    ) -> IonResult<MacroExpansion<'top, D>> {
-        match invocation_to_evaluate.source() {
-            MacroExprKind::TemplateMacro(t) => t.expand(),
-            MacroExprKind::TemplateArgGroup(g) => g.expand(),
-            MacroExprKind::EExp(e) => e.expand(),
-            MacroExprKind::EExpArgGroup(g) => g.expand(),
         }
     }
 
@@ -1026,6 +976,7 @@ impl<'top, D: Decoder> StackedMacroEvaluator<'top, D> {
     /// Attempts to resolve the provided `invocation` in the specified `context`. Upon success,
     /// returns an iterator that lazily computes the expansion of the macro invocation and yields
     /// its values.
+    #[allow(dead_code)]
     pub fn evaluate<'iter>(
         &'iter mut self,
         invocation: impl Into<MacroExpr<'top, D>>,
@@ -1040,12 +991,14 @@ impl<'top, D: Decoder> StackedMacroEvaluator<'top, D> {
 
 /// Yields the values produced by incrementally evaluating the macro that was at the top of the
 /// evaluator's stack when the iterator was created.
+#[allow(dead_code)]
 pub struct EvaluatingIterator<'iter, 'top, D: Decoder> {
     evaluator: &'iter mut StackedMacroEvaluator<'top, D>,
     initial_stack_depth: usize,
 }
 
 impl<'iter, 'top, D: Decoder> EvaluatingIterator<'iter, 'top, D> {
+    #[allow(dead_code)]
     pub fn new(evaluator: &'iter mut StackedMacroEvaluator<'top, D>) -> Self {
         let initial_stack_depth = evaluator.macro_stack_depth();
         Self {
@@ -1574,10 +1527,6 @@ impl<'top> TemplateExpansion<'top> {
             template,
             step_index: 0,
         }
-    }
-
-    pub fn definition(&self) -> TemplateMacroRef<'top> {
-        self.template
     }
 
     pub(crate) fn next<'data: 'top, D: Decoder>(

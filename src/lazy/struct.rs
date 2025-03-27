@@ -2,7 +2,6 @@
 
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::{Decoder, LazyRawContainer};
-use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::r#struct::{
     ExpandedStructIterator, ExpandedStructSource, LazyExpandedField, LazyExpandedStruct,
 };
@@ -51,8 +50,6 @@ pub struct LazyStruct<'top, D: Decoder> {
     pub(crate) expanded_struct: LazyExpandedStruct<'top, D>,
 }
 
-pub type LazyBinaryStruct_1_0<'top> = LazyStruct<'top, BinaryEncoding_1_0>;
-
 // Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
 // in the output being silently truncated.
 impl<D: Decoder> Debug for LazyStruct<'_, D> {
@@ -84,11 +81,6 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
 
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn expanded(&self) -> LazyExpandedStruct<'top, D> {
-        self.expanded_struct
-    }
-
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn expanded(&self) -> LazyExpandedStruct<'top, D> {
         self.expanded_struct
     }
 
@@ -305,15 +297,11 @@ impl<'top, D: Decoder> LazyField<'top, D> {
         }
     }
 
-    // This is a `pub` version of `get_raw_name` that requires explicit opt-in.
-    #[cfg(feature = "experimental-tooling-apis")]
-    pub fn raw_name(&self) -> Option<D::FieldName<'top>> {
-        self.get_raw_name()
-    }
-
     /// Like `raw_name`, but always accessible internally.
     #[inline]
-    pub(crate) fn get_raw_name(&self) -> Option<D::FieldName<'top>> {
+    // This method is available when the feature is enabled or when running unit tests.
+    #[cfg(any(test, feature = "experimental-tooling-apis"))]
+    pub fn raw_name(&self) -> Option<D::FieldName<'top>> {
         if let crate::LazyExpandedFieldName::RawName(_context, raw_name) =
             self.expanded_field.name()
         {

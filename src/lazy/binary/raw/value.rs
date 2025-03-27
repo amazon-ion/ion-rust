@@ -154,6 +154,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
     }
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
     fn opcode_length(&self) -> usize;
     fn length_length(&self) -> usize;
@@ -293,6 +294,7 @@ pub struct EncodedBinaryAnnotations_1_0<'a, 'top> {
     value: &'a LazyRawBinaryValue_1_0<'top>,
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<'top> EncodedBinaryAnnotations_1_0<'_, 'top> {
     /// Returns the input stream index range that contains the bytes representing the complete
     /// annotations wrapper, including its opcode, wrapper length, annotations sequence length,
@@ -354,6 +356,7 @@ pub struct EncodedBinaryValueData_1_0<'a, 'top> {
     value: &'a LazyRawBinaryValue_1_0<'top>,
 }
 
+#[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 impl<'top> EncodedBinaryValueData_1_0<'_, 'top> {
     /// Returns the input stream index range that contains the bytes representing the complete value,
     /// including its opcode, length, and body.

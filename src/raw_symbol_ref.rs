@@ -190,7 +190,7 @@ impl SystemSymbol_1_1 {
 
     /// Creates a new system symbol if the provided address is non-zero and in range for the
     /// corresponding system symbol table.
-    fn new(symbol_address: SymbolAddress) -> Option<Self> {
+    pub fn new(symbol_address: SymbolAddress) -> Option<Self> {
         match symbol_address {
             0 => None,
             address if address >= Self::system_symbol_table().len() => None,
@@ -201,7 +201,7 @@ impl SystemSymbol_1_1 {
     /// Constructs a system symbol from the provided address, returning `Ok(symbol)`.
     /// If the provided address is zero or out of bounds, returns an `Err`.
     #[inline]
-    fn try_new(symbol_address: SymbolAddress) -> IonResult<Self> {
+    pub fn try_new(symbol_address: SymbolAddress) -> IonResult<Self> {
         Self::new(symbol_address).ok_or_else(|| {
             ice!(IonError::decoding_error(format!(
                 "system symbol address {symbol_address} is out of bounds"
@@ -225,7 +225,9 @@ impl SystemSymbol_1_1 {
         // https://doc.rust-lang.org/std/num/type.NonZeroUsize.html
 
         // The address has been confirmed to be non-zero and in bounds
-        Self::system_symbol_table().symbols_by_address()[self.address() - 1]
+        Self::system_symbol_table()
+            .text_for_address(self.address())
+            .unwrap()
     }
 }
 

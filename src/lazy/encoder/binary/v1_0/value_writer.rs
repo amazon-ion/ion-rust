@@ -25,12 +25,6 @@ use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, 
 /// Larger length values will need to be written as a VarUInt following the type descriptor.
 pub(crate) const MAX_INLINE_LENGTH: usize = 13;
 
-/// The initial size of the bump-allocated buffer created to hold a container's child elements.
-// This number was chosen somewhat arbitrarily and can be updated as needed.
-// TODO: Writers could track the largest container size they've seen and use that as their initial
-//       size to minimize reallocations.
-const DEFAULT_CONTAINER_BUFFER_SIZE: usize = 512;
-
 pub struct BinaryValueWriter_1_0<'value, 'top> {
     allocator: &'top BumpAllocator,
     encoding_buffer: &'value mut BumpVec<'top, u8>,
@@ -55,10 +49,6 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     #[inline]
     fn push_bytes(&mut self, bytes: &[u8]) {
         self.encoding_buffer.extend_from_slice_copy(bytes)
-    }
-
-    pub(crate) fn buffer(&self) -> &[u8] {
-        self.encoding_buffer.as_slice()
     }
 
     pub fn write_symbol_id(mut self, symbol_id: SymbolId) -> IonResult<()> {
@@ -265,7 +255,10 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
 impl Sealed for BinaryValueWriter_1_0<'_, '_> {}
 
 impl<'top> AnnotatableWriter for BinaryValueWriter_1_0<'_, 'top> {
-    type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = BinaryAnnotatedValueWriter_1_0<'a, 'top>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,
@@ -389,7 +382,10 @@ impl Sealed for BinaryAnnotatedValueWriter_1_0<'_, '_> {
 }
 
 impl<'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'_, 'top> {
-    type AnnotatedValueWriter<'a> = BinaryAnnotatedValueWriter_1_0<'a, 'top> where Self: 'a;
+    type AnnotatedValueWriter<'a>
+        = BinaryAnnotatedValueWriter_1_0<'a, 'top>
+    where
+        Self: 'a;
 
     fn with_annotations<'a>(
         self,

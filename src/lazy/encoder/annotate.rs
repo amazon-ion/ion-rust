@@ -34,6 +34,7 @@ pub trait Annotatable {
     ///# #[cfg(not(feature = "experimental-reader-writer"))]
     ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
+    #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
     fn annotated_with<'a, A: 'a>(&'a self, annotations: A) -> Annotated<'a, Self, A>
     where
         &'a A: AnnotationSeq<'a>;

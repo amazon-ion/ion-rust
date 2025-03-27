@@ -1,5 +1,5 @@
 use crate::decimal::coefficient::Sign;
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure, IonResult};
 use crate::types::{CountDecimalDigits, Decimal};
 use chrono::{
@@ -9,11 +9,12 @@ use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default, Hash)]
 pub enum TimestampPrecision {
     /// Year-level precision (e.g. `2020T`)
     #[default]
@@ -80,21 +81,11 @@ trait EmptyMantissa {
     /// sub-second precision at all. For example, `Mantissa::Digits(0)` or
     /// `Mantissa::Arbitrary(Decimal::new(0, 0))`.
     fn is_empty(&self) -> bool;
-
-    /// Returns true if the Mantissa's value is equivalent to a zero value
-    /// For example, `Mantissa::Digits(0)` or `Mantissa::Arbitrary(Decimal::new(0, x))`.
-    /// For Decimal, it ignores the exponent value for a zero coefficient.
-    fn is_zero(&self) -> bool;
 }
 
 impl EmptyMantissa for Decimal {
     fn is_empty(&self) -> bool {
         self.coefficient.is_zero() && self.exponent == 0
-    }
-
-    fn is_zero(&self) -> bool {
-        // if the coefficient is zero then ignore the exponent value
-        self.coefficient.is_zero()
     }
 }
 
@@ -105,16 +96,6 @@ impl EmptyMantissa for Mantissa {
             Mantissa::Digits(0) => true,
             // Or a Decimal with a coefficient of zero (any sign) and an exponent of zero.
             Mantissa::Arbitrary(d) => d.is_empty(),
-            _ => false,
-        }
-    }
-
-    fn is_zero(&self) -> bool {
-        match self {
-            // Look at zero digits of the DateTime's nanoseconds
-            Mantissa::Digits(0) => true,
-            // Or a Decimal with a coefficient of zero (any sign).
-            Mantissa::Arbitrary(d) => d.is_zero(),
             _ => false,
         }
     }
@@ -746,7 +727,7 @@ impl IonEq for Timestamp {
     }
 }
 
-impl IonOrd for Timestamp {
+impl IonDataOrd for Timestamp {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         // Compare by point in time
         let ord = self.cmp(other);
@@ -781,6 +762,44 @@ impl IonOrd for Timestamp {
             [Some(_), None] => Ordering::Greater,
             [Some(o1), Some(o2)] => o1.local_minus_utc().cmp(&o2.local_minus_utc()),
         }
+    }
+}
+
+impl IonDataHash for Timestamp {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.precision.hash(state);
+        let self_dt = self.date_time;
+        self_dt.year().hash(state);
+        if self.precision >= TimestampPrecision::Month {
+            self_dt.month().hash(state)
+        }
+        if self.precision >= TimestampPrecision::Day {
+            self_dt.day().hash(state)
+        }
+        if self.precision >= TimestampPrecision::HourAndMinute {
+            self_dt.hour().hash(state);
+            self_dt.minute().hash(state);
+        }
+        if self.precision == TimestampPrecision::Second {
+            self_dt.second().hash(state);
+
+            let fractional_seconds_scale = self.fractional_seconds_scale();
+            match fractional_seconds_scale {
+                None | Some(0) => {}
+                Some(1..=9) => {
+                    fractional_seconds_scale.unwrap().hash(state);
+                    self.fractional_seconds_as_nanoseconds()
+                        .unwrap()
+                        .hash(state);
+                }
+                Some(_) => {
+                    self.fractional_seconds_as_decimal()
+                        .unwrap()
+                        .ion_data_hash(state);
+                }
+            }
+        }
+        self.offset.hash(state);
     }
 }
 

@@ -72,11 +72,6 @@ impl PartialEq for BinaryBuffer<'_> {
 /// When `Ok`, contains the value that was matched/parsed and the remainder of the input buffer.
 pub(crate) type ParseResult<'a, T> = IonResult<(T, BinaryBuffer<'a>)>;
 
-enum SymAddressFieldName<'top> {
-    ModeChange,
-    FieldName(LazyRawBinaryFieldName_1_1<'top>),
-}
-
 impl<'a> BinaryBuffer<'a> {
     /// Constructs a new `BinaryBuffer` that wraps `data`.
     #[inline]
@@ -958,7 +953,7 @@ impl<'a> BinaryBuffer<'a> {
         // the batch size because it is a power of two and ~400 bytes seemed like a reasonable
         // chunk of stack space. This can be changed as needed.
         const ARG_BATCH_SIZE: usize = 4;
-        let mut args_array: ArrayVec<ValueExpr<'_, v1_1::Binary>, 4> = ArrayVec::new();
+        let mut args_array: ArrayVec<ValueExpr<'_, v1_1::Binary>, ARG_BATCH_SIZE> = ArrayVec::new();
         for arg in &mut args_iter {
             let arg = arg?;
             let value_expr = arg.resolve(self.context)?;

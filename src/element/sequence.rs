@@ -1,13 +1,14 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
 use crate::element::Element;
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
 use crate::IonResult;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
+use std::hash::Hasher;
 use std::io;
 
 /// An iterable, addressable series of Ion [`Element`]s.
@@ -188,9 +189,15 @@ impl IonEq for Sequence {
     }
 }
 
-impl IonOrd for Sequence {
+impl IonDataOrd for Sequence {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.elements.ion_cmp(&other.elements)
+    }
+}
+
+impl IonDataHash for Sequence {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.elements.ion_data_hash(state)
     }
 }
 

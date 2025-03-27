@@ -31,6 +31,8 @@ use crate::{
 
 pub(crate) struct WriterContext {
     symbol_table: SymbolTable,
+    // This will be used when we add 'managed' macro methods to the writer
+    #[allow(dead_code)]
     macro_table: MacroTable,
     num_pending_symbols: usize,
 }
@@ -46,7 +48,8 @@ impl WriterContext {
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
-pub struct Writer<E: Encoding, Output: Write> {
+#[cfg_attr(feature = "experimental-reader-writer", visibility::make(pub))]
+pub(crate) struct Writer<E: Encoding, Output: Write> {
     context: WriterContext,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
@@ -54,11 +57,17 @@ pub struct Writer<E: Encoding, Output: Write> {
     value_writer_config: ValueWriterConfig,
 }
 
+// These aliases are used for selectively re-exporting writer types in lib.rs.
+#[allow(dead_code)]
 pub type TextWriter_1_0<Output> = Writer<TextEncoding_1_0, Output>;
+#[allow(dead_code)]
 pub type BinaryWriter_1_0<Output> = Writer<BinaryEncoding_1_0, Output>;
+#[allow(dead_code)]
 pub type TextWriter_1_1<Output> = Writer<TextEncoding_1_1, Output>;
+#[allow(dead_code)]
 pub type BinaryWriter_1_1<Output> = Writer<BinaryEncoding_1_1, Output>;
 
+#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
 impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Constructs a writer for the requested encoding using the provided configuration.
     pub fn new(config: impl Into<WriteConfig<E>>, output: Output) -> IonResult<Self> {
@@ -264,6 +273,8 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
     }
 }
 
+// Generally useful methods, but currently only called in unit tests.
+#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
 impl ApplicationValueWriter<'_, BinaryValueWriter_1_1<'_, '_>> {
     pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
         self.value_writer_config = self
@@ -557,6 +568,8 @@ impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
         }
     }
 
+    // Generally useful, but currently only called in unit tests.
+    #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
     pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
         self.value_writer_config = self
             .value_writer_config
@@ -1016,7 +1029,7 @@ mod tests {
         for (field, (_name, expected_encoding)) in
             struct_.iter().zip(field_names_and_encodings.iter())
         {
-            let raw_name = field?.get_raw_name().unwrap();
+            let raw_name = field?.raw_name().unwrap();
             let raw_name_encoding = raw_name.span().bytes();
             assert_eq!(
                 raw_name_encoding, *expected_encoding,

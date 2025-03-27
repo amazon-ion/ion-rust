@@ -45,8 +45,6 @@ pub struct StreamingRawReader<Encoding: Decoder, Input: IonInput> {
     input: UnsafeCell<Input::DataSource>,
 }
 
-const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
-
 pub struct RawReaderState<'a> {
     data: &'a [u8],
     offset: usize,
@@ -96,10 +94,6 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         }
     }
 
-    pub(crate) fn save_buffer(&self) -> IoBuffer {
-        unsafe { &*self.input.get() }.save_io_buffer()
-    }
-
     /// Gets a reference to the data source and tries to fill its buffer.
     #[inline]
     fn pull_more_data_from_source(&mut self) -> IonResult<usize> {
@@ -119,6 +113,11 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         self.read_next(context, /*is_peek=*/ false)
     }
 
+    #[allow(dead_code)]
+    // TODO: The lower-level readers support a 'peek' operation; it isn't currently exposed at higher
+    //      levels because that would require storing ephemeral values that are peeked.
+    //      We should either remove this feature or finish it.
+    //      See: https://github.com/amazon-ion/ion-rust/issues/925
     pub fn peek_next<'top>(
         &'top mut self,
         context: EncodingContextRef<'top>,
@@ -299,6 +298,8 @@ pub trait IonDataSource: IoBufferHandle {
 
     /// Returns the number of bytes that have been consumed from the data source.
     /// This is also the offset at which the data returned by [`buffer`](Self::buffer) begins.
+    // This is not currently used, but is helpful for debugging in generic methods.
+    #[allow(dead_code)]
     fn position(&self) -> usize;
 }
 
@@ -651,7 +652,7 @@ impl IoBuffer {
         debug_assert!(self.len() == self.local_end - self.local_offset);
     }
 
-    fn as_span(&self) -> Span<'_> {
+    pub fn as_span(&self) -> Span<'_> {
         Span::from(self)
     }
 }
@@ -670,7 +671,7 @@ impl<R: Read> IonStream<R> {
     pub fn new(input: R) -> Self {
         IonStream {
             input,
-            buffer: IoBuffer::with_capacity(DEFAULT_IO_BUFFER_SIZE),
+            buffer: IoBuffer::with_capacity(Self::DEFAULT_IO_BUFFER_SIZE),
         }
     }
 }

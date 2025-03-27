@@ -14,13 +14,6 @@ pub struct DecodedUInt {
 }
 
 impl DecodedUInt {
-    pub(crate) fn new(value: UInt, size_in_bytes: usize) -> Self {
-        DecodedUInt {
-            size_in_bytes,
-            value,
-        }
-    }
-
     /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
     /// If the length of `uint_bytes` is greater than the size of a `u128`, returns `Err`.
     #[inline]
@@ -134,8 +127,6 @@ pub fn encode(magnitude: impl Into<u128>) -> EncodedUInt {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const READ_ERROR_MESSAGE: &str = "Failed to read a UInt from the provided cursor.";
     const WRITE_ERROR_MESSAGE: &str = "Writing a UInt to the provided sink failed.";
 
     #[test]

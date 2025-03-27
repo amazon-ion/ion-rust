@@ -1,4 +1,4 @@
-use crate::ion_data::{IonEq, IonOrd};
+use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
 use crate::{IonResult, SymbolRef};
 use std::borrow::Borrow;
@@ -99,7 +99,7 @@ impl Symbol {
         }
     }
 
-    pub fn static_text(text: &'static str) -> Symbol {
+    pub const fn static_text(text: &'static str) -> Symbol {
         Symbol {
             text: SymbolText::Static(text),
         }
@@ -108,16 +108,6 @@ impl Symbol {
     pub fn unknown_text() -> Symbol {
         Symbol {
             text: SymbolText::Unknown,
-        }
-    }
-
-    /// Converts this symbol into a shared one
-    pub(crate) fn into_shared(self) -> Symbol {
-        match self.text {
-            SymbolText::Shared(text) => Symbol::shared(text),
-            SymbolText::Owned(text) => Symbol::shared(text.into()),
-            SymbolText::Static(text) => Symbol::shared(text.into()),
-            SymbolText::Unknown => Symbol::unknown_text(),
         }
     }
 
@@ -139,9 +129,15 @@ impl IonEq for Symbol {
     }
 }
 
-impl IonOrd for Symbol {
+impl IonDataOrd for Symbol {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
+    }
+}
+
+impl IonDataHash for Symbol {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.hash(state)
     }
 }
 
@@ -223,6 +219,15 @@ impl Borrow<str> for Symbol {
 #[cfg(test)]
 mod symbol_tests {
     use super::*;
+
+    /// This is a test to ensure that the static_text function is const.
+    const TEST_STATIC_TEXT_IS_CONST: Symbol = Symbol::static_text("foo");
+
+    #[test]
+    fn test_static_text_is_const() {
+        // Uses the above `const` to prevent it from being considered dead code.
+        assert_eq!(TEST_STATIC_TEXT_IS_CONST, "foo")
+    }
 
     #[test]
     fn ordering_and_eq() {

@@ -31,14 +31,15 @@ pub use string::Str;
 pub use symbol::Symbol;
 pub use timestamp::{HasMinute, Mantissa, Timestamp, TimestampBuilder, TimestampPrecision};
 
-use crate::ion_data::IonOrd;
+use crate::ion_data::{IonDataHash, IonDataOrd};
 use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /// Represents the Ion data type of a given value. To learn more about each data type,
 /// read [the Ion Data Model](https://amazon-ion.github.io/ion-docs/docs/spec.html#the-ion-data-model)
 /// section of the spec.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash)]
 pub enum IonType {
     Null,
     Bool,
@@ -86,9 +87,15 @@ impl IonType {
     }
 }
 
-impl IonOrd for IonType {
+impl IonDataOrd for IonType {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
+    }
+}
+
+impl IonDataHash for IonType {
+    fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
+        self.hash(state)
     }
 }
 
@@ -138,38 +145,6 @@ impl From<ContainerType> for ParentType {
             ContainerType::SExp => ParentType::SExp,
             ContainerType::List => ParentType::List,
             ContainerType::Struct => ParentType::Struct,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Default, Copy, Clone)]
-pub(crate) enum ScalarType {
-    #[default]
-    Null,
-    Bool,
-    Int,
-    Float,
-    Decimal,
-    Timestamp,
-    Symbol,
-    String,
-    Clob,
-    Blob,
-}
-
-impl From<ScalarType> for IonType {
-    fn from(value: ScalarType) -> Self {
-        match value {
-            ScalarType::Null => IonType::Null,
-            ScalarType::Bool => IonType::Bool,
-            ScalarType::Int => IonType::Int,
-            ScalarType::Float => IonType::Float,
-            ScalarType::Decimal => IonType::Decimal,
-            ScalarType::Timestamp => IonType::Timestamp,
-            ScalarType::Symbol => IonType::Symbol,
-            ScalarType::String => IonType::String,
-            ScalarType::Clob => IonType::Clob,
-            ScalarType::Blob => IonType::Blob,
         }
     }
 }

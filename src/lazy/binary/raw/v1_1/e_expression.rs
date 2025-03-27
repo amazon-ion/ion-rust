@@ -472,7 +472,6 @@ impl<'top> HasSpan<'top> for BinaryEExpArgGroup<'top> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct BinaryEExpArgGroupIterator<'top> {
-    parameter: &'top Parameter,
     source: BinaryEExpArgGroupIteratorSource<'top>,
 }
 
@@ -529,10 +528,7 @@ impl<'top> IntoIterator for BinaryEExpArgGroup<'top> {
             ),
             Some(delimited_values) => BinaryEExpArgGroupIteratorSource::Cache(delimited_values),
         };
-        BinaryEExpArgGroupIterator {
-            parameter: self.parameter,
-            source,
-        }
+        BinaryEExpArgGroupIterator { source }
     }
 }
 
@@ -556,15 +552,6 @@ impl<'top> EExpressionArgGroup<'top, BinaryEncoding_1_1> for BinaryEExpArgGroup<
 pub struct RawBinarySequenceCacheIterator_1_1<'top> {
     child_exprs: &'top [LazyRawValueExpr<'top, v1_1::Binary>],
     index: usize,
-}
-
-impl<'top> RawBinarySequenceCacheIterator_1_1<'top> {
-    pub fn new(child_exprs: &'top [LazyRawValueExpr<'top, v1_1::Binary>]) -> Self {
-        Self {
-            child_exprs,
-            index: 0,
-        }
-    }
 }
 
 impl<'top> Iterator for RawBinarySequenceCacheIterator_1_1<'top> {
