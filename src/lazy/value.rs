@@ -240,7 +240,23 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         self.expanded_value.context()
     }
 
-    pub fn to_owned(self) -> LazyElement<D> {
+    #[cfg(feature = "lazy-source-location")]
+    pub fn location(&self) -> Option<(usize, usize)> {
+        let context = self.expanded_value.context();
+        // set the value start and end positions, this help in location calculation
+        if let Some(span) = self.expanded_value.span() {
+            context.location(span.offset() + 1)
+        } else {
+            context.location(0)
+        }
+    }
+
+    #[cfg(not(feature = "lazy-source-location"))]
+    pub fn location(&self) -> Option<(usize, usize)> {
+        None
+    }
+  
+    pub fn to_owned(&self) -> LazyElement<D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
         let context = self.context().context.clone();
@@ -464,10 +480,7 @@ mod tests {
     use rstest::*;
 
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::{
-        ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonType, Reader, Symbol,
-        Timestamp,
-    };
+    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonType, Reader, Symbol, Timestamp};
     use crate::{Element, IntoAnnotatedElement};
 
     #[test]
@@ -569,6 +582,94 @@ mod tests {
         let mut reader = Reader::new(v1_0::Binary, binary_ion)?;
         let result = reader.expect_next();
         assert!(matches!(result, Err(crate::IonError::Incomplete(_))));
+        Ok(())
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    #[rstest]
+    #[case::no_crlf("{foo: 1, bar: 2}\"hello\"", (1,17))]
+    #[case::cr_lf_lf("{foo: 1, bar: 2}\r\n\n\"hello\"", (3,1))]
+    #[case::lf_lf_cr("{foo: 1, bar: 2}\n\n\r\"hello\"", (4,1))]
+    #[case::cr_lf_cr("{foo: 1, bar: 2}\r\n\r\"hello\"", (3,1))]
+    #[case::cr_cr_cr("{foo: 1, bar: 2}\r\r\r\"hello\"", (4,1))]
+    #[case::cr_cr_lf("{foo: 1, bar: 2}\r\r\n\"hello\"", (3,1))]
+    #[case::lf_cr_cr("{foo: 1, bar: 2}\n\r\r\"hello\"", (4,1))]
+    #[case::lf_cr_lf("{foo: 1, bar: 2}\n\r\n\"hello\"", (3,1))]
+    #[case::lf_lf_lf("{foo: 1, bar: 2}\n\n\n\"hello\"", (4,1))]
+    #[case::newlines_after("{foo: 1, bar: 2}\"hello\"\n\n", (1, 17))]
+    #[case::tabs("{foo: 1, bar: 2}\n\t\t\t\"hello\"", (2,4))]
+    #[case::tabs_after("{foo: 1, bar: 2}\"hello\"\t\t", (1,17))]
+    #[case::mix_tabs_and_newlines("{foo: 1, bar: 2}\n\t\n\"hello\"", (3,1))]
+    #[case::long_string("{foo: 1, bar: 2}\n\n'''long \n\r\n\t hello'''", (3, 1))]
+    #[case::comment("{foo: 1, bar: 2}\n\n /*multiline \n comment*/'''long \n\r\n\t hello'''", (4, 11))]
+    #[case::on_same_line_as_preceding_multiline_value("{\n  foo: 1,\n  bar: 2\n}\"hello\"", (4, 2))]
+    fn location_test_for_second_tlv(
+        #[case] ion_text: &str,
+        #[case] expected_location: (usize, usize),
+    ) -> IonResult<()> {
+        let mut reader = Reader::new(v1_0::Text, ion_text)?;
+        let result1 = reader.expect_next();
+        assert!(result1.is_ok());
+        if let Ok(lazy_value1) = result1 {
+            let _val = lazy_value1.read();
+            // first tlv will always be (1,1) per the examples here
+            assert_eq!(lazy_value1.location().unwrap(), (1, 1));
+        }
+        let result2 = reader.expect_next();
+        assert!(result2.is_ok());
+        if let Ok(lazy_value2) = result2 {
+            let _val = lazy_value2.read();
+            assert_eq!(lazy_value2.location().unwrap(), expected_location);
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "lazy-source-location")]
+    #[rstest]
+    #[case::no_crlf(vec!["{foo: 1, bar: 2}","\"hello\""], (1,17))]
+    #[case::cr_lf_lf(vec!["{foo: 1, ", "bar: 2}\r\n\n\"hello\""], (3,1))]
+    #[case::lf_lf_cr(vec!["{foo: 1, bar: 2}","\n\n\r\"hello\""], (4,1))]
+    #[case::cr_lf_cr(vec!["{foo: 1, bar: 2}\r\n\r","\"hello\""], (3,1))]
+    #[case::cr_cr_cr(vec!["{foo: 1, bar: 2}\r\r\r","\"hello\""], (4,1))]
+    #[case::cr_cr_lf(vec!["{foo: 1, bar: 2}\r\r\n\"he","llo\""], (3,1))]
+    #[case::lf_cr_cr(vec!["{foo: 1, bar: 2}\n\r\r\"hello\""], (4,1))]
+    #[case::lf_cr_lf(vec!["{foo: 1, bar: 2}\n\r\n\"hello\""], (3,1))]
+    #[case::lf_lf_lf(vec!["{foo: 1, bar: 2}\n\n\n\"hello\""], (4,1))]
+    #[case::newlines_after(vec!["{foo: 1, bar: 2}\"hello\"\n\n"], (1, 17))]
+    #[case::tabs(vec!["{foo: 1, bar: 2}\n\t\t\t\"hello\""], (2,4))]
+    #[case::tabs_after(vec!["{foo: 1, bar: 2}\"hello\"","\t\t"], (1,17))]
+    #[case::mix_tabs_and_newlines(vec!["{foo: 1, bar: 2}\n\t\n\"hello\""], (3,1))]
+    #[case::long_string(vec!["{foo: 1, bar: 2}\n\n'''long \n\r\n\t hello'''"], (3, 1))]
+    #[case::comment(vec!["{foo: 1, bar: 2}\n\n", "/*multiline \n comment*/","'''long \n\r\n\t hello'''"], (4, 11))]
+    #[case::on_same_line_as_preceding_multiline_value(vec!["{\n  foo: 1,\n  bar: 2\n}\"hello\""], (4, 2))]
+    fn location_test_for_second_tlv_in_stream(
+        #[case] ion_text: Vec<&str>,
+        #[case] expected_location: (usize, usize),
+    ) -> IonResult<()> {
+        use std::io;
+        use std::io::{Cursor, Read};
+        use crate::IonStream;
+
+        let input_chunks = ion_text.as_slice();
+        // Wrapping each string in an `io::Chain`
+        let mut input: Box<dyn Read> = Box::new(io::empty());
+        for input_chunk in input_chunks {
+            input = Box::new(input.chain(Cursor::new(input_chunk)));
+        }
+        let mut reader = Reader::new(v1_0::Text, IonStream::new(input))?;
+        let result1 = reader.expect_next();
+        assert!(result1.is_ok());
+        if let Ok(lazy_value1) = result1 {
+            let _val = lazy_value1.read();
+            // first tlv will always be (1,1) per the examples here
+            assert_eq!(lazy_value1.location().unwrap(), (1, 1));
+        }
+        let result2 = reader.expect_next();
+        assert!(result2.is_ok());
+        if let Ok(lazy_value2) = result2 {
+            let _val = lazy_value2.read();
+            assert_eq!(lazy_value2.location().unwrap(), expected_location);
+        }
         Ok(())
     }
 }
