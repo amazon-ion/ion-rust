@@ -240,7 +240,6 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         self.expanded_value.context()
     }
 
-    #[cfg(feature = "lazy-source-location")]
     pub fn location(&self) -> Option<(usize, usize)> {
         let context = self.expanded_value.context();
         // set the value start and end positions, this help in location calculation
@@ -249,11 +248,6 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         } else {
             context.location(0)
         }
-    }
-
-    #[cfg(not(feature = "lazy-source-location"))]
-    pub fn location(&self) -> Option<(usize, usize)> {
-        None
     }
   
     pub fn to_owned(&self) -> LazyElement<D> {
@@ -585,7 +579,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "lazy-source-location")]
     #[rstest]
     #[case::no_crlf("{foo: 1, bar: 2}\"hello\"", (1,17))]
     #[case::cr_lf_lf("{foo: 1, bar: 2}\r\n\n\"hello\"", (3,1))]
@@ -624,7 +617,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "lazy-source-location")]
     #[rstest]
     #[case::no_crlf(vec!["{foo: 1, bar: 2}","\"hello\""], (1,17))]
     #[case::cr_lf_lf(vec!["{foo: 1, ", "bar: 2}\r\n\n\"hello\""], (3,1))]
