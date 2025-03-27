@@ -279,6 +279,10 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         }
     }
 
+    #[cfg(not(feature = "lazy-source-location"))]
+    pub fn location(&self) -> Option<(usize, usize)> {
+        None
+    }
     pub fn to_owned(&self) -> LazyElement<D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
