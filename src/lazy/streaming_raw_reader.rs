@@ -266,15 +266,12 @@ pub trait IoBufferHandle {
     fn save_io_buffer(&self) -> IoBuffer;
 
     /// Represents the row position for the I/O buffer.
-    #[cfg(feature = "lazy-source-location")]
     fn row(&self) -> usize;
 
     /// Represents the previous newline offset for the I/O buffer.
-    #[cfg(feature = "lazy-source-location")]
     fn prev_newline_offset(&self) -> usize;
 
     /// Represents offsets of all the newlines for the I/O buffer.
-    #[cfg(feature = "lazy-source-location")]
     fn newlines(&self) -> &[usize];
 }
 
@@ -313,7 +310,6 @@ pub struct IonSlice<SliceType> {
     source: SliceType,
     // The offset of the first byte that hasn't yet been consumed.
     position: usize,
-    #[cfg(feature = "lazy-source-location")]
     // The offset of the last byte that was consumed before the most recent consume operation.
     prev_position: usize,
     // When a LazyValue is saved, this is initialized by cloning the source data into an `Rc`.
@@ -328,7 +324,6 @@ impl<SliceType: AsRef<[u8]>> IonSlice<SliceType> {
         Self {
             source: bytes,
             position: 0,
-            #[cfg(feature = "lazy-source-location")]
             prev_position: 0,
             shared_stream_data: OnceCell::new(),
         }
@@ -364,7 +359,6 @@ impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
         IoBuffer::new(stream_position, bytes, local_offset, local_end)
     }
 
-    #[cfg(feature = "lazy-source-location")]
     fn row(&self) -> usize {
         // Update row for location metadata
         let available_range = ..self.prev_position;
@@ -392,7 +386,6 @@ impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
         }
     }
 
-    #[cfg(feature = "lazy-source-location")]
     fn prev_newline_offset(&self) -> usize {
         // Update previous newline offset for location metadata
         let available_range = ..self.prev_position;
@@ -415,7 +408,6 @@ impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
         }
     }
 
-    #[cfg(feature = "lazy-source-location")]
     fn newlines(&self) -> &[usize] {
         // This will act as a no-op, as for `IonSlice` we don't need to rely on newlines.
         // It is only used by `IonStream`, to help keep track of all past newlines offsets.
@@ -439,10 +431,8 @@ impl<SliceType: AsRef<[u8]>> IonDataSource for IonSlice<SliceType> {
     }
 
     fn consume(&mut self, number_of_bytes: usize) {
-        #[cfg(feature = "lazy-source-location")]
-        {
-            self.prev_position = self.position;
-        }
+        self.prev_position = self.position;
+
         self.position += number_of_bytes;
         // In debug/test builds, this will fail noisily if something attempts to consume more data
         // than the backing array contains.
@@ -473,7 +463,6 @@ pub struct IoBuffer {
     // The index of the first unoccupied byte in the buffer *at or after* `local_offset`.
     local_end: usize,
     // Represents all previous newline offsets for the buffer.
-    #[cfg(feature = "lazy-source-location")]
     prev_newline_offsets: Vec<usize>,
 }
 
@@ -499,7 +488,6 @@ impl IoBuffer {
             bytes,
             local_offset,
             local_end,
-            #[cfg(feature = "lazy-source-location")]
             prev_newline_offsets: Vec::new(),
         }
     }
@@ -510,7 +498,6 @@ impl IoBuffer {
             bytes: Self::alloc_zeroed(capacity),
             local_offset: 0,
             local_end: 0,
-            #[cfg(feature = "lazy-source-location")]
             prev_newline_offsets: Vec::new(),
         }
     }
@@ -539,23 +526,19 @@ impl IoBuffer {
         &self.bytes[self.local_offset..self.local_end]
     }
 
-    #[cfg(feature = "lazy-source-location")]
     pub(crate) fn prev_newline_offset(&self) -> usize {
         // gets the last newline offset, otherwise returns default value `0`.
         self.prev_newline_offsets.last().copied().unwrap_or(0 )
     }
 
-    #[cfg(feature = "lazy-source-location")]
     pub fn row(&self) -> usize {
         self.prev_newline_offsets.len() + 1
     }
 
-    #[cfg(feature = "lazy-source-location")]
     pub fn column(&self) -> usize {
         self.stream_offset - self.prev_newline_offset() + 1
     }
 
-    #[cfg(feature = "lazy-source-location")]
     fn update_location_metadata(&mut self, range: (usize, usize)) {
         let data = &self.bytes[range.0..range.1];
         if !data.is_empty()  {
@@ -602,7 +585,6 @@ impl IoBuffer {
         // Update `self.limit` to mark the newly read in bytes as available.
         self.local_end += bytes_read;
 
-        #[cfg(feature = "lazy-source-location")]
         if bytes_read > 0 {
             self.update_location_metadata((available_range.start, self.local_end));
         }
@@ -682,17 +664,14 @@ impl<R: Read> IoBufferHandle for IonStream<R> {
         self.buffer.clone()
     }
 
-    #[cfg(feature = "lazy-source-location")]
     fn row(&self) -> usize {
         self.buffer.row()
     }
 
-    #[cfg(feature = "lazy-source-location")]
     fn prev_newline_offset(&self) -> usize {
         self.buffer.prev_newline_offset()
     }
 
-    #[cfg(feature = "lazy-source-location")]
     fn newlines(&self) -> &[usize] {
         &self.buffer.prev_newline_offsets
     }
