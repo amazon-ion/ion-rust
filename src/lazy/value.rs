@@ -255,7 +255,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     pub fn location(&self) -> Option<(usize, usize)> {
         None
     }
-  
+
     pub fn to_owned(&self) -> LazyElement<D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
@@ -480,7 +480,10 @@ mod tests {
     use rstest::*;
 
     use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonType, Reader, Symbol, Timestamp};
+    use crate::{
+        ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonType, Reader, Symbol,
+        Timestamp,
+    };
     use crate::{Element, IntoAnnotatedElement};
 
     #[test]
@@ -646,9 +649,9 @@ mod tests {
         #[case] ion_text: Vec<&str>,
         #[case] expected_location: (usize, usize),
     ) -> IonResult<()> {
+        use crate::IonStream;
         use std::io;
         use std::io::{Cursor, Read};
-        use crate::IonStream;
 
         let input_chunks = ion_text.as_slice();
         // Wrapping each string in an `io::Chain`

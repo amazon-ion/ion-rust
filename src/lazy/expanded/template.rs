@@ -1,25 +1,27 @@
-use bumpalo::collections::Vec as BumpVec;
-use rustc_hash::FxHashMap;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::ops::{Deref, Range};
-use std::sync::Arc;
-use compact_str::CompactString;
 use crate::lazy::binary::raw::v1_1::binary_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
-use crate::lazy::expanded::macro_evaluator::{AnnotateExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, TemplateExpansion, ValueExpr, ExprGroupExpansion, MakeTextExpansion, FlattenExpansion, ConditionalExpansion, MakeStructExpansion, MakeFieldExpansion};
+use crate::lazy::expanded::macro_evaluator::{
+    AnnotateExpansion, ConditionalExpansion, ExprGroupExpansion, FlattenExpansion, MacroEvaluator,
+    MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeFieldExpansion,
+    MakeStructExpansion, MakeTextExpansion, TemplateExpansion, ValueExpr,
+};
 use crate::lazy::expanded::macro_table::{Macro, MacroKind};
 use crate::lazy::expanded::r#struct::FieldExpr;
 use crate::lazy::expanded::sequence::Environment;
-use crate::lazy::expanded::{
-    EncodingContextRef,  LazyExpandedValue, TemplateVariableReference,
-};
+use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue, TemplateVariableReference};
 use crate::result::IonFailure;
 use crate::{
     try_or_some_err, Bytes, Decimal, Int, IonResult, IonType, LazyExpandedFieldName, Str, Symbol,
     SymbolRef, Timestamp, Value,
 };
+use bumpalo::collections::Vec as BumpVec;
+use compact_str::CompactString;
+use rustc_hash::FxHashMap;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::ops::{Deref, Range};
+use std::sync::Arc;
 
 /// A parameter in a user-defined macro's signature.
 #[derive(Debug, Clone, PartialEq)]
@@ -110,12 +112,18 @@ impl Parameter {
 
     /// Returns `true` if this parameter accepts populated expression groups.
     pub fn accepts_multi(&self) -> bool {
-        matches!(self.cardinality, ParameterCardinality::ZeroOrMore | ParameterCardinality::OneOrMore)
+        matches!(
+            self.cardinality,
+            ParameterCardinality::ZeroOrMore | ParameterCardinality::OneOrMore
+        )
     }
 
     /// Returns `true` if this parameter accepts empty expression groups.
     pub fn accepts_none(&self) -> bool {
-        matches!(self.cardinality, ParameterCardinality::ZeroOrOne | ParameterCardinality::ZeroOrMore)
+        matches!(
+            self.cardinality,
+            ParameterCardinality::ZeroOrOne | ParameterCardinality::ZeroOrMore
+        )
     }
 
     /// Returns `true` if this parameter is using a tagged encoding.
@@ -577,16 +585,13 @@ impl<'top, D: Decoder> Iterator for TemplateStructFieldExprIterator<'top, D> {
             .expect("template struct had field name with no value");
 
         let field_name = LazyExpandedFieldName::TemplateName(self.template, name);
-        let value_expr = field_value_tdl_expr.to_value_expr(self.context, self.environment, self.template);
+        let value_expr =
+            field_value_tdl_expr.to_value_expr(self.context, self.environment, self.template);
         let unexpanded_field = match value_expr {
-            ValueExpr::ValueLiteral(lazy_expanded_value) => FieldExpr::NameValue(
-                field_name,
-                lazy_expanded_value
-            ),
-            ValueExpr::MacroInvocation(invocation) => FieldExpr::NameMacro(
-                field_name,
-                invocation,
-            ),
+            ValueExpr::ValueLiteral(lazy_expanded_value) => {
+                FieldExpr::NameValue(field_name, lazy_expanded_value)
+            }
+            ValueExpr::MacroInvocation(invocation) => FieldExpr::NameMacro(field_name, invocation),
         };
         self.index += /* name expr count -> */ 1 + field_value_tdl_expr.num_expressions();
         Some(Ok(unexpanded_field))
@@ -629,18 +634,15 @@ impl TemplateBody {
     }
 
     pub fn push_macro_invocation(&mut self, macro_ref: Arc<Macro>, expr_range: ExprRange) {
-        self.expressions.push(TemplateBodyExpr::macro_invocation(
-            macro_ref,
-            expr_range,
-        ))
+        self.expressions
+            .push(TemplateBodyExpr::macro_invocation(macro_ref, expr_range))
     }
 
     pub fn push_placeholder(&mut self) {
         self.expressions.push(TemplateBodyExpr::element(
-                TemplateBodyElement::with_value(TemplateValue::Bool(false)),
-                ExprRange::empty()
-            )
-        )
+            TemplateBodyElement::with_value(TemplateValue::Bool(false)),
+            ExprRange::empty(),
+        ))
     }
 }
 
@@ -657,7 +659,7 @@ impl Debug for TemplateBodyExpr {
             TemplateBodyExprKind::Element(e) => write!(f, "{e:?}"),
             TemplateBodyExprKind::Variable(v) => write!(f, "{v:?}"),
             TemplateBodyExprKind::MacroInvocation(i) => write!(f, "{i:?}"),
-            TemplateBodyExprKind::ExprGroup(g) => write!(f, "{g:?}")
+            TemplateBodyExprKind::ExprGroup(g) => write!(f, "{g:?}"),
         }
     }
 }
@@ -695,7 +697,7 @@ impl TemplateBodyExpr {
     pub fn arg_expr_group(parameter: Parameter, expr_range: ExprRange) -> Self {
         Self {
             kind: TemplateBodyExprKind::ExprGroup(parameter),
-            expr_range
+            expr_range,
         }
     }
 
@@ -711,10 +713,11 @@ impl TemplateBodyExpr {
         self.expr_range
     }
 
-    pub fn to_value_expr<'top, D: Decoder>(&'top self,
-                                           context: EncodingContextRef<'top>,
-                                           environment: Environment<'top, D>,
-                                           host_template: TemplateMacroRef<'top>
+    pub fn to_value_expr<'top, D: Decoder>(
+        &'top self,
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+        host_template: TemplateMacroRef<'top>,
     ) -> ValueExpr<'top, D> {
         match self.kind() {
             TemplateBodyExprKind::Element(e) => {
@@ -737,19 +740,14 @@ impl TemplateBodyExpr {
                     environment,
                     host_template,
                     ExprRange::new(self.expr_range().tail()),
-                    parameter
+                    parameter,
                 );
                 let macro_expr = MacroExpr::from_template_expr_group(template_arg_group);
                 ValueExpr::MacroInvocation(macro_expr)
             }
-            TemplateBodyExprKind::MacroInvocation(body_invocation)
-            => {
-                let invocation = body_invocation.resolve(
-                    context,
-                    environment,
-                    host_template,
-                    self.expr_range(),
-                );
+            TemplateBodyExprKind::MacroInvocation(body_invocation) => {
+                let invocation =
+                    body_invocation.resolve(context, environment, host_template, self.expr_range());
                 ValueExpr::MacroInvocation(invocation.into())
             }
         }
@@ -837,15 +835,30 @@ impl TemplateBodyExprKind {
         match element.value() {
             List => {
                 writeln!(f, "list")?;
-                return Self::fmt_sequence_body(f, indentation, host_template, ExprRange::new(expr_range.tail()));
+                return Self::fmt_sequence_body(
+                    f,
+                    indentation,
+                    host_template,
+                    ExprRange::new(expr_range.tail()),
+                );
             }
             SExp => {
                 writeln!(f, "sexp")?;
-                return Self::fmt_sequence_body(f, indentation, host_template, ExprRange::new(expr_range.tail()));
+                return Self::fmt_sequence_body(
+                    f,
+                    indentation,
+                    host_template,
+                    ExprRange::new(expr_range.tail()),
+                );
             }
             Struct(_) => {
                 writeln!(f, "struct")?;
-                return Self::fmt_struct(f, indentation, host_template, ExprRange::new(expr_range.tail()));
+                return Self::fmt_struct(
+                    f,
+                    indentation,
+                    host_template,
+                    ExprRange::new(expr_range.tail()),
+                );
             }
             Null(n) => writeln!(f, "{}", Value::Null(*n)),
             Bool(b) => writeln!(f, "{b}"),
@@ -1014,9 +1027,7 @@ pub struct TemplateBodyMacroInvocation {
 
 impl TemplateBodyMacroInvocation {
     pub fn new(invoked_macro: Arc<Macro>) -> Self {
-        Self {
-            invoked_macro,
-        }
+        Self { invoked_macro }
     }
 
     /// Finds the definition of the macro being invoked in the provided `context`'s macro table.
@@ -1054,8 +1065,20 @@ pub struct TemplateExprGroup<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> TemplateExprGroup<'top, D> {
-    pub fn new(context: EncodingContextRef<'top>, environment: Environment<'top, D>, host_template: TemplateMacroRef<'top>, arg_expressions_range: ExprRange, parameter: &'top Parameter) -> Self {
-        Self { context, environment, host_template, arg_expressions_range, parameter }
+    pub fn new(
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+        host_template: TemplateMacroRef<'top>,
+        arg_expressions_range: ExprRange,
+        parameter: &'top Parameter,
+    ) -> Self {
+        Self {
+            context,
+            environment,
+            host_template,
+            arg_expressions_range,
+            parameter,
+        }
     }
 
     // Doesn't take an environment b/c template arg groups capture their environment at creation time.
@@ -1063,7 +1086,7 @@ impl<'top, D: Decoder> TemplateExprGroup<'top, D> {
     pub(crate) fn expand(&self) -> IonResult<MacroExpansion<'top, D>> {
         let arguments = MacroExprArgsIterator::from_template_arg_group(self.arguments());
         let expr_group_expansion = ExprGroupExpansion::new(arguments);
-        let expansion_kind =  MacroExpansionKind::ExprGroup(expr_group_expansion);
+        let expansion_kind = MacroExpansionKind::ExprGroup(expr_group_expansion);
         Ok(MacroExpansion::new(
             self.context(),
             self.environment,
@@ -1095,9 +1118,7 @@ impl<'top, D: Decoder> TemplateExprGroup<'top, D> {
             .unwrap()
     }
 
-    pub fn arguments(
-        &self,
-    ) -> TemplateMacroInvocationArgsIterator<'top, D> {
+    pub fn arguments(&self) -> TemplateMacroInvocationArgsIterator<'top, D> {
         TemplateMacroInvocationArgsIterator::new(
             self.context,
             self.environment,
@@ -1109,17 +1130,11 @@ impl<'top, D: Decoder> TemplateExprGroup<'top, D> {
 
 impl<D: Decoder> Debug for TemplateExprGroup<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "<param={}:", self.parameter().name()
-        )?;
+        write!(f, "<param={}:", self.parameter().name())?;
         for expr in self.arg_expressions() {
             write!(f, " {:?}", expr)?;
         }
-        write!(
-            f,
-            ">",
-        )
+        write!(f, ">",)
     }
 }
 
@@ -1167,9 +1182,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
         }
     }
 
-    pub fn arguments(
-        &self
-    ) -> TemplateMacroInvocationArgsIterator<'top, D> {
+    pub fn arguments(&self) -> TemplateMacroInvocationArgsIterator<'top, D> {
         TemplateMacroInvocationArgsIterator::new(
             self.context,
             self.environment,
@@ -1206,9 +1219,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
         self.context
     }
 
-    pub fn new_evaluation_environment(
-        &self,
-    ) -> IonResult<Environment<'top, D>> {
+    pub fn new_evaluation_environment(&self) -> IonResult<Environment<'top, D>> {
         let arguments = self.arguments();
         let allocator = self.context().allocator();
         // Use the iterator's size hint to determine an initial capacity to aim for.
@@ -1222,9 +1233,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
         Ok(new_environment)
     }
 
-    pub fn expand(
-        &self,
-    ) -> IonResult<MacroExpansion<'top, D>> {
+    pub fn expand(&self) -> IonResult<MacroExpansion<'top, D>> {
         // Initialize a `MacroExpansionKind` with the state necessary to evaluate the requested
         // macro.
         let macro_ref = self.invoked_macro();
@@ -1233,7 +1242,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
             MacroKind::None => MacroExpansionKind::None,
             MacroKind::ExprGroup => {
                 unreachable!("cannot invoke ExprGroup from a TemplateMacroInvocation")
-            },
+            }
             MacroKind::MakeString => {
                 MacroExpansionKind::MakeString(MakeTextExpansion::string_maker(arguments))
             }
@@ -1247,7 +1256,11 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
                 MacroExpansionKind::MakeField(MakeFieldExpansion::new(arguments))
             }
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
-            MacroKind::Flatten => MacroExpansionKind::Flatten(FlattenExpansion::new(self.context(), self.environment, arguments)),
+            MacroKind::Flatten => MacroExpansionKind::Flatten(FlattenExpansion::new(
+                self.context(),
+                self.environment,
+                arguments,
+            )),
             MacroKind::Template(template_body) => {
                 let template_ref = TemplateMacroRef::new(macro_ref, template_body);
                 let new_environment = self.new_evaluation_environment()?;
@@ -1256,10 +1269,18 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
             }
             MacroKind::ToDo => todo!("system macro {}", macro_ref.name().unwrap()),
 
-            MacroKind::IfNone => MacroExpansionKind::Conditional(ConditionalExpansion::if_none(arguments)),
-            MacroKind::IfSome => MacroExpansionKind::Conditional(ConditionalExpansion::if_some(arguments)),
-            MacroKind::IfSingle => MacroExpansionKind::Conditional(ConditionalExpansion::if_single(arguments)),
-            MacroKind::IfMulti => MacroExpansionKind::Conditional(ConditionalExpansion::if_multi(arguments)),
+            MacroKind::IfNone => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_none(arguments))
+            }
+            MacroKind::IfSome => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_some(arguments))
+            }
+            MacroKind::IfSingle => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_single(arguments))
+            }
+            MacroKind::IfMulti => {
+                MacroExpansionKind::Conditional(ConditionalExpansion::if_multi(arguments))
+            }
         };
         Ok(MacroExpansion::new(
             self.context(),

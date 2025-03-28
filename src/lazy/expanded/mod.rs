@@ -311,8 +311,12 @@ impl<'top> EncodingContextRef<'top> {
                     } else {
                         // If the value starts before or at the last newline,
                         // we need to find the correct row and column
-                        if let Some(last_newline_pos) = handle.newlines().iter().enumerate()
-                            .rfind(|&(_index, pos)| pos <= &value_start) {
+                        if let Some(last_newline_pos) = handle
+                            .newlines()
+                            .iter()
+                            .enumerate()
+                            .rfind(|&(_index, pos)| pos <= &value_start)
+                        {
                             // Found the last newline before or at the value start
                             // Row is the index of this newline + 2 (1-indexed and we're on the next line)
                             // Column is the distance from this newline to the value start
@@ -323,8 +327,8 @@ impl<'top> EncodingContextRef<'top> {
                         }
                     }
                 }
-            },
-            IoBufferSource::None => None
+            }
+            IoBufferSource::None => None,
         }
     }
 }
