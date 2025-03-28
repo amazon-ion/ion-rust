@@ -359,18 +359,19 @@ impl WriteAsIon for ProxyElement<'_> {
                         let text = symbol.text().unwrap();
                         if text.starts_with("#$:") {
                             let macro_id = text.strip_prefix("#$:").unwrap(); // SAFETY: Tested above.
-                            let mut args = if let Ok(symbol_id) = macro_id.parse::<ion_rs::SymbolId>() {
-                                writer.eexp_writer(symbol_id)?
-                            } else {
-                                // TODO: Need to handle text macro IDs when generating a binary
-                                // test document.
-                                writer.eexp_writer(macro_id)?
-                            };
+                            let mut args =
+                                if let Ok(symbol_id) = macro_id.parse::<ion_rs::SymbolId>() {
+                                    writer.eexp_writer(symbol_id)?
+                                } else {
+                                    // TODO: Need to handle text macro IDs when generating a binary
+                                    // test document.
+                                    writer.eexp_writer(macro_id)?
+                                };
                             for arg in sexp.iter().skip(1) {
                                 args.write(ProxyElement(arg, self.1))?;
                             }
                             args.close()?;
-                            return Ok(())
+                            return Ok(());
                         }
                     }
                     _ => {}
