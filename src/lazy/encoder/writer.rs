@@ -636,7 +636,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         Ok(ApplicationEExpWriter::new(
             self.encoding,
             self.value_writer_config,
-            self.raw_value_writer.eexp_writer(macro_id)?, // HERE
+            self.raw_value_writer.eexp_writer(macro_id)?,
         ))
     }
 }
