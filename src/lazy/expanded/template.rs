@@ -6,7 +6,7 @@ use crate::lazy::expanded::macro_evaluator::{
     MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeFieldExpansion,
     MakeStructExpansion, MakeTextExpansion, TemplateExpansion, ValueExpr,
 };
-use crate::lazy::expanded::macro_table::{Macro, MacroKind};
+use crate::lazy::expanded::macro_table::{MacroDef, MacroKind};
 use crate::lazy::expanded::r#struct::FieldExpr;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue, TemplateVariableReference};
@@ -150,7 +150,7 @@ pub enum ParameterEncoding {
     Tagged,
     FlexUInt,
     // TODO: tagless types, including fixed-width types and macros
-    MacroShaped(Arc<Macro>),
+    MacroShaped(Arc<MacroDef>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -414,12 +414,12 @@ impl TemplateMacro {
 /// A reference to a template macro definition paired with the more general macro reference.
 #[derive(Copy, Clone, Debug)]
 pub struct TemplateMacroRef<'top> {
-    macro_ref: &'top Macro,
+    macro_ref: &'top MacroDef,
     template_body: &'top TemplateBody,
 }
 
 impl<'top> TemplateMacroRef<'top> {
-    pub fn new(macro_ref: &'top Macro, template_body: &'top TemplateBody) -> Self {
+    pub fn new(macro_ref: &'top MacroDef, template_body: &'top TemplateBody) -> Self {
         Self {
             macro_ref,
             template_body,
@@ -429,13 +429,13 @@ impl<'top> TemplateMacroRef<'top> {
         self.template_body
     }
 
-    pub fn macro_ref(&self) -> &'top Macro {
+    pub fn macro_ref(&self) -> &'top MacroDef {
         self.macro_ref
     }
 }
 
 impl<'top> Deref for TemplateMacroRef<'top> {
-    type Target = &'top Macro;
+    type Target = &'top MacroDef;
 
     fn deref(&self) -> &Self::Target {
         &self.macro_ref
@@ -633,9 +633,11 @@ impl TemplateBody {
         ))
     }
 
-    pub fn push_macro_invocation(&mut self, macro_ref: Arc<Macro>, expr_range: ExprRange) {
-        self.expressions
-            .push(TemplateBodyExpr::macro_invocation(macro_ref, expr_range))
+    pub fn push_macro_invocation(&mut self, macro_ref: Arc<MacroDef>, expr_range: ExprRange) {
+        self.expressions.push(TemplateBodyExpr::macro_invocation(
+            macro_ref,
+            expr_range,
+        ))
     }
 
     pub fn push_placeholder(&mut self) {
@@ -659,8 +661,9 @@ impl Debug for TemplateBodyExpr {
             TemplateBodyExprKind::Element(e) => write!(f, "{e:?}"),
             TemplateBodyExprKind::Variable(v) => write!(f, "{v:?}"),
             TemplateBodyExprKind::MacroInvocation(i) => write!(f, "{i:?}"),
-            TemplateBodyExprKind::ExprGroup(g) => write!(f, "{g:?}"),
-        }
+            TemplateBodyExprKind::ExprGroup(g) => write!(f, "expr_group(param={:?})", g.name()),
+        }?;
+        write!(f, ", expr_range={:?}", self.expr_range)
     }
 }
 
@@ -685,7 +688,7 @@ impl TemplateBodyExpr {
         }
     }
 
-    pub fn macro_invocation(invoked_macro: Arc<Macro>, expr_range: ExprRange) -> Self {
+    pub fn macro_invocation(invoked_macro: Arc<MacroDef>, expr_range: ExprRange) -> Self {
         Self {
             kind: TemplateBodyExprKind::MacroInvocation(TemplateBodyMacroInvocation::new(
                 invoked_macro,
@@ -1022,12 +1025,14 @@ impl TemplateBodyExprKind {
 /// A macro invocation found in the body of a template.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TemplateBodyMacroInvocation {
-    pub(crate) invoked_macro: Arc<Macro>,
+    pub(crate) invoked_macro: Arc<MacroDef>,
 }
 
 impl TemplateBodyMacroInvocation {
-    pub fn new(invoked_macro: Arc<Macro>) -> Self {
-        Self { invoked_macro }
+    pub fn new(invoked_macro: Arc<MacroDef>) -> Self {
+        Self {
+            invoked_macro,
+        }
     }
 
     /// Finds the definition of the macro being invoked in the provided `context`'s macro table.
@@ -1145,7 +1150,7 @@ pub struct TemplateMacroInvocation<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     host_template: TemplateMacroRef<'top>,
     environment: Environment<'top, D>,
-    invoked_macro: &'top Macro,
+    invoked_macro: &'top MacroDef,
     // The range of value expressions in the host template's body that are arguments to the
     // macro being invoked
     arg_expressions_range: ExprRange,
@@ -1170,7 +1175,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
         host_template: TemplateMacroRef<'top>,
-        invoked_macro: &'top Macro,
+        invoked_macro: &'top MacroDef,
         arg_expressions_range: ExprRange,
     ) -> Self {
         Self {
@@ -1193,7 +1198,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
 
     /// Helper method to access the definition of the host template. Useful for debugging,
     /// but not required for macro expansion.
-    pub fn host_macro_ref(&self) -> &'top Macro {
+    pub fn host_macro_ref(&self) -> &'top MacroDef {
         self.host_template.macro_ref
     }
 
@@ -1211,7 +1216,7 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
             .unwrap()
     }
 
-    pub fn invoked_macro(&self) -> &'top Macro {
+    pub fn invoked_macro(&self) -> &'top MacroDef {
         self.invoked_macro
     }
 
@@ -1376,7 +1381,7 @@ impl TemplateBodyVariableReference {
     }
     /// Pairs this variable reference with the given template macro reference, allowing information
     /// about the template definition to be retrieved later.
-    pub(crate) fn resolve<'top>(&self, host_macro: &'top Macro) -> TemplateVariableReference<'top> {
+    pub(crate) fn resolve<'top>(&self, host_macro: &'top MacroDef) -> TemplateVariableReference<'top> {
         TemplateVariableReference::new(host_macro, self.signature_index)
     }
 }

@@ -1,3 +1,4 @@
+use crate::lazy::text::raw::v1_1::reader::MacroIdLike;
 use std::mem;
 
 use bumpalo::collections::Vec as BumpVec;
@@ -16,7 +17,6 @@ use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::lazy::never::Never;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
@@ -437,7 +437,7 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
         BinaryStructWriter_1_0::new(self.allocator, self.output_buffer)
             .with_annotations(self.annotations)
     }
-    fn eexp_writer<'a>(self, _macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, _macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
         IonResult::encoding_error("binary Ion 1.0 does not support macros")
     }
 }

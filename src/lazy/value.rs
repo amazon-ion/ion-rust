@@ -256,7 +256,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         None
     }
 
-    pub fn to_owned(&self) -> LazyElement<D> {
+    pub fn to_owned(self) -> LazyElement<D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
         let context = self.context().context.clone();
