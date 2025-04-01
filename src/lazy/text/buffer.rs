@@ -36,7 +36,7 @@ use crate::{
     Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, Span, TimestampPrecision,
 };
 
-use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::macro_table::{MacroDef, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::raw::sequence::RawTextSExpIterator;
@@ -672,7 +672,7 @@ impl<'top> TextBuffer<'top> {
             let id = Self::match_e_expression_id(input)?;
             let mut arg_expr_cache = BumpVec::new_in(input.context.allocator());
 
-            let macro_ref: &'top Macro = input
+            let macro_ref: &'top MacroDef = input
                 .context()
                 .macro_table()
                 .macro_with_id(id)
@@ -2160,7 +2160,7 @@ mod tests {
 
         fn register_macro(&mut self, text: &str) -> &mut Self {
             let new_macro =
-                TemplateCompiler::compile_from_source(self.context.get_ref(), text).unwrap();
+                TemplateCompiler::compile_from_source(self.context.macro_table(), text).unwrap();
             self.context
                 .macro_table_mut()
                 .add_template_macro(new_macro)

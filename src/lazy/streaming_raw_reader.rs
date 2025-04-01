@@ -362,13 +362,13 @@ impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
     fn row(&self) -> usize {
         // Update row for location metadata
         let available_range = ..self.prev_position;
-        let data  = &self.stream_bytes()[available_range];
+        let data = &self.stream_bytes()[available_range];
         if !data.is_empty() {
             // Calculate `rows` based on occurrence of newline bytes. If we encounter:
             // 1. b'\r' then increment row count by 1.
             // 2.a. If there was no b'\r' encountered before b'\n' then increment row count by 1.
             // 2.b. If there was no b'\r' encountered before b'\n' then don't increment as b'\r\n' should be counted as 1 based on windows line ending pattern.
-           let (_, rows) = data.iter().fold((false, 0), |(follows_cr, rows), b| {
+            let (_, rows) = data.iter().fold((false, 0), |(follows_cr, rows), b| {
                 match (b, follows_cr) {
                     // When there's a '\r', add a row
                     (b'\r', _) => (true, rows + 1),
@@ -389,7 +389,7 @@ impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
     fn prev_newline_offset(&self) -> usize {
         // Update previous newline offset for location metadata
         let available_range = ..self.prev_position;
-        let data  = &self.stream_bytes()[available_range];
+        let data = &self.stream_bytes()[available_range];
         if !data.is_empty() {
             // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
             // Adding 1 to the index because we want to include everything after the newline -
@@ -398,7 +398,7 @@ impl<SliceType: AsRef<[u8]>> IoBufferHandle for IonSlice<SliceType> {
                 match b {
                     // When there's a '\r' or '\n', update the offset as this newline offset value
                     b'\r' | b'\n' => i + 1,
-                  _ => offset,
+                    _ => offset,
                 }
             });
 
@@ -528,7 +528,7 @@ impl IoBuffer {
 
     pub(crate) fn prev_newline_offset(&self) -> usize {
         // gets the last newline offset, otherwise returns default value `0`.
-        self.prev_newline_offsets.last().copied().unwrap_or(0 )
+        self.prev_newline_offsets.last().copied().unwrap_or(0)
     }
 
     pub fn row(&self) -> usize {
@@ -541,7 +541,7 @@ impl IoBuffer {
 
     fn update_location_metadata(&mut self, range: (usize, usize)) {
         let data = &self.bytes[range.0..range.1];
-        if !data.is_empty()  {
+        if !data.is_empty() {
             // Calculate `rows` based on occurrence of newline bytes. If we encounter:
             // 1. b'\r' then increment row count by 1.
             // 2.a. If there was no b'\r' encountered before b'\n' then increment row count by 1.
@@ -549,17 +549,30 @@ impl IoBuffer {
             // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
             // Adding 1 to the index because we want to include everything after the newline -
             // if newline is at index 5, we want to start counting from index 6 (5 + 1).
-            let (_, prev_newline_offsets) = data.iter().enumerate().fold((false, vec![]), |(follows_cr, mut offset), (i, b)| {
-                match (b, follows_cr) {
-                    // When there's a '\r', add a row and update the offset as this newline offset value
-                    (b'\r', _) =>  { offset.push(self.stream_offset + range.0 + i + 1);  (true, offset) },
-                    // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
-                    (b'\n', false) => { offset.push(self.stream_offset + range.0 + i + 1); (false, offset) },
-                    // When there's '\n' immediately following '\r', update the offset without adding a row
-                    (b'\n', true) => { offset.pop(); offset.push(self.stream_offset + range.0 + i + 1);  (false, offset) },
-                    _ => (false, offset),
-                }
-            });
+            let (_, prev_newline_offsets) = data.iter().enumerate().fold(
+                (false, vec![]),
+                |(follows_cr, mut offset), (i, b)| {
+                    match (b, follows_cr) {
+                        // When there's a '\r', add a row and update the offset as this newline offset value
+                        (b'\r', _) => {
+                            offset.push(self.stream_offset + range.0 + i + 1);
+                            (true, offset)
+                        }
+                        // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
+                        (b'\n', false) => {
+                            offset.push(self.stream_offset + range.0 + i + 1);
+                            (false, offset)
+                        }
+                        // When there's '\n' immediately following '\r', update the offset without adding a row
+                        (b'\n', true) => {
+                            offset.pop();
+                            offset.push(self.stream_offset + range.0 + i + 1);
+                            (false, offset)
+                        }
+                        _ => (false, offset),
+                    }
+                },
+            );
 
             // set all previous newline offsets by extending with these `prev_newline_offset`
             self.prev_newline_offsets.extend(prev_newline_offsets);

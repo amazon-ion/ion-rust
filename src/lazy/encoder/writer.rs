@@ -20,13 +20,15 @@ use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::expanded::macro_table::Macro;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    ContextWriter, Decimal, Element, ElementWriter, Int, IonResult, IonType, IonVersion,
-    MacroTable, RawSymbolRef, Symbol, SymbolTable, Timestamp, UInt, Value,
+    AnyEncoding, ContextWriter, Decimal, Element, ElementWriter, Int, IonInput, IonResult, IonType,
+    IonVersion, MacroTable, RawSymbolRef, Reader, Symbol, SymbolTable, TemplateCompiler, Timestamp,
+    UInt, Value,
 };
 
 pub(crate) struct WriterContext {
@@ -35,6 +37,7 @@ pub(crate) struct WriterContext {
     #[allow(dead_code)]
     macro_table: MacroTable,
     num_pending_symbols: usize,
+    num_pending_macros: usize,
 }
 
 impl WriterContext {
@@ -43,6 +46,7 @@ impl WriterContext {
             symbol_table,
             macro_table,
             num_pending_symbols: 0,
+            num_pending_macros: 0,
         }
     }
 }
@@ -92,6 +96,48 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(writer)
     }
 
+    /// Takes a TDL expression representing a macro definition and returns a `Macro` that can
+    /// later be invoked by passing it to [`Writer::eexp_writer()`].
+    pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
+        let mut reader = Reader::new(AnyEncoding, source)?;
+        let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
+
+        let template_macro = TemplateCompiler::compile_from_sexp(
+            &self.context.macro_table,
+            &MacroTable::empty(),
+            macro_def_sexp,
+        )?;
+
+        let address = self
+            .context
+            .macro_table
+            .add_template_macro(template_macro)?;
+        self.context.num_pending_macros += 1;
+        let macro_def = self
+            .context
+            .macro_table
+            .clone_macro_with_address(address)
+            .expect("macro freshly placed at address is missing");
+        let macro_handle = Macro::new(macro_def, address);
+        Ok(macro_handle)
+    }
+
+    /// Gets a macro with the provided ID from the default module.
+    pub fn get_macro<'a>(&self, id: impl Into<MacroIdRef<'a>>) -> IonResult<Macro> {
+        let id = id.into();
+        let macro_table = &self.context.macro_table;
+        let Some(address) = macro_table.address_for_id(id) else {
+            return IonResult::encoding_error(format!(
+                "no macro with the specified ID ({id:?}) found"
+            ));
+        };
+        let macro_def = macro_table
+            .clone_macro_with_address(address)
+            .expect("macro was just confirmed to be at this address");
+
+        Ok(Macro::new(macro_def, address))
+    }
+
     pub fn output(&self) -> &Output {
         &self.output
     }
@@ -115,6 +161,12 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
                 IonVersion::v1_1 => self.write_append_symbols_directive()?,
             }
             self.context.num_pending_symbols = 0;
+        }
+
+        // TODO: In Ion 1.1, new symbols and new macros could be added using the same directive.
+        if self.context.num_pending_macros > 0 {
+            self.write_append_macros_directive()?;
+            self.context.num_pending_macros = 0;
         }
 
         self.directive_writer.flush()?;
@@ -174,6 +226,46 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         new_symbol_list.close()?;
 
         lst.close()
+    }
+
+    fn write_append_macros_directive(&mut self) -> IonResult<()> {
+        let Self {
+            context,
+            directive_writer,
+            ..
+        } = self;
+
+        // TODO: Once expression group serialization is complete, this can be replaced by a call
+        //       to the `add_macros` system macro.
+        let mut directive = directive_writer
+            .value_writer()
+            .with_annotations("$ion")?
+            .sexp_writer()?;
+
+        directive
+            .write_symbol(v1_1::system_symbols::MODULE)?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
+
+        let mut symbols_sexp = directive.sexp_writer()?;
+        symbols_sexp
+            .write_symbol(v1_1::system_symbols::SYMBOL_TABLE)?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
+        symbols_sexp.close()?;
+
+        let pending_macros = context
+            .macro_table
+            .macros_tail(context.num_pending_macros)
+            .iter()
+            // Only user-defined template macros can be added to the macro table.
+            .map(|m| m.require_template());
+
+        let mut macro_table = directive.sexp_writer()?;
+        macro_table
+            .write_symbol(v1_1::system_symbols::MACRO_TABLE)?
+            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?
+            .write_all(pending_macros)?;
+        macro_table.close()?;
+        directive.close()
     }
 
     /// Helper method to encode an LST append containing pending symbols.
@@ -540,7 +632,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         ))
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl Into<MacroIdRef<'a>>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
         Ok(ApplicationEExpWriter::new(
             self.encoding,
             self.value_writer_config,
@@ -800,9 +892,18 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
 }
 
 impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
+    type ExprGroupWriter<'group>
+        = <V::EExpWriter as EExpWriter>::ExprGroupWriter<'group>
+    where
+        Self: 'group;
+
     // Default methods
     fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
         self.raw_eexp_writer.write_flex_uint(value)
+    }
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        self.raw_eexp_writer.expr_group_writer()
     }
 }
 
@@ -825,8 +926,8 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_1, FieldNameEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef, SequenceWriter,
-        StructWriter, SystemReader, ValueWriter, Writer,
+        v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
+        RawSymbolRef, SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
     };
 
     fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
@@ -1085,5 +1186,44 @@ mod tests {
                 (RawSymbolRef::Text("name"), &[0x09]), // FlexSym 4, SID $4,
             ],
         )
+    }
+
+    #[test]
+    fn define_new_macro() -> IonResult<()> {
+        let mut writer = Writer::new(v1_1::Text.with_format(TextFormat::Lines), Vec::new())?;
+
+        // Define a macro
+        let identity = writer.compile_macro("(macro identity (x*) (%x))")?;
+
+        // Invoke that macro
+        let mut eexp_writer = writer.eexp_writer(&identity)?;
+        let mut group_writer = eexp_writer.expr_group_writer()?;
+        group_writer.write_all(["foo", "bar", "baz"])?;
+        group_writer.close()?;
+        eexp_writer.close()?;
+
+        writer.flush()?;
+
+        // Confirm the output is as expected
+        let output = writer.output().as_slice();
+
+        println!("output:\n{}", std::str::from_utf8(output).unwrap());
+
+        let actual = Element::read_all(output)?;
+
+        let expected = Element::read_all(
+            r#"
+            "foo"
+            "bar"
+            "baz"
+        "#,
+        )?;
+
+        assert_eq!(
+            actual, expected,
+            "// actual\n{actual:?}\n// !=\n// expected\n{expected:?}"
+        );
+
+        Ok(())
     }
 }

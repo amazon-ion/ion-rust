@@ -1009,6 +1009,12 @@ where
     }
 }
 
+impl AsRef<Element> for Element {
+    fn as_ref(&self) -> &Element {
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::*;
