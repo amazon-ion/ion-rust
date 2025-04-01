@@ -277,7 +277,6 @@ impl<'top> EncodingContextRef<'top> {
         &self.context.macro_table
     }
 
-    #[cfg(feature = "lazy-source-location")]
     pub fn location(&self, value_start: usize) -> Option<(usize, usize)> {
         match unsafe { &*self.io_buffer_source.get() } {
             IoBufferSource::IoBuffer(ref buffer) => Some((buffer.row(), buffer.column())),
