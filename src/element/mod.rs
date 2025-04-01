@@ -392,6 +392,10 @@ impl IonDataHash for Element {
 pub struct Element {
     annotations: Annotations,
     value: Value,
+    // Represents the source location metadata (row, column).
+    // If the element was constructed programmatically it returns `None`.
+    // If the element was constructed from a `LazyValue` then it returns `Some(_)`.
+    location: Option<(usize, usize)>
 }
 
 impl std::fmt::Debug for Element {
@@ -428,6 +432,15 @@ impl Element {
         Self {
             annotations,
             value: value.into(),
+            location: None,
+        }
+    }
+
+    pub(crate) fn with_location(self, location: Option<(usize, usize)>) -> Self {
+        Self {
+            annotations: self.annotations,
+            value: self.value,
+            location,
         }
     }
 
@@ -451,6 +464,13 @@ impl Element {
     /// ```
     pub fn value(&self) -> &Value {
         &self.value
+    }
+
+    /// Returns the source location metadata (row, column).
+    /// If element was constructed from a `LazyValue` then it returns `Some(_)`.
+    /// Otherwise, returns `None` for programmatically constructed element.
+    pub fn location(&self) -> Option<(usize, usize)> {
+        self.location
     }
 
     /// Consumes self and returns this [Element]'s [Value].
@@ -655,7 +675,7 @@ impl Element {
     }
 
     pub fn try_into_text(self) -> ConversionOperationResult<Element, String> {
-        let Self { value, annotations } = self;
+        let Self { value, annotations, location } = self;
         match value {
             Value::String(text) => Ok(text.to_string()),
             Value::Symbol(sym) => match sym.text {
@@ -665,13 +685,14 @@ impl Element {
                     let sym = Self {
                         value: Value::Symbol(Symbol::unknown_text()),
                         annotations,
+                        location,
                     };
                     Err(ConversionOperationError::new(sym))
                 }
                 SymbolText::Static(static_str) => Ok((*static_str).to_string()),
             },
             _ => {
-                let sym = Self { value, annotations };
+                let sym = Self { value, annotations, location };
                 Err(ConversionOperationError::new(sym))
             }
         }
