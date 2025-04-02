@@ -2,8 +2,7 @@ use crate::conformance_dsl::*;
 
 use ion_rs::{v1_0, v1_1};
 use ion_rs::{
-    Catalog, Element, ElementReader, IonSlice, Reader, Sequence, SharedSymbolTable, Symbol,
-    SymbolId,
+    Catalog, Element, ElementReader, Reader, Sequence, SharedSymbolTable, Symbol, SymbolId,
 };
 
 /// A Context forms a scope for tracking all of the document fragments and any parent Contexts that
@@ -152,27 +151,71 @@ impl<'a> Context<'a> {
             .and_then(|st| st.symbols().get(offset - 1).cloned())
     }
 
+    pub fn write_input<E: ion_rs::Encoding, O: std::io::Write>(
+        &self,
+        writer: &mut ion_rs::Writer<E, O>,
+    ) -> InnerResult<()> {
+        self.parent_ctx
+            .map(|ctx| {
+                let mut new_ctx = ctx.clone();
+                new_ctx.set_encoding(self.encoding());
+                new_ctx.write_input(writer)
+            })
+            .unwrap_or(Ok(()))?;
+
+        for frag in self.fragments.iter() {
+            frag.write(self, writer)?;
+        }
+        writer.flush()?;
+        Ok(())
+    }
+
     /// Returns a Vec<u8> containing the serialized data consisting of all fragments in the path
     /// for this context.
     pub fn input(&self, child_encoding: IonEncoding) -> InnerResult<(Vec<u8>, IonEncoding)> {
-        let encoding = Self::resolve_encoding(self.encoding(), child_encoding);
-        let (data, data_encoding) = match encoding {
-            IonEncoding::Text => (to_text(self, self.fragments.iter())?, encoding),
-            IonEncoding::Binary => (to_binary(self, self.fragments.iter())?, encoding),
-            IonEncoding::Unspecified => (to_text(self, self.fragments.iter())?, IonEncoding::Text),
+        use ion_rs::Writer;
+        let encoding = match Self::resolve_encoding(self.encoding(), child_encoding) {
+            IonEncoding::Unspecified => IonEncoding::Text,
+            x => x,
         };
-        let (mut parent_input, _) = self
-            .parent_ctx
-            .map(|c| c.input(encoding))
-            .unwrap_or(Ok((vec![], encoding)))?;
-        parent_input.extend(data.clone());
-        Ok((parent_input, data_encoding))
+        let version = match self.version() {
+            IonVersion::Unspecified => IonVersion::V1_1,
+            x => x,
+        };
+
+        let buffer = vec![];
+        match (encoding, version) {
+            (IonEncoding::Text, IonVersion::V1_0) => {
+                let mut writer = Writer::new(v1_0::Text, buffer)?;
+                self.write_input(&mut writer)?;
+                let output = writer.close()?;
+                Ok((output, encoding))
+            }
+            (IonEncoding::Text, IonVersion::V1_1) => {
+                let mut writer = Writer::new(v1_1::Text, buffer)?;
+                self.write_input(&mut writer)?;
+                let output = writer.close()?;
+                Ok((output, encoding))
+            }
+            (IonEncoding::Binary, IonVersion::V1_0) => {
+                let mut writer = Writer::new(v1_0::Binary, buffer)?;
+                self.write_input(&mut writer)?;
+                let output = writer.close()?;
+                Ok((output, encoding))
+            }
+            (IonEncoding::Binary, IonVersion::V1_1) => {
+                let mut writer = Writer::new(v1_1::Binary, buffer)?;
+                self.write_input(&mut writer)?;
+                let output = writer.close()?;
+                Ok((output, encoding))
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// Returns the Sequence of Elements representing the test document.
     pub fn read_all(&self, encoding: IonEncoding) -> InnerResult<Sequence> {
         let (data, data_encoding) = self.input(encoding)?;
-        let data_slice = IonSlice::new(data);
 
         if self.fragments.is_empty() {
             let empty: Vec<Element> = vec![];
@@ -186,24 +229,56 @@ impl<'a> Context<'a> {
 
         match (version, data_encoding) {
             (IonVersion::V1_0, IonEncoding::Binary) => {
-                Ok(Reader::new(v1_0::Binary, data_slice)?.read_all_elements()?)
+                Ok(Reader::new(v1_0::Binary, data)?.read_all_elements()?)
             }
             (IonVersion::V1_0, IonEncoding::Text) => {
-                Ok(Reader::new(v1_0::Text, data_slice)?.read_all_elements()?)
+                Ok(Reader::new(v1_0::Text, data)?.read_all_elements()?)
             }
             (IonVersion::V1_0, IonEncoding::Unspecified) => {
-                Ok(Reader::new(v1_0::Binary, data_slice)?.read_all_elements()?)
+                Ok(Reader::new(v1_0::Binary, data)?.read_all_elements()?)
             }
             (IonVersion::V1_1, IonEncoding::Binary) => {
-                Ok(Reader::new(v1_1::Binary, data_slice)?.read_all_elements()?)
+                Ok(Reader::new(v1_1::Binary, data)?.read_all_elements()?)
             }
             (IonVersion::V1_1, IonEncoding::Text) => {
-                Ok(Reader::new(v1_1::Text, data_slice)?.read_all_elements()?)
+                Ok(Reader::new(v1_1::Text, data)?.read_all_elements()?)
             }
             (IonVersion::V1_1, IonEncoding::Unspecified) => {
-                Ok(Reader::new(v1_1::Binary, data_slice)?.read_all_elements()?)
+                Ok(Reader::new(v1_1::Binary, data)?.read_all_elements()?)
             }
             _ => unreachable!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    // Test to ensure that when we render fragments, we don't insert new IVMs breaking the context
+    // established by previous fragments.
+    fn unbroken_fragment_encoding_context() {
+        let elems = Element::read_all("mactab (macro m (v!) (%v))")
+            .expect("unable to parse mactab into elements");
+        let frags: Vec<Fragment> = vec![
+            Clause::try_from(elems)
+                .expect("unable to convert elements to clause")
+                .try_into()
+                .expect("unable to convert clause to fragment"),
+            Fragment::Text("(:m 1)".to_string()),
+        ];
+        let context = Context::new(IonVersion::V1_1, IonEncoding::Text, &frags)
+            .expect("unable to create context");
+        let (bytes, _) = context
+            .input(IonEncoding::Text)
+            .expect("failed to render fragments");
+
+        let fragments_str = String::from_utf8(bytes).expect("Invalid input string generated");
+        assert_eq!(
+            fragments_str,
+            "$ion_1_1 $ion::(module _ (macro_table (macro m (v '!' ) ('%' v ) ) ) ) (:m 1)"
+                .to_string(),
+        );
     }
 }
