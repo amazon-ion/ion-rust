@@ -300,9 +300,9 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
         let value: Value = lazy_value.read()?.try_into()?;
         if lazy_value.has_annotations() {
             let annotations: Annotations = lazy_value.annotations().try_into()?;
-            Ok(value.with_annotations(annotations))
+            Ok(value.with_annotations(annotations).with_location(lazy_value.location()))
         } else {
-            Ok(value.into())
+            Ok(<Value as Into<Element>>::into(value).with_location(lazy_value.location()))
         }
     }
 }
