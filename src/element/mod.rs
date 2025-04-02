@@ -37,6 +37,7 @@ use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
+use crate::location::SourceLocation;
 use crate::result::{
     ConversionOperationError, ConversionOperationResult, IonTypeExpectation, TypeExpectation,
 };
@@ -393,9 +394,7 @@ pub struct Element {
     annotations: Annotations,
     value: Value,
     // Represents the source location metadata (row, column).
-    // If the element was constructed programmatically it returns `None`.
-    // If the element was constructed from a `LazyValue` then it returns `Some(_)`.
-    location: Option<(usize, usize)>
+    location: SourceLocation
 }
 
 impl std::fmt::Debug for Element {
@@ -432,11 +431,11 @@ impl Element {
         Self {
             annotations,
             value: value.into(),
-            location: None,
+            location: SourceLocation::empty(),
         }
     }
 
-    pub(crate) fn with_location(self, location: Option<(usize, usize)>) -> Self {
+    pub(crate) fn with_location(self, location: SourceLocation) -> Self {
         Self {
             annotations: self.annotations,
             value: self.value,
@@ -482,8 +481,8 @@ impl Element {
     /// * Binary Ion data does not contain location information
     ///
     /// Do not rely on this metadata for programmatic manipulation of Ion data.
-    pub fn location(&self) -> Option<(usize, usize)> {
-        self.location
+    pub fn location(&self) -> &SourceLocation {
+        &self.location
     }
 
     /// Consumes self and returns this [Element]'s [Value].

@@ -188,6 +188,7 @@ pub(crate) mod unsafe_helpers;
 pub mod ion_hash;
 pub(crate) mod lazy;
 mod write_config;
+mod location;
 
 pub use crate::lazy::any_encoding::AnyEncoding;
 pub use crate::lazy::decoder::{HasRange, HasSpan};

@@ -10,6 +10,7 @@ use crate::{
     try_or_some_err, Annotations, Element, ExpandedValueSource, HasSpan, IntoAnnotatedElement,
     IonError, IonResult, IonType, LazyRawValue, Span, SymbolRef, SymbolTable, Value,
 };
+use crate::location::SourceLocation;
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -240,7 +241,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         self.expanded_value.context()
     }
 
-    pub fn location(&self) -> Option<(usize, usize)> {
+    pub fn location(&self) -> SourceLocation {
         let context = self.expanded_value.context();
         // set the value start and end positions, this help in location calculation
         if let Some(span) = self.expanded_value.span() {
@@ -479,6 +480,7 @@ mod tests {
         Timestamp,
     };
     use crate::{Element, IntoAnnotatedElement};
+    use crate::location::SourceLocation;
 
     #[test]
     fn annotations_are() -> IonResult<()> {
@@ -605,17 +607,19 @@ mod tests {
     ) -> IonResult<()> {
         let mut reader = Reader::new(v1_0::Text, ion_text)?;
         let result1 = reader.expect_next();
+
+        let expected_source_location = SourceLocation::new(expected_location.0, expected_location.1);
         assert!(result1.is_ok());
         if let Ok(lazy_value1) = result1 {
             let _val = lazy_value1.read();
             // first tlv will always be (1,1) per the examples here
-            assert_eq!(lazy_value1.location().unwrap(), (1, 1));
+            assert_eq!(lazy_value1.location(), SourceLocation::new(1, 1));
         }
         let result2 = reader.expect_next();
         assert!(result2.is_ok());
         if let Ok(lazy_value2) = result2 {
             let _val = lazy_value2.read();
-            assert_eq!(lazy_value2.location().unwrap(), expected_location);
+            assert_eq!(lazy_value2.location(), expected_source_location);
         }
         Ok(())
     }
@@ -645,6 +649,7 @@ mod tests {
         use std::io;
         use std::io::{Cursor, Read};
 
+        let expected_source_location = SourceLocation::new(expected_location.0, expected_location.1);
         let input_chunks = ion_text.as_slice();
         // Wrapping each string in an `io::Chain`
         let mut input: Box<dyn Read> = Box::new(io::empty());
@@ -657,13 +662,13 @@ mod tests {
         if let Ok(lazy_value1) = result1 {
             let _val = lazy_value1.read();
             // first tlv will always be (1,1) per the examples here
-            assert_eq!(lazy_value1.location().unwrap(), (1, 1));
+            assert_eq!(lazy_value1.location(), SourceLocation::new(1, 1));
         }
         let result2 = reader.expect_next();
         assert!(result2.is_ok());
         if let Ok(lazy_value2) = result2 {
             let _val = lazy_value2.read();
-            assert_eq!(lazy_value2.location().unwrap(), expected_location);
+            assert_eq!(lazy_value2.location(), expected_source_location);
         }
         Ok(())
     }
