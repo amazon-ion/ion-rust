@@ -6,33 +6,6 @@ use super::*;
 
 use ion_rs::{Element, Sequence};
 
-/// Convert a collection of Fragments into a binary encoded ion stream.
-pub(crate) fn to_binary<'a, T: IntoIterator<Item = &'a Fragment>>(
-    ctx: &'a Context,
-    fragments: T,
-) -> InnerResult<Vec<u8>> {
-    let mut bin_encoded = vec![];
-    for frag in fragments {
-        let bin = frag.to_binary(ctx)?;
-        bin_encoded.extend(bin);
-    }
-    Ok(bin_encoded)
-}
-
-/// Convert a collection of Fragments into a text encoded ion stream.
-pub(crate) fn to_text<'a, T: IntoIterator<Item = &'a Fragment>>(
-    ctx: &'a Context,
-    fragments: T,
-) -> InnerResult<Vec<u8>> {
-    let mut txt_encoded = vec![];
-    for frag in fragments {
-        let txt = frag.to_text(ctx)?;
-        txt_encoded.extend(txt);
-        txt_encoded.push(0x20); // Text fragments need to be separated by whitespace.
-    }
-    Ok(txt_encoded)
-}
-
 /// The root clause for a test. A document contains an optional name, set of fragments, and a
 /// continuation. All tests defined by this document are evaluated through the `run` function.
 #[derive(Debug, Default)]
