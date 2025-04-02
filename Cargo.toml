@@ -24,9 +24,6 @@ rust-version = "1.82"
 default = []
 experimental-ion-hash = ["digest", "experimental-reader-writer"]
 
-# Access location information of the input Ion from underlying buffer.
-source-location = []
-
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard
 # Ion behavior (e.g., draft Ion 1.1 capabilities).

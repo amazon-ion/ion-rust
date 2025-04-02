@@ -217,7 +217,7 @@ macro_rules! v1_x_reader_writer {
             lazy::expanded::template::TemplateBodyExpr,
             lazy::expanded::template::TemplateBodyExprKind,
             lazy::expanded::template::TemplateMacroInvocation,
-            lazy::expanded::macro_table::Macro,
+            lazy::expanded::macro_table::MacroDef,
             lazy::expanded::macro_evaluator::MacroEvaluator,
             lazy::expanded::macro_evaluator::MacroExpansionKind,
             lazy::expanded::macro_table::MacroKind,
@@ -252,6 +252,7 @@ macro_rules! v1_1_reader_writer {
         $visibility use crate::{
             lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
             lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
+            lazy::expanded::macro_table::Macro
         };
     };
 }

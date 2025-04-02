@@ -8,7 +8,6 @@ use test_generator::test_resources;
 
 use std::sync::LazyLock;
 
-
 mod ion_tests {
     use super::*;
 
@@ -23,9 +22,12 @@ mod ion_tests {
     }
 
     impl SkipItem {
-        fn canonicalize(&self) -> Option<Self>{
+        fn canonicalize(&self) -> Option<Self> {
             match std::fs::canonicalize(self.source) {
-                Ok(path_buf) => Some(Self { canonicalized_source: Some(path_buf.to_string_lossy().to_string()), ..*self }),
+                Ok(path_buf) => Some(Self {
+                    canonicalized_source: Some(path_buf.to_string_lossy().to_string()),
+                    ..*self
+                }),
                 Err(_) => None,
             }
         }
@@ -44,7 +46,8 @@ mod ion_tests {
 
     type SkipList = &'static [SkipItem];
     static GLOBAL_CONFORMANCE_SKIPLIST: SkipList = &[
-        skip!("ion-tests/conformance/data_model/float.ion",
+        skip!(
+            "ion-tests/conformance/data_model/float.ion",
             "Ion 1.1 binary" // PANIC: not yet implemented: implement half-precision floats
         ),
         // Mismatched produces due to symbol id transcription.
@@ -72,7 +75,8 @@ mod ion_tests {
         skip!("ion-tests/conformance/ion_encoding/module/macro/template/if.ion"),
         // Incorrectly constructed macro table / module.
         skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/literal_value.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_ee.ion",
+        skip!(
+            "ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_ee.ion",
             "Invocation by address" // Cannot find macro with id "M"; invalid macro invocation
                                     // syntax.
         ),
@@ -93,17 +97,20 @@ mod ion_tests {
         skip!("ion-tests/conformance/ion_encoding/module/load_symtab.ion"),
         skip!("ion-tests/conformance/ion_encoding/module/symtab.ion"),
         // Error: Too few arguments.
-        skip!("ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_tl.ion"),
+        skip!(
+            "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_tl.ion"
+        ),
         // Error: "Invalid macro name:"
         skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/signature.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_tl.ion",
-            "Invalid bare reference",            // Expected Signal "no such macro: noSuchMacro"
-            "Malformed macro references",        // ExpectedSignal "Malformed macro-ref"
-            "Invoking constant macros",          // Expected Signal "Too many arguments"
+        skip!(
+            "ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_tl.ion",
+            "Invalid bare reference", // Expected Signal "no such macro: noSuchMacro"
+            "Malformed macro references", // ExpectedSignal "Malformed macro-ref"
+            "Invoking constant macros", // Expected Signal "Too many arguments"
             "Local macros shadow system macros", // Could not find macro with id $ion
-            "Qualified references",              // Mismatched Produce
-            "Local references",                  // Mismatched Produce
-            "Local names shadow `use`d names"    // found operation name with non-symbol type: sexp
+            "Qualified references",   // Mismatched Produce
+            "Local references",       // Mismatched Produce
+            "Local names shadow `use`d names"  // found operation name with non-symbol type: sexp
         ),
         // Error: ExpectedSIgnal: invalid argument
         skip!("ion-tests/conformance/system_macros/add_symbols.ion"),
@@ -147,14 +154,21 @@ mod ion_tests {
 
     #[test_resources("ion-tests/conformance/**/*.ion")]
     fn conformance(file_name: &str) {
-        let file_name: String = std::fs::canonicalize(file_name).unwrap().to_string_lossy().into();
+        let file_name: String = std::fs::canonicalize(file_name)
+            .unwrap()
+            .to_string_lossy()
+            .into();
         let mut total_tests: usize = 0;
         let mut total_skipped: usize = 0;
 
         // Having a file_name in the skip list just means we ignore some part of it.. not
         // necessarily the whole file. If we don't specify a list of test names, then we ignore the
         // whole thing.
-        let skip_item = CANONICAL_SKIP_LIST.iter().find(|item| item.canonicalized_source.as_ref().is_some_and(|source| *source == file_name));
+        let skip_item = CANONICAL_SKIP_LIST.iter().find(|item| {
+            item.canonicalized_source
+                .as_ref()
+                .is_some_and(|source| *source == file_name)
+        });
         if skip_item.is_some_and(|item| item.tests.is_empty()) {
             println!("SKIPPING: {}", file_name);
             return;
@@ -181,6 +195,9 @@ mod ion_tests {
             test.run().expect("test failed");
         }
 
-        println!("SUMMARY: {} : Total Tests {} :  Skipped {}", file_name, total_tests, total_skipped);
+        println!(
+            "SUMMARY: {} : Total Tests {} :  Skipped {}",
+            file_name, total_tests, total_skipped
+        );
     }
 }

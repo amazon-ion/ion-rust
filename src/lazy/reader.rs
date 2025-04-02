@@ -384,7 +384,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature="experimental-ion-1-1"))]
+#[cfg(all(test, feature = "experimental-ion-1-1"))]
 mod tests_1_1 {
     use crate::lazy::text::raw::v1_1::reader::MacroAddress;
     use crate::{v1_1, IonResult, MacroTable, Reader};

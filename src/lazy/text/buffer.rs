@@ -36,7 +36,7 @@ use crate::{
     Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, Span, TimestampPrecision,
 };
 
-use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::macro_table::{MacroDef, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::raw::sequence::RawTextSExpIterator;
@@ -103,13 +103,6 @@ pub(crate) const WHITESPACE_BYTES: &[u8] = b" \t\r\n\x09\x0B\x0C";
 pub struct TextBuffer<'top> {
     // `data` is a slice of remaining data in the larger input stream.
     input_span: Span<'top>,
-    #[cfg(feature = "source-location")]
-    // `row` is the row position of the input data in this buffer.
-    row: usize,
-    #[cfg(feature = "source-location")]
-    // `prev_newline_offset` is the previously encountered newline byte's offset value.
-    // this is useful in calculating the column position of the input data in this buffer.
-    prev_newline_offset: usize,
     pub(crate) context: EncodingContextRef<'top>,
     is_final_data: bool,
 }
@@ -130,10 +123,6 @@ impl<'top> TextBuffer<'top> {
         TextBuffer {
             context,
             input_span,
-            #[cfg(feature = "source-location")]
-            row: 1,
-            #[cfg(feature = "source-location")]
-            prev_newline_offset: 0,
             is_final_data,
         }
     }
@@ -153,10 +142,6 @@ impl<'top> TextBuffer<'top> {
         TextBuffer {
             context,
             input_span: Span::with_offset(offset, bytes),
-            #[cfg(feature = "source-location")]
-            row: 1,
-            #[cfg(feature = "source-location")]
-            prev_newline_offset: 0,
             is_final_data,
         }
     }
@@ -219,20 +204,6 @@ impl<'top> TextBuffer<'top> {
         self.input_span.offset()
     }
 
-    #[cfg(feature = "source-location")]
-    /// Returns the row position for this buffer.
-    /// _Note: Row positions are calculated based on newline characters `\n` and `\r`. `\r\n` together in this order is considered a single newline._
-    pub fn row(&self) -> usize {
-        self.row
-    }
-
-    #[cfg(feature = "source-location")]
-    /// Returns the column position for this buffer.
-    /// _Note: Column positions are calculated based on current offset and previous newline byte offset._
-    pub fn column(&self) -> usize {
-        self.offset() - self.prev_newline_offset + 1
-    }
-
     /// Returns the number of bytes in the buffer.
     pub fn len(&self) -> usize {
         self.input_span.len()
@@ -273,50 +244,12 @@ impl<'top> TextBuffer<'top> {
     /// Matches one or more whitespace characters.
     pub fn match_whitespace1(&mut self) -> IonMatchResult<'top> {
         let result = take_while(1.., WHITESPACE_BYTES).parse_next(self)?;
-        #[cfg(feature = "source-location")]
-        self.update_location_metadata(result.bytes());
         Ok(result)
-    }
-
-    #[cfg(feature = "source-location")]
-    /// Updates the location metadata based on the matched whitespace bytes in the consumed buffer
-    fn update_location_metadata(&mut self, data: &'top [u8]) {
-        if !data.is_empty() {
-            // Calculate `rows` based on occurrence of newline bytes. If we encounter:
-            // 1. b'\r' then increment row count by 1.
-            // 2.a. If there was no b'\r' encountered before b'\n' then increment row count by 1.
-            // 2.b. If there was no b'\r' encountered before b'\n' then don't increment as b'\r\n' should be counted as 1 based on windows line ending pattern.
-            // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
-            // Adding 1 to the index because we want to include everything after the newline -
-            // if newline is at index 5, we want to start counting from index 6 (5 + 1).
-            let (_, rows, prev_newline_offset) = data.iter().enumerate().fold(
-                (false, 0, 0),
-                |(follows_cr, rows, offset), (i, b)| {
-                    match (b, follows_cr) {
-                        // When there's a '\r', add a row and update the offset as this newline offset value
-                        (b'\r', _) => (true, rows + 1, i + 1),
-                        // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
-                        (b'\n', false) => (false, rows + 1, i + 1),
-                        // When there's '\n' immediately following '\r', update the offset without adding a row
-                        (b'\n', true) => (false, rows, i + 1),
-                        _ => (false, rows, offset),
-                    }
-                },
-            );
-            // Set the previous newline offset by subtracting non newline match length from current offset,
-            // where non newline match length is the non newline bytes found after last newline byte.
-            if rows > 0 {
-                self.prev_newline_offset = self.offset() - (data.len() - prev_newline_offset);
-                self.row += rows;
-            }
-        }
     }
 
     /// Matches zero or more whitespace characters.
     pub fn match_whitespace0(&mut self) -> IonMatchResult<'top> {
         let result = take_while(0.., WHITESPACE_BYTES).parse_next(self)?;
-        #[cfg(feature = "source-location")]
-        self.update_location_metadata(result.bytes());
         Ok(result)
     }
 
@@ -374,8 +307,6 @@ impl<'top> TextBuffer<'top> {
         )
             .take()
             .parse_next(self)?;
-        #[cfg(feature = "source-location")]
-        self.update_location_metadata(result.bytes());
         Ok(result)
     }
 
@@ -741,7 +672,7 @@ impl<'top> TextBuffer<'top> {
             let id = Self::match_e_expression_id(input)?;
             let mut arg_expr_cache = BumpVec::new_in(input.context.allocator());
 
-            let macro_ref: &'top Macro = input
+            let macro_ref: &'top MacroDef = input
                 .context()
                 .macro_table()
                 .macro_with_id(id)
@@ -1686,9 +1617,6 @@ impl<'top> TextBuffer<'top> {
                 let relative_match_end = remaining.offset() - self.offset();
                 let matched_input = self.slice(0, relative_match_end);
                 self.consume(relative_match_end);
-                // This input may contain newline characters hence update the location metadata.
-                #[cfg(feature = "source-location")]
-                self.update_location_metadata(matched_input_buffer.bytes());
                 return Ok((matched_input, contained_escapes));
             } else {
                 // Otherwise, advance by one and try again.
@@ -2074,16 +2002,7 @@ impl<'data> Stream for TextBuffer<'data> {
     }
 
     fn reset(&mut self, checkpoint: &Self::Checkpoint) {
-        #[cfg(feature = "source-location")]
-        let (current_row, prev_column_value) = (self.row, self.prev_newline_offset);
-
         *self = *checkpoint;
-
-        #[cfg(feature = "source-location")]
-        {
-            self.row = current_row;
-            self.prev_newline_offset = prev_column_value;
-        }
     }
 
     fn raw(&self) -> &dyn Debug {
@@ -2241,7 +2160,7 @@ mod tests {
 
         fn register_macro(&mut self, text: &str) -> &mut Self {
             let new_macro =
-                TemplateCompiler::compile_from_source(self.context.get_ref(), text).unwrap();
+                TemplateCompiler::compile_from_source(self.context.macro_table(), text).unwrap();
             self.context
                 .macro_table_mut()
                 .add_template_macro(new_macro)
@@ -2277,31 +2196,6 @@ mod tests {
                 self.input,
                 &self.input[..match_length]
             );
-        }
-
-        #[cfg(feature = "source-location")]
-        fn expect_match_location<'data, P, O>(
-            &'data self,
-            parser: P,
-            expected_location: (usize, usize),
-        ) where
-            P: Parser<TextBuffer<'data>, O, IonParseError<'data>>,
-        {
-            let result = self.try_match(parser).unwrap_or_else(|e| {
-                panic!("Unexpected parse fail for input <{}>\n{e}", self.input)
-            });
-            let match_length = result.1;
-            // Inputs have a trailing newline and `0` that should _not_ be part of the match
-            assert_eq!(
-                match_length,
-                self.input.len(),
-                "\nInput: '{}'\nMatched: '{}'\n",
-                self.input,
-                &self.input[..match_length]
-            );
-
-            // Assert the location metadata
-            assert_eq!(expected_location, (result.0.row(), result.0.column()));
         }
 
         fn expect_mismatch<'data, P, Output>(&'data self, parser: P)
@@ -2936,78 +2830,6 @@ mod tests {
         let (matched, contains_escapes) = input.match_text_until_unescaped_str(r#"'''"#).unwrap();
         assert_eq!(matched.as_text().unwrap(), " foo bar \\''' baz");
         assert!(contains_escapes);
-    }
-
-    #[rstest]
-    #[case::no_whitespace("", (1,1))]
-    #[case::no_crlf_1("\t", (1,2))]
-    #[case::no_crlf_2("\t\t", (1,3))]
-    #[case::cr("\r", (2,1))]
-    #[case::lf("\n", (2,1))]
-    // all combinations of 3 newline bytes; check number of rows
-    #[case::lf_3("\n\n\n", (4,1))]
-    #[case::lf_lf_cr("\n\n\r", (4,1))]
-    #[case::lf_cr_lf("\n\r\n", (3,1))]
-    #[case::lf_cr_cr("\n\r\r", (4,1))]
-    #[case::cr_lf_lf("\r\n\n", (3,1))]
-    #[case::cr_lf_cr("\r\n\r", (3,1))]
-    #[case::cr_cr_lf("\r\r\n", (3,1))]
-    #[case::cr_3("\r\r\r", (4,1))]
-    #[case::newlines("\n\r", (3,1))]
-    #[case::crlf("\r\n\r\n", (3,1))]
-    #[case::mixed("\r\n\n\r\n", (4,1))]
-    // tabs before newline does not affect column count
-    #[case::tabs_before_newline_1("\t\t\t\n", (2,1))]
-    #[case::tabs_before_newline_2("\n\t\n", (3,1))]
-    // tabs after newline affects the column count
-    #[case::tabs_after_newline_1("\n\t\t\t", (2,4))]
-    #[case::tabs_after_newline_2("\t\n\t\t", (2,3))]
-    #[case::tabs_after_newline_3("\n\t\n\t", (3,2))]
-    #[case::mix_tabs_and_newlines("\n\t\n", (3,1))]
-    #[cfg(feature = "source-location")]
-    fn expect_whitespace(#[case] input: &str, #[case] expected_location: (usize, usize)) {
-        MatchTest::new_1_0(input).expect_match_location(
-            match_length(TextBuffer::match_whitespace0),
-            expected_location,
-        );
-    }
-
-    #[rstest]
-    #[case::empty_input("", (1,1))]
-    #[case::inline_comment("//comment", (1,10))]
-    #[case::newline_before_inline_comment("\n//comment", (2,10))]
-    #[case::newline_after_inline_comment("//comment\n", (2,1))]
-    #[case::two_inline_comments("//comment\n//comment", (2,10))]
-    #[case::comment("/*comment*/", (1,12))]
-    #[case::newline_before_comment("\n/*comment*/", (2,12))]
-    #[case::newline_after_comment("/*comment*/\n", (2,1))]
-    #[case::newline_inside_comment("/*multiline \n comment*/", (2,11))]
-    #[case::newlines_inside_comment("/*this is a \n multiline \n comment*/", (3,11))]
-    #[cfg(feature = "source-location")]
-    fn expect_whitespace_with_comment(
-        #[case] input: &str,
-        #[case] expected_location: (usize, usize),
-    ) {
-        MatchTest::new_1_0(input).expect_match_location(
-            match_length(TextBuffer::match_optional_comments_and_whitespace),
-            expected_location,
-        );
-    }
-
-    #[rstest]
-    #[case::single_segment_empty("''''''", (1, 7))]
-    #[case::single_segment_with_newlines("'''\n\n\r\n'''", (4, 4))]
-    #[case::single_segment_long_string("'''long string'''", (1, 18))]
-    #[case::single_segment_with_tabs("'''long\tstring'''", (1, 18))]
-    #[case::two_segment_long_string("'''long''' '''string'''", (1, 24))]
-    #[case::two_segment_with_newline_between("'''long''' \n '''string'''", (2, 14))]
-    #[case::two_segment_with_newlines("'''long\n''' '''string\n'''", (3, 4))]
-    #[case::two_segment_long_string_mixed("'''long\n''' \n '''string\n'''", (4, 4))]
-    #[case::single_segment_with_whitespace("'''long \n\r\n\t hello'''", (3, 11))]
-    #[cfg(feature = "source-location")]
-    fn expect_newline_long_text(#[case] input: &str, #[case] expected_location: (usize, usize)) {
-        MatchTest::new_1_0(input)
-            .expect_match_location(match_length(TextBuffer::match_string), expected_location);
     }
 
     #[test]

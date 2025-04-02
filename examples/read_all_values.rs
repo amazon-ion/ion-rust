@@ -21,7 +21,10 @@ mod lazy_reader_example {
     pub fn read_all_values() -> IonResult<()> {
         let args: Vec<String> = std::env::args().collect();
         let path = args.get(1).unwrap_or_else(|| {
-            eprintln!("USAGE:\n\n    {} [Binary Ion file]\n", args.first().unwrap());
+            eprintln!(
+                "USAGE:\n\n    {} [Binary Ion file]\n",
+                args.first().unwrap()
+            );
             eprintln!("No mode was specified.");
             exit(1);
         });

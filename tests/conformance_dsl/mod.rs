@@ -1,12 +1,12 @@
 #![cfg(feature = "experimental-ion-1-1")]
 #![allow(dead_code)]
 
-mod context;
-mod document;
-mod continuation;
-mod model;
-mod fragment;
 mod clause;
+mod context;
+mod continuation;
+mod document;
+mod fragment;
+mod model;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -14,15 +14,15 @@ use std::path::{Path, PathBuf};
 use ion_rs::{Element, IonError, IonStream, IonType, MapCatalog, SharedSymbolTable};
 
 use clause::*;
+use context::*;
 use document::*;
 use fragment::*;
-use context::*;
 
 #[allow(unused)]
 pub(crate) mod prelude {
     pub(crate) use super::document::Document;
-    pub(crate) use super::TestCollection;
     pub(crate) use super::IonVersion;
+    pub(crate) use super::TestCollection;
 }
 
 /// Specific errors used during parsing and test evaluation.
@@ -93,7 +93,8 @@ impl From<std::io::Error> for ConformanceError {
         ConformanceErrorImpl {
             kind: ConformanceErrorKind::IoError(other.kind()),
             ..Default::default()
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -102,7 +103,8 @@ impl From<IonError> for ConformanceError {
         ConformanceErrorImpl {
             kind: ConformanceErrorKind::IonError(other),
             ..Default::default()
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -111,7 +113,8 @@ impl From<ConformanceErrorKind> for ConformanceError {
         ConformanceErrorImpl {
             kind: other,
             ..Default::default()
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -128,7 +131,6 @@ pub(crate) enum IonEncoding {
     Binary,      // Binary clause used.
     Unspecified, // No encoding specific clauses.
 }
-
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -157,7 +159,11 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
     let mut continuation = continuation::Continuation::None;
 
     // We have an optional name as the second argument..
-    if let Some(elem) = clause.body.first().filter(|e| e.ion_type() == IonType::String) {
+    if let Some(elem) = clause
+        .body
+        .first()
+        .filter(|e| e.ion_type() == IonType::String)
+    {
         if let Some(s) = elem.as_string() {
             doc_like.set_name(s);
         }
@@ -172,7 +178,7 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
         let element = clause.body.get(sequence_idx).expect("unwrapping element");
         if handle_fragments {
             let Some(seq) = element.as_sequence() else {
-                return Err(ConformanceErrorKind::ExpectedClause)
+                return Err(ConformanceErrorKind::ExpectedClause);
             };
             let fragment = match Fragment::try_from(seq.clone()) {
                 Ok(frag) => frag,
@@ -186,7 +192,7 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
             sequence_idx += 1
         } else {
             let Some(seq) = element.as_sequence() else {
-                return Err(ConformanceErrorKind::ExpectedClause)
+                return Err(ConformanceErrorKind::ExpectedClause);
             };
 
             let inner_clause: Clause = seq.clone().try_into().expect("unable to convert to clause");
@@ -195,7 +201,7 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
                     use continuation::Continuation::*;
                     continuation = match continuation {
                         None => c,
-                        Each(..) | Then(..) => Extensions(vec!(continuation, c)),
+                        Each(..) | Then(..) => Extensions(vec![continuation, c]),
                         Extensions(ref mut exts) => {
                             exts.push(c.clone());
                             continuation
@@ -207,7 +213,8 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
                     };
 
                     // If we have a continuation already, we need to extend it to Extensions.
-                    let expect_more = continuation.is_extension() && (sequence_idx + 1) < clause.body.len();
+                    let expect_more =
+                        continuation.is_extension() && (sequence_idx + 1) < clause.body.len();
                     if !expect_more {
                         doc_like.set_continuation(continuation);
                         break;
@@ -222,8 +229,6 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
     Ok(doc_like)
 }
 
-
-
 /// A collection of Tests, usually stored together in a file.
 pub(crate) struct TestCollection {
     documents: Vec<Document>,
@@ -235,16 +240,17 @@ impl TestCollection {
         let test_file = std::fs::File::open(&path)?;
         match Self::load_from(test_file) {
             Err(e) => Err(ConformanceErrorImpl {
-               file: path.as_ref().to_owned(),
-               ..*e.0
-            }.into()),
+                file: path.as_ref().to_owned(),
+                ..*e.0
+            }
+            .into()),
             Ok(t) => Ok(t),
         }
     }
 
     pub fn load_from<R: Read>(reader: R) -> Result<TestCollection> {
         let iter = Element::iter(IonStream::new(reader))?;
-        let mut docs: Vec<Document> = vec!();
+        let mut docs: Vec<Document> = vec![];
 
         for element in iter {
             let element = element?;
@@ -252,10 +258,13 @@ impl TestCollection {
                 IonType::SExp => {
                     let seq = element.as_sexp().unwrap();
                     let doc = match Document::try_from(seq.clone()) {
-                        Err(kind) => return Err(ConformanceErrorImpl {
-                            kind,
-                            ..Default::default()
-                        }.into()),
+                        Err(kind) => {
+                            return Err(ConformanceErrorImpl {
+                                kind,
+                                ..Default::default()
+                            }
+                            .into())
+                        }
                         Ok(doc) => doc,
                     };
                     docs.push(doc);
@@ -264,9 +273,7 @@ impl TestCollection {
             }
         }
 
-        let collection = TestCollection{
-            documents: docs,
-        };
+        let collection = TestCollection { documents: docs };
 
         Ok(collection)
     }
@@ -283,21 +290,20 @@ impl TestCollection {
         self.documents.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=&Document> {
+    pub fn iter(&self) -> impl Iterator<Item = &Document> {
         self.documents.iter()
     }
-
 }
 
 /// Walks over all of the ion files contained in the ion-tests/catalog directory and extracts the
 /// symbol tables from each. A Vec of the resulting SharedSymbolTables is returned.
 pub(crate) fn build_ion_tests_symtables() -> Result<Vec<SharedSymbolTable>> {
-    use std::{env, fs, ffi::OsStr};
+    use std::{env, ffi::OsStr, fs};
 
     let mut catalog_dir = env::current_dir()?;
     catalog_dir.push("ion-tests/catalog");
 
-    let mut symbol_tables = vec!();
+    let mut symbol_tables = vec![];
 
     for entry in fs::read_dir(catalog_dir)? {
         let entry = entry?;
@@ -318,19 +324,27 @@ pub(crate) fn build_ion_tests_symtables() -> Result<Vec<SharedSymbolTable>> {
 /// Parses a 'bytes*' expression. A bytes expression can be either an integer (0..255) or a string
 /// containing hexadecimal digits (whitespace allowed). The `elems` provided should be all of the
 /// arguments to be included in the bytes* expression.
-pub(crate) fn parse_bytes_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<Vec<u8>> {
+pub(crate) fn parse_bytes_exp<'a, I: IntoIterator<Item = &'a Element>>(
+    elems: I,
+) -> InnerResult<Vec<u8>> {
     // Bytes can be of the form int (0..255), and a string containing hexadecimal digits.
     use std::result::Result;
-    let mut bytes: Vec<u8> = vec!();
+    let mut bytes: Vec<u8> = vec![];
     for elem in elems.into_iter() {
         match elem.ion_type() {
             IonType::Int => match elem.as_i64() {
                 Some(i) if (0..=255).contains(&i) => bytes.push(i as u8),
                 _ => return Err(ConformanceErrorKind::InvalidByte),
-            }
+            },
             IonType::String => {
-                let hex = elem.as_string().ok_or(ConformanceErrorKind::ExpectedString)?.replace(" ", "");
-                let hex_bytes = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i+2], 16)).collect::<Result<Vec<u8>, _>>();
+                let hex = elem
+                    .as_string()
+                    .ok_or(ConformanceErrorKind::ExpectedString)?
+                    .replace(" ", "");
+                let hex_bytes = (0..hex.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
+                    .collect::<Result<Vec<u8>, _>>();
                 match hex_bytes {
                     Err(_) => return Err(ConformanceErrorKind::InvalidHexString),
                     Ok(v) => bytes.extend_from_slice(v.as_slice()),
@@ -343,19 +357,25 @@ pub(crate) fn parse_bytes_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -
 }
 
 /// Parses a sequence of Elements that represent text data.
-pub(crate) fn parse_text_exp<'a, I: IntoIterator<Item=&'a Element>>(elems: I) -> InnerResult<String> {
-    let bytes: Vec<Vec<u8>> = elems.into_iter().map(|v| match v.ion_type() {
-        IonType::String => v.as_string().map(|s| Ok(s.as_bytes().to_vec())).unwrap(),
-        IonType::Int => {
-            match v.as_i64() {
-                Some(i) if i < 256 => Ok(vec!(i as u8)),
+pub(crate) fn parse_text_exp<'a, I: IntoIterator<Item = &'a Element>>(
+    elems: I,
+) -> InnerResult<String> {
+    let bytes: Vec<Vec<u8>> = elems
+        .into_iter()
+        .map(|v| match v.ion_type() {
+            IonType::String => v.as_string().map(|s| Ok(s.as_bytes().to_vec())).unwrap(),
+            IonType::Int => match v.as_i64() {
+                Some(i) if i < 256 => Ok(vec![i as u8]),
                 _ => Err(ConformanceErrorKind::ExpectedAsciiCodepoint),
-            }
-        }
-        _ => Err(ConformanceErrorKind::ExpectedModelValue),
-    }).collect::<InnerResult<Vec<Vec<u8>>>>()?;
+            },
+            _ => Err(ConformanceErrorKind::ExpectedModelValue),
+        })
+        .collect::<InnerResult<Vec<Vec<u8>>>>()?;
 
-    let val_string = bytes.iter().map(|v| unsafe { String::from_utf8_unchecked(v.to_vec()) }).collect();
+    let val_string = bytes
+        .iter()
+        .map(|v| unsafe { String::from_utf8_unchecked(v.to_vec()) })
+        .collect();
     Ok(val_string)
 }
 
@@ -369,11 +389,11 @@ pub(crate) fn parse_absent_symbol<T: AsRef<str>>(txt: T) -> (Option<String>, Opt
         match split_txt.len() {
             1 => (
                 None,
-                split_txt[0].parse::<usize>().map(Some).unwrap_or(None)
+                split_txt[0].parse::<usize>().map(Some).unwrap_or(None),
             ),
             2 => (
                 Some(split_txt[0].to_string()),
-                split_txt[1].parse::<usize>().map(Some).unwrap_or(None)
+                split_txt[1].parse::<usize>().map(Some).unwrap_or(None),
             ),
             _ => panic!("invalid absent symbol notation"),
         }
@@ -384,7 +404,11 @@ pub(crate) fn parse_absent_symbol<T: AsRef<str>>(txt: T) -> (Option<String>, Opt
 
 /// Given a LazyValue and an Element, this function will compare the two as symbols handling
 /// parsing of the DSL's symbol notation and resolution.
-pub(crate) fn compare_symbols_eq<D: ion_rs::Decoder>(ctx: &Context, actual: &ion_rs::LazyValue<'_, D>, expected: &Element) -> InnerResult<bool> {
+pub(crate) fn compare_symbols_eq<D: ion_rs::Decoder>(
+    ctx: &Context,
+    actual: &ion_rs::LazyValue<'_, D>,
+    expected: &Element,
+) -> InnerResult<bool> {
     use ion_rs::ValueRef;
 
     if expected.ion_type() != IonType::Symbol || actual.ion_type() != IonType::Symbol {
@@ -392,23 +416,26 @@ pub(crate) fn compare_symbols_eq<D: ion_rs::Decoder>(ctx: &Context, actual: &ion
     }
 
     let expected_symbol = expected.as_symbol().unwrap(); // SAFETY: Tested above.
-    let ValueRef::Symbol(actual_symbol_ref) = actual.read()? else { // SAFETY: Tested above.
+    let ValueRef::Symbol(actual_symbol_ref) = actual.read()? else {
+        // SAFETY: Tested above.
         return Ok(false);
     };
 
-    let (expected_symtab, expected_offset) = parse_absent_symbol(expected_symbol.text().unwrap_or(""));
-    let (actual_symtab, actual_offset) = parse_absent_symbol(actual_symbol_ref.text().unwrap_or(""));
+    let (expected_symtab, expected_offset) =
+        parse_absent_symbol(expected_symbol.text().unwrap_or(""));
+    let (actual_symtab, actual_offset) =
+        parse_absent_symbol(actual_symbol_ref.text().unwrap_or(""));
 
     let symbol_table = actual.symbol_table();
 
     // Extract the symbol text for the expected value.
-    let expected_symbol_text= match (expected_symtab, expected_offset) {
+    let expected_symbol_text = match (expected_symtab, expected_offset) {
         (None, None) => expected_symbol.text().map(|t| t.to_owned()),
         (None, Some(id)) => symbol_table.text_for(id).map(|t| t.to_owned()),
         (Some(symtab), Some(id)) => match ctx.get_symbol_from_table(symtab, id) {
             None => None,
-            Some(shared_symbol)  => shared_symbol.text().map(|t| t.to_owned()),
-        }
+            Some(shared_symbol) => shared_symbol.text().map(|t| t.to_owned()),
+        },
         _ => unreachable!(), // Cannot have a symtab without an id.
     };
 
@@ -419,7 +446,7 @@ pub(crate) fn compare_symbols_eq<D: ion_rs::Decoder>(ctx: &Context, actual: &ion
         (Some(symtab), Some(id)) => match ctx.get_symbol_from_table(symtab, id) {
             None => None,
             Some(shared_symbol) => shared_symbol.text().map(|t| t.to_owned()),
-        }
+        },
         _ => unreachable!(), // CAnnot have a symtab without an id.
     };
 
@@ -514,8 +541,7 @@ mod tests {
 
     #[test]
     fn test_then_clauses() {
-        let test =
-            r#"(ion_1_1 (mactab (macro foo () bar))
+        let test = r#"(ion_1_1 (mactab (macro foo () bar))
                  (then (text "(:foo)")
                        (produces bar))
                  (then (text "(:foo)")

@@ -326,41 +326,30 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        v1_1, AnyEncoding, Element, ElementReader, IonResult, MacroTable, Reader, SequenceWriter,
-        StructWriter, ValueWriter, Writer,
+        v1_1, AnyEncoding, Element, ElementReader, IonResult, Reader, SequenceWriter, StructWriter,
+        ValueWriter, Writer,
     };
 
     #[test]
     fn field_value_eexp() -> IonResult<()> {
         let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-        let encoding_directive = Element::read_one(
-            r#"
-                $ion::
-                (module _
-                    (symbol_table _)
-                    (macro_table
-                        _
-                        (macro greet (name) (.make_string "hello, " (%name)))
-                    )
-                )
-            "#,
-        )?;
-        writer.write(&encoding_directive)?;
-        let macro_id = MacroTable::FIRST_USER_MACRO_ID;
+
+        let greet =
+            writer.compile_macro(r#"(macro greet (name) (.make_string "hello, " (%name)))"#)?;
         let mut struct_writer = writer.struct_writer()?;
 
         let field_writer = struct_writer.field_writer("Waldo");
-        let mut eexp_writer = field_writer.eexp_writer(macro_id)?;
+        let mut eexp_writer = field_writer.eexp_writer(&greet)?;
         eexp_writer.write("Waldo")?;
         eexp_writer.close()?;
 
         let field_writer = struct_writer.field_writer("Winnifred");
-        let mut eexp_writer = field_writer.eexp_writer(macro_id)?;
+        let mut eexp_writer = field_writer.eexp_writer(&greet)?;
         eexp_writer.write("Winnifred")?;
         eexp_writer.close()?;
 
         let field_writer = struct_writer.field_writer("Winston");
-        let mut eexp_writer = field_writer.eexp_writer(macro_id)?;
+        let mut eexp_writer = field_writer.eexp_writer(&greet)?;
         eexp_writer.write("Winston")?;
         eexp_writer.close()?;
 

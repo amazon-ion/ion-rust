@@ -38,7 +38,6 @@ use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
@@ -48,7 +47,7 @@ use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
 use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
-use crate::lazy::expanded::macro_table::{Macro, MacroTable, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::macro_table::{MacroDef, MacroTable};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{TemplateElement, TemplateMacro, TemplateValue};
@@ -238,7 +237,7 @@ impl EncodingContext {
     // TODO: These methods are temporary; they will be removed once shared modules are supported.
     pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
         let template_macro: TemplateMacro =
-            TemplateCompiler::compile_from_source(self.get_ref(), template_definition)?;
+            TemplateCompiler::compile_from_source(self.macro_table(), template_definition)?;
         self.register_template(template_macro)
     }
 
@@ -278,16 +277,45 @@ impl<'top> EncodingContextRef<'top> {
         &self.context.macro_table
     }
 
-    pub(crate) fn none_macro(&self) -> Arc<Macro> {
-        ION_1_1_SYSTEM_MACROS
-            .clone_macro_with_name("none")
-            .expect("`none` macro in system macro table")
-    }
+    pub fn location(&self, value_start: usize) -> Option<(usize, usize)> {
+        match unsafe { &*self.io_buffer_source.get() } {
+            IoBufferSource::IoBuffer(ref buffer) => Some((buffer.row(), buffer.column())),
+            IoBufferSource::Reader(handle) => {
+                let prev_newline = handle.prev_newline_offset();
+                let current_row = handle.row();
 
-    pub(crate) fn values_macro(&self) -> Arc<Macro> {
-        ION_1_1_SYSTEM_MACROS
-            .clone_macro_with_name("values")
-            .expect("`values` macro in system macro table")
+                if prev_newline == 0 {
+                    // If no newlines have been encountered yet, we're on the first row
+                    // The column is the start position of the value
+                    Some((1, value_start))
+                } else {
+                    // If newlines have been encountered
+                    if value_start > prev_newline {
+                        // If the value starts after the last newline,
+                        // we're on the current row and can calculate the column
+                        Some((current_row, value_start - prev_newline))
+                    } else {
+                        // If the value starts before or at the last newline,
+                        // we need to find the correct row and column
+                        if let Some(last_newline_pos) = handle
+                            .newlines()
+                            .iter()
+                            .enumerate()
+                            .rfind(|&(_index, pos)| pos <= &value_start)
+                        {
+                            // Found the last newline before or at the value start
+                            // Row is the index of this newline + 2 (1-indexed and we're on the next line)
+                            // Column is the distance from this newline to the value start
+                            Some((last_newline_pos.0 + 2, value_start - *last_newline_pos.1))
+                        } else {
+                            // If we couldn't find a newline, we're on the first row
+                            Some((1, value_start))
+                        }
+                    }
+                }
+            }
+            IoBufferSource::None => None,
+        }
     }
 }
 
@@ -386,7 +414,7 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
     }
 
     fn compile_template(&self, template_definition: &str) -> IonResult<TemplateMacro> {
-        TemplateCompiler::compile_from_source(self.context(), template_definition)
+        TemplateCompiler::compile_from_source(self.context().macro_table(), template_definition)
     }
 
     fn add_macro(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
@@ -876,12 +904,12 @@ impl<'top, V: RawValueLiteral, Encoding: Decoder<Value<'top> = V>> From<V>
 /// A variable found in the body of a template macro.
 #[derive(Debug, Copy, Clone)]
 pub struct TemplateVariableReference<'top> {
-    macro_ref: &'top Macro,
+    macro_ref: &'top MacroDef,
     signature_index: u16,
 }
 
 impl<'top> TemplateVariableReference<'top> {
-    pub fn new(macro_ref: &'top Macro, signature_index: u16) -> Self {
+    pub fn new(macro_ref: &'top MacroDef, signature_index: u16) -> Self {
         Self {
             macro_ref,
             signature_index,
@@ -892,7 +920,7 @@ impl<'top> TemplateVariableReference<'top> {
         self.macro_ref.signature().parameters()[self.signature_index()].name()
     }
 
-    pub fn host_macro(&self) -> &'top Macro {
+    pub fn host_macro(&self) -> &'top MacroDef {
         self.macro_ref
     }
 
