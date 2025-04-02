@@ -60,7 +60,8 @@ mod ion_tests {
         skip!("ion-tests/conformance/eexp/basic_system_macros.ion"),
         // Mismatched produces, due to out-of-date encoding block
         skip!("ion-tests/conformance/ion_encoding/mactab.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion",
+        skip!(
+            "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion",
             "? parameters", // NEED: Conformance DSL support for expression groups.
             "+ parameters", // NEED: Conformance DSL support for expression groups.
             "* parameters"  // NEED: Conformande DSL support for expression groups.

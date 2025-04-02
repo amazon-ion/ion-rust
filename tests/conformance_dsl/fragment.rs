@@ -38,7 +38,7 @@ trait FragmentImpl {
     fn write<E: ion_rs::Encoding, O: std::io::Write>(
         &self,
         ctx: &Context,
-        writer: &mut ion_rs::Writer<E, O>
+        writer: &mut ion_rs::Writer<E, O>,
     ) -> InnerResult<()>;
 }
 
@@ -58,9 +58,12 @@ pub(crate) enum Fragment {
 static EMPTY_TOPLEVEL: Fragment = Fragment::TopLevel(TopLevel { elems: vec![] });
 
 impl Fragment {
-
     /// Write the fragment to the test document using the provided writer
-    pub(crate) fn write<E: ion_rs::Encoding, O: std::io::Write>(&self, ctx: &Context, writer: &mut ion_rs::Writer<E, O>) -> InnerResult<()> {
+    pub(crate) fn write<E: ion_rs::Encoding, O: std::io::Write>(
+        &self,
+        ctx: &Context,
+        writer: &mut ion_rs::Writer<E, O>,
+    ) -> InnerResult<()> {
         match self {
             Fragment::TopLevel(toplevel) => toplevel.write(ctx, writer),
             Fragment::Text(txt) => {
@@ -74,17 +77,21 @@ impl Fragment {
                 Ok(())
             }
             Fragment::Ivm(maj, min) => match ctx.encoding() {
-                IonEncoding::Binary  => {
+                IonEncoding::Binary => {
                     writer.flush()?;
-                    let _ = writer.output_mut().write(&[0xE0, *maj as u8, *min as u8, 0xEA])?;
+                    let _ = writer
+                        .output_mut()
+                        .write(&[0xE0, *maj as u8, *min as u8, 0xEA])?;
                     Ok(())
                 }
                 _ => {
                     writer.flush()?;
-                    let _ = writer.output_mut().write(format!("$ion_{}_{} ", maj, min).as_bytes())?;
+                    let _ = writer
+                        .output_mut()
+                        .write(format!("$ion_{}_{} ", maj, min).as_bytes())?;
                     Ok(())
                 }
-            }
+            },
         }
     }
 
@@ -411,7 +418,7 @@ impl FragmentImpl for TopLevel {
     fn write<E: ion_rs::Encoding, O: std::io::Write>(
         &self,
         ctx: &Context,
-        writer: &mut ion_rs::Writer<E, O>
+        writer: &mut ion_rs::Writer<E, O>,
     ) -> InnerResult<()> {
         for elem in self.elems.as_slice() {
             writer.write(ProxyElement(elem, ctx))?;
