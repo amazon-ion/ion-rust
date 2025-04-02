@@ -466,9 +466,22 @@ impl Element {
         &self.value
     }
 
-    /// Returns the source location metadata (row, column).
-    /// If element was constructed from a `LazyValue` then it returns `Some(_)`.
-    /// Otherwise, returns `None` for programmatically constructed element.
+    /// Returns the source location (row, column) of this element in the original Ion text.
+    ///
+    /// The location metadata is primarily intended for error reporting and debugging purposes,
+    /// helping applications provide meaningful feedback to users about the source of issues.
+    ///
+    /// # Returns
+    /// * `Some((row, column))` - Position where this element was found in the source text
+    /// * `None` - Location information is not available
+    ///
+    /// # Important
+    /// Location information is best-effort and may not be available in all cases:
+    /// * Elements created programmatically won't have locations
+    /// * Some parsing scenarios might not preserve location data
+    /// * Binary Ion data does not contain location information
+    ///
+    /// Do not rely on this metadata for programmatic manipulation of Ion data.
     pub fn location(&self) -> Option<(usize, usize)> {
         self.location
     }
