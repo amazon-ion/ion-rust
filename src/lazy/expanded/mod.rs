@@ -67,6 +67,7 @@ use crate::{
     Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawStreamItem, RawSymbolRef,
     RawVersionMarker, Span, SymbolRef, SymbolTable, Timestamp, ValueRef,
 };
+use crate::location::SourceLocation;
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
@@ -277,9 +278,9 @@ impl<'top> EncodingContextRef<'top> {
         &self.context.macro_table
     }
 
-    pub fn location(&self, value_start: usize) -> Option<(usize, usize)> {
+    pub fn location(&self, value_start: usize) -> SourceLocation {
         match unsafe { &*self.io_buffer_source.get() } {
-            IoBufferSource::IoBuffer(ref buffer) => Some((buffer.row(), buffer.column())),
+            IoBufferSource::IoBuffer(ref buffer) => SourceLocation::new(buffer.row(), buffer.column()),
             IoBufferSource::Reader(handle) => {
                 let prev_newline = handle.prev_newline_offset();
                 let current_row = handle.row();
@@ -287,13 +288,13 @@ impl<'top> EncodingContextRef<'top> {
                 if prev_newline == 0 {
                     // If no newlines have been encountered yet, we're on the first row
                     // The column is the start position of the value
-                    Some((1, value_start))
+                    SourceLocation::new(1, value_start)
                 } else {
                     // If newlines have been encountered
                     if value_start > prev_newline {
                         // If the value starts after the last newline,
                         // we're on the current row and can calculate the column
-                        Some((current_row, value_start - prev_newline))
+                        SourceLocation::new(current_row, value_start - prev_newline)
                     } else {
                         // If the value starts before or at the last newline,
                         // we need to find the correct row and column
@@ -306,15 +307,15 @@ impl<'top> EncodingContextRef<'top> {
                             // Found the last newline before or at the value start
                             // Row is the index of this newline + 2 (1-indexed and we're on the next line)
                             // Column is the distance from this newline to the value start
-                            Some((last_newline_pos.0 + 2, value_start - *last_newline_pos.1))
+                            SourceLocation::new(last_newline_pos.0 + 2, value_start - *last_newline_pos.1)
                         } else {
                             // If we couldn't find a newline, we're on the first row
-                            Some((1, value_start))
+                            SourceLocation::new(1, value_start)
                         }
                     }
                 }
             }
-            IoBufferSource::None => None,
+            IoBufferSource::None => SourceLocation::empty(),
         }
     }
 }
