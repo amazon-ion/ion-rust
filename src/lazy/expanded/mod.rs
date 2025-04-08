@@ -61,13 +61,13 @@ use crate::lazy::system_reader::{PendingContextChanges, SystemReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
+use crate::location::SourceLocation;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
     Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawStreamItem, RawSymbolRef,
     RawVersionMarker, Span, SymbolRef, SymbolTable, Timestamp, ValueRef,
 };
-use crate::location::SourceLocation;
 
 // All of these modules (and most of their types) are currently `pub` as the lazy reader is gated
 // behind an experimental feature flag. We may constrain access to them in the future as the code
@@ -280,7 +280,9 @@ impl<'top> EncodingContextRef<'top> {
 
     pub fn location(&self, value_start: usize) -> SourceLocation {
         match unsafe { &*self.io_buffer_source.get() } {
-            IoBufferSource::IoBuffer(ref buffer) => SourceLocation::new(buffer.row(), buffer.column()),
+            IoBufferSource::IoBuffer(ref buffer) => {
+                SourceLocation::new(buffer.row(), buffer.column())
+            }
             IoBufferSource::Reader(handle) => {
                 let prev_newline = handle.prev_newline_offset();
                 let current_row = handle.row();
@@ -307,7 +309,10 @@ impl<'top> EncodingContextRef<'top> {
                             // Found the last newline before or at the value start
                             // Row is the index of this newline + 2 (1-indexed and we're on the next line)
                             // Column is the distance from this newline to the value start
-                            SourceLocation::new(last_newline_pos.0 + 2, value_start - *last_newline_pos.1)
+                            SourceLocation::new(
+                                last_newline_pos.0 + 2,
+                                value_start - *last_newline_pos.1,
+                            )
                         } else {
                             // If we couldn't find a newline, we're on the first row
                             SourceLocation::new(1, value_start)

@@ -634,10 +634,8 @@ impl TemplateBody {
     }
 
     pub fn push_macro_invocation(&mut self, macro_ref: Arc<MacroDef>, expr_range: ExprRange) {
-        self.expressions.push(TemplateBodyExpr::macro_invocation(
-            macro_ref,
-            expr_range,
-        ))
+        self.expressions
+            .push(TemplateBodyExpr::macro_invocation(macro_ref, expr_range))
     }
 
     pub fn push_placeholder(&mut self) {
@@ -1030,9 +1028,7 @@ pub struct TemplateBodyMacroInvocation {
 
 impl TemplateBodyMacroInvocation {
     pub fn new(invoked_macro: Arc<MacroDef>) -> Self {
-        Self {
-            invoked_macro,
-        }
+        Self { invoked_macro }
     }
 
     /// Finds the definition of the macro being invoked in the provided `context`'s macro table.
@@ -1381,7 +1377,10 @@ impl TemplateBodyVariableReference {
     }
     /// Pairs this variable reference with the given template macro reference, allowing information
     /// about the template definition to be retrieved later.
-    pub(crate) fn resolve<'top>(&self, host_macro: &'top MacroDef) -> TemplateVariableReference<'top> {
+    pub(crate) fn resolve<'top>(
+        &self,
+        host_macro: &'top MacroDef,
+    ) -> TemplateVariableReference<'top> {
         TemplateVariableReference::new(host_macro, self.signature_index)
     }
 }
