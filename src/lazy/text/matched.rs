@@ -1079,7 +1079,7 @@ impl MatchedBlob {
         // has inner whitespace, we need to strip it out.
         let contains_whitespace = matched_bytes.iter().any(|b| b.is_ascii_whitespace());
 
-        let max_decoded_size = (matched_bytes.len() + 3) / 4 * 3;
+        let max_decoded_size = matched_bytes.len().div_ceil(4) * 3;
         let mut decoding_buffer = BumpVec::with_capacity_in(max_decoded_size, allocator);
 
         decoding_buffer.resize(max_decoded_size, 0u8);

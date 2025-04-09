@@ -1,4 +1,3 @@
-
 /// Represents the source location (row, column) of this element in the original Ion text.
 ///
 /// The source location metadata is primarily intended for error reporting and debugging purposes,
@@ -9,20 +8,18 @@
 /// * `None` - Location information is not available
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SourceLocation {
-    location: Option<(usize, usize)>
+    location: Option<(usize, usize)>,
 }
 
 impl SourceLocation {
     pub fn new(row: usize, column: usize) -> SourceLocation {
         Self {
-            location: Some((row, column))
+            location: Some((row, column)),
         }
     }
 
     pub fn empty() -> SourceLocation {
-        Self {
-            location: None
-        }
+        Self { location: None }
     }
 
     pub fn is_empty(&self) -> bool {

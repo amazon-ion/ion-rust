@@ -114,6 +114,9 @@ jobs:
         # only running on the Linux test. (The choice of OS was arbitrary.)
         if: matrix.os == 'ubuntu' && matrix.features == 'all'
         run: rustup component add clippy
+      - name: Dump Clippy Version
+        if: matrix.os == 'ubuntu' && matrix.features == 'all'
+        run: cargo clippy -- --version
       - name: Run Clippy 
         if: matrix.os == 'ubuntu' && matrix.features == 'all'
         uses: actions-rs/clippy-check@v1

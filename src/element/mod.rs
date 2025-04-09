@@ -394,7 +394,7 @@ pub struct Element {
     annotations: Annotations,
     value: Value,
     // Represents the source location metadata (row, column).
-    location: SourceLocation
+    location: SourceLocation,
 }
 
 impl std::fmt::Debug for Element {
@@ -687,7 +687,11 @@ impl Element {
     }
 
     pub fn try_into_text(self) -> ConversionOperationResult<Element, String> {
-        let Self { value, annotations, location } = self;
+        let Self {
+            value,
+            annotations,
+            location,
+        } = self;
         match value {
             Value::String(text) => Ok(text.to_string()),
             Value::Symbol(sym) => match sym.text {
@@ -704,7 +708,11 @@ impl Element {
                 SymbolText::Static(static_str) => Ok((*static_str).to_string()),
             },
             _ => {
-                let sym = Self { value, annotations, location };
+                let sym = Self {
+                    value,
+                    annotations,
+                    location,
+                };
                 Err(ConversionOperationError::new(sym))
             }
         }

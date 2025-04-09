@@ -4,13 +4,13 @@ use crate::lazy::expanded::{
     EncodingContextRef, ExpandedAnnotationsIterator, IoBufferSource, LazyExpandedValue,
 };
 use crate::lazy::value_ref::ValueRef;
+use crate::location::SourceLocation;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
     try_or_some_err, Annotations, Element, ExpandedValueSource, HasSpan, IntoAnnotatedElement,
     IonError, IonResult, IonType, LazyRawValue, Span, SymbolRef, SymbolTable, Value,
 };
-use crate::location::SourceLocation;
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -250,7 +250,7 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
             context.location(0)
         }
     }
-  
+
     pub fn to_owned(&self) -> LazyElement<D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
@@ -301,7 +301,9 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
         let value: Value = lazy_value.read()?.try_into()?;
         if lazy_value.has_annotations() {
             let annotations: Annotations = lazy_value.annotations().try_into()?;
-            Ok(value.with_annotations(annotations).with_location(lazy_value.location()))
+            Ok(value
+                .with_annotations(annotations)
+                .with_location(lazy_value.location()))
         } else {
             Ok(<Value as Into<Element>>::into(value).with_location(lazy_value.location()))
         }
@@ -475,12 +477,12 @@ mod tests {
     use rstest::*;
 
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::location::SourceLocation;
     use crate::{
         ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonType, Reader, Symbol,
         Timestamp,
     };
     use crate::{Element, IntoAnnotatedElement};
-    use crate::location::SourceLocation;
 
     #[test]
     fn annotations_are() -> IonResult<()> {
@@ -608,7 +610,8 @@ mod tests {
         let mut reader = Reader::new(v1_0::Text, ion_text)?;
         let result1 = reader.expect_next();
 
-        let expected_source_location = SourceLocation::new(expected_location.0, expected_location.1);
+        let expected_source_location =
+            SourceLocation::new(expected_location.0, expected_location.1);
         assert!(result1.is_ok());
         if let Ok(lazy_value1) = result1 {
             let _val = lazy_value1.read();
@@ -649,7 +652,8 @@ mod tests {
         use std::io;
         use std::io::{Cursor, Read};
 
-        let expected_source_location = SourceLocation::new(expected_location.0, expected_location.1);
+        let expected_source_location =
+            SourceLocation::new(expected_location.0, expected_location.1);
         let input_chunks = ion_text.as_slice();
         // Wrapping each string in an `io::Chain`
         let mut input: Box<dyn Read> = Box::new(io::empty());
