@@ -150,6 +150,7 @@ impl TryFrom<Clause> for Fragment {
             ClauseType::MacTab => {
                 // Like encoding, MacTab is expanded into a TopLevel fragment.
                 let mut mac_table_elems: Vec<Element> = vec![Symbol::from("macro_table").into()];
+                mac_table_elems.push(Element::symbol("_"));
                 for elem in other.body {
                     mac_table_elems.push(elem);
                 }
@@ -231,6 +232,16 @@ impl ProxyElement<'_> {
             }
         } else {
             writer.write(self.0)
+        }
+    }
+
+    /// Test whether the ProxyElement represents an expression group, using the transcription
+    /// syntax.
+    fn is_expr_group(&self) -> bool {
+        use ion_rs::Value;
+        match self.0.value() {
+            Value::SExp(seq) => seq.get(0).is_some_and(|x| Some("#$:") == x.as_symbol().and_then(|s| s.text())),
+            _ => false,
         }
     }
 }
@@ -343,6 +354,7 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
 impl WriteAsIon for ProxyElement<'_> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> ion_rs::IonResult<()> {
         use ion_rs::Value::*;
+        use ion_rs::EExpWriter;
         match self.0.value() {
             Symbol(_) => self.write_symbol(writer),
             Struct(strukt) => self.write_struct(strukt, writer),
@@ -361,7 +373,7 @@ impl WriteAsIon for ProxyElement<'_> {
                         let text = symbol.text().unwrap();
                         if text.starts_with("#$:") {
                             let macro_id = text.strip_prefix("#$:").unwrap(); // SAFETY: Tested above.
-                            let mut args =
+                            let mut args: V::EExpWriter =
                                 if let Ok(symbol_id) = macro_id.parse::<ion_rs::SymbolId>() {
                                     writer.eexp_writer(symbol_id)?
                                 } else {
@@ -370,7 +382,18 @@ impl WriteAsIon for ProxyElement<'_> {
                                     writer.eexp_writer(macro_id)?
                                 };
                             for arg in sexp.iter().skip(1) {
-                                args.write(ProxyElement(arg, self.1))?;
+                                let proxy = ProxyElement(arg, self.1);
+                                if proxy.is_expr_group() {
+                                    let mut group = args.expr_group_writer()?;
+                                    if let Some(seq) = arg.as_sequence() {
+                                        for group_arg in seq.into_iter().skip(1) {
+                                            group.write(ProxyElement(group_arg, self.1))?;
+                                        }
+                                        let _ = group.close()?;
+                                    }
+                                } else {
+                                    args.write(ProxyElement(arg, self.1))?;
+                                }
                             }
                             args.close()?;
                             return Ok(());
