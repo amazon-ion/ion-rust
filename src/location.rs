@@ -8,22 +8,27 @@ use std::rc::Rc;
 /// helping applications provide meaningful feedback to users about the source of issues.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
 pub struct SourceLocation {
+    /// A 1-based row and column pair.
+    /// INVARIANT: both components must be `0` or both must be non-zero.
     location: (usize, usize),
 }
 
 impl SourceLocation {
+    /// Constructs a new SourceLocation. If either of `row` or `column` is `0`, returns an instance
+    /// with no row/column value (i.e. both row and column are zero). This maintains the invariant
+    /// that the location field must be `(0, 0)` or must have two non-zero values.
     pub(crate) fn new(row: usize, column: usize) -> SourceLocation {
+        if row == 0 || column == 0 {
+            return Self::empty();
+        }
         Self {
             location: (row, column),
         }
     }
 
+    /// Constructs a new `SourceLocation` instance that has no row/column available.
     pub(crate) fn empty() -> SourceLocation {
         Self { location: (0, 0) }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.location == (0, 0)
     }
 
     /// If this `SourceLocation` instance has row-column information, returns a tuple containing
@@ -51,6 +56,26 @@ impl SourceLocation {
             (0, 0) => None,
             (_, col) => Some(col),
         }
+    }
+}
+
+#[cfg(test)]
+mod source_location_tests {
+    use crate::location::SourceLocation;
+    #[test]
+    fn empty_source_location() {
+        let location = SourceLocation::empty();
+        assert_eq!(None, location.row_column());
+        assert_eq!(None, location.row());
+        assert_eq!(None, location.column());
+    }
+
+    #[test]
+    fn non_empty_source_location() {
+        let location = SourceLocation::new(2, 3);
+        assert_eq!(Some((2, 3)), location.row_column());
+        assert_eq!(Some(2), location.row());
+        assert_eq!(Some(3), location.column());
     }
 }
 
