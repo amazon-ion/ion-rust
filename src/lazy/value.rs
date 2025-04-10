@@ -244,11 +244,9 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     pub fn location(&self) -> SourceLocation {
         let context = self.expanded_value.context();
         // set the value start and end positions, this help in location calculation
-        if let Some(span) = self.expanded_value.span() {
-            context.location(span.offset() + 1)
-        } else {
-            context.location(0)
-        }
+        context
+            .location_for_span(self.expanded_value.span())
+            .unwrap_or_default()
     }
 
     pub fn to_owned(&self) -> LazyElement<D> {
@@ -477,10 +475,11 @@ mod tests {
     use rstest::*;
 
     use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::location::SourceLocation;
     use crate::{
-        ion_list, ion_sexp, ion_struct, v1_0, Decimal, IonResult, IonType, Reader, Symbol,
-        Timestamp,
+        ion_list, ion_sexp, ion_struct, v1_0, Decimal, Encoding, IonResult, IonType, LazyValue,
+        Reader, Symbol, Timestamp,
     };
     use crate::{Element, IntoAnnotatedElement};
 
@@ -675,5 +674,113 @@ mod tests {
             assert_eq!(lazy_value2.location(), expected_source_location);
         }
         Ok(())
+    }
+
+    #[rstest]
+    #[case::values_in_struct("{foo:1,bar:2}", [(1, 1), (1, 6), (1, 12)])]
+    #[case::values_in_multiline_struct("{\n  foo:1,\n  bar:2,\n}", [(1, 1), (2, 7), (3, 7)])]
+    #[case::values_in_lists("[1,2,3,4]", [(1, 1), (1, 2), (1, 4), (1, 6), (1, 8)])]
+    #[case::values_in_multiline_lists(
+        "[\n  1,\n  2,\n  3,\n  4\n]",
+        [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3)],
+    )]
+    #[case::values_in_sexps("(1 2 3 4)", [(1, 1), (1, 2), (1, 4), (1, 6), (1, 8)])]
+    #[case::values_in_multiline_sexps(
+        "(foo (bar 123)\n     (bar 456)\n     (bar 789))",
+        // (      foo     (       bar     123   )
+        [(1, 1), (1, 2), (1, 6), (1, 7), (1, 11),
+        //                (       bar     456   )
+                         (2, 6), (2, 7), (2, 11),
+        //                (       bar     789   )  )
+                         (3, 6), (3, 7), (3, 11)],
+    )]
+    #[case::deeply_nested_containers(
+        "{\n  foo:{a:1,b:2},\n  bar:[a,b,c],\n  baz:(foo (bar)\n           (quux)),\n}",
+        // {
+        [(1, 1),
+        // foo: {       a:1,     b:2    },
+               (2, 7), (2, 10), (2, 14),
+        // bar: [       a,      b,       c      ],
+               (3, 7), (3, 8), (3, 10), (3, 12),
+        // baz: (       foo     (        bar    )
+               (4, 7), (4, 8), (4, 12), (4, 13),
+        //                      (        quux   ) )
+                               (5, 12), (5, 13),
+        // }
+        ],
+    )]
+    #[case::multiple_top_level_containers(
+        "{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
+        [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12),
+        (6, 1), (6, 6), (6, 12), (7, 1), (8, 7), (9, 7), (9, 8), (9, 10), (9, 12)],
+    )]
+    fn location_test_for_inner_value<const N: usize>(
+        #[case] ion_text: &str,
+        #[case] expected_locations: [(usize, usize); N],
+    ) -> IonResult<()> {
+        let values: Vec<_> =
+            Reader::new(v1_0::Text, ion_text.as_bytes())?.collect::<IonResult<_>>()?;
+        let actual_locations: Vec<_> = get_locations_of_lazy_elements(values)?
+            .into_iter()
+            // Only collect those where location is Some(...)
+            .filter_map(|it| it.row_column())
+            .collect();
+        assert_eq!(&expected_locations, actual_locations.as_slice());
+        Ok(())
+    }
+
+    #[ignore] // https://github.com/amazon-ion/ion-rust/issues/951
+    #[test]
+    fn row_and_column_should_not_be_present_for_binary_ion() -> IonResult<()> {
+        let ion_bytes = [
+            0xE0u8, 0x01, 0x00, 0xEA, // IVM
+            0x85, 65, 10, 66, 10, 67, // String: "A\nB\nC"
+            0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
+        ];
+        let values: Vec<_> =
+            Reader::new(v1_0::Binary, ion_bytes.as_slice())?.collect::<IonResult<_>>()?;
+        let actual_locations: Vec<_> = get_locations_of_lazy_elements(values)?
+            .into_iter()
+            // Only collect those where location is Some(...)
+            .filter_map(|it| it.row_column())
+            .collect();
+        let expected: [(usize, usize); 0] = [];
+        assert_eq!(&expected, actual_locations.as_slice());
+        Ok(())
+    }
+
+    fn get_locations_of_lazy_elements<E: Encoding>(
+        values: Vec<LazyElement<E>>,
+    ) -> IonResult<Vec<SourceLocation>> {
+        let mut locations = vec![];
+        for lazy_element in values {
+            locations.push(lazy_element.as_lazy_value().location());
+            let contained_values = match lazy_element.ion_type() {
+                IonType::List => lazy_element
+                    .read()?
+                    .expect_list()?
+                    .iter()
+                    .map(Result::unwrap)
+                    .map(LazyValue::into)
+                    .collect(),
+                IonType::SExp => lazy_element
+                    .read()?
+                    .expect_sexp()?
+                    .iter()
+                    .map(Result::unwrap)
+                    .map(LazyValue::into)
+                    .collect(),
+                IonType::Struct => lazy_element
+                    .read()?
+                    .expect_struct()?
+                    .iter()
+                    .map(|f| f.unwrap().value())
+                    .map(LazyValue::into)
+                    .collect(),
+                _ => vec![],
+            };
+            locations.extend(get_locations_of_lazy_elements(contained_values)?);
+        }
+        Ok(locations)
     }
 }

@@ -278,49 +278,19 @@ impl<'top> EncodingContextRef<'top> {
         &self.context.macro_table
     }
 
-    pub fn location(&self, value_start: usize) -> SourceLocation {
+    pub fn location_for_span(&self, span: Option<Span<'_>>) -> Option<SourceLocation> {
         match unsafe { &*self.io_buffer_source.get() } {
-            IoBufferSource::IoBuffer(ref buffer) => {
-                SourceLocation::new(buffer.row(), buffer.column())
-            }
-            IoBufferSource::Reader(handle) => {
-                let prev_newline = handle.prev_newline_offset();
-                let current_row = handle.row();
-
-                if prev_newline == 0 {
-                    // If no newlines have been encountered yet, we're on the first row
-                    // The column is the start position of the value
-                    SourceLocation::new(1, value_start)
-                } else {
-                    // If newlines have been encountered
-                    if value_start > prev_newline {
-                        // If the value starts after the last newline,
-                        // we're on the current row and can calculate the column
-                        SourceLocation::new(current_row, value_start - prev_newline)
-                    } else {
-                        // If the value starts before or at the last newline,
-                        // we need to find the correct row and column
-                        if let Some(last_newline_pos) = handle
-                            .newlines()
-                            .iter()
-                            .enumerate()
-                            .rfind(|&(_index, pos)| pos <= &value_start)
-                        {
-                            // Found the last newline before or at the value start
-                            // Row is the index of this newline + 2 (1-indexed and we're on the next line)
-                            // Column is the distance from this newline to the value start
-                            SourceLocation::new(
-                                last_newline_pos.0 + 2,
-                                value_start - *last_newline_pos.1,
-                            )
-                        } else {
-                            // If we couldn't find a newline, we're on the first row
-                            SourceLocation::new(1, value_start)
-                        }
-                    }
-                }
-            }
-            IoBufferSource::None => SourceLocation::empty(),
+            IoBufferSource::IoBuffer(ref buffer) => Some(
+                buffer
+                    .source_location_state()
+                    .calculate_location_for_span(span?),
+            ),
+            IoBufferSource::Reader(handle) => Some(
+                handle
+                    .source_location_state()
+                    .calculate_location_for_span(span?),
+            ),
+            IoBufferSource::None => None,
         }
     }
 }
