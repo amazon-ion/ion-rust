@@ -240,7 +240,9 @@ impl ProxyElement<'_> {
     fn is_expr_group(&self) -> bool {
         use ion_rs::Value;
         match self.0.value() {
-            Value::SExp(seq) => seq.get(0).is_some_and(|x| Some("#$:") == x.as_symbol().and_then(|s| s.text())),
+            Value::SExp(seq) => seq
+                .get(0)
+                .is_some_and(|x| Some("#$:") == x.as_symbol().and_then(|s| s.text())),
             _ => false,
         }
     }
@@ -353,8 +355,8 @@ impl<T: ion_rs::Decoder> PartialEq<ion_rs::LazyValue<'_, T>> for ProxyElement<'_
 
 impl WriteAsIon for ProxyElement<'_> {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> ion_rs::IonResult<()> {
-        use ion_rs::Value::*;
         use ion_rs::EExpWriter;
+        use ion_rs::Value::*;
         match self.0.value() {
             Symbol(_) => self.write_symbol(writer),
             Struct(strukt) => self.write_struct(strukt, writer),
