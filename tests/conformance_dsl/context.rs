@@ -277,7 +277,7 @@ mod tests {
         let fragments_str = String::from_utf8(bytes).expect("Invalid input string generated");
         assert_eq!(
             fragments_str,
-            "$ion_1_1 $ion::(module _ (macro_table (macro m (v '!' ) ('%' v ) ) ) ) (:m 1)"
+            "$ion_1_1 $ion::(module _ (macro_table _ (macro m (v '!' ) ('%' v ) ) ) ) (:m 1)"
                 .to_string(),
         );
     }
