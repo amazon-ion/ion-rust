@@ -7,7 +7,7 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::encoded_value::EncodedTextValue;
-use crate::{IonEncoding, IonResult, IonType, RawSymbolRef};
+use crate::{IonEncoding, IonResult, IonType, IonVersion, RawSymbolRef};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -229,6 +229,13 @@ impl<'top, Encoding: TextEncoding> LazyRawValue<'top, Encoding>
         Self {
             input: TextBuffer::from_span(self.input.context(), span, true),
             ..*self
+        }
+    }
+
+    fn encoding(&self) -> IonEncoding {
+        match <Encoding as Decoder>::INITIAL_ENCODING_EXPECTED.version() {
+            IonVersion::v1_0 => IonEncoding::Text_1_0,
+            IonVersion::v1_1 => IonEncoding::Text_1_1,
         }
     }
 }

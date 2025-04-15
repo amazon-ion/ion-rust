@@ -1118,6 +1118,15 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
             },
         }
     }
+
+    fn encoding(&self) -> IonEncoding {
+        match self.encoding {
+            LazyRawValueKind::Text_1_0(_) => IonEncoding::Text_1_0,
+            LazyRawValueKind::Binary_1_0(_) => IonEncoding::Binary_1_0,
+            LazyRawValueKind::Text_1_1(_) => IonEncoding::Text_1_1,
+            LazyRawValueKind::Binary_1_1(_) => IonEncoding::Binary_1_1,
+        }
+    }
 }
 
 // ===== Annotations =====

@@ -292,6 +292,10 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1
             ..**self
         })
     }
+
+    fn encoding(&self) -> IonEncoding {
+        IonEncoding::Binary_1_1
+    }
 }
 
 /// Nested expressions parsed and cached while reading (e.g.) a [`LazyRawBinaryValue_1_1`].
