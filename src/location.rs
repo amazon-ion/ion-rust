@@ -99,40 +99,10 @@ impl SourceLocationState {
     pub fn update_from_source<T: AsRef<[u8]>>(&mut self, stream_offset: usize, data: T) {
         let data = data.as_ref();
         if !data.is_empty() {
-            // Calculate `rows` based on occurrence of newline bytes. If we encounter:
-            // 1. b'\r' then increment row count by 1.
-            // 2.a. If there was no b'\r' encountered before b'\n' then increment row count by 1.
-            // 2.b. If there was no b'\r' encountered before b'\n' then don't increment as b'\r\n' should be counted as 1 based on windows line ending pattern.
-            // Calculate `prev_newline_offset` based on the index/offset value of the last seen newline byte.
-            // Adding 1 to the index because we want to include everything after the newline -
-            // if newline is at index 5, we want to start counting from index 6 (5 + 1).
-            let (_, prev_newline_offsets) = data.iter().enumerate().fold(
-                (false, vec![]),
-                |(follows_cr, mut offset), (i, b)| {
-                    match (b, follows_cr) {
-                        // When there's a '\r', add a row and update the offset as this newline offset value
-                        (b'\r', _) => {
-                            offset.push(stream_offset + i + 1);
-                            (true, offset)
-                        }
-                        // When there's a '\n' not after '\r', add a row and update the offset as this newline offset value
-                        (b'\n', false) => {
-                            offset.push(stream_offset + i + 1);
-                            (false, offset)
-                        }
-                        // When there's '\n' immediately following '\r', update the offset without adding a row
-                        (b'\n', true) => {
-                            offset.pop();
-                            offset.push(stream_offset + i + 1);
-                            (false, offset)
-                        }
-                        _ => (false, offset),
-                    }
-                },
-            );
+            let newlines = memchr::memchr_iter(b'\n', data);
             self.row_start_offsets
                 .borrow_mut()
-                .extend(prev_newline_offsets);
+                .extend(newlines.map(|it| it + stream_offset + 1));
         }
     }
 
