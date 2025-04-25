@@ -125,6 +125,7 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     }
 
     /// The `IonVersion` that was used to encode this IVM.
+    #[allow(dead_code)]
     fn stream_version_before_marker(&self) -> IonVersion {
         self.stream_encoding_before_marker().version()
     }
