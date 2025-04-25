@@ -178,6 +178,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         self.output
             .write_all(self.data_writer.output().as_slice())?;
         self.data_writer.output_mut().clear();
+
+        self.output.flush()?;
         Ok(())
     }
 
@@ -926,9 +928,10 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
+        v1_0, v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
         RawSymbolRef, SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
     };
+    use std::io::BufWriter;
 
     fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
         encoding: SymbolValueEncoding,
@@ -1224,6 +1227,28 @@ mod tests {
             "// actual\n{actual:?}\n// !=\n// expected\n{expected:?}"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn flush_underlying_sink() -> IonResult<()> {
+        // The final output destination
+        let mut buffer: Vec<u8> = Vec::new();
+        // A BufWriter that, when flushed, writes bytes to the final output destination
+        let buf_writer = BufWriter::new(&mut buffer);
+        // An Ion Writer that writes bytes to the buf_writer
+        let mut writer = Writer::new(v1_0::Binary, buf_writer)?;
+        let len_before_flush = writer.output().get_ref().len();
+        // Write some data
+        writer.write([1, 2, 3, 4, 5])?;
+        // At this point, we've written some data but haven't flushed the inner `buf_writer`,
+        // so the length of its underlying `Vec<u8>` should remain unchanged.
+        assert_eq!(writer.output().get_ref().len(), len_before_flush);
+        // Flush the Ion writer. This should in turn flush the buf_writer, causing bytes to be
+        // written to the underlying `Vec<u8>`.
+        writer.flush()?;
+        // Make sure that this caused the encoded bytes to reach the `Vec<u8>`.
+        assert!(writer.output().get_ref().len() > len_before_flush);
         Ok(())
     }
 }
