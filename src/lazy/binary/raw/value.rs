@@ -109,11 +109,11 @@ impl HasRange for &'_ LazyRawBinaryValue_1_0<'_> {
 
 impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for &'top LazyRawBinaryValue_1_0<'top> {
     fn ion_type(&self) -> IonType {
-        self.encoded_value.ion_type()
+        (*self).ion_type()
     }
 
     fn is_null(&self) -> bool {
-        self.encoded_value.header().is_null()
+        (*self).is_null()
     }
 
     fn is_delimited(&self) -> bool {
@@ -121,7 +121,7 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for &'top LazyRawBinaryValue_1
     }
 
     fn has_annotations(&self) -> bool {
-        self.encoded_value.has_annotations()
+        (*self).has_annotations()
     }
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
