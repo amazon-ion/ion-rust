@@ -59,14 +59,14 @@ impl Mantissa {
             // Exact equality test
             || d1.eq(d2)
             // Coefficient zeros' signs don't have to match for fractional seconds.
-            || (d1.coefficient.is_zero() && d2.coefficient.is_zero() && d1.exponent == d2.exponent)
+            || (d1.coefficient().is_zero() && d2.coefficient().is_zero() && d1.exponent == d2.exponent)
     }
 
     fn decimals_compare(d1: &Decimal, d2: &Decimal) -> Ordering {
         // See the [EmptyMantissa] trait for details about `is_empty()`
         if d1.is_empty() && d2.is_empty() {
             Ordering::Equal
-        } else if d1.coefficient.is_zero() && d2.coefficient.is_zero() {
+        } else if d1.coefficient().is_zero() && d2.coefficient().is_zero() {
             // Coefficient zeros' signs don't have to be compared for fractional seconds.
             d1.exponent.cmp(&d2.exponent)
         } else {
@@ -85,7 +85,7 @@ trait EmptyMantissa {
 
 impl EmptyMantissa for Decimal {
     fn is_empty(&self) -> bool {
-        self.coefficient.is_zero() && self.exponent == 0
+        self.coefficient().is_zero() && self.exponent == 0
     }
 }
 
@@ -223,7 +223,7 @@ impl Timestamp {
                 const NANOSECONDS_EXPONENT: i64 = -9;
                 const NANOSECONDS_PER_SECOND: u128 = 1_000_000_000;
                 let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
-                let magnitude = match &decimal.coefficient.magnitude().data {
+                let magnitude = match &decimal.coefficient().magnitude().data {
                     m if *m >= NANOSECONDS_PER_SECOND => {
                         // The coefficient is more precise than nanoseconds. We need to truncate a
                         // copy of it.
@@ -357,7 +357,7 @@ impl Timestamp {
             }
             Mantissa::Arbitrary(decimal) => {
                 let exponent = decimal.exponent;
-                let coefficient = &decimal.coefficient;
+                let coefficient = &decimal.coefficient();
                 if exponent >= 0 {
                     // We know that the coefficient is non-zero (the mantissa was not empty),
                     // so having a positive exponent would result in an illegal fractional
@@ -367,7 +367,7 @@ impl Timestamp {
                     );
                 }
 
-                let num_digits = decimal.coefficient.number_of_decimal_digits();
+                let num_digits = decimal.coefficient().number_of_decimal_digits();
                 let abs_exponent = decimal.exponent.unsigned_abs();
                 // At this point, we know that the abs_exponent is greater than num_digits because
                 // the decimal has to be < 1.
@@ -383,7 +383,7 @@ impl Timestamp {
                         "fractional seconds cannot have a negative coefficient (other than -0)",
                     );
                 } else {
-                    write!(output, "{}", decimal.coefficient)?;
+                    write!(output, "{}", decimal.coefficient())?;
                 }
                 Ok(())
             }
