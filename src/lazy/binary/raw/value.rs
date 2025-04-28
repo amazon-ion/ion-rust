@@ -16,6 +16,7 @@ use crate::lazy::binary::raw::sequence::{
 use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::decoder::{HasRange, HasSpan, LazyRawValue, RawVersionMarker};
 use crate::lazy::encoding::BinaryEncoding_1_0;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
@@ -91,7 +92,7 @@ impl Debug for LazyRawBinaryValue_1_0<'_> {
 
 pub type ValueParseResult<'top, F> = IonResult<RawValueRef<'top, F>>;
 
-impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_0<'top> {
+impl<'top> HasSpan<'top> for &'top LazyRawBinaryValue_1_0<'top> {
     fn span(&self) -> Span<'top> {
         let range = self.range();
         // Subtract the `offset()` of the BinaryBuffer to get the local indexes for start/end
@@ -100,19 +101,19 @@ impl<'top> HasSpan<'top> for LazyRawBinaryValue_1_0<'top> {
     }
 }
 
-impl HasRange for LazyRawBinaryValue_1_0<'_> {
+impl HasRange for &'_ LazyRawBinaryValue_1_0<'_> {
     fn range(&self) -> Range<usize> {
         self.encoded_value.annotated_value_range()
     }
 }
 
-impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
+impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for &'top LazyRawBinaryValue_1_0<'top> {
     fn ion_type(&self) -> IonType {
-        self.ion_type()
+        (*self).ion_type()
     }
 
     fn is_null(&self) -> bool {
-        self.is_null()
+        (*self).is_null()
     }
 
     fn is_delimited(&self) -> bool {
@@ -120,15 +121,15 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
     }
 
     fn has_annotations(&self) -> bool {
-        self.has_annotations()
+        (*self).has_annotations()
     }
 
     fn annotations(&self) -> RawBinaryAnnotationsIterator<'top> {
-        self.annotations()
+        (*self).annotations()
     }
 
     fn read(&self) -> IonResult<RawValueRef<'top, BinaryEncoding_1_0>> {
-        self.read()
+        (*self).read()
     }
 
     fn annotations_span(&self) -> Span<'top> {
@@ -147,10 +148,12 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'to
     }
 
     fn with_backing_data(&self, span: Span<'top>) -> Self {
-        Self {
-            encoded_value: self.encoded_value,
-            input: BinaryBuffer::new_with_offset(span.bytes(), span.offset()),
-        }
+        let buffer = BinaryBuffer::new_with_offset(self.context(), span.bytes(), span.offset());
+        let allocator = self.context().allocator();
+        allocator.alloc_with(move || LazyRawBinaryValue_1_0 {
+            input: buffer,
+            ..**self
+        })
     }
 
     fn encoding(&self) -> IonEncoding {
@@ -252,7 +255,7 @@ pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
     }
 }
 
-impl<'top> BinaryValueLiteral<'top, BinaryEncoding_1_0> for LazyRawBinaryValue_1_0<'top> {
+impl<'top> BinaryValueLiteral<'top, BinaryEncoding_1_0> for &'top LazyRawBinaryValue_1_0<'top> {
     fn opcode_length(&self) -> usize {
         self.encoded_value.opcode_length()
     }
@@ -436,6 +439,10 @@ impl<'top> EncodedBinaryValueData_1_0<'_, 'top> {
 }
 
 impl<'top> LazyRawBinaryValue_1_0<'top> {
+    pub fn context(&self) -> EncodingContextRef<'top> {
+        self.input.context()
+    }
+
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn encoded_annotations(&self) -> Option<EncodedBinaryAnnotations_1_0<'_, 'top>> {
         if self.has_annotations() {
@@ -603,7 +610,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         }
 
         // Skip the type descriptor and length bytes
-        let input = BinaryBuffer::new(self.value_body());
+        let input = BinaryBuffer::new(self.context(), self.value_body());
 
         let (exponent_var_int, remaining) = input.read_var_int()?;
         let coefficient_size_in_bytes =
@@ -625,7 +632,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     fn read_timestamp(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Timestamp);
 
-        let input = BinaryBuffer::new(self.value_body());
+        let input = BinaryBuffer::new(self.context(), self.value_body());
 
         let (offset, input) = input.read_var_int()?;
         let is_known_offset = !offset.is_negative_zero();
@@ -769,7 +776,9 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
             encoded_value: self.encoded_value,
             input: self.input,
         };
-        let lazy_sequence = LazyRawBinarySequence_1_0 { value: lazy_value };
+        let allocator = self.context().allocator();
+        let value_ref = allocator.alloc_with(|| lazy_value);
+        let lazy_sequence = LazyRawBinarySequence_1_0 { value: value_ref };
         let lazy_sexp = LazyRawBinarySExp_1_0 {
             sequence: lazy_sequence,
         };
@@ -783,7 +792,9 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
             encoded_value: self.encoded_value,
             input: self.input,
         };
-        let lazy_sequence = LazyRawBinarySequence_1_0 { value: lazy_value };
+        let allocator = self.context().allocator();
+        let value_ref = allocator.alloc_with(|| lazy_value);
+        let lazy_sequence = LazyRawBinarySequence_1_0 { value: value_ref };
         let lazy_list = LazyRawBinaryList_1_0 {
             sequence: lazy_sequence,
         };
@@ -797,7 +808,9 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
             encoded_value: self.encoded_value,
             input: self.input,
         };
-        let lazy_struct = LazyRawBinaryStruct_1_0 { value: lazy_value };
+        let allocator = self.context().allocator();
+        let value_ref = allocator.alloc_with(|| lazy_value);
+        let lazy_struct = LazyRawBinaryStruct_1_0 { value: value_ref };
         Ok(RawValueRef::Struct(lazy_struct))
     }
 }
