@@ -17,6 +17,7 @@ use crate::lazy::decoder::LazyRawFieldExpr;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
+use crate::lazy::expanded::EncodingContextRef;
 use crate::result::IonFailure;
 use crate::{Int, IonError, IonResult, IonType};
 
@@ -29,7 +30,7 @@ const MAX_INT_SIZE_IN_BYTES: usize = mem::size_of::<i128>();
 /// and a copy of the `BinaryBuffer` that starts _after_ the bytes that were parsed.
 ///
 /// Methods that `peek` at the input stream do not return a copy of the buffer.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct BinaryBuffer<'a> {
     // `data` is a slice of remaining data in the larger input stream.
     // `offset` is the position in the overall input stream where that slice begins.
@@ -40,6 +41,7 @@ pub struct BinaryBuffer<'a> {
     //                          offset: 6
     data: &'a [u8],
     offset: usize,
+    context: EncodingContextRef<'a>,
 }
 
 impl Debug for BinaryBuffer<'_> {
@@ -52,17 +54,35 @@ impl Debug for BinaryBuffer<'_> {
     }
 }
 
+impl PartialEq for BinaryBuffer<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        // A definition of equality that ignores the `context` field.
+        self.offset == other.offset && self.data == other.data
+        // An argument could be made that two buffers are not equal if they're holding references to
+        // different contexts, but this is a very low-level, feature-gated construct so it's probably
+        // fine if the implementation is arguably imperfect.
+    }
+}
+
 pub(crate) type ParseResult<'a, T> = IonResult<(T, BinaryBuffer<'a>)>;
 
 impl<'a> BinaryBuffer<'a> {
     /// Constructs a new `BinaryBuffer` that wraps `data`.
     #[inline]
-    pub fn new(data: &[u8]) -> BinaryBuffer<'_> {
-        Self::new_with_offset(data, 0)
+    pub fn new(context: EncodingContextRef<'a>, data: &'a [u8]) -> BinaryBuffer<'a> {
+        Self::new_with_offset(context, data, 0)
     }
 
-    pub fn new_with_offset(data: &[u8], offset: usize) -> BinaryBuffer<'_> {
-        BinaryBuffer { data, offset }
+    pub fn new_with_offset(
+        context: EncodingContextRef<'a>,
+        data: &'a [u8],
+        offset: usize,
+    ) -> BinaryBuffer<'a> {
+        BinaryBuffer {
+            context,
+            data,
+            offset,
+        }
     }
 
     /// Returns a slice containing all of the buffer's bytes.
@@ -83,6 +103,7 @@ impl<'a> BinaryBuffer<'a> {
         BinaryBuffer {
             data: self.bytes_range(offset, length),
             offset: self.offset + offset,
+            context: self.context,
         }
     }
 
@@ -127,6 +148,7 @@ impl<'a> BinaryBuffer<'a> {
         Self {
             data: &self.data[num_bytes_to_consume..],
             offset: self.offset + num_bytes_to_consume,
+            context: self.context,
         }
     }
 
@@ -151,7 +173,7 @@ impl<'a> BinaryBuffer<'a> {
 
         match bytes {
             [0xE0, major, minor, 0xEA] => {
-                let matched = BinaryBuffer::new_with_offset(bytes, self.offset);
+                let matched = BinaryBuffer::new_with_offset(self.context, bytes, self.offset);
                 let marker = LazyRawBinaryVersionMarker_1_0::new(matched, *major, *minor);
                 Ok((marker, self.consume(IVM.len())))
             }
@@ -606,7 +628,9 @@ impl<'a> BinaryBuffer<'a> {
         let field_name = LazyRawBinaryFieldName_1_0::new(field_id, matched_field_id);
 
         let field_value = input_after_field_id.read_value(type_descriptor)?;
-        Ok(Some(LazyRawFieldExpr::NameValue(field_name, field_value)))
+        let allocator = self.context.allocator();
+        let value_ref = allocator.alloc_with(|| field_value);
+        Ok(Some(LazyRawFieldExpr::NameValue(field_name, &*value_ref)))
     }
 
     #[cold]
@@ -642,7 +666,7 @@ impl<'a> BinaryBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
-    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<LazyRawBinaryValue_1_0<'a>>> {
+    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<&'a LazyRawBinaryValue_1_0<'a>>> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -659,7 +683,10 @@ impl<'a> BinaryBuffer<'a> {
             // Otherwise, there's a value.
             type_descriptor = input.peek_type_descriptor()?;
         }
-        Ok(Some(input.read_value(type_descriptor)?))
+        let value = input.read_value(type_descriptor)?;
+        let allocator = self.context.allocator();
+        let value_ref = allocator.alloc_with(|| value);
+        Ok(Some(value_ref))
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
@@ -754,6 +781,10 @@ impl<'a> BinaryBuffer<'a> {
 
         Ok(lazy_value)
     }
+
+    pub fn context(&self) -> EncodingContextRef<'a> {
+        self.context
+    }
 }
 
 /// Represents the data found in an Ion 1.0 annotations wrapper.
@@ -765,12 +796,13 @@ pub struct AnnotationsWrapper {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Int, IonError};
+    use crate::{EncodingContext, Int, IonError, IonVersion};
 
     use super::*;
 
     fn input_test<A: AsRef<[u8]>>(input: A) {
-        let input = BinaryBuffer::new(input.as_ref());
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let input = BinaryBuffer::new(context.get_ref(), input.as_ref());
         // We can peek at the first byte...
         assert_eq!(input.peek_next_byte(), Some(b'f'));
         // ...without modifying the input. Looking at the next 3 bytes still includes 'f'.
@@ -803,7 +835,8 @@ mod tests {
 
     #[test]
     fn read_var_uint() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1001, 0b0000_1111, 0b1000_0001]);
         let var_uint = buffer.read_var_uint()?.0;
         assert_eq!(3, var_uint.size_in_bytes());
         assert_eq!(1_984_385, var_uint.value());
@@ -812,7 +845,8 @@ mod tests {
 
     #[test]
     fn read_var_uint_zero() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b1000_0000]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b1000_0000]);
         let var_uint = buffer.read_var_uint()?.0;
         assert_eq!(var_uint.size_in_bytes(), 1);
         assert_eq!(var_uint.value(), 0);
@@ -821,7 +855,8 @@ mod tests {
 
     #[test]
     fn read_var_uint_two_bytes_max_value() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1111, 0b1111_1111]);
         let var_uint = buffer.read_var_uint()?.0;
         assert_eq!(var_uint.size_in_bytes(), 2);
         assert_eq!(var_uint.value(), 16_383);
@@ -830,7 +865,8 @@ mod tests {
 
     #[test]
     fn read_incomplete_var_uint() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0111_1001, 0b0000_1111]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1001, 0b0000_1111]);
         match buffer.read_var_uint() {
             Err(IonError::Incomplete { .. }) => Ok(()),
             other => panic!("expected IonError::Incomplete, but found: {other:?}"),
@@ -839,18 +875,22 @@ mod tests {
 
     #[test]
     fn read_var_uint_overflow_detection() {
-        let buffer = BinaryBuffer::new(&[
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b1111_1111,
-        ]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(
+            context.get_ref(),
+            &[
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b1111_1111,
+            ],
+        );
         buffer
             .read_var_uint()
             .expect_err("This should have failed due to overflow.");
@@ -858,7 +898,8 @@ mod tests {
 
     #[test]
     fn read_var_int_zero() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b1000_0000]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b1000_0000]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 1);
         assert_eq!(var_int.value(), 0);
@@ -867,7 +908,8 @@ mod tests {
 
     #[test]
     fn read_negative_var_int() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0111_1001, 0b0000_1111, 0b1000_0001]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1001, 0b0000_1111, 0b1000_0001]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 3);
         assert_eq!(var_int.value(), -935_809);
@@ -876,7 +918,8 @@ mod tests {
 
     #[test]
     fn read_positive_var_int() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0011_1001, 0b0000_1111, 0b1000_0001]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0011_1001, 0b0000_1111, 0b1000_0001]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 3);
         assert_eq!(var_int.value(), 935_809);
@@ -885,7 +928,8 @@ mod tests {
 
     #[test]
     fn read_var_int_two_byte_min() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1111, 0b1111_1111]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 2);
         assert_eq!(var_int.value(), -8_191);
@@ -894,7 +938,8 @@ mod tests {
 
     #[test]
     fn read_var_int_two_byte_max() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0011_1111, 0b1111_1111]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0011_1111, 0b1111_1111]);
         let var_int = buffer.read_var_int()?.0;
         assert_eq!(var_int.size_in_bytes(), 2);
         assert_eq!(var_int.value(), 8_191);
@@ -903,18 +948,22 @@ mod tests {
 
     #[test]
     fn read_var_int_overflow_detection() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b0111_1111,
-            0b1111_1111,
-        ]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(
+            context.get_ref(),
+            &[
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b0111_1111,
+                0b1111_1111,
+            ],
+        );
         buffer
             .read_var_int()
             .expect_err("This should have failed due to overflow.");
@@ -923,7 +972,8 @@ mod tests {
 
     #[test]
     fn read_int_negative_zero() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b1000_0000]); // Negative zero
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b1000_0000]); // Negative zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), &Int::from(0));
@@ -933,7 +983,8 @@ mod tests {
 
     #[test]
     fn read_int_positive_zero() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0000_0000]); // Positive zero
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0000_0000]); // Positive zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 1);
         assert_eq!(int.value(), &Int::from(0));
@@ -943,7 +994,8 @@ mod tests {
 
     #[test]
     fn read_int_length_zero() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[]); // Negative zero
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[]); // Negative zero
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 0);
         assert_eq!(int.value(), &Int::from(0));
@@ -953,7 +1005,8 @@ mod tests {
 
     #[test]
     fn read_two_byte_negative_int() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b1111_1111, 0b1111_1111]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b1111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 2);
         assert_eq!(int.value(), &Int::from(-32_767i64));
@@ -962,7 +1015,8 @@ mod tests {
 
     #[test]
     fn read_two_byte_positive_int() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0111_1111, 0b1111_1111]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1111, 0b1111_1111]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 2);
         assert_eq!(int.value(), &Int::from(32_767i64));
@@ -971,7 +1025,8 @@ mod tests {
 
     #[test]
     fn read_three_byte_negative_int() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b1011_1100, 0b1000_0111, 0b1000_0001]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b1011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 3);
         assert_eq!(int.value(), &Int::from(-3_966_849i64));
@@ -980,7 +1035,8 @@ mod tests {
 
     #[test]
     fn read_three_byte_positive_int() -> IonResult<()> {
-        let buffer = BinaryBuffer::new(&[0b0011_1100, 0b1000_0111, 0b1000_0001]);
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0011_1100, 0b1000_0111, 0b1000_0001]);
         let int = buffer.read_int(buffer.len())?.0;
         assert_eq!(int.size_in_bytes(), 3);
         assert_eq!(int.value(), &Int::from(3_966_849i64));
@@ -989,8 +1045,9 @@ mod tests {
 
     #[test]
     fn read_int_overflow() -> IonResult<()> {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
         let data = vec![1; MAX_INT_SIZE_IN_BYTES + 1];
-        let buffer = BinaryBuffer::new(&data); // Negative zero
+        let buffer = BinaryBuffer::new(context.get_ref(), &data); // Negative zero
         buffer
             .read_int(buffer.len())
             .expect_err("This exceeded the configured max Int size.");

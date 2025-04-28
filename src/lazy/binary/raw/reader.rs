@@ -37,7 +37,7 @@ impl<'data> LazyRawBinaryReader_1_0<'data> {
         data: &'data [u8],
         offset: usize,
     ) -> LazyRawBinaryReader_1_0<'data> {
-        let data = DataSource::new(BinaryBuffer::new_with_offset(data, offset));
+        let data = DataSource::new(BinaryBuffer::new_with_offset(context, data, offset));
         Self { context, data }
     }
 
@@ -126,7 +126,11 @@ impl<'data> LazyRawReader<'data, BinaryEncoding_1_0> for LazyRawBinaryReader_1_0
         LazyRawBinaryReader_1_0 {
             context,
             data: DataSource {
-                buffer: BinaryBuffer::new_with_offset(saved_state.data(), saved_state.offset()),
+                buffer: BinaryBuffer::new_with_offset(
+                    context,
+                    saved_state.data(),
+                    saved_state.offset(),
+                ),
                 bytes_to_skip: 0,
             },
         }
@@ -196,11 +200,11 @@ impl<'data> DataSource<'data> {
     /// that were consumed.
     /// If it does not succeed, the `DataSource` remains unchanged.
     pub(crate) fn try_parse_next_value<
-        F: Fn(BinaryBuffer<'data>) -> IonResult<Option<LazyRawBinaryValue_1_0<'data>>>,
+        F: Fn(BinaryBuffer<'data>) -> IonResult<Option<&'data LazyRawBinaryValue_1_0<'data>>>,
     >(
         &mut self,
         parser: F,
-    ) -> IonResult<Option<LazyRawBinaryValue_1_0<'data>>> {
+    ) -> IonResult<Option<&'data LazyRawBinaryValue_1_0<'data>>> {
         let buffer = self.advance_to_next_item()?;
 
         let lazy_value = match parser(buffer) {
@@ -220,6 +224,7 @@ impl<'data> DataSource<'data> {
     /// If it succeeds, marks the `DataSource` as ready to advance by the 'n' bytes
     /// that were consumed.
     /// If it does not succeed, the `DataSource` remains unchanged.
+    #[inline]
     pub(crate) fn try_parse_next_field<
         F: Fn(BinaryBuffer<'data>) -> IonResult<Option<LazyRawFieldExpr<'data, BinaryEncoding_1_0>>>,
     >(

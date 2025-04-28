@@ -732,7 +732,7 @@ impl<'top> LazyRawAnyValue<'top> {
 #[derive(Debug, Copy, Clone)]
 pub enum LazyRawValueKind<'top> {
     Text_1_0(LazyRawTextValue_1_0<'top>),
-    Binary_1_0(LazyRawBinaryValue_1_0<'top>),
+    Binary_1_0(&'top LazyRawBinaryValue_1_0<'top>),
     Text_1_1(LazyRawTextValue_1_1<'top>),
     Binary_1_1(&'top LazyRawBinaryValue_1_1<'top>),
 }
@@ -745,8 +745,8 @@ impl<'top> From<LazyRawTextValue_1_0<'top>> for LazyRawAnyValue<'top> {
     }
 }
 
-impl<'top> From<LazyRawBinaryValue_1_0<'top>> for LazyRawAnyValue<'top> {
-    fn from(value: LazyRawBinaryValue_1_0<'top>) -> Self {
+impl<'top> From<&'top LazyRawBinaryValue_1_0<'top>> for LazyRawAnyValue<'top> {
+    fn from(value: &'top LazyRawBinaryValue_1_0<'top>) -> Self {
         LazyRawAnyValue {
             encoding: LazyRawValueKind::Binary_1_0(value),
         }

@@ -18,11 +18,11 @@ use crate::{IonResult, RawSymbolRef, SymbolId};
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinaryStruct_1_0<'top> {
-    pub(crate) value: LazyRawBinaryValue_1_0<'top>,
+    pub(crate) value: &'top LazyRawBinaryValue_1_0<'top>,
 }
 
 impl<'top> LazyRawBinaryStruct_1_0<'top> {
-    pub fn as_value(&self) -> LazyRawBinaryValue_1_0<'top> {
+    pub fn as_value(&self) -> &'top LazyRawBinaryValue_1_0<'top> {
         self.value
     }
 }
@@ -63,7 +63,7 @@ impl<'top> LazyRawBinaryStruct_1_0<'top> {
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'top> {
-    fn from_value(value: LazyRawBinaryValue_1_0<'top>) -> Self {
+    fn from_value(value: &'top LazyRawBinaryValue_1_0<'top>) -> Self {
         LazyRawBinaryStruct_1_0 { value }
     }
 }

@@ -323,7 +323,7 @@ impl FlexUInt {
 mod tests {
     use crate::lazy::binary::binary_buffer::BinaryBuffer;
     use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
-    use crate::{IonError, IonResult};
+    use crate::{EncodingContext, IonError, IonResult, IonVersion};
 
     const FLEX_UINT_TEST_CASES: &[(u64, &[u8])] = &[
         (0, &[0b00000001]),
@@ -397,6 +397,7 @@ mod tests {
 
     #[test]
     fn decode_flex_uint() -> IonResult<()> {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
         let overpadded_test_cases: &[(u64, &[u8])] = &[
             // Over-padded 5
             (5, &[0b00010110, 0b00000000]),
@@ -407,7 +408,8 @@ mod tests {
         flex_uint_tests.extend_from_slice(overpadded_test_cases);
         for (expected_value, encoding) in flex_uint_tests {
             println!("-> {expected_value}");
-            let (flex_uint, _remaining) = BinaryBuffer::new(encoding).read_flex_uint()?;
+            let (flex_uint, _remaining) =
+                BinaryBuffer::new(context.get_ref(), encoding).read_flex_uint()?;
             let actual_value = flex_uint.value();
             assert_eq!(actual_value, expected_value, "actual value {actual_value} was != expected value {expected_value} for encoding {encoding:x?}")
         }
@@ -434,11 +436,13 @@ mod tests {
 
     #[test]
     fn detect_incomplete_flex_uint() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
         for (_value, expected_encoding) in FLEX_UINT_TEST_CASES {
             // Exhaustively check incomplete input detection by trying to read all prefixes of a test
             // value's complete encoding.
             for end in 0..expected_encoding.len() - 1 {
-                let partial_encoding = BinaryBuffer::new(&expected_encoding[..end]);
+                let partial_encoding =
+                    BinaryBuffer::new(context.get_ref(), &expected_encoding[..end]);
                 assert!(matches!(
                     partial_encoding.read_flex_uint(),
                     Err(IonError::Incomplete(_))
