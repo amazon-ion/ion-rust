@@ -239,7 +239,7 @@ impl BinaryValueWriter_1_1<'_, '_> {
         let encoded_coefficient_size = if is_positive_zero {
             // If the coefficient is zero but the exponent was non-zero, write nothing; an implicit zero is positive.
             0
-        } else if value.coefficient.is_negative_zero() {
+        } else if value.coefficient().is_negative_zero() {
             // If the coefficient is negative zero (of any exponent), write a zero byte; an explicit zero is negative.
             self.push_byte(0x00);
             1
