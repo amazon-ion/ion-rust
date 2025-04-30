@@ -23,7 +23,10 @@ impl DecodedUInt {
         // that method does not get inlined by the compiler. Here we check for some common int sizes
         // and construct the int manually to allow the hot path to be inlined.
         match uint_bytes.len() {
-            // If it's 1-3 bytes, avoid the `memcpy` used in the general-purpose conversion logic
+            // If the slice is empty, it's a zero.
+            0 => Ok(0u128),
+            // If the slice has 1-3 bytes, perform the conversion manually to avoid the `memcpy`
+            // call made by the general-purpose conversion logic.
             1 => Ok(uint_bytes[0] as u128),
             2 => Ok(u16::from_le_bytes([uint_bytes[1], uint_bytes[0]]) as u128),
             3 => Ok(u32::from_le_bytes([uint_bytes[2], uint_bytes[1], uint_bytes[0], 0u8]) as u128),
