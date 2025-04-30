@@ -31,7 +31,7 @@ impl DecodedUInt {
             2 => Ok(u16::from_le_bytes([uint_bytes[1], uint_bytes[0]]) as u128),
             3 => Ok(u32::from_le_bytes([uint_bytes[2], uint_bytes[1], uint_bytes[0], 0u8]) as u128),
             // General-purpose conversion from bytes to u128.
-            ..=MAX_BYTES => Ok(Self::uint_from_slice_unchecked(uint_bytes)),
+            4..=MAX_BYTES => Ok(Self::uint_from_slice_unchecked(uint_bytes)),
             // Oversized
             _ => IonResult::decoding_error(
                 "integer size is currently limited to the range of an i128",
