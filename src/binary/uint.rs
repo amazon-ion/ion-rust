@@ -27,6 +27,9 @@ impl DecodedUInt {
             0 => Ok(0u128),
             // If the slice has 1-3 bytes, perform the conversion manually to avoid the `memcpy`
             // call made by the general-purpose conversion logic.
+            // The aim is to allow the most common cases to be inlined by the caller. If we try
+            // to special case too many integer sizes, then code generated for `uint_from_slice`
+            // itself gets too large, and neither `uint_from_slice` nor `memcpy` get inlined.
             1 => Ok(uint_bytes[0] as u128),
             2 => Ok(u16::from_le_bytes([uint_bytes[1], uint_bytes[0]]) as u128),
             3 => Ok(u32::from_le_bytes([uint_bytes[2], uint_bytes[1], uint_bytes[0], 0u8]) as u128),
