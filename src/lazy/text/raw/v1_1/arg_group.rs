@@ -31,6 +31,7 @@ impl<'top, D: Decoder> EExpArg<'top, D> {
         &self.expr
     }
 
+    #[inline]
     pub fn resolve(&self, context: EncodingContextRef<'top>) -> IonResult<ValueExpr<'top, D>> {
         let value_expr = match self.expr {
             EExpArgExpr::ValueLiteral(value) => {

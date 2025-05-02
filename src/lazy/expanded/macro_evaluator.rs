@@ -86,16 +86,19 @@ where
     /// The arguments that follow the macro name or address in this macro invocation.
     fn raw_arguments(&self) -> Self::RawArgumentsIterator;
 
+    fn context(&self) -> EncodingContextRef<'top>;
+
     /// Looks up the macro invoked by this E-expression in the given `EncodingContext`.
     /// If the lookup is successful, returns an `Ok` containing a resolved `EExpression` that holds
     /// a reference to the macro being invoked.
     /// If the ID cannot be found in the `EncodingContext`, returns `Err`.
+    #[inline]
     fn resolve(self, context: EncodingContextRef<'top>) -> IonResult<EExpression<'top, D>> {
         let invoked_macro = context.macro_table().macro_with_id(self.id()).ok_or_else(
             #[inline(never)]
             || IonError::decoding_error(format!("unrecognized macro ID {:?}", self.id())),
         )?;
-        Ok(EExpression::new(context, self, invoked_macro))
+        Ok(EExpression::new(self, invoked_macro))
     }
 
     /// Returns an array of resolved [`ValueExpr`] instances that can be evaluated and/or passed
@@ -1529,6 +1532,7 @@ impl<'top> TemplateExpansion<'top> {
         }
     }
 
+    #[inline]
     pub(crate) fn next<'data: 'top, D: Decoder>(
         &mut self,
         context: EncodingContextRef<'top>,

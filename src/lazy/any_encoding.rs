@@ -267,6 +267,14 @@ impl<'top> RawEExpression<'top, AnyEncoding> for LazyRawAnyEExpression<'top> {
             },
         }
     }
+
+    fn context(&self) -> EncodingContextRef<'top> {
+        use LazyRawAnyEExpressionKind::*;
+        match self.encoding {
+            Text_1_1(e) => e.context(),
+            Binary_1_1(e) => e.context(),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

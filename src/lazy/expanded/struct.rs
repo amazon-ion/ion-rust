@@ -146,9 +146,9 @@ pub enum ExpandedStructSource<'top, D: Decoder> {
         &'top TemplateStructIndex,
     ),
     // The struct was produced by the `make_struct` macro.
-    MakeStruct(Environment<'top, D>, MacroExprArgsIterator<'top, D>),
+    MakeStruct(Environment<'top, D>, &'top MacroExprArgsIterator<'top, D>),
     // The single-field struct was produced by the `make_field` macro
-    MakeField(LazyExpandedField<'top, D>),
+    MakeField(&'top LazyExpandedField<'top, D>),
 }
 
 #[derive(Copy, Clone)]
@@ -191,7 +191,8 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         environment: Environment<'top, D>,
         arguments: MacroExprArgsIterator<'top, D>,
     ) -> LazyExpandedStruct<'top, D> {
-        let source = ExpandedStructSource::MakeStruct(environment, arguments);
+        let arguments_ref = context.allocator().alloc_with(|| arguments);
+        let source = ExpandedStructSource::MakeStruct(environment, arguments_ref);
         Self { source, context }
     }
 
@@ -199,7 +200,8 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         context: EncodingContextRef<'top>,
         field: LazyExpandedField<'top, D>,
     ) -> LazyExpandedStruct<'top, D> {
-        let source = ExpandedStructSource::MakeField(field);
+        let field_ref = context.allocator().alloc_with(|| field);
+        let source = ExpandedStructSource::MakeField(field_ref);
         Self { source, context }
     }
 
@@ -251,9 +253,13 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
                     .allocator()
                     .alloc_with(|| MacroEvaluator::new_with_environment(*environment));
                 let current_struct_iter = self.context.allocator().alloc_with(|| None);
-                ExpandedStructIteratorSource::MakeStruct(evaluator, current_struct_iter, *arguments)
+                ExpandedStructIteratorSource::MakeStruct(
+                    evaluator,
+                    current_struct_iter,
+                    **arguments,
+                )
             }
-            MakeField(field) => ExpandedStructIteratorSource::MakeField(Some(*field)),
+            MakeField(field) => ExpandedStructIteratorSource::MakeField(Some(field)),
         };
         ExpandedStructIterator {
             source,
@@ -350,7 +356,7 @@ pub enum ExpandedStructIteratorSource<'top, D: Decoder> {
         &'top mut MacroEvaluator<'top, D>,
         TemplateStructFieldExprIterator<'top, D>,
     ),
-    MakeField(Option<LazyExpandedField<'top, D>>),
+    MakeField(Option<&'top LazyExpandedField<'top, D>>),
     MakeStruct(
         &'top mut MacroEvaluator<'top, D>,
         // This is `&mut Option<_>` instead of `Option<&mut _>` so we can re-use the allocated space
