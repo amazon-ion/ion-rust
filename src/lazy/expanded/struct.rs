@@ -4,6 +4,9 @@ use crate::lazy::decoder::{Decoder, LazyRawFieldName, LazyRawStruct};
 use crate::lazy::expanded::macro_evaluator::{
     MacroEvaluator, MacroExpr, MacroExprArgsIterator, ValueExpr,
 };
+#[cfg(feature = "experimental-tooling-apis")]
+use crate::lazy::expanded::r#struct::tooling::FieldExprIterator;
+use crate::lazy::expanded::r#struct::ExpandedStructIteratorState::ReadingFieldFromSource;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     TemplateElement, TemplateMacroRef, TemplateStructFieldExprIterator, TemplateStructIndex,
@@ -15,9 +18,6 @@ use crate::lazy::expanded::{
 use crate::result::IonFailure;
 use crate::{try_next, try_or_some_err, EExpression, HasRange, IonResult, SymbolRef};
 use std::ops::Range;
-
-#[cfg(feature = "experimental-tooling-apis")]
-use crate::lazy::expanded::r#struct::tooling::FieldExprIterator;
 
 /// A unified type embodying all possible field representations coming from both input data
 /// (i.e. raw structs of some encoding) and template bodies.
@@ -385,54 +385,58 @@ impl<'top, D: Decoder> ExpandedStructIteratorSource<'top, D> {
                 evaluator,
                 maybe_current_struct,
                 arguments,
-            ) => {
-                loop {
-                    // If we're already traversing a struct, see if it has any fields remaining.
-                    if let Some(current_struct) = maybe_current_struct {
-                        match current_struct.next() {
-                            // If we get a field, we're done.
-                            Some(Ok(field)) => return Some(Ok(field.to_field_expr())),
-                            Some(Err(e)) => return Some(Err(e)),
-                            // If we get `None`, the iterator is exhausted and we should continue on to the next struct.
-                            None => **maybe_current_struct = None,
-                        }
-                    }
+            ) => Self::next_field_from_make_struct(evaluator, maybe_current_struct, arguments),
+        }
+    }
 
-                    // If we reach this point, we don't have a current struct.
-                    // We've either just started evaluation and haven't set one yet or
-                    // we just finished inlining a struct and need to set a new one.
-
-                    // See if the evaluator has an expansion in progress.
-                    let mut next_struct = try_or_some_err!(evaluator.next());
-                    if next_struct.is_none() {
-                        // If we don't get anything from the evaluator, we'll get our struct from the
-                        // next argument expression. If there isn't a next argument expression,
-                        // then evaluation is complete.
-                        next_struct = match try_next!(arguments.next()) {
-                            // If the expression is a value literal, that's our new sequence.
-                            ValueExpr::ValueLiteral(value) => Some(value),
-                            // If the expression is a macro invocation, we'll start evaluating it
-                            // and return to the top of the loop.
-                            ValueExpr::MacroInvocation(invocation) => {
-                                evaluator.push(try_or_some_err!(invocation.expand()));
-                                continue;
-                            }
-                        }
-                    }
-
-                    // At this point, `next_struct` is definitely populated, so we can safely unwrap it.
-                    let next_struct = next_struct.unwrap();
-                    // Set it as our new current struct.
-                    let ExpandedValueRef::Struct(next_struct) =
-                        try_or_some_err!(next_struct.read())
-                    else {
-                        return Some(IonResult::decoding_error(format!(
-                            "`make_struct` only accepts structs, received {next_struct:?}"
-                        )));
-                    };
-                    **maybe_current_struct = Some(next_struct.iter());
+    fn next_field_from_make_struct(
+        evaluator: &mut MacroEvaluator<'top, D>,
+        maybe_current_struct: &mut Option<ExpandedStructIterator<'top, D>>,
+        arguments: &mut MacroExprArgsIterator<'top, D>,
+    ) -> Option<IonResult<FieldExpr<'top, D>>> {
+        loop {
+            // If we're already traversing a struct, see if it has any fields remaining.
+            if let Some(current_struct) = maybe_current_struct {
+                match current_struct.next() {
+                    // If we get a field, we're done.
+                    Some(Ok(field)) => return Some(Ok(field.to_field_expr())),
+                    Some(Err(e)) => return Some(Err(e)),
+                    // If we get `None`, the iterator is exhausted and we should continue on to the next struct.
+                    None => *maybe_current_struct = None,
                 }
             }
+
+            // If we reach this point, we don't have a current struct.
+            // We've either just started evaluation and haven't set one yet or
+            // we just finished inlining a struct and need to set a new one.
+
+            // See if the evaluator has an expansion in progress.
+            let mut next_struct = try_or_some_err!(evaluator.next());
+            if next_struct.is_none() {
+                // If we don't get anything from the evaluator, we'll get our struct from the
+                // next argument expression. If there isn't a next argument expression,
+                // then evaluation is complete.
+                next_struct = match try_next!(arguments.next()) {
+                    // If the expression is a value literal, that's our new sequence.
+                    ValueExpr::ValueLiteral(value) => Some(value),
+                    // If the expression is a macro invocation, we'll start evaluating it
+                    // and return to the top of the loop.
+                    ValueExpr::MacroInvocation(invocation) => {
+                        evaluator.push(try_or_some_err!(invocation.expand()));
+                        continue;
+                    }
+                }
+            }
+
+            // At this point, `next_struct` is definitely populated, so we can safely unwrap it.
+            let next_struct = next_struct.unwrap();
+            // Set it as our new current struct.
+            let ExpandedValueRef::Struct(next_struct) = try_or_some_err!(next_struct.read()) else {
+                return Some(IonResult::decoding_error(format!(
+                    "`make_struct` only accepts structs, received {next_struct:?}"
+                )));
+            };
+            *maybe_current_struct = Some(next_struct.iter());
         }
     }
 

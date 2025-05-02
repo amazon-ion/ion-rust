@@ -764,7 +764,7 @@ pub enum TemplateBodyExprKind {
     Variable(TemplateBodyVariableReference),
     /// A macro invocation that needs to be expanded.
     MacroInvocation(TemplateBodyMacroInvocation),
-    /// An expression group. In TDL, expression groups (syntax: `(; ...)`) can only appear in macro
+    /// An expression group. In TDL, expression groups (syntax: `(.. /* exprs */)`) can only appear in macro
     /// argument position. However, the compiler reserves the right to insert them as an optimization
     /// when the resulting behavior would be equivalent. For example, substituting an invocation of
     /// `values` with the equivalent expression group avoids a stack frame during macro evaluation
