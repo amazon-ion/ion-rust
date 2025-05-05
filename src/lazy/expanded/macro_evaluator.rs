@@ -177,6 +177,14 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
     pub fn is_tdl_macro(&self) -> bool {
         matches!(self.kind, MacroExprKind::TemplateMacro(_))
     }
+
+    pub fn is_singleton(&self) -> bool {
+        match &self.kind {
+            MacroExprKind::TemplateMacro(m) => m.invoked_macro().must_produce_exactly_one_value(),
+            MacroExprKind::EExp(e) => e.invoked_macro().must_produce_exactly_one_value(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -578,13 +586,12 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         match &mut self.kind {
             Template(template_expansion) => template_expansion.next(context, environment),
             ExprGroup(expr_group_expansion) => expr_group_expansion.next(context, environment),
-            MakeString(make_string_expansion) => make_string_expansion.make_text_value(context),
-            MakeSymbol(make_symbol_expansion) => make_symbol_expansion.make_text_value(context),
+            MakeString(expansion) | MakeSymbol(expansion) => expansion.make_text_value(context),
             MakeField(make_field_expansion) => make_field_expansion.next(context, environment),
             MakeStruct(make_struct_expansion) => make_struct_expansion.next(context, environment),
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
-            Conditional(cardiality_test_expansion) => cardiality_test_expansion.next(environment),
+            Conditional(cardinality_test_expansion) => cardinality_test_expansion.next(environment),
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
@@ -681,21 +688,10 @@ impl<'top, D: Decoder> MacroEvaluator<'top, D> {
         }
     }
 
-    #[inline]
-    #[allow(clippy::should_implement_trait)]
-    // ^-- Clippy complains this looks like Iterator::next().
-    pub fn next(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
-        // This inlineable method checks whether the evaluator is empty to avoid a more expensive
-        // method invocation when possible.
-        if self.is_empty() {
-            return Ok(None);
-        }
-        self.next_general_case()
-    }
-
     /// The core macro evaluation logic.
     #[inline]
-    fn next_general_case(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
+    #[allow(clippy::should_implement_trait)] // Clippy complains this looks like Iterator::next
+    pub fn next(&mut self) -> IonResult<Option<LazyExpandedValue<'top, D>>> {
         use EvaluatorState::*;
         // This happens in a loop in case the next item produced is another macro to evaluate.
         // In most cases, we never return to the top of the loop.

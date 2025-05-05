@@ -6,7 +6,6 @@ use crate::lazy::expanded::macro_evaluator::{
 };
 #[cfg(feature = "experimental-tooling-apis")]
 use crate::lazy::expanded::r#struct::tooling::FieldExprIterator;
-use crate::lazy::expanded::r#struct::ExpandedStructIteratorState::ReadingFieldFromSource;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::template::{
     TemplateElement, TemplateMacroRef, TemplateStructFieldExprIterator, TemplateStructIndex,
