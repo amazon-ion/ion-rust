@@ -46,31 +46,48 @@ impl FlexUInt {
     ///          an appropriate error message if reading fails.
     #[inline(always)]
     pub fn read(input: &[u8], offset: usize) -> IonResult<FlexUInt> {
-        const COMMON_CASE_INPUT_BYTES_NEEDED: usize = 8;
-
+        const COMMON_CASE_INPUT_BYTES_NEEDED: usize = 4;
         // We want to minimize the number of branches that happen in the common case. To do this,
         // we perform a single length check, making sure that the buffer contains enough data to
         // represent a FlexUInt whose continuation bits fit in a single byte (i.e. one with 7 or
-        // fewer bytes of magnitude). If the buffer doesn't have at least 8 bytes in it or the
-        // FlexUInt we find requires more than 8 bytes to represent, we'll fall back to the general
+        // fewer bytes of magnitude). If the buffer doesn't have at least 4 bytes in it or the
+        // FlexUInt we find requires more than 4 bytes to represent, we'll fall back to the general
         // case.
-        if input.len() < COMMON_CASE_INPUT_BYTES_NEEDED || input[0] == 0 {
-            // Calling `read_flex_primitive_as_uint_no_inline` keeps this method small enough that
-            // the code for the common case can be inlined.
-            return Self::read_flex_primitive_as_uint_no_inline(
-                input,
-                offset,
-                "reading a FlexUInt",
-                false,
-            );
+        if input.len() >= COMMON_CASE_INPUT_BYTES_NEEDED {
+            'common_case: {
+                let num_encoded_bytes = input[0].trailing_zeros() as usize + 1;
+                // By branching on particular values, we make the value of `num_encoded_bytes` in their
+                // corresponding arm `const`. This allows us to use `read_n_bytes` to optimize for those
+                // sizes.
+                let flex_uint = match num_encoded_bytes {
+                    1 => Self::read_n_bytes::<1>(input),
+                    2 => Self::read_n_bytes::<2>(input),
+                    3 => Self::read_n_bytes::<3>(input),
+                    4 => Self::read_n_bytes::<4>(input),
+                    _ => break 'common_case,
+                };
+                return Ok(flex_uint);
+            }
         }
-        let flex_uint = Self::read_small_flex_uint(input);
-        Ok(flex_uint)
+        // Calling `read_flex_primitive_as_uint_no_inline` keeps this method small enough that
+        // the code for the common case can be inlined.
+        Self::read_flex_primitive_as_uint_no_inline(input, offset, "reading a FlexUInt", false)
+    }
+
+    #[inline]
+    pub fn read_n_bytes<const NUM_BYTES: usize>(bytes: &[u8]) -> FlexUInt {
+        let input: [u8; NUM_BYTES] = *(bytes.first_chunk::<NUM_BYTES>().unwrap());
+        let mut buffer = [0u8; size_of::<u64>()];
+        *buffer.first_chunk_mut::<NUM_BYTES>().unwrap() = input;
+        let value = u64::from_le_bytes(buffer)
+            .checked_shr(NUM_BYTES as u32)
+            .unwrap_or(0);
+        FlexUInt::new(NUM_BYTES, value)
     }
 
     /// Helper method that reads a [`FlexUInt`] with 7 or fewer bytes of magnitude from the buffer.
     // Caller must confirm that `bytes` has at least 8 bytes.
-    #[inline]
+    #[inline(never)]
     fn read_small_flex_uint(bytes: &[u8]) -> FlexUInt {
         debug_assert!(bytes.len() >= 8);
         let num_encoded_bytes = bytes[0].trailing_zeros() as usize + 1;
