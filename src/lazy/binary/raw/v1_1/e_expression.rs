@@ -154,6 +154,10 @@ impl<'top> RawEExpression<'top, v1_1::Binary> for &'top BinaryEExpression_1_1<'t
         BinaryEExpArgsIterator_1_1::for_input(bitmap_iterator, args_input, signature)
     }
 
+    fn context(&self) -> EncodingContextRef<'top> {
+        self.input.context()
+    }
+
     fn make_evaluation_environment(
         &self,
         context: EncodingContextRef<'top>,

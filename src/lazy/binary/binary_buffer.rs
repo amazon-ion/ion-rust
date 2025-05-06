@@ -189,7 +189,7 @@ impl<'a> BinaryBuffer<'a> {
     }
 
     /// Reads a [`FlexUInt`] from the buffer.
-    #[inline]
+    #[inline(always)]
     pub fn read_flex_uint(self) -> ParseResult<'a, FlexUInt> {
         let flex_uint = FlexUInt::read(self.bytes(), self.offset())?;
         let remaining = self.consume(flex_uint.size_in_bytes());

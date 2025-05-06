@@ -386,6 +386,10 @@ impl<'top> RawEExpression<'top, TextEncoding_1_1> for TextEExpression_1_1<'top> 
     fn raw_arguments(&self) -> Self::RawArgumentsIterator {
         TextEExpArgsIterator_1_1::new(self.arg_cache)
     }
+
+    fn context(&self) -> EncodingContextRef<'top> {
+        self.input.context()
+    }
 }
 
 impl Debug for TextEExpression_1_1<'_> {

@@ -84,14 +84,13 @@ impl<D: Decoder> Debug for EExpArgGroup<'_, D> {
 /// An e-expression (in Ion format `D`) that has been resolved in the current encoding context.
 #[derive(Copy, Clone)]
 pub struct EExpression<'top, D: Decoder> {
-    pub(crate) context: EncodingContextRef<'top>,
     pub(crate) raw_invocation: D::EExp<'top>,
     pub(crate) invoked_macro: MacroRef<'top>,
 }
 
 impl<'top, D: Decoder> EExpression<'top, D> {
     pub fn context(&self) -> EncodingContextRef<'top> {
-        self.context
+        self.raw_invocation().context()
     }
     pub fn raw_invocation(&self) -> D::EExp<'top> {
         self.raw_invocation
@@ -102,7 +101,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
 
     pub(crate) fn new_evaluation_environment(&self) -> IonResult<Environment<'top, D>> {
         self.raw_invocation
-            .make_evaluation_environment(self.context)
+            .make_evaluation_environment(self.context())
     }
 
     pub(crate) fn expand(&self) -> IonResult<MacroExpansion<'top, D>> {
@@ -131,7 +130,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
             }
             MacroKind::Annotate => MacroExpansionKind::Annotate(AnnotateExpansion::new(arguments)),
             MacroKind::Flatten => MacroExpansionKind::Flatten(FlattenExpansion::new(
-                self.context,
+                self.context(),
                 environment,
                 arguments,
             )),
@@ -231,13 +230,8 @@ impl<'top, D: Decoder> HasSpan<'top> for EExpression<'top, D> {
 }
 
 impl<'top, D: Decoder> EExpression<'top, D> {
-    pub fn new(
-        context: EncodingContextRef<'top>,
-        raw_invocation: D::EExp<'top>,
-        invoked_macro: MacroRef<'top>,
-    ) -> Self {
+    pub fn new(raw_invocation: D::EExp<'top>, invoked_macro: MacroRef<'top>) -> Self {
         Self {
-            context,
             raw_invocation,
             invoked_macro,
         }
@@ -251,7 +245,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
 
     pub fn arguments(&self) -> EExpressionArgsIterator<'top, D> {
         EExpressionArgsIterator {
-            context: self.context,
+            context: self.context(),
             raw_args: self.raw_invocation.raw_arguments(),
             num_args: self.invoked_macro.signature().len() as u32,
             index: 0,

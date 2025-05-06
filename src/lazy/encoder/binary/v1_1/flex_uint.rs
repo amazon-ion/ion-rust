@@ -44,7 +44,7 @@ impl FlexUInt {
     /// `input` is the byte slice from which to read a `FlexUInt`.
     /// `offset` is the position of the slice in some larger input stream. It is only used to populate
     ///          an appropriate error message if reading fails.
-    #[inline]
+    #[inline(always)]
     pub fn read(input: &[u8], offset: usize) -> IonResult<FlexUInt> {
         const COMMON_CASE_INPUT_BYTES_NEEDED: usize = 8;
 
