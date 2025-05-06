@@ -3,7 +3,6 @@ use crate::{IonResult, UInt};
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 use std::io::Write;
-use std::mem;
 
 const BITS_PER_U128: usize = 128;
 const BITS_PER_ENCODED_BYTE: usize = 7;
@@ -59,83 +58,36 @@ impl FlexUInt {
                 // By branching on particular values, we make the value of `num_encoded_bytes` in their
                 // corresponding arm `const`. This allows us to use `read_n_bytes` to optimize for those
                 // sizes.
-                let flex_uint = match num_encoded_bytes {
-                    1 => Self::read_n_bytes::<1>(input),
-                    2 => Self::read_n_bytes::<2>(input),
-                    3 => Self::read_n_bytes::<3>(input),
-                    4 => Self::read_n_bytes::<4>(input),
+                let mut buffer = [0u8; size_of::<u64>()];
+                match num_encoded_bytes {
+                    1 => Self::read_n_bytes::<1>(input, &mut buffer),
+                    2 => Self::read_n_bytes::<2>(input, &mut buffer),
+                    3 => Self::read_n_bytes::<3>(input, &mut buffer),
+                    4 => Self::read_n_bytes::<4>(input, &mut buffer),
+                    // If the number of encoded bytes isn't 1-4, fall back to the general-purpose
+                    // reading logic.
                     _ => break 'common_case,
                 };
+                let value = u64::from_le_bytes(buffer).wrapping_shr(num_encoded_bytes as u32);
+                let flex_uint = FlexUInt::new(num_encoded_bytes, value);
                 return Ok(flex_uint);
             }
         }
-        // Calling `read_flex_primitive_as_uint_no_inline` keeps this method small enough that
-        // the code for the common case can be inlined.
-        Self::read_flex_primitive_as_uint_no_inline(input, offset, "reading a FlexUInt", false)
+        // General-purpose FlexUInt reading logic. Checks for empty input and supports FlexUInts
+        // up to U64::MAX.
+        Self::read_flex_primitive_as_uint(input, offset, "reading a FlexUInt")
     }
 
     #[inline]
-    pub fn read_n_bytes<const NUM_BYTES: usize>(bytes: &[u8]) -> FlexUInt {
+    pub fn read_n_bytes<const NUM_BYTES: usize>(bytes: &[u8], buffer: &mut [u8; size_of::<u64>()]) {
         let input: [u8; NUM_BYTES] = *(bytes.first_chunk::<NUM_BYTES>().unwrap());
-        let mut buffer = [0u8; size_of::<u64>()];
         *buffer.first_chunk_mut::<NUM_BYTES>().unwrap() = input;
-        let value = u64::from_le_bytes(buffer)
-            .checked_shr(NUM_BYTES as u32)
-            .unwrap_or(0);
-        FlexUInt::new(NUM_BYTES, value)
     }
 
-    /// Helper method that reads a [`FlexUInt`] with 7 or fewer bytes of magnitude from the buffer.
-    // Caller must confirm that `bytes` has at least 8 bytes.
-    #[inline(never)]
-    fn read_small_flex_uint(bytes: &[u8]) -> FlexUInt {
-        debug_assert!(bytes.len() >= 8);
-        let num_encoded_bytes = bytes[0].trailing_zeros() as usize + 1;
-        let num_encoded_bits = 8 * num_encoded_bytes;
-        // Get a mask with the low 'n' bits set
-        // TODO: Should this be a const cache of num_encoded_bits -> mask?
-        let mask = 1u64
-            .checked_shl(num_encoded_bits as u32)
-            .map(|v| v - 1)
-            .unwrap_or(u64::MAX);
-        // Convert our longer-than-8-bytes slice to a fixed sized 8-byte array that we can convert
-        // to a u64 directly.
-        let fixed_size_input: [u8; 8] = bytes[..8].try_into().unwrap();
-        // This step will often read unrelated bytes from beyond the FlexUInt, but they are
-        // discarded in the shift operation that follows.
-        let encoded_value = u64::from_le_bytes(fixed_size_input);
-        // Note that `num_encoded_bytes` is also the number of continuation flags that we need
-        // to discard via right shifting.
-        let value = (encoded_value & mask) >> num_encoded_bytes;
-        FlexUInt::new(num_encoded_bytes, value)
-    }
-
-    #[inline(never)]
-    pub(crate) fn read_flex_primitive_as_uint_no_inline(
-        input: &[u8],
-        offset: usize,
-        label: &'static str,
-        support_sign_extension: bool,
-    ) -> IonResult<FlexUInt> {
-        Self::read_flex_primitive_as_uint(input, offset, label, support_sign_extension)
-    }
-
-    /// Helper method that reads a flex-encoded primitive from the buffer, returning it as a `FlexUInt`.
-    /// If an error occurs while reading, its description will include the supplied `label`.
-    ///
-    /// The current implementation supports flex primitives with up to 64 bits of representation
-    /// beyond the leading header bits. Flex primitives requiring 10 bytes to encode have 70 magnitude
-    /// bits. If this value is unsigned (`support_sign_extension=false`), the six bits beyond the
-    /// supported 64 must all be `0`. If this value will later be re-interpreted as a signed value,
-    /// (`support_sign_extension=true`), then the six bits beyond the supported 64 must all be the
-    /// same as the 64th (highest supported) bit. This will allow encodings of up to 70 bits
-    /// to be correctly interpreted as positive, negative, or beyond the bounds of the 64 bit
-    /// limitation.
     pub(crate) fn read_flex_primitive_as_uint(
         input: &[u8],
         offset: usize,
         label: &'static str,
-        support_sign_extension: bool,
     ) -> IonResult<FlexUInt> {
         // A closure that generates an incomplete data result at the current offset. This can be invoked
         // in a variety of early-return cases in this method.
@@ -146,147 +98,30 @@ impl FlexUInt {
             return incomplete();
         }
 
-        // The `from_le_bytes` method we use to interpret data requires at least 8 bytes to be available.
-        // There can be 1-2 bytes of header for a u64, leading to a maximum size of 10 bytes. If the input
-        // buffer doesn't have at least 10 bytes, copy its contents into a temporary buffer that's
-        // padded with 0 bytes. We round the size of the temp buffer to 16 as it produces slightly
-        // nicer assembly than 10.
-        let mut buffer = [0u8; 16];
-        let bytes = if bytes_available >= 10 {
-            input
-        } else {
-            buffer[0..bytes_available].copy_from_slice(input);
-            &buffer[..]
+        let num_encoded_bytes = match input[0] {
+            // If the first byte is zero, we're not done reading the length bits yet.
+            // Confirm that we have more than just one byte remaining in input.
+            0 if input.len() == 1 => return incomplete(),
+            // The number of trailing zeros in the second byte plus the 8 trailing
+            // zeros from the first byte.
+            0 => (input[1].trailing_zeros() as usize + 1) + 8,
+            // Otherwise, use the number of trailing zeros from the first byte.
+            first_byte => first_byte.trailing_zeros() as usize + 1,
         };
 
-        let first_byte = bytes[0];
-        // If the first byte is not zero, the FlexUInt is 7 or fewer bytes.
-        if first_byte != 0 {
-            let num_encoded_bytes = first_byte.trailing_zeros() as usize + 1;
-            // Note that `bytes_available` is the number of bytes in the original unpadded input.
-            // Our buffer may be 16 bytes long but only `bytes_available` of those are meaningful.
-            if bytes_available < num_encoded_bytes {
-                return incomplete();
-            }
-            // At this point, we know the original input contained all of the FlexUInt's bytes.
-            // We can call `read_small_flex_uint` with the now-padded version of the buffer.
-            // It will discard any bytes that are not part of the FlexUInt.
-            let flex_uint = Self::read_small_flex_uint(bytes);
-            return Ok(flex_uint);
+        if num_encoded_bytes > 10 {
+            return IonResult::decoding_error(
+                "maximum supported serialized FlexUInt size is 10 bytes",
+            );
         }
-
-        cold_path! {{
-            // If we reach this point, the first byte was a zero. The FlexUInt is at least 9 bytes in size.
-            // We need to inspect the second byte to see how many more prefix bits there are.
-            if bytes_available < 2 {
-                return incomplete();
-            }
-            let second_byte = bytes[1];
-
-            if second_byte & 0b11 == 0b00 {
-                // The flag bits in the second byte indicate at least two more bytes, meaning the total
-                // length is more than 10 bytes. We're not equipped to handle this.
-                return IonResult::decoding_error(
-                    "found a >10 byte Flex(U)Int too large to fit in 64 bits",
-                );
-            }
-
-            if second_byte & 0b11 == 0b10 {
-                // The lowest bit of the second byte is empty, the next lowest is not. The encoding
-                // is 10 bytes.
-
-                if bytes_available < 10 {
-                    return incomplete();
-                }
-
-                let flex_uint = Self::read_10_byte_flex_primitive_as_uint(
-                    support_sign_extension,
-                    bytes,
-                    second_byte,
-                )?;
-                return Ok(flex_uint);
-            }
-
-            // The lowest bit of the second byte is set. The encoding is 9 bytes.
-            if bytes_available < 9 {
-                return incomplete();
-            }
-            // There are 57-63 bits of magnitude. We can decode the remaining bytes in a u64.
-            let remaining_data = &bytes[1..9];
-            // We know that the slice is 8 bytes long, so we can unwrap() the conversion to [u8; 8]
-            // Lop off the lowest bit to discard the `end` flag.
-            let value = u64::from_le_bytes(remaining_data[..8].try_into().unwrap()) >> 1;
-            let flex_uint = FlexUInt::new(9, value);
-            Ok(flex_uint)
-        }}
-    }
-
-    /// Helper method to handle flex primitives whose encoding requires 10 bytes. This case is
-    /// complex because it requires evaluating data beyond the supported 64 bits of representation
-    /// to detect overflow and support signed re-interpretation.
-    fn read_10_byte_flex_primitive_as_uint(
-        support_sign_extension: bool,
-        input: &[u8],
-        second_byte: u8,
-    ) -> IonResult<FlexUInt> {
-        // There are 10 prefix (continuation) bits, 64 bits of magnitude, and 6 bits of sign
-        // extension (if enabled). We cannot store the highest 6 bits, so this method just checks
-        // to make sure that they do not modify the meaning of the value in the lower 64 bits.
-        // For signed values, this means the 6 extra bits must all be the same as the 64th bit.
-        // For unsigned values, this means that the 6 extra bits must all be `0`.
-        //
-        // Little Endian byte diagram:
-        //
-        //      b0       b1       b2       b3
-        //   PPPPPPPP MMMMMMPP MMMMMMMM MMMMMMMM
-        //      b4       b5       b6       b7
-        //   MMMMMMMM MMMMMMMM MMMMMMMM MMMMMMMM
-        //      b8       b9
-        //   MMMMMMMM XXXXXXMM
-        //
-        // P = Prefix bit
-        // M = Magnitude bit
-        // X = An 'extra' bit; if `support_sign_extension` is true, these are sign bits.
-
-        // We've already processed the first byte, and we've looked at the lowest two bits of
-        // the second byte. Isolate the highest six bits of the second byte (b1) which represent
-        // the lowest six bits of the magnitude.
-        let magnitude_low_six = second_byte >> 2;
-        // Load the remaining 8 bytes into a u64 that we can easily shift/mask.
-        let remaining_data = &input[2..10];
-        // We know the slice is 8 bytes long, so we can `unwrap()` the conversion to [u8; 8]
-        let remaining_magnitude = u64::from_le_bytes(remaining_data.try_into().unwrap());
-
-        let sign_extension_bits = (remaining_magnitude & (0b111111 << 58)) >> 58;
-        if support_sign_extension {
-            // Something downstream intends to use this as a signed value; we need to make sure
-            // that bits 65-70 match bit 64. `remaining_magnitude` is storing 58 bits of data,
-            // so bit 64 of the value (bit index=63) is bit 58 (bit index=57) in `remaining_magnitude`.
-            let high_bit_is_set = remaining_magnitude & (1 << 57) != 0;
-            if (high_bit_is_set && sign_extension_bits != 0b111111)
-                || (!high_bit_is_set && sign_extension_bits != 0)
-            {
-                // If the sign extension bits don't agree with the top bit, this value required
-                // more than 64 bits to encode.
-                return IonResult::decoding_error(
-                    "found a 10-byte FlexInt too large to fit in a i64",
-                );
-            }
-        } else {
-            // This is an unsigned value; if any of the highest six bits are set, then this
-            // value is beyond the magnitude we can store in a u64.
-            if sign_extension_bits != 0 {
-                return IonResult::decoding_error(
-                    "found a 10-byte FlexUInt too large to fit in a u64",
-                );
-            }
+        if num_encoded_bytes > input.len() {
+            return incomplete();
         }
-
-        // Shift the magnitude from the last 8 bytes over and combine it with the six bits we
-        // carried over from the second byte.
-        let value = (remaining_magnitude << 6) | magnitude_low_six as u64;
-        let flex_uint = FlexUInt::new(10, value);
-        Ok(flex_uint)
+        let mut buffer = [0u8; size_of::<u128>()];
+        (&mut buffer[..num_encoded_bytes]).copy_from_slice(&input[..num_encoded_bytes]);
+        let big_value = u128::from_le_bytes(buffer).wrapping_shr(num_encoded_bytes as u32);
+        let value = big_value as u64;
+        Ok(FlexUInt::new(num_encoded_bytes, value))
     }
 
     #[inline]
@@ -310,7 +145,7 @@ impl FlexUInt {
     // can be encoded entirely within a u128, which offers native shifting and masking operations.
     // FlexUInts are used to represent symbol/macro table addresses and byte lengths, so 112 bits of
     // magnitude should be sufficient for all but the most extreme use cases.
-    const MAX_FLEX_UINT_ENCODED_SIZE_IN_BYTES: usize = mem::size_of::<u128>();
+    const MAX_FLEX_UINT_ENCODED_SIZE_IN_BYTES: usize = size_of::<u128>();
 
     #[inline]
     pub fn write<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<usize> {

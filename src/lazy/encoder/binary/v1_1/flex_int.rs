@@ -48,8 +48,7 @@ impl FlexInt {
     pub fn read(input: &[u8], offset: usize) -> IonResult<FlexInt> {
         // A FlexInt has the same structure as a FlexUInt. We can read a FlexUInt and then re-interpret
         // its unsigned bytes as two's complement bytes.
-        let flex_uint =
-            FlexUInt::read_flex_primitive_as_uint(input, offset, "reading a FlexInt", true)?;
+        let flex_uint = FlexUInt::read_flex_primitive_as_uint(input, offset, "reading a FlexInt")?;
         let unsigned_value = flex_uint.value();
 
         // If the encoded FlexInt required `N` bytes to encode where `N` is fewer than 8, then its
