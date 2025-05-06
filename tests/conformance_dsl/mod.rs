@@ -557,4 +557,19 @@ mod tests {
             Ok(_) => panic!("Unexpected successful test evaluation"),
         }
     }
+
+    #[test]
+    fn test_exp_group() {
+        let test = r#"
+            (ion_1_1
+                (toplevel ('#$:values' ('#$:' 0 1 2)))
+                (produces 0 1 2)
+            )"#;
+        println!("Testing: {}", test);
+        let doc = Document::from_str(test)
+            .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e));
+        println!("Document: {:?}", doc);
+        doc.run()
+            .unwrap_or_else(|e| panic!("Test failed for exp group expansion:\n{:?}", e));
+    }
 }
