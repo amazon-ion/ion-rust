@@ -1063,6 +1063,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
+    // We avoid inlining this to make it easier to inline `read_resolved` above.
     #[inline(never)]
     fn read_resolved_singleton_eexp(
         &self,
