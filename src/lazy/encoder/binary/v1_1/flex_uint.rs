@@ -118,7 +118,7 @@ impl FlexUInt {
             return incomplete();
         }
         let mut buffer = [0u8; size_of::<u128>()];
-        (&mut buffer[..num_encoded_bytes]).copy_from_slice(&input[..num_encoded_bytes]);
+        buffer[..num_encoded_bytes].copy_from_slice(&input[..num_encoded_bytes]);
         let big_value = u128::from_le_bytes(buffer).wrapping_shr(num_encoded_bytes as u32);
         let value = big_value as u64;
         Ok(FlexUInt::new(num_encoded_bytes, value))
