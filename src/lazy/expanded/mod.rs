@@ -1068,9 +1068,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         &self,
         eexp: &EExpression<'top, Encoding>,
     ) -> IonResult<ValueRef<'top, Encoding>> {
-        // let new_expansion = MacroExpr::from_eexp(*eexp).expand()?;
         eexp.expand()?.expand_singleton()?.read_resolved()
-        // lazy_value.read_resolved()
     }
 
     pub fn context(&self) -> EncodingContextRef<'top> {
