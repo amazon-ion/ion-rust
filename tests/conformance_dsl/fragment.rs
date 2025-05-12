@@ -441,7 +441,7 @@ impl FragmentImpl for TopLevel {
         let serialized = v1_1::Text::encode_all(self.elems.as_slice())?;
         // ...then read the data, constructing a macro table in the Reader...
         let mut reader = Reader::new(AnyEncoding, serialized)?;
-        while let Some(_) = reader.next()? {}
+        while reader.next()?.is_some() {}
         let macro_table = reader.macro_table();
         if ctx.version() == IonVersion::V1_1 {
             // For each macro in the Reader...
