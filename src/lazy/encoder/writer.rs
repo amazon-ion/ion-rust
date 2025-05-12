@@ -32,6 +32,8 @@ use crate::{
     TemplateCompiler, TemplateMacro, Timestamp, UInt, Value,
 };
 
+/// A thin wrapper around a `SymbolTable` that tracks the number of symbols whose definition has
+/// not yet been written to output.
 pub(crate) struct WriterSymbolTable {
     symbols: SymbolTable,
     num_pending: usize,
@@ -72,6 +74,8 @@ impl Deref for WriterSymbolTable {
     }
 }
 
+/// A thin wrapper around a `MacroTable` that tracks the number of macros whose definition has
+/// not yet been written to output.
 pub(crate) struct WriterMacroTable {
     macros: MacroTable,
     num_pending: usize,
@@ -119,25 +123,6 @@ impl Deref for WriterMacroTable {
         &self.macros
     }
 }
-// pub(crate) struct WriterContext {
-//     symbol_table: SymbolTable,
-//     // This will be used when we add 'managed' macro methods to the writer
-//     #[allow(dead_code)]
-//     macro_table: MacroTable,
-//     num_pending_symbols: usize,
-//     num_pending_macros: usize,
-// }
-
-// impl WriterContext {
-//     pub fn new(symbol_table: SymbolTable, macro_table: MacroTable) -> Self {
-//         Self {
-//             symbol_table,
-//             macro_table,
-//             num_pending_symbols: 0,
-//             num_pending_macros: 0,
-//         }
-//     }
-// }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
 #[cfg_attr(feature = "experimental-reader-writer", visibility::make(pub))]
