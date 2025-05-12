@@ -22,7 +22,7 @@
 
 use super::context::Context;
 use super::*;
-use ion_rs::{ion_seq, Encoding, WriteConfig};
+use ion_rs::{ion_seq, v1_1, AnyEncoding, Encoding, Reader, WriteConfig};
 use ion_rs::{Element, SExp, Sequence, Struct, Symbol};
 use ion_rs::{RawSymbolRef, SequenceWriter, StructWriter, ValueWriter, WriteAsIon, Writer};
 
@@ -392,7 +392,7 @@ impl WriteAsIon for ProxyElement<'_> {
     }
 }
 
-/// Implments the TopLevel fragment.
+/// Implements the TopLevel fragment.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TopLevel {
     elems: Vec<Element>,
@@ -408,18 +408,51 @@ impl FragmentImpl for TopLevel {
         let mut buffer = Vec::with_capacity(1024);
         let mut writer = Writer::new(config, buffer)?;
 
-        for elem in self.elems.as_slice() {
-            writer.write(ProxyElement(elem, ctx))?;
-        }
+        self.write(ctx, &mut writer)?;
+
         buffer = writer.close()?;
         Ok(buffer)
     }
 
-    fn write<E: ion_rs::Encoding, O: std::io::Write>(
+    fn write<E: Encoding, O: std::io::Write>(
         &self,
         ctx: &Context,
-        writer: &mut ion_rs::Writer<E, O>,
+        writer: &mut Writer<E, O>,
     ) -> InnerResult<()> {
+        // The Writer is asked to serialize Elements that represent system values.
+        // In many cases, it will emit a macro table containing macros that are not in its own
+        // encoding context. For example, this snippet:
+        //
+        //     (mactab (macro m (v!) v))
+        //
+        // will emit a system value that the reader will understand defines macro `m`.
+        // However, the writer emitting the system value does not have macro `m` in its own
+        // encoding context. If the test later invokes `m` like this:
+        //
+        //     (toplevel ('#$:m' 5))
+        //
+        // the Writer will raise an error reporting that the test is trying to invoke a
+        // non-existent macro.
+        //
+        // As a workaround, when serializing top-level Elements, the writer does an initial
+        // serialization pass to load any necessary encoding context changes.
+        //
+        // Serialize the data once...
+        let serialized = v1_1::Text::encode_all(self.elems.as_slice())?;
+        // ...then read the data, constructing a macro table in the Reader...
+        let mut reader = Reader::new(AnyEncoding, serialized)?;
+        while reader.next()?.is_some() {}
+        let macro_table = reader.macro_table();
+        if ctx.version() == IonVersion::V1_1 {
+            // For each macro in the Reader...
+            for mac in macro_table.iter() {
+                // ...try to register the macro in the Writer. For simplicity, we skip over
+                // system macros that are already defined.
+                let _result = writer.register_macro(&mac);
+            }
+        }
+
+        // Now that the Writer has the necessary context, it can encode the ProxyElements.
         for elem in self.elems.as_slice() {
             writer.write(ProxyElement(elem, ctx))?;
         }

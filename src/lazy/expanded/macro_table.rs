@@ -426,7 +426,7 @@ pub struct Macro {
 }
 
 impl Macro {
-    pub fn new(definition: Arc<MacroDef>, address: MacroAddress) -> Self {
+    pub(crate) fn new(definition: Arc<MacroDef>, address: MacroAddress) -> Self {
         Self {
             definition,
             address,
@@ -447,6 +447,10 @@ impl Macro {
 
     pub fn signature(&self) -> &MacroSignature {
         self.definition.signature()
+    }
+
+    pub(crate) fn definition(&self) -> &Arc<MacroDef> {
+        &self.definition
     }
 }
 
@@ -850,6 +854,13 @@ impl MacroTable {
     pub(crate) fn macros_tail(&self, num_tail_macros: usize) -> &[Arc<MacroDef>] {
         let num_macros = self.macros_by_address.len();
         &self.macros_by_address[num_macros - num_tail_macros..]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Macro> + '_ {
+        self.macros_by_address
+            .iter()
+            .enumerate()
+            .map(|(index, macro_def)| Macro::new(Arc::clone(macro_def), index))
     }
 }
 

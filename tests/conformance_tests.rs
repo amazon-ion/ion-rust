@@ -94,6 +94,10 @@ mod ion_tests {
         skip!("ion-tests/conformance/system_macros/add_macros.ion"),
         skip!("ion-tests/conformance/ion_literal.ion"),
         skip!("ion-tests/conformance/system_symbols.ion"),
+        // Uses testing DSL syntax that may not be legal? This test file is removed in the latest ion-tests.
+        skip!(
+            "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion"
+        ),
         // Error: found operation name with non-symbol type: sexp
         skip!("ion-tests/conformance/ion_encoding/module/load_symtab.ion"),
         skip!("ion-tests/conformance/ion_encoding/module/symtab.ion"),

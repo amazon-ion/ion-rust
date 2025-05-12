@@ -168,6 +168,7 @@ pub(crate) mod system_macros {
 
 /// An identifier that has been resolved/validated in the `MacroTable`.
 /// When writing an e-expression, a `MacroIdRef<'_>` will be turned into a `ResolvedId`.
+#[derive(Clone, Copy)]
 pub struct ResolvedId<'a> {
     name: Option<&'a str>,
     address: MacroAddress,
@@ -189,7 +190,7 @@ impl<'a> ResolvedId<'a> {
 
 /// Types that may be able to be resolved to a macro ID.
 /// This is used by the writer to accept user-specified types to an ID based on the current encoding context.
-pub trait MacroIdLike<'a>: Sized {
+pub trait MacroIdLike<'a>: Sized + Copy {
     fn as_macro_id_ref(&self) -> MacroIdRef<'a>;
 
     fn prefer_name(&self) -> MacroIdRef<'a> {

@@ -189,6 +189,10 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         self.expanding_reader.context().symbol_table()
     }
 
+    pub fn macro_table(&self) -> &MacroTable {
+        self.expanding_reader.context().macro_table()
+    }
+
     pub fn pending_context_changes(&self) -> &PendingContextChanges {
         self.expanding_reader.pending_context_changes()
     }
