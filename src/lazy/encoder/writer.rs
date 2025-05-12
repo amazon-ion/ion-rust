@@ -86,8 +86,16 @@ impl WriterMacroTable {
     }
 
     pub fn add_template_macro(&mut self, template_macro: TemplateMacro) -> IonResult<usize> {
+        let address = self.macros.add_template_macro(template_macro)?;
         self.num_pending += 1;
-        self.macros.add_template_macro(template_macro)
+        Ok(address)
+    }
+
+    pub(crate) fn add_macro(&mut self, macro_ref: &Arc<MacroDef>) -> IonResult<usize> {
+        let address = self.macros.len();
+        self.macros.append_macro(macro_ref)?;
+        self.num_pending += 1;
+        Ok(address)
     }
 
     pub fn reset_num_pending(&mut self) {
@@ -200,6 +208,13 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             .expect("macro freshly placed at address is missing");
         let macro_handle = Macro::new(macro_def, address);
         Ok(macro_handle)
+    }
+
+    /// Register a previously compiled `Macro` for use in this `Writer`.
+    pub fn register_macro(&mut self, macro_: &Macro) -> IonResult<Macro> {
+        let address = self.macros.add_macro(macro_.definition())?;
+        let macro_def = Arc::clone(macro_.definition());
+        Ok(Macro::new(macro_def, address))
     }
 
     /// Gets a macro with the provided ID from the default module.
@@ -706,12 +721,21 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         ))
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
+    where
+        Self: 'a,
+    {
+        let resolved_id = macro_id.resolve(self.macros)?;
+        let macro_ref = self
+            .macros
+            .macro_at_address(resolved_id.address())
+            .expect("just resolved");
         Ok(ApplicationEExpWriter::new(
             self.symbols,
             self.macros,
             self.value_writer_config,
             self.raw_value_writer.eexp_writer(macro_id)?,
+            macro_ref.reference(),
         ))
     }
 }
@@ -934,6 +958,9 @@ pub struct ApplicationEExpWriter<'value, V: ValueWriter> {
     macros: &'value WriterMacroTable,
     raw_eexp_writer: V::EExpWriter,
     value_writer_config: ValueWriterConfig,
+    // TODO: these are now available but not yet used.
+    _invoked_macro: &'value MacroDef,
+    _param_index: usize,
 }
 
 impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
@@ -942,12 +969,15 @@ impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
         macros: &'value WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_eexp_writer: V::EExpWriter,
+        _invoked_macro: &'value MacroDef,
     ) -> Self {
         Self {
             symbols,
             macros,
             value_writer_config,
             raw_eexp_writer,
+            _invoked_macro,
+            _param_index: 0,
         }
     }
 }
