@@ -519,9 +519,7 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                     // If the macro is guaranteed to expand to exactly one value, we can evaluate it
                     // in place.
                     let new_expansion = try_or_some_err!(invocation.expand());
-                    if invocation
-                        .expansion_analysis()
-                        .must_produce_exactly_one_value()
+                    if invocation.is_singleton()
                     {
                         Some(new_expansion.expand_singleton())
                     } else {
@@ -566,6 +564,7 @@ impl<'top, D: Decoder> TemplateStructFieldExprIterator<'top, D> {
 impl<'top, D: Decoder> Iterator for TemplateStructFieldExprIterator<'top, D> {
     type Item = IonResult<FieldExpr<'top, D>>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let name_expr_address = self.index;
         let name_element = self
@@ -653,7 +652,7 @@ pub struct TemplateBodyExpr {
 }
 
 impl Debug for TemplateBodyExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "tdl_expr=")?;
         match &self.kind {
             TemplateBodyExprKind::Element(e) => write!(f, "{e:?}"),
@@ -764,7 +763,7 @@ pub enum TemplateBodyExprKind {
     Variable(TemplateBodyVariableReference),
     /// A macro invocation that needs to be expanded.
     MacroInvocation(TemplateBodyMacroInvocation),
-    /// An expression group. In TDL, expression groups (syntax: `(; ...)`) can only appear in macro
+    /// An expression group. In TDL, expression groups (syntax: `(.. /* exprs */)`) can only appear in macro
     /// argument position. However, the compiler reserves the right to insert them as an optimization
     /// when the resulting behavior would be equivalent. For example, substituting an invocation of
     /// `values` with the equivalent expression group avoids a stack frame during macro evaluation
@@ -1131,11 +1130,11 @@ impl<'top, D: Decoder> TemplateExprGroup<'top, D> {
 
 impl<D: Decoder> Debug for TemplateExprGroup<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "<param={}:", self.parameter().name())?;
+        write!(f, "(.. /*expr group for param={}*/", self.parameter().name())?;
         for expr in self.arg_expressions() {
-            write!(f, " {:?}", expr)?;
+            write!(f, "\n {:?}", expr)?;
         }
-        write!(f, ">",)
+        write!(f, "\n)",)
     }
 }
 
@@ -1153,10 +1152,10 @@ pub struct TemplateMacroInvocation<'top, D: Decoder> {
 }
 
 impl<D: Decoder> Debug for TemplateMacroInvocation<'_, D> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "({}",
+            "(.{}",
             self.invoked_macro().name().unwrap_or("<anonymous>")
         )?;
         for expr in self.arg_expressions() {

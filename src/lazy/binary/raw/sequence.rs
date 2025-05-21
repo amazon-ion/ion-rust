@@ -18,7 +18,7 @@ pub struct LazyRawBinaryList_1_0<'top> {
 }
 
 impl<'top> LazyRawBinaryList_1_0<'top> {
-    pub fn as_value(&self) -> LazyRawBinaryValue_1_0<'top> {
+    pub fn as_value(&self) -> &'top LazyRawBinaryValue_1_0<'top> {
         self.sequence.value
     }
 }
@@ -29,7 +29,7 @@ pub struct LazyRawBinarySExp_1_0<'top> {
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinaryList_1_0<'top> {
-    fn from_value(value: LazyRawBinaryValue_1_0<'top>) -> Self {
+    fn from_value(value: &'top LazyRawBinaryValue_1_0<'top>) -> Self {
         LazyRawBinaryList_1_0 {
             sequence: LazyRawBinarySequence_1_0 { value },
         }
@@ -59,7 +59,7 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_0> for LazyRawBinaryList_1_0<'
 }
 
 impl<'top> LazyContainerPrivate<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_1_0<'top> {
-    fn from_value(value: LazyRawBinaryValue_1_0<'top>) -> Self {
+    fn from_value(value: &'top LazyRawBinaryValue_1_0<'top>) -> Self {
         LazyRawBinarySExp_1_0 {
             sequence: LazyRawBinarySequence_1_0 { value },
         }
@@ -90,7 +90,7 @@ impl<'top> LazyRawSequence<'top, BinaryEncoding_1_0> for LazyRawBinarySExp_1_0<'
 
 #[derive(Copy, Clone)]
 pub struct LazyRawBinarySequence_1_0<'top> {
-    pub(crate) value: LazyRawBinaryValue_1_0<'top>,
+    pub(crate) value: &'top LazyRawBinaryValue_1_0<'top>,
 }
 
 impl<'top> LazyRawBinarySequence_1_0<'top> {

@@ -48,8 +48,7 @@ impl FlexInt {
     pub fn read(input: &[u8], offset: usize) -> IonResult<FlexInt> {
         // A FlexInt has the same structure as a FlexUInt. We can read a FlexUInt and then re-interpret
         // its unsigned bytes as two's complement bytes.
-        let flex_uint =
-            FlexUInt::read_flex_primitive_as_uint(input, offset, "reading a FlexInt", true)?;
+        let flex_uint = FlexUInt::read_flex_primitive_as_uint(input, offset, "reading a FlexInt")?;
         let unsigned_value = flex_uint.value();
 
         // If the encoded FlexInt required `N` bytes to encode where `N` is fewer than 8, then its
@@ -169,7 +168,7 @@ impl FlexInt {
 mod tests {
     use crate::lazy::binary::binary_buffer::BinaryBuffer;
     use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
-    use crate::{IonError, IonResult};
+    use crate::{EncodingContext, IonError, IonResult, IonVersion};
     const FLEX_INT_TEST_CASES: &[(i64, &[u8])] = &[
         (0i64, &[0b00000001u8]),
         (1, &[0b00000011]),
@@ -331,8 +330,10 @@ mod tests {
 
     #[test]
     fn decode_flex_int() -> IonResult<()> {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
         for (expected_value, encoding) in FLEX_INT_TEST_CASES {
-            let (flex_int, _remaining) = BinaryBuffer::new(encoding).read_flex_int()?;
+            let (flex_int, _remaining) =
+                BinaryBuffer::new(context.get_ref(), encoding).read_flex_int()?;
             let actual_value = flex_int.value();
             assert_eq!(actual_value, *expected_value, "actual value {actual_value} was != expected value {expected_value} for encoding {encoding:x?}")
         }
@@ -352,11 +353,13 @@ mod tests {
 
     #[test]
     fn detect_incomplete_flex_int() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
         for (_value, expected_encoding) in FLEX_INT_TEST_CASES {
             // Exhaustively check incomplete input detection by trying to read all prefixes of a test
             // value's complete encoding.
             for end in 0..expected_encoding.len() - 1 {
-                let partial_encoding = BinaryBuffer::new(&expected_encoding[..end]);
+                let partial_encoding =
+                    BinaryBuffer::new(context.get_ref(), &expected_encoding[..end]);
                 assert!(matches!(
                     partial_encoding.read_flex_int(),
                     Err(IonError::Incomplete(_))

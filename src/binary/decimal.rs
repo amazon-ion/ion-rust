@@ -7,7 +7,7 @@ use arrayvec::ArrayVec;
 use crate::binary::int::DecodedInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::decimal::coefficient::Coefficient;
+use crate::decimal::coefficient::Sign;
 use crate::ion_data::IonEq;
 use crate::result::{IonFailure, IonResult};
 use crate::{Decimal, Int, IonError};
@@ -16,7 +16,8 @@ const MAX_INLINE_LENGTH: usize = 13;
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
-    coefficient: Coefficient::ZERO,
+    coefficient_value: Int::ZERO,
+    coefficient_sign: Sign::Positive,
     exponent: 0,
 };
 
@@ -50,7 +51,7 @@ where
 
         bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
-        match decimal.coefficient.as_int() {
+        match decimal.coefficient().as_int() {
             Some(int) if int == Int::ZERO => {
                 // From the spec: "The subfield should not be present (that is, it
                 // has zero length) when the coefficient’s value is (positive)

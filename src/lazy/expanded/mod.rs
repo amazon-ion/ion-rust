@@ -46,7 +46,7 @@ use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression};
 use crate::lazy::expanded::macro_table::{MacroDef, MacroTable};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
@@ -933,7 +933,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
 
         Some(Self {
-            context: eexp.context,
+            context: eexp.context(),
             source: ExpandedValueSource::SingletonEExp(eexp),
             variable: None,
         })
@@ -1063,13 +1063,13 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
+    // We avoid inlining this to make it easier to inline `read_resolved` above.
     #[inline(never)]
     fn read_resolved_singleton_eexp(
         &self,
         eexp: &EExpression<'top, Encoding>,
     ) -> IonResult<ValueRef<'top, Encoding>> {
-        let new_expansion = MacroExpr::from_eexp(*eexp).expand()?;
-        new_expansion.expand_singleton()?.read_resolved()
+        eexp.expand()?.expand_singleton()?.read_resolved()
     }
 
     pub fn context(&self) -> EncodingContextRef<'top> {

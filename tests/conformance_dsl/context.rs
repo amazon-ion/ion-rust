@@ -254,6 +254,7 @@ impl<'a> Context<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ion_rs::IonData;
 
     #[test]
     // Test to ensure that when we render fragments, we don't insert new IVMs breaking the context
@@ -274,11 +275,11 @@ mod tests {
             .input(IonEncoding::Text)
             .expect("failed to render fragments");
 
-        let fragments_str = String::from_utf8(bytes).expect("Invalid input string generated");
-        assert_eq!(
-            fragments_str,
-            "$ion_1_1 $ion::(module _ (macro_table _ (macro m (v '!' ) ('%' v ) ) ) ) (:m 1)"
-                .to_string(),
-        );
+        let expected_sequence = Element::read_all(
+            "$ion_1_1 $ion::(module _ (macro_table (macro m (v '!' ) ('%' v ) ) ) ) (:m 1)",
+        )
+        .expect("valid Ion");
+        let actual_sequence = Element::read_all(bytes).expect("Writer must generate valid Ion.");
+        assert!(IonData::from(expected_sequence).eq(&IonData::from(actual_sequence)))
     }
 }

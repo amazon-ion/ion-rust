@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::mem;
 
 use crate::result::{IonFailure, IonResult};
 use crate::{Int, IonError, UInt};
@@ -18,20 +17,36 @@ impl DecodedUInt {
     /// If the length of `uint_bytes` is greater than the size of a `u128`, returns `Err`.
     #[inline]
     pub(crate) fn uint_from_slice(uint_bytes: &[u8]) -> IonResult<u128> {
-        if uint_bytes.len() > mem::size_of::<u128>() {
-            return IonResult::decoding_error(
+        const MAX_BYTES: usize = size_of::<u128>();
+        // The `uint_from_slice_unchecked` method will work for a uint of any size up to and including
+        // 16 bytes. However, because the slice is of an unknown length, the `memcpy` performed by
+        // that method does not get inlined by the compiler. Here we check for some common int sizes
+        // and construct the int manually to allow the hot path to be inlined.
+        match uint_bytes.len() {
+            // If the slice is empty, it's a zero.
+            0 => Ok(0u128),
+            // If the slice has 1-3 bytes, perform the conversion manually to avoid the `memcpy`
+            // call made by the general-purpose conversion logic.
+            // The aim is to allow the most common cases to be inlined by the caller. If we try
+            // to special case too many integer sizes, then code generated for `uint_from_slice`
+            // itself gets too large, and neither `uint_from_slice` nor `memcpy` get inlined.
+            1 => Ok(uint_bytes[0] as u128),
+            2 => Ok(u16::from_le_bytes([uint_bytes[1], uint_bytes[0]]) as u128),
+            3 => Ok(u32::from_le_bytes([uint_bytes[2], uint_bytes[1], uint_bytes[0], 0u8]) as u128),
+            // General-purpose conversion from bytes to u128.
+            4..=MAX_BYTES => Ok(Self::uint_from_slice_unchecked(uint_bytes)),
+            // Oversized
+            _ => IonResult::decoding_error(
                 "integer size is currently limited to the range of an i128",
-            );
+            ),
         }
-
-        Ok(Self::uint_from_slice_unchecked(uint_bytes))
     }
 
     /// Interprets all of the bytes in the provided slice as big-endian unsigned integer bytes.
     /// Panics if the length of `uint_bytes` is greater than the size of a `u128`.
     #[inline]
     pub(crate) fn uint_from_slice_unchecked(uint_bytes: &[u8]) -> u128 {
-        const BUFFER_SIZE: usize = mem::size_of::<u128>();
+        const BUFFER_SIZE: usize = size_of::<u128>();
         let mut buffer = [0u8; BUFFER_SIZE];
         // Copy the big-endian bytes into the end of the buffer
         buffer[BUFFER_SIZE - uint_bytes.len()..].copy_from_slice(uint_bytes);
@@ -76,11 +91,11 @@ impl TryFrom<DecodedUInt> for Int {
 /// A buffer for storing a UInt's Big Endian bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UIntBeBytes {
-    bytes: [u8; mem::size_of::<u128>()],
+    bytes: [u8; size_of::<u128>()],
 }
 
 impl UIntBeBytes {
-    pub fn new(bytes: [u8; mem::size_of::<u128>()]) -> Self {
+    pub fn new(bytes: [u8; size_of::<u128>()]) -> Self {
         Self { bytes }
     }
 }

@@ -242,14 +242,22 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     }
 
     pub fn location(&self) -> SourceLocation {
-        let context = self.expanded_value.context();
-        // set the value start and end positions, this help in location calculation
-        context
-            .location_for_span(self.expanded_value.span())
-            .unwrap_or_default()
+        if let Some(raw) = self.raw() {
+            if raw.encoding().is_text() {
+                self.expanded_value
+                    .context()
+                    .location_for_span(self.expanded_value.span())
+                    .unwrap_or_default()
+            } else {
+                // No row/column for binary Ion
+                SourceLocation::empty()
+            }
+        } else {
+            SourceLocation::empty()
+        }
     }
 
-    pub fn to_owned(&self) -> LazyElement<D> {
+    pub fn to_owned(self) -> LazyElement<D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
         let context = self.context().context.clone();
@@ -473,13 +481,15 @@ impl<'top, D: Decoder> TryFrom<AnnotationsIterator<'top, D>> for Annotations {
 mod tests {
     use num_traits::Float;
     use rstest::*;
+    use std::io;
+    use std::io::{Cursor, Read};
 
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::location::SourceLocation;
     use crate::{
-        ion_list, ion_sexp, ion_struct, v1_0, Decimal, Encoding, IonResult, IonType, LazyValue,
-        Reader, Symbol, Timestamp,
+        ion_list, ion_sexp, ion_struct, v1_0, AnyEncoding, Decimal, Decoder, IonResult, IonType,
+        LazyValue, Reader, Symbol, Timestamp,
     };
     use crate::{Element, IntoAnnotatedElement};
 
@@ -586,97 +596,22 @@ mod tests {
     }
 
     #[rstest]
-    #[case::no_crlf("{foo: 1, bar: 2}\"hello\"", (1,17))]
-    #[case::cr_lf_lf("{foo: 1, bar: 2}\r\n\n\"hello\"", (3,1))]
-    #[case::lf_lf_cr("{foo: 1, bar: 2}\n\n\r\"hello\"", (4,1))]
-    #[case::cr_lf_cr("{foo: 1, bar: 2}\r\n\r\"hello\"", (3,1))]
-    #[case::cr_cr_cr("{foo: 1, bar: 2}\r\r\r\"hello\"", (4,1))]
-    #[case::cr_cr_lf("{foo: 1, bar: 2}\r\r\n\"hello\"", (3,1))]
-    #[case::lf_cr_cr("{foo: 1, bar: 2}\n\r\r\"hello\"", (4,1))]
-    #[case::lf_cr_lf("{foo: 1, bar: 2}\n\r\n\"hello\"", (3,1))]
-    #[case::lf_lf_lf("{foo: 1, bar: 2}\n\n\n\"hello\"", (4,1))]
-    #[case::newlines_after("{foo: 1, bar: 2}\"hello\"\n\n", (1, 17))]
-    #[case::tabs("{foo: 1, bar: 2}\n\t\t\t\"hello\"", (2,4))]
-    #[case::tabs_after("{foo: 1, bar: 2}\"hello\"\t\t", (1,17))]
-    #[case::mix_tabs_and_newlines("{foo: 1, bar: 2}\n\t\n\"hello\"", (3,1))]
-    #[case::long_string("{foo: 1, bar: 2}\n\n'''long \n\r\n\t hello'''", (3, 1))]
-    #[case::comment("{foo: 1, bar: 2}\n\n /*multiline \n comment*/'''long \n\r\n\t hello'''", (4, 11))]
-    #[case::on_same_line_as_preceding_multiline_value("{\n  foo: 1,\n  bar: 2\n}\"hello\"", (4, 2))]
-    fn location_test_for_second_tlv(
-        #[case] ion_text: &str,
-        #[case] expected_location: (usize, usize),
-    ) -> IonResult<()> {
-        let mut reader = Reader::new(v1_0::Text, ion_text)?;
-        let result1 = reader.expect_next();
-
-        let expected_source_location =
-            SourceLocation::new(expected_location.0, expected_location.1);
-        assert!(result1.is_ok());
-        if let Ok(lazy_value1) = result1 {
-            let _val = lazy_value1.read();
-            // first tlv will always be (1,1) per the examples here
-            assert_eq!(lazy_value1.location(), SourceLocation::new(1, 1));
-        }
-        let result2 = reader.expect_next();
-        assert!(result2.is_ok());
-        if let Ok(lazy_value2) = result2 {
-            let _val = lazy_value2.read();
-            assert_eq!(lazy_value2.location(), expected_source_location);
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::no_crlf(vec!["{foo: 1, bar: 2}","\"hello\""], (1,17))]
-    #[case::cr_lf_lf(vec!["{foo: 1, ", "bar: 2}\r\n\n\"hello\""], (3,1))]
-    #[case::lf_lf_cr(vec!["{foo: 1, bar: 2}","\n\n\r\"hello\""], (4,1))]
-    #[case::cr_lf_cr(vec!["{foo: 1, bar: 2}\r\n\r","\"hello\""], (3,1))]
-    #[case::cr_cr_cr(vec!["{foo: 1, bar: 2}\r\r\r","\"hello\""], (4,1))]
-    #[case::cr_cr_lf(vec!["{foo: 1, bar: 2}\r\r\n\"he","llo\""], (3,1))]
-    #[case::lf_cr_cr(vec!["{foo: 1, bar: 2}\n\r\r\"hello\""], (4,1))]
-    #[case::lf_cr_lf(vec!["{foo: 1, bar: 2}\n\r\n\"hello\""], (3,1))]
-    #[case::lf_lf_lf(vec!["{foo: 1, bar: 2}\n\n\n\"hello\""], (4,1))]
-    #[case::newlines_after(vec!["{foo: 1, bar: 2}\"hello\"\n\n"], (1, 17))]
-    #[case::tabs(vec!["{foo: 1, bar: 2}\n\t\t\t\"hello\""], (2,4))]
-    #[case::tabs_after(vec!["{foo: 1, bar: 2}\"hello\"","\t\t"], (1,17))]
-    #[case::mix_tabs_and_newlines(vec!["{foo: 1, bar: 2}\n\t\n\"hello\""], (3,1))]
-    #[case::long_string(vec!["{foo: 1, bar: 2}\n\n'''long \n\r\n\t hello'''"], (3, 1))]
-    #[case::comment(vec!["{foo: 1, bar: 2}\n\n", "/*multiline \n comment*/","'''long \n\r\n\t hello'''"], (4, 11))]
-    #[case::on_same_line_as_preceding_multiline_value(vec!["{\n  foo: 1,\n  bar: 2\n}\"hello\""], (4, 2))]
-    fn location_test_for_second_tlv_in_stream(
-        #[case] ion_text: Vec<&str>,
-        #[case] expected_location: (usize, usize),
-    ) -> IonResult<()> {
-        use crate::IonStream;
-        use std::io;
-        use std::io::{Cursor, Read};
-
-        let expected_source_location =
-            SourceLocation::new(expected_location.0, expected_location.1);
-        let input_chunks = ion_text.as_slice();
-        // Wrapping each string in an `io::Chain`
-        let mut input: Box<dyn Read> = Box::new(io::empty());
-        for input_chunk in input_chunks {
-            input = Box::new(input.chain(Cursor::new(input_chunk)));
-        }
-        let mut reader = Reader::new(v1_0::Text, IonStream::new(input))?;
-        let result1 = reader.expect_next();
-        assert!(result1.is_ok());
-        if let Ok(lazy_value1) = result1 {
-            let _val = lazy_value1.read();
-            // first tlv will always be (1,1) per the examples here
-            assert_eq!(lazy_value1.location(), SourceLocation::new(1, 1));
-        }
-        let result2 = reader.expect_next();
-        assert!(result2.is_ok());
-        if let Ok(lazy_value2) = result2 {
-            let _val = lazy_value2.read();
-            assert_eq!(lazy_value2.location(), expected_source_location);
-        }
-        Ok(())
-    }
-
-    #[rstest]
+    #[case::no_crlf( "{}\"hello\"",       [(1, 1), (1, 3)])]
+    #[case::cr_lf_lf("{}\r\n\n\"hello\"", [(1, 1), (3, 1)] )]
+    #[case::lf_lf_cr("{}\n\n\r\"hello\"", [(1, 1), (3, 2)] )]
+    #[case::lf_cr_cr("{}\n\r\r\"hello\"", [(1, 1), (2, 3)] )]
+    #[case::lf_cr_lf("{}\n\r\n\"hello\"", [(1, 1), (3, 1)] )]
+    #[case::cr_lf_lf("{}\r\n\n\"hello\"", [(1, 1), (3, 1)] )]
+    #[case::cr_lf_cr("{}\r\n\r\"hello\"", [(1, 1), (2, 2)] )]
+    #[case::cr_cr_lf("{}\r\r\n\"hello\"", [(1, 1), (2, 1)] )]
+    #[case::cr_cr_cr("{}\r\r\r\"hello\"", [(1, 1), (1, 6)] )]
+    #[case::nl_after("{}\"hello\"\n\n",   [(1, 1), (1, 3)])]
+    #[case::tabs(    "{}\n\t\t\"hello\"", [(1, 1), (2, 3)] )]
+    #[case::tabs_after("{}\"hello\"\t\t", [(1, 1), (1, 3)])]
+    #[case::mix_tabs_and_newlines("{}\n\t\n\"hello\"",[(1, 1), (3, 1)])]
+    #[case::long_string("{}\n\n'''long \n\r\n\t hello'''", [(1, 1), (3, 1)])]
+    #[case::comment("{}\n\n /*multiline \n comment*/'''long \n\r\n\t hello'''", [(1, 1), (4, 11)])]
+    #[case::on_same_line_as_preceding_multiline_value("{\n}\"hello\"", [(1, 1), (2, 2)])]
     #[case::values_in_struct("{foo:1,bar:2}", [(1, 1), (1, 6), (1, 12)])]
     #[case::values_in_multiline_struct("{\n  foo:1,\n  bar:2,\n}", [(1, 1), (2, 7), (3, 7)])]
     #[case::values_in_lists("[1,2,3,4]", [(1, 1), (1, 2), (1, 4), (1, 6), (1, 8)])]
@@ -714,12 +649,39 @@ mod tests {
         [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12),
         (6, 1), (6, 6), (6, 12), (7, 1), (8, 7), (9, 7), (9, 8), (9, 10), (9, 12)],
     )]
-    fn location_test_for_inner_value<const N: usize>(
-        #[case] ion_text: &str,
+    #[cfg_attr(
+        feature = "experimental-ion-1-1",
+        case::multiple_top_level_containers_ion_1_1(
+            "$ion_1_1\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
+            [(2, 1), (2, 6), (2, 12), (3, 1), (4, 7), (5, 7), (5, 8), (5, 10), (5, 12),
+            (7, 1), (7, 6), (7, 12), (8, 1), (9, 7), (10, 7), (10, 8), (10, 10), (10, 12)],
+        )
+    )]
+    #[case::binary_1_0_data(
+        [
+            0xE0u8, 0x01, 0x00, 0xEA, // IVM
+            0x85, 65, 10, 66, 10, 67, // String: "A\nB\nC"
+            0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
+        ],
+        [/* no locations */],
+    )]
+    #[cfg_attr(
+        feature = "experimental-ion-1-1",
+        case::binary_1_1_data(
+            [
+                0xE0u8, 0x01, 0x01, 0xEA, // IVM
+                0x95, 65, 10, 66, 10, 67, // String: "A\nB\nC"
+                0x95, 68, 10, 69, 10, 70, // String: "D\nE\nF"
+            ],
+            [/* no locations */],
+        )
+    )]
+    fn location_test_slice_input<const N: usize, I: AsRef<[u8]>>(
+        #[case] ion_input: I,
         #[case] expected_locations: [(usize, usize); N],
     ) -> IonResult<()> {
         let values: Vec<_> =
-            Reader::new(v1_0::Text, ion_text.as_bytes())?.collect::<IonResult<_>>()?;
+            Reader::new(AnyEncoding, ion_input.as_ref())?.collect::<IonResult<_>>()?;
         let actual_locations: Vec<_> = get_locations_of_lazy_elements(values)?
             .into_iter()
             // Only collect those where location is Some(...)
@@ -729,27 +691,108 @@ mod tests {
         Ok(())
     }
 
-    #[ignore] // https://github.com/amazon-ion/ion-rust/issues/951
-    #[test]
-    fn row_and_column_should_not_be_present_for_binary_ion() -> IonResult<()> {
-        let ion_bytes = [
-            0xE0u8, 0x01, 0x00, 0xEA, // IVM
-            0x85, 65, 10, 66, 10, 67, // String: "A\nB\nC"
-            0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
-        ];
-        let values: Vec<_> =
-            Reader::new(v1_0::Binary, ion_bytes.as_slice())?.collect::<IonResult<_>>()?;
+    #[rstest]
+    #[case::no_crlf( "{}\"hello\"",       [(1, 1), (1, 3)])]
+    #[case::lf_lf_lf("{}\n\n\n\"hello\"", [(1, 1), (4, 1)] )]
+    #[case::lf_lf_cr("{}\n\n\r\"hello\"", [(1, 1), (3, 2)] )]
+    #[case::lf_cr_cr("{}\n\r\r\"hello\"", [(1, 1), (2, 3)] )]
+    #[case::lf_cr_lf("{}\n\r\n\"hello\"", [(1, 1), (3, 1)] )]
+    #[case::cr_lf_lf("{}\r\n\n\"hello\"", [(1, 1), (3, 1)] )]
+    #[case::cr_lf_cr("{}\r\n\r\"hello\"", [(1, 1), (2, 2)] )]
+    #[case::cr_cr_lf("{}\r\r\n\"hello\"", [(1, 1), (2, 1)] )]
+    #[case::cr_cr_cr("{}\r\r\r\"hello\"", [(1, 1), (1, 6)] )]
+    #[case::nl_after("{}\"hello\"\n\n",   [(1, 1), (1, 3)])]
+    #[case::tabs(    "{}\n\t\t\"hello\"", [(1, 1), (2, 3)] )]
+    #[case::tabs_after("{}\"hello\"\t\t", [(1, 1), (1, 3)])]
+    #[case::mix_tabs_and_newlines("{}\n\t\n\"hello\"",[(1, 1), (3, 1)])]
+    #[case::long_string("{}\n\n'''long \n\r\n\t hello'''", [(1, 1), (3, 1)])]
+    #[case::comment("{}\n\n /*multiline \n comment*/'''long \n\r\n\t hello'''", [(1, 1), (4, 11)])]
+    #[case::on_same_line_as_preceding_multiline_value("{\n}\"hello\"", [(1, 1), (2, 2)])]
+    #[case::values_in_struct("{foo:1,bar:2}", [(1, 1), (1, 6), (1, 12)])]
+    #[case::values_in_multiline_struct("{\n  foo:1,\n  bar:2,\n}", [(1, 1), (2, 7), (3, 7)])]
+    #[case::values_in_lists("[1,2,3,4]", [(1, 1), (1, 2), (1, 4), (1, 6), (1, 8)])]
+    #[case::values_in_multiline_lists(
+        "[\n  1,\n  2,\n  3,\n  4\n]",
+        [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3)],
+    )]
+    #[case::values_in_sexps("(1 2 3 4)", [(1, 1), (1, 2), (1, 4), (1, 6), (1, 8)])]
+    #[case::values_in_multiline_sexps(
+        "(foo (bar 123)\n     (bar 456)\n     (bar 789))",
+        // (      foo     (       bar     123   )
+        [(1, 1), (1, 2), (1, 6), (1, 7), (1, 11),
+        //                (       bar     456   )
+                         (2, 6), (2, 7), (2, 11),
+        //                (       bar     789   )  )
+                         (3, 6), (3, 7), (3, 11)],
+    )]
+    #[case::deeply_nested_containers(
+        "{\n  foo:{a:1,b:2},\n  bar:[a,b,c],\n  baz:(foo (bar)\n           (quux)),\n}",
+        // {
+        [(1, 1),
+        // foo: {       a:1,     b:2    },
+               (2, 7), (2, 10), (2, 14),
+        // bar: [       a,      b,       c      ],
+               (3, 7), (3, 8), (3, 10), (3, 12),
+        // baz: (       foo     (        bar    )
+               (4, 7), (4, 8), (4, 12), (4, 13),
+        //                      (        quux   ) )
+                               (5, 12), (5, 13),
+        // }
+        ],
+    )]
+    #[case::multiple_top_level_containers(
+        "{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
+        [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12),
+        (6, 1), (6, 6), (6, 12), (7, 1), (8, 7), (9, 7), (9, 8), (9, 10), (9, 12)],
+    )]
+    #[cfg_attr(
+        feature = "experimental-ion-1-1",
+        case::multiple_top_level_containers_ion_1_1(
+            "$ion_1_1\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
+            [(2, 1), (2, 6), (2, 12), (3, 1), (4, 7), (5, 7), (5, 8), (5, 10), (5, 12),
+            (7, 1), (7, 6), (7, 12), (8, 1), (9, 7), (10, 7), (10, 8), (10, 10), (10, 12)],
+        )
+    )]
+    // FIXME: Currently failing because of https://github.com/amazon-ion/ion-rust/issues/954
+    // #[case::binary_1_0_data(
+    //     [
+    //         0xE0u8, 0x01, 0x00, 0xEA, // IVM
+    //         0x85, 65, 10, 66, 10, 67, // String: "A\nB\nC"
+    //         0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
+    //     ],
+    //     [/* no locations */],
+    // )]
+    // #[cfg_attr(
+    //     feature = "experimental-ion-1-1",
+    //     case::binary_1_1_data(
+    //         [
+    //             0xE0u8, 0x01, 0x01, 0xEA, // IVM
+    //             0x95, 65, 10, 66, 10, 67, // String: "A\nB\nC"
+    //             0x95, 68, 10, 69, 10, 70, // String: "D\nE\nF"
+    //         ],
+    //         [/* no locations */],
+    //     )
+    // )]
+    fn location_test_stream_input<const N: usize, I: AsRef<[u8]>>(
+        #[case] ion_input: I,
+        #[case] expected_locations: [(usize, usize); N],
+    ) -> IonResult<()> {
+        // Wrapping each byte in an `io::Chain`
+        let mut input: Box<dyn Read> = Box::new(io::empty());
+        for input_byte in ion_input.as_ref().iter().copied() {
+            input = Box::new(input.chain(Cursor::new([input_byte])));
+        }
+        let values: Vec<_> = Reader::new(AnyEncoding, input)?.collect::<IonResult<_>>()?;
         let actual_locations: Vec<_> = get_locations_of_lazy_elements(values)?
             .into_iter()
             // Only collect those where location is Some(...)
             .filter_map(|it| it.row_column())
             .collect();
-        let expected: [(usize, usize); 0] = [];
-        assert_eq!(&expected, actual_locations.as_slice());
+        assert_eq!(&expected_locations, actual_locations.as_slice());
         Ok(())
     }
 
-    fn get_locations_of_lazy_elements<E: Encoding>(
+    fn get_locations_of_lazy_elements<E: Decoder>(
         values: Vec<LazyElement<E>>,
     ) -> IonResult<Vec<SourceLocation>> {
         let mut locations = vec![];

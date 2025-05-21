@@ -822,7 +822,7 @@ impl TemplateCompiler {
                     return IonResult::decoding_error("found annotations on a macro invocation");
                 }
                 // ...add the macro invocation to the template body.
-                Self::compile_macro(tdl_context, definition, macro_ref, arguments)
+                Self::compile_macro_invocation(tdl_context, definition, macro_ref, arguments)
             }
             // If it's an argument expr group (`..`)...
             TdlSExpKind::ArgExprGroup(parameter, arguments) => {
@@ -843,7 +843,7 @@ impl TemplateCompiler {
 
     /// Adds a `lazy_sexp` that has been determined to represent a macro invocation to the
     /// TemplateBody.
-    fn compile_macro<'top, D: Decoder>(
+    fn compile_macro_invocation<'top, D: Decoder>(
         tdl_context: TdlContext<'_>,
         definition: &mut TemplateBody,
         macro_ref: Arc<MacroDef>,
@@ -933,7 +933,7 @@ impl TemplateCompiler {
         if arguments.is_empty() {
             return if param.accepts_none() {
                 // ...and then insert a placeholder `none` invocation.
-                Self::compile_macro(
+                Self::compile_macro_invocation(
                     tdl_context,
                     definition,
                     ION_1_1_SYSTEM_MACROS
@@ -1008,7 +1008,7 @@ impl TemplateCompiler {
                 ));
             }
             // ...and then insert a placeholder `none` invocation.
-            Self::compile_macro(
+            Self::compile_macro_invocation(
                 tdl_context,
                 definition,
                 ION_1_1_SYSTEM_MACROS
@@ -1038,7 +1038,7 @@ impl TemplateCompiler {
                 tdl_context,
                 definition,
                 /*is_quoted=*/ false,
-                None,
+                Some(&parameter),
                 argument,
             )?;
         }

@@ -417,7 +417,7 @@ impl TextEncoding for TextEncoding_1_1 {
 impl Decoder for BinaryEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_0;
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
-    type Value<'top> = LazyRawBinaryValue_1_0<'top>;
+    type Value<'top> = &'top LazyRawBinaryValue_1_0<'top>;
     type SExp<'top> = LazyRawBinarySExp_1_0<'top>;
     type List<'top> = LazyRawBinaryList_1_0<'top>;
     type Struct<'top> = LazyRawBinaryStruct_1_0<'top>;
@@ -482,7 +482,7 @@ impl Decoder for BinaryEncoding_1_1 {
 pub trait RawValueLiteral {}
 
 impl<E: TextEncoding> RawValueLiteral for LazyRawTextValue<'_, E> {}
-impl RawValueLiteral for LazyRawBinaryValue_1_0<'_> {}
+impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_0<'top> {}
 impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_1<'top> {}
 impl RawValueLiteral for LazyRawAnyValue<'_> {}
 

@@ -8,7 +8,7 @@ use crate::lazy::system_reader::SystemReader;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{try_or_some_err, IonError, IonResult};
+use crate::{try_or_some_err, IonError, IonResult, MacroTable, SymbolTable};
 
 /// An Ion reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -106,6 +106,16 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     pub fn expect_next(&mut self) -> IonResult<LazyValue<'_, Encoding>> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
+    }
+    
+    #[allow(dead_code)]
+    pub fn symbol_table(&self) -> &SymbolTable {
+        self.system_reader.symbol_table()
+    }
+
+    #[allow(dead_code)]
+    pub fn macro_table(&self) -> &MacroTable {
+        self.system_reader.macro_table()
     }
 }
 
