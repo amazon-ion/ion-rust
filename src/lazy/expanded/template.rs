@@ -99,7 +99,7 @@ impl Parameter {
         self.cardinality
     }
     pub fn accepts_rest(&self) -> bool {
-        return self.rest_syntax_policy() == RestSyntaxPolicy::Allowed
+        self.rest_syntax_policy() == RestSyntaxPolicy::Allowed
     }
     pub fn rest_syntax_policy(&self) -> RestSyntaxPolicy {
         self.rest_syntax_policy
@@ -168,6 +168,24 @@ impl Parameter {
     #[inline]
     pub fn expect_variadic(&self) -> IonResult<&Self> {
         if self.is_variadic() {
+            return Ok(self);
+        }
+        std::convert::identity(
+            #[inline(never)]
+            || {
+                IonResult::encoding_error(format!(
+                    "cannot write a tagged value for parameter {}; its cardinality requires an expression group",
+                    self.name
+                ))
+            },
+        )()
+    }
+
+    /// If the parameter accepts a single expression (that is, not an expression group), returns `Ok`.
+    /// Otherwise, returns an `Err`.
+    #[inline]
+    pub fn expect_single_expression(&self) -> IonResult<&Self> {
+        if self.cardinality() == ParameterCardinality::ExactlyOne {
             return Ok(self);
         }
         std::convert::identity(

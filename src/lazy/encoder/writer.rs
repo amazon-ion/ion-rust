@@ -963,6 +963,9 @@ impl<V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'_, V> {
     /// returns another reference to `self` to enable method chaining.
     fn write<Value: WriteAsIon>(&mut self, value: Value) -> IonResult<&mut Self> {
         self.expect_next_parameter()
+            // Make sure this parameter accepts an ungrouped value expression
+            .and_then(|p| p.expect_single_expression())
+            // Make sure this parameter supports the tagged encoding
             .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))?;
         value.write_as_ion(self.make_value_writer())?;
         Ok(self)
@@ -1368,5 +1371,70 @@ mod tests {
         // Make sure that this caused the encoded bytes to reach the `Vec<u8>`.
         assert!(writer.output().get_ref().len() > len_before_flush);
         Ok(())
+    }
+
+    mod eexp_parameter_validation {
+        use super::*;
+
+        #[test]
+        fn accept_valid_parameter_encoding() -> IonResult<()> {
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // The argument passed as parameter `a` is "hello"
+            eexp_writer.write("hello")?;
+            // The argument passed as parameter `b` is 42
+            eexp_writer.write_flex_uint(42usize)?;
+            eexp_writer.close()?;
+            let bytes = writer.close()?;
+            // Reading the encoded data back, we get the expected output.
+            let actual = Element::read_all(&bytes)?;
+            let expected = Element::read_all("\"hello\" 42")?;
+            assert_eq!(actual, expected);
+            Ok(())
+        }
+
+        #[test]
+        fn tagged_parameter_rejects_flex_uint() -> IonResult<()> {
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // Attempt to write a FlexUInt where a tagged value is required, resulting in an error.
+            assert!(eexp_writer.write_flex_uint(42usize).is_err());
+            Ok(())
+        }
+
+        #[test]
+        fn flex_uint_parameter_rejects_tagged_value() -> IonResult<()> {
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            eexp_writer.write("hello")?;
+            // Attempt to write a tagged value where a FlexUInt is required, resulting in an error.
+            assert!(eexp_writer.write("world").is_err());
+            Ok(())
+        }
+
+        #[test]
+        fn exactly_one_parameter_rejects_expr_group() -> IonResult<()> {
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro("(macro foo (a) (%a)))")?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // Attempt to start an expression group for parameter `a`, which has a cardinality of
+            // exactly-one.
+            assert!(eexp_writer.expr_group_writer().is_err());
+            Ok(())
+        }
+
+        #[test]
+        fn zero_or_more_parameter_rejects_tagged_value() -> IonResult<()> {
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro("(macro foo (a*) (%a)))")?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // Attempt to write a tagged value for parameter `a`, which has a cardinality of
+            // zero-or-more, and therefore requires an expression group.
+            assert!(eexp_writer.write("hello").is_err());
+            Ok(())
+        }
     }
 }

@@ -92,7 +92,7 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
     fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable>;
 
     /// Takes a TDL expression representing a macro definition and returns a `Macro` that can
-    /// later be invoked by passing it to [`Writer::eexp_writer()`].
+    /// later be invoked by passing it to [`ValueWriter::eexp_writer`](crate::ValueWriter::eexp_writer).
     fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
         let mut reader = Reader::new(AnyEncoding, source)?;
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
