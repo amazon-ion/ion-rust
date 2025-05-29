@@ -10,11 +10,12 @@ use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::Encoding;
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref, ptr_to_ref};
 use crate::write_config::{WriteConfig, WriteConfigKind};
-use crate::{ContextWriter, IonResult};
+use crate::{ContextWriter, IonResult, IonVersion, MacroTable};
 
 /// A "raw"-level streaming binary Ion 1.1 writer. This writer does not provide encoding module
 /// management; symbol- and macro- related operations require the caller to perform their own
@@ -25,6 +26,8 @@ pub struct LazyRawBinaryWriter_1_1<W: Write> {
     // A bump allocator that can be used to cheaply create scratch buffers for nested container
     // encoding.
     allocator: BumpAllocator,
+    // TODO: doc
+    macros: WriterMacroTable,
     // A pointer to the bump-allocated top-level encoding buffer, if set.
     //
     // This buffer is constructed in `allocator` above, a region of memory over which we have
@@ -50,6 +53,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
         Ok(Self {
             output,
             allocator: BumpAllocator::with_capacity(DEFAULT_BUMP_SIZE),
+            macros: WriterMacroTable::new(MacroTable::with_system_macros(IonVersion::v1_1)),
             encoding_buffer_ptr: None,
         })
     }
@@ -70,6 +74,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             output,
             allocator,
             encoding_buffer_ptr,
+            ..
         } = self;
 
         if let Some(ptr) = encoding_buffer_ptr {
@@ -114,6 +119,7 @@ impl<W: Write> LazyRawBinaryWriter_1_1<W> {
             top_level,
             // By default, writers use length-prefixed encodings.
             ValueWriterConfig::default(),
+            &self.macros,
         )
     }
 }
@@ -149,6 +155,14 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
 
     fn output_mut(&mut self) -> &mut W {
         &mut self.output
+    }
+
+    fn macro_table(&self) -> &WriterMacroTable {
+        &self.macros
+    }
+
+    fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
+        Some(&mut self.macros)
     }
 
     fn write_version_marker(&mut self) -> IonResult<()> {

@@ -1,16 +1,17 @@
-use std::io::Write;
-
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
+use std::io::Write;
 
 use crate::lazy::encoder::binary::v1_0::value_writer::BinaryValueWriter_1_0;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::Encoding;
+use crate::lazy::expanded::macro_table::EMPTY_MACRO_TABLE;
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref, ptr_to_ref};
 use crate::write_config::{WriteConfig, WriteConfigKind};
 use crate::{ContextWriter, IonResult};
@@ -69,6 +70,7 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
             output,
             allocator,
             encoding_buffer_ptr,
+            ..
         } = self;
         if let Some(ptr) = encoding_buffer_ptr {
             let encoding_buffer = unsafe { ptr_to_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() };
@@ -155,6 +157,14 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_0<W> {
     fn write_version_marker(&mut self) -> IonResult<()> {
         self.output.write_all(&[0xE0, 0x01, 0x00, 0xEA])?;
         Ok(())
+    }
+
+    fn macro_table(&self) -> &WriterMacroTable {
+        &EMPTY_MACRO_TABLE
+    }
+
+    fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
+        None
     }
 }
 

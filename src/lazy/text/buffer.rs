@@ -27,7 +27,9 @@ use crate::lazy::text::matched::{
 use crate::lazy::text::parse_result::IonParseError;
 use crate::lazy::text::parse_result::{IonMatchResult, IonParseResult};
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr, TextEExpArgGroup};
-use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress, TextEExpression_1_1};
+use crate::lazy::text::raw::v1_1::reader::{
+    MacroIdLike, MacroIdRef, SystemMacroAddress, TextEExpression_1_1,
+};
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker,
 };
@@ -36,7 +38,7 @@ use crate::{
     Encoding, HasRange, IonError, IonResult, IonType, RawSymbolRef, Span, TimestampPrecision,
 };
 
-use crate::lazy::expanded::macro_table::{MacroDef, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::macro_table::ION_1_1_SYSTEM_MACROS;
 use crate::lazy::expanded::template::{Parameter, RestSyntaxPolicy};
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::raw::sequence::RawTextSExpIterator;
@@ -672,17 +674,12 @@ impl<'top> TextBuffer<'top> {
             let id = Self::match_e_expression_id(input)?;
             let mut arg_expr_cache = BumpVec::new_in(input.context.allocator());
 
-            let macro_ref: &'top MacroDef = input
-                .context()
-                .macro_table()
-                .macro_with_id(id)
-                .ok_or_else(|| {
-                    (*input)
-                        .invalid(format!("could not find macro with id {:?}", id))
-                        .context("reading an e-expression")
-                        .cut_err()
-                })?
-                .reference();
+            let macro_ref = id.resolve(input.context().macro_table()).map_err(|_| {
+                (*input)
+                    .invalid(format!("could not find macro with id {:?}", id))
+                    .context("reading an e-expression")
+                    .cut_err()
+            })?;
             let signature_params: &'top [Parameter] = macro_ref.signature().parameters();
             for (index, param) in signature_params.iter().enumerate() {
                 let maybe_arg = input.match_argument_for(param)?;

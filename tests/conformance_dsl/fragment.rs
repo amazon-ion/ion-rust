@@ -22,8 +22,8 @@
 
 use super::context::Context;
 use super::*;
-use ion_rs::{ion_seq, v1_1, AnyEncoding, Encoding, Reader, WriteConfig};
-use ion_rs::{Element, SExp, Sequence, Struct, Symbol};
+use ion_rs::{ion_seq, v1_1, AnyEncoding, EExpWriter, Encoding, Reader, Value, WriteConfig};
+use ion_rs::{Element, Sequence, Struct, Symbol};
 use ion_rs::{RawSymbolRef, SequenceWriter, StructWriter, ValueWriter, WriteAsIon, Writer};
 
 /// Shared functionality for Fragments.
@@ -143,7 +143,7 @@ impl TryFrom<Clause> for Fragment {
             ClauseType::Encoding => {
                 // Rather than treat Encoding special, we expand it to a (toplevel ..) as described
                 // in the spec.
-                let inner: Element = SExp(Sequence::new(other.body)).into();
+                let inner: Element = Value::SExp(Sequence::new(other.body)).into();
                 let inner = inner.with_annotations(["$ion"]);
                 Fragment::TopLevel(TopLevel { elems: vec![inner] })
             }
@@ -153,10 +153,10 @@ impl TryFrom<Clause> for Fragment {
                 for elem in other.body {
                     mac_table_elems.push(elem);
                 }
-                let mac_table: Element = SExp(Sequence::new(mac_table_elems)).into();
+                let mac_table: Element = Value::SExp(Sequence::new(mac_table_elems)).into();
 
                 // Construct our Module
-                let module: Element = SExp(ion_seq!(
+                let module: Element = Value::SExp(ion_seq!(
                     Symbol::from("module"),
                     Symbol::from("_"),
                     mac_table,
@@ -359,20 +359,55 @@ impl WriteAsIon for ProxyElement<'_> {
                 match sexp.get(0).map(Element::value) {
                     Some(Symbol(symbol)) if symbol.text().is_some() => {
                         let text = symbol.text().unwrap();
-                        if text.starts_with("#$:") {
-                            let macro_id = text.strip_prefix("#$:").unwrap(); // SAFETY: Tested above.
-                            let mut args =
-                                if let Ok(symbol_id) = macro_id.parse::<ion_rs::SymbolId>() {
-                                    writer.eexp_writer(symbol_id)?
+                        const EEXP_PREFIX: &str = "#$:";
+                        if text.starts_with(EEXP_PREFIX) {
+                            // It's an e-expression. Start by isolating the macro ID.
+                            let macro_id = text.strip_prefix(EEXP_PREFIX).unwrap(); // SAFETY: Tested above.
+                            let mut eexp_writer =
+                                // See if it's a numeric identifier
+                                if let Ok(macro_address) = macro_id.parse::<usize>() {
+                                    writer.eexp_writer(macro_address)?
                                 } else {
                                     // TODO: Need to handle text macro IDs when generating a binary
                                     // test document.
                                     writer.eexp_writer(macro_id)?
                                 };
-                            for arg in sexp.iter().skip(1) {
-                                args.write(ProxyElement(arg, self.1))?;
+                            // Get an iterator over the ProxyElement argument expressions by skipping
+                            // over the first child value in the s-expression.
+                            let arg_elements = &mut sexp.iter().skip(1);
+                            while let Some(arg) = arg_elements.next() {
+                                // Whether this argument represents an expression group.
+                                let arg_is_expr_group = arg
+                                    .as_sexp()
+                                    .and_then(|sexp| sexp.get(0))
+                                    .and_then(Element::as_symbol)
+                                    .map(|sym| sym.text() == Some("::"))
+                                    .unwrap_or(false);
+                                // Whether this argument is being passed to a parameter that accepts
+                                // 'rest' syntax. This is true for the last parameter when its
+                                // cardinality is anything other than exactly-one.
+                                let is_rest_parameter = eexp_writer
+                                    .current_parameter()
+                                    .map(|p| p.accepts_rest())
+                                    .unwrap_or(false);
+
+                                // If this argument isn't in 'rest' position or it's already an
+                                // expression group...
+                                if !is_rest_parameter || arg_is_expr_group {
+                                    // ...then wrap it in a `ProxyElement` and write it out.
+                                    eexp_writer.write(ProxyElement(arg, self.1))?;
+                                } else {
+                                    // However, if the argument is in rest position and it isn't an
+                                    // expression group, we need to convert it to an expression group
+                                    // to support binary Ion (which doesn't have rest syntax).
+                                    let mut group_writer = eexp_writer.expr_group_writer()?;
+                                    group_writer.write(ProxyElement(arg, self.1))?;
+                                    group_writer
+                                        .write_all(arg_elements.map(|e| ProxyElement(e, self.1)))?;
+                                    group_writer.close()?;
+                                }
                             }
-                            args.close()?;
+                            eexp_writer.close()?;
                             return Ok(());
                         }
                     }
@@ -446,9 +481,20 @@ impl FragmentImpl for TopLevel {
         if ctx.version() == IonVersion::V1_1 {
             // For each macro in the Reader...
             for mac in macro_table.iter() {
-                // ...try to register the macro in the Writer. For simplicity, we skip over
-                // system macros that are already defined.
-                let _result = writer.register_macro(&mac);
+                // ...try to register the macro in the Writer.
+                let is_already_defined = writer
+                    .get_macro(
+                        mac.name()
+                            // See: https://github.com/amazon-ion/ion-rust/issues/967
+                            .expect("this hack will not work for anonymous macros"),
+                    )
+                    .is_ok();
+                if is_already_defined {
+                    // For simplicity, we skip over system macros that are already defined.
+                } else {
+                    // Otherwise, register the macro.
+                    let _result = writer.register_macro(&mac);
+                }
             }
         }
 

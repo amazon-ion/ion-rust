@@ -8,7 +8,9 @@ use crate::constants::v1_0::system_symbol_ids;
 use crate::constants::v1_1;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
-use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
+use crate::lazy::encoder::value_writer::internal::{
+    EExpWriterInternal, FieldEncoder, MakeValueWriter,
+};
 use crate::lazy::encoder::value_writer::{
     AnnotatableWriter, EExpWriter, FieldWriter, SequenceWriter, StructWriter, ValueWriter,
 };
@@ -21,15 +23,16 @@ use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
-use crate::lazy::expanded::macro_table::Macro;
-use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
+use crate::lazy::expanded::macro_table::{Macro, MacroRef, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef, ModuleKind, QualifiedAddress};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    AnyEncoding, ContextWriter, Decimal, Element, ElementWriter, Int, IonInput, IonResult, IonType,
-    IonVersion, MacroDef, MacroTable, RawSymbolRef, Reader, Symbol, SymbolId, SymbolTable,
-    TemplateCompiler, TemplateMacro, Timestamp, UInt, Value,
+    ContextWriter, Decimal, Element, ElementWriter, Int, IonError, IonInput, IonResult, IonType,
+    IonVersion, MacroDef, MacroTable, RawSymbolRef, Symbol, SymbolId, SymbolTable, TemplateMacro,
+    Timestamp, UInt, Value,
 };
 
 /// A thin wrapper around a `SymbolTable` that tracks the number of symbols whose definition has
@@ -76,7 +79,7 @@ impl Deref for WriterSymbolTable {
 
 /// A thin wrapper around a `MacroTable` that tracks the number of macros whose definition has
 /// not yet been written to output.
-pub(crate) struct WriterMacroTable {
+pub struct WriterMacroTable {
     macros: MacroTable,
     num_pending: usize,
 }
@@ -128,7 +131,6 @@ impl Deref for WriterMacroTable {
 #[cfg_attr(feature = "experimental-reader-writer", visibility::make(pub))]
 pub(crate) struct Writer<E: Encoding, Output: Write> {
     symbols: WriterSymbolTable,
-    macros: WriterMacroTable,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
     output: Output,
@@ -157,10 +159,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
         let ion_version = E::ion_version();
         let symbols = WriterSymbolTable::new(SymbolTable::new(ion_version));
-        let macros = WriterMacroTable::new(MacroTable::with_system_macros(ion_version));
         let mut writer = Writer {
             symbols,
-            macros,
             data_writer,
             directive_writer,
             output,
@@ -170,52 +170,59 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(writer)
     }
 
-    pub(crate) fn macro_table(&self) -> &MacroTable {
-        &self.macros
+    pub(crate) fn macro_table(&self) -> &WriterMacroTable {
+        self.data_writer.macro_table()
+    }
+
+    pub(crate) fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
+        self.data_writer.macro_table_mut()
     }
 
     /// Takes a TDL expression representing a macro definition and returns a `Macro` that can
     /// later be invoked by passing it to [`Writer::eexp_writer()`].
     pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
-        let mut reader = Reader::new(AnyEncoding, source)?;
-        let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
-
-        let template_macro = TemplateCompiler::compile_from_sexp(
-            self.macro_table(),
-            &MacroTable::empty(),
-            macro_def_sexp,
-        )?;
-
-        let address = self.macros.add_template_macro(template_macro)?;
-        let macro_def = self
-            .macro_table()
-            .clone_macro_with_address(address)
-            .expect("macro freshly placed at address is missing");
-        let macro_handle = Macro::new(macro_def, address);
-        Ok(macro_handle)
+        self.data_writer.compile_macro(source)
     }
 
     /// Register a previously compiled `Macro` for use in this `Writer`.
     pub fn register_macro(&mut self, macro_: &Macro) -> IonResult<Macro> {
-        let address = self.macros.add_macro(macro_.definition())?;
-        let macro_def = Arc::clone(macro_.definition());
-        Ok(Macro::new(macro_def, address))
+        self.data_writer.register_macro(macro_.definition())
     }
 
     /// Gets a macro with the provided ID from the default module.
     pub fn get_macro<'a>(&self, id: impl Into<MacroIdRef<'a>>) -> IonResult<Macro> {
         let id = id.into();
         let macro_table = self.macro_table();
-        let Some(address) = macro_table.address_for_id(id) else {
-            return IonResult::encoding_error(format!(
-                "no macro with the specified ID ({id:?}) found"
-            ));
-        };
-        let macro_def = macro_table
-            .clone_macro_with_address(address)
-            .expect("macro was just confirmed to be at this address");
 
-        Ok(Macro::new(macro_def, address))
+        let qualified_address = match id {
+            MacroIdRef::LocalName(name) => {
+                let address = macro_table.address_for_id(id).ok_or_else(|| {
+                    IonError::illegal_operation(format!(
+                        "macro table does not contain a macro named '{name}'"
+                    ))
+                })?;
+                QualifiedAddress::new(ModuleKind::Default, address)
+            }
+            MacroIdRef::LocalAddress(address) => {
+                QualifiedAddress::new(ModuleKind::Default, address)
+            }
+            MacroIdRef::SystemAddress(address) => {
+                QualifiedAddress::new(ModuleKind::System, address.as_usize())
+            }
+        };
+
+        let macro_table: &MacroTable = match qualified_address.module() {
+            ModuleKind::Default => self.macro_table(),
+            ModuleKind::System => &ION_1_1_SYSTEM_MACROS,
+        };
+
+        let macro_def = macro_table
+            .clone_macro_with_address(qualified_address.address())
+            .ok_or_else(|| {
+                IonError::encoding_error(format!("no macro with the specified ID ({id:?}) found"))
+            })?;
+
+        Ok(Macro::new(macro_def, qualified_address))
     }
 
     pub fn output(&self) -> &Output {
@@ -244,9 +251,11 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         }
 
         // TODO: In Ion 1.1, new symbols and new macros could be added using the same directive.
-        if self.macros.num_pending() > 0 {
+        if self.macro_table().num_pending() > 0 {
             self.write_append_macros_directive()?;
-            self.macros.reset_num_pending();
+            self.macro_table_mut()
+                .expect("the pending macro count is >0")
+                .reset_num_pending();
         }
 
         self.directive_writer.flush()?;
@@ -308,10 +317,12 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
     fn write_append_macros_directive(&mut self) -> IonResult<()> {
         let Self {
-            macros,
+            data_writer,
             directive_writer,
             ..
         } = self;
+
+        let macros = data_writer.macro_table();
 
         // TODO: Once expression group serialization is complete, this can be replaced by a call
         //       to the `add_macros` system macro.
@@ -384,11 +395,11 @@ impl<E: Encoding, Output: Write> ContextWriter for Writer<E, Output> {
 impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         let raw_value_writer = self.data_writer.make_value_writer();
+        let symbols = &mut self.symbols;
 
         ApplicationValueWriter {
             raw_value_writer,
-            symbols: &mut self.symbols,
-            macros: &self.macros,
+            symbols,
             value_writer_config: self.value_writer_config,
         }
     }
@@ -405,7 +416,6 @@ impl<E: Encoding, Output: Write> SequenceWriter for Writer<E, Output> {
 
 pub struct ApplicationValueWriter<'a, V: ValueWriter> {
     symbols: &'a mut WriterSymbolTable,
-    macros: &'a WriterMacroTable,
     raw_value_writer: V,
     value_writer_config: ValueWriterConfig,
 }
@@ -413,13 +423,11 @@ pub struct ApplicationValueWriter<'a, V: ValueWriter> {
 impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
     pub(crate) fn new(
         symbols: &'a mut WriterSymbolTable,
-        macros: &'a WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_value_writer: V,
     ) -> Self {
         Self {
             symbols,
-            macros,
             value_writer_config,
             raw_value_writer,
         }
@@ -497,7 +505,6 @@ impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
 
         Ok(ApplicationValueWriter {
             symbols: self.symbols,
-            macros: self.macros,
             raw_value_writer: self.raw_value_writer.with_annotations(annotations)?,
             value_writer_config: self.value_writer_config,
         })
@@ -681,7 +688,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     fn list_writer(self) -> IonResult<Self::ListWriter> {
         Ok(ApplicationListWriter::new(
             self.symbols,
-            self.macros,
             self.value_writer_config,
             self.raw_value_writer.list_writer()?,
         ))
@@ -690,7 +696,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
         Ok(ApplicationSExpWriter::new(
             self.symbols,
-            self.macros,
             self.value_writer_config,
             self.raw_value_writer.sexp_writer()?,
         ))
@@ -700,7 +705,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         let config = self.value_writer_config;
         Ok(ApplicationStructWriter::new(
             self.symbols,
-            self.macros,
             config,
             self.raw_value_writer.struct_writer()?,
         ))
@@ -710,24 +714,16 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     where
         Self: 'a,
     {
-        let resolved_id = macro_id.resolve(self.macros)?;
-        let macro_ref = self
-            .macros
-            .macro_at_address(resolved_id.address())
-            .expect("just resolved");
         Ok(ApplicationEExpWriter::new(
             self.symbols,
-            self.macros,
             self.value_writer_config,
             self.raw_value_writer.eexp_writer(macro_id)?,
-            macro_ref.reference(),
         ))
     }
 }
 
 pub struct ApplicationStructWriter<'value, V: ValueWriter> {
     symbols: &'value mut WriterSymbolTable,
-    macros: &'value WriterMacroTable,
     raw_struct_writer: V::StructWriter,
     value_writer_config: ValueWriterConfig,
 }
@@ -735,13 +731,11 @@ pub struct ApplicationStructWriter<'value, V: ValueWriter> {
 impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
     pub(crate) fn new(
         symbols: &'value mut WriterSymbolTable,
-        macros: &'value WriterMacroTable,
         config: ValueWriterConfig,
         raw_struct_writer: V::StructWriter,
     ) -> Self {
         Self {
             symbols,
-            macros,
             raw_struct_writer,
             value_writer_config: config,
         }
@@ -768,7 +762,6 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.symbols,
-            self.macros,
             self.value_writer_config,
             self.raw_struct_writer.make_value_writer(),
         )
@@ -842,7 +835,6 @@ impl<V: ValueWriter> StructWriter for ApplicationStructWriter<'_, V> {
 
 pub struct ApplicationListWriter<'value, V: ValueWriter> {
     symbols: &'value mut WriterSymbolTable,
-    macros: &'value WriterMacroTable,
     raw_list_writer: V::ListWriter,
     value_writer_config: ValueWriterConfig,
 }
@@ -850,13 +842,11 @@ pub struct ApplicationListWriter<'value, V: ValueWriter> {
 impl<'value, V: ValueWriter> ApplicationListWriter<'value, V> {
     pub(crate) fn new(
         symbols: &'value mut WriterSymbolTable,
-        macros: &'value WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_list_writer: V::ListWriter,
     ) -> Self {
         Self {
             symbols,
-            macros,
             value_writer_config,
             raw_list_writer,
         }
@@ -874,7 +864,6 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationListWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.symbols,
-            self.macros,
             self.value_writer_config,
             self.raw_list_writer.make_value_writer(),
         )
@@ -891,7 +880,6 @@ impl<V: ValueWriter> SequenceWriter for ApplicationListWriter<'_, V> {
 
 pub struct ApplicationSExpWriter<'value, V: ValueWriter> {
     symbols: &'value mut WriterSymbolTable,
-    macros: &'value WriterMacroTable,
     raw_sexp_writer: V::SExpWriter,
     value_writer_config: ValueWriterConfig,
 }
@@ -899,13 +887,11 @@ pub struct ApplicationSExpWriter<'value, V: ValueWriter> {
 impl<'value, V: ValueWriter> ApplicationSExpWriter<'value, V> {
     pub(crate) fn new(
         symbols: &'value mut WriterSymbolTable,
-        macros: &'value WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_sexp_writer: V::SExpWriter,
     ) -> Self {
         Self {
             symbols,
-            macros,
             value_writer_config,
             raw_sexp_writer,
         }
@@ -923,7 +909,6 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.symbols,
-            self.macros,
             self.value_writer_config,
             self.raw_sexp_writer.make_value_writer(),
         )
@@ -940,35 +925,48 @@ impl<V: ValueWriter> SequenceWriter for ApplicationSExpWriter<'_, V> {
 
 pub struct ApplicationEExpWriter<'value, V: ValueWriter> {
     symbols: &'value mut WriterSymbolTable,
-    macros: &'value WriterMacroTable,
     raw_eexp_writer: V::EExpWriter,
     value_writer_config: ValueWriterConfig,
-    // TODO: these are now available but not yet used.
-    _invoked_macro: &'value MacroDef,
-    _param_index: usize,
 }
 
 impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
     pub(crate) fn new(
         symbols: &'value mut WriterSymbolTable,
-        macros: &'value WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_eexp_writer: V::EExpWriter,
-        _invoked_macro: &'value MacroDef,
     ) -> Self {
         Self {
             symbols,
-            macros,
             value_writer_config,
             raw_eexp_writer,
-            _invoked_macro,
-            _param_index: 0,
         }
+    }
+
+    /// Returns a reference to the macro signature parameter for which the next argument corresponds.
+    /// If no more parameters remain in the signature, returns `None`.
+    pub fn current_parameter(&self) -> Option<&Parameter> {
+        self.raw_eexp_writer.current_parameter()
+    }
+
+    /// Helper method. If there are no more parameters, returns `Err`. Otherwise, returns
+    /// `Ok(next_parameter)`.
+    #[inline]
+    fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
+        self.raw_eexp_writer.expect_next_parameter()
     }
 }
 
 impl<V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'_, V> {
     type Resources = ();
+
+    /// Writes a value in the current context (list, s-expression, or stream) and upon success
+    /// returns another reference to `self` to enable method chaining.
+    fn write<Value: WriteAsIon>(&mut self, value: Value) -> IonResult<&mut Self> {
+        self.expect_next_parameter()
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))?;
+        value.write_as_ion(self.make_value_writer())?;
+        Ok(self)
+    }
 
     fn close(self) -> IonResult<Self::Resources> {
         self.raw_eexp_writer.close()
@@ -989,10 +987,15 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
             self.symbols,
-            self.macros,
             self.value_writer_config,
             self.raw_eexp_writer.make_value_writer(),
         )
+    }
+}
+
+impl<V: ValueWriter> EExpWriterInternal for ApplicationEExpWriter<'_, V> {
+    fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
+        Self::expect_next_parameter(self) // Delegate to the inherent impl
     }
 }
 
@@ -1002,12 +1005,24 @@ impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
     where
         Self: 'group;
 
-    // Default methods
+    fn invoked_macro(&self) -> MacroRef<'_> {
+        self.raw_eexp_writer.invoked_macro()
+    }
+
+    fn current_parameter(&self) -> Option<&Parameter> {
+        Self::current_parameter(self) // Delegate to the inherent impl
+    }
+
     fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
+        self.expect_next_parameter()
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::FlexUInt))?;
         self.raw_eexp_writer.write_flex_uint(value)
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        self.expect_next_parameter()
+            .and_then(|p| p.expect_variadic())?;
+        // TODO: Pass `Parameter` to group writer so it can do its own validation
         self.raw_eexp_writer.expr_group_writer()
     }
 }

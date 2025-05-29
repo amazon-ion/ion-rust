@@ -1,9 +1,12 @@
+use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::template::{
-    MacroSignature, ParameterCardinality, ParameterEncoding, TemplateBody, TemplateElement,
-    TemplateMacro, TemplateMacroRef, TemplateValue,
+    MacroSignature, ParameterCardinality, ParameterEncoding, SignatureIterator, TemplateBody,
+    TemplateElement, TemplateMacro, TemplateMacroRef, TemplateValue,
 };
-use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
+use crate::lazy::text::raw::v1_1::reader::{
+    MacroAddress, MacroIdRef, ModuleKind, QualifiedAddress, SystemMacroAddress,
+};
 use crate::result::IonFailure;
 use crate::{
     AnnotatableWriter, EncodingContext, IonResult, IonType, IonVersion, SequenceWriter,
@@ -101,6 +104,7 @@ impl MacroDef {
     pub fn signature(&self) -> &MacroSignature {
         &self.signature
     }
+
     pub fn kind(&self) -> &MacroKind {
         &self.kind
     }
@@ -369,21 +373,21 @@ pub enum MacroKind {
 /// A Macro reference that is guaranteed to be valid for its lifespan.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MacroRef<'top> {
-    id: MacroIdRef<'top>,
-    reference: &'top MacroDef,
+    qualified_address: QualifiedAddress,
+    def: &'top MacroDef,
 }
 
 impl<'top> MacroRef<'top> {
-    pub fn new(macro_id: MacroIdRef<'top>, reference: &'top MacroDef) -> Self {
+    pub(crate) fn new(qualified_address: QualifiedAddress, def: &'top MacroDef) -> Self {
         Self {
-            id: macro_id,
-            reference,
+            qualified_address,
+            def,
         }
     }
 
     pub fn require_template(self) -> TemplateMacroRef<'top> {
         if let MacroKind::Template(body) = &self.kind() {
-            return TemplateMacroRef::new(self.reference(), body);
+            return TemplateMacroRef::new(self.definition(), body);
         }
         unreachable!(
             "caller required a template macro but found {:?}",
@@ -391,16 +395,33 @@ impl<'top> MacroRef<'top> {
         )
     }
 
-    pub fn id(&self) -> MacroIdRef<'top> {
-        self.id
+    pub fn module(&self) -> ModuleKind {
+        self.qualified_address.module()
     }
 
-    pub fn reference(&self) -> &'top MacroDef {
-        self.reference
+    pub fn address(&self) -> MacroAddress {
+        self.qualified_address.address()
+    }
+
+    pub fn id(&self) -> MacroIdRef<'top> {
+        match self.qualified_address.module() {
+            ModuleKind::Default => MacroIdRef::LocalAddress(self.qualified_address.address()),
+            ModuleKind::System => MacroIdRef::SystemAddress(SystemMacroAddress::new_unchecked(
+                self.qualified_address.address(),
+            )),
+        }
+    }
+
+    pub fn definition(&self) -> &'top MacroDef {
+        self.def
+    }
+
+    pub(crate) fn iter_signature(&self) -> SignatureIterator<'top> {
+        SignatureIterator::new(*self)
     }
 
     delegate! {
-        to self.reference {
+        to self.definition() {
             pub fn name(&self) -> Option<&'top str>;
             pub fn signature(self) -> &'top MacroSignature;
             pub fn kind(&self) -> &'top MacroKind;
@@ -419,26 +440,26 @@ impl<'top> MacroRef<'top> {
 pub struct Macro {
     // The compiled definition of the macro.
     definition: Arc<MacroDef>,
-    // The macro table address at which the MacroDef resides.
-    address: MacroAddress,
-    // TODO: For now, aliasing macros on export is not possible. Later, we may wish to retain the name used at lookup.
-    // TODO: For now, all macros live in the default module.
+    // The `(module, address)` pair indicating where this macro was last installed
+    // in the encoding context.
+    path: QualifiedAddress,
 }
 
 impl Macro {
-    pub(crate) fn new(definition: Arc<MacroDef>, address: MacroAddress) -> Self {
-        Self {
-            definition,
-            address,
-        }
+    pub(crate) fn new(definition: Arc<MacroDef>, path: QualifiedAddress) -> Self {
+        Self { definition, path }
+    }
+
+    pub fn qualified_address(&self) -> QualifiedAddress {
+        self.path
+    }
+
+    pub fn module(&self) -> ModuleKind {
+        self.path.module()
     }
 
     pub fn address(&self) -> MacroAddress {
-        self.address
-    }
-
-    pub fn id(&self) -> MacroIdRef<'_> {
-        MacroIdRef::LocalAddress(self.address)
+        self.path.address()
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -451,6 +472,10 @@ impl Macro {
 
     pub(crate) fn definition(&self) -> &Arc<MacroDef> {
         &self.definition
+    }
+
+    pub fn as_ref(&self) -> MacroRef<'_> {
+        MacroRef::new(self.qualified_address(), &self.definition)
     }
 }
 
@@ -470,6 +495,11 @@ pub struct MacroTable {
 /// and heap allocation occurs.
 pub static ION_1_1_SYSTEM_MACROS: LazyLock<MacroTable> =
     LazyLock::new(MacroTable::construct_system_macro_table);
+
+/// A lazily initialized singleton instance of an empty system macro table.
+/// This is useful in places where the APIs require version-agnostic access to the macro table.
+pub static EMPTY_MACRO_TABLE: LazyLock<WriterMacroTable> =
+    LazyLock::new(|| WriterMacroTable::new(MacroTable::empty()));
 
 impl Default for MacroTable {
     fn default() -> Self {
@@ -741,7 +771,7 @@ impl MacroTable {
         self.len() == 0
     }
 
-    pub fn macro_with_id<'a, 'b, I: Into<MacroIdRef<'b>>>(&'a self, id: I) -> Option<MacroRef<'a>> {
+    pub fn macro_with_id<'a, 'b, I: Into<MacroIdRef<'b>>>(&'a self, id: I) -> Option<&'a MacroDef> {
         let id = id.into();
         match id {
             MacroIdRef::LocalName(name) => self.macro_with_name(name),
@@ -766,21 +796,17 @@ impl MacroTable {
         }
     }
 
-    pub fn macro_at_address(&self, address: usize) -> Option<MacroRef<'_>> {
-        let id = MacroIdRef::LocalAddress(address);
-        let reference = self.macros_by_address.get(address)?;
-        Some(MacroRef { id, reference })
+    pub fn macro_at_address(&self, address: usize) -> Option<&MacroDef> {
+        Some(self.macros_by_address.get(address)?)
     }
 
     pub fn address_for_name(&self, name: &str) -> Option<usize> {
         self.macros_by_name.get(name).copied()
     }
 
-    pub fn macro_with_name(&self, name: &str) -> Option<MacroRef<'_>> {
-        let address = *self.macros_by_name.get(name)?;
-        let id = MacroIdRef::LocalAddress(address);
-        let reference = self.macros_by_address.get(address)?;
-        Some(MacroRef { id, reference })
+    pub fn macro_with_name(&self, name: &str) -> Option<&MacroDef> {
+        let address = self.address_for_name(name)?;
+        self.macro_at_address(address)
     }
 
     pub(crate) fn clone_macro_with_name(&self, name: &str) -> Option<Arc<MacroDef>> {
@@ -856,11 +882,21 @@ impl MacroTable {
         &self.macros_by_address[num_macros - num_tail_macros..]
     }
 
+    // This method only exists to support the `ion_tests` feature.
+    // See: https://github.com/amazon-ion/ion-rust/issues/967
     pub fn iter(&self) -> impl Iterator<Item = Macro> + '_ {
         self.macros_by_address
             .iter()
             .enumerate()
-            .map(|(index, macro_def)| Macro::new(Arc::clone(macro_def), index))
+            .map(move |(index, macro_def)| {
+                Macro::new(
+                    Arc::clone(macro_def),
+                    // TODO: This currently sets the module to 'default'.
+                    //       We need it to set it to whatever module this MacroTable belongs to,
+                    //       which will require a different API.
+                    QualifiedAddress::new(ModuleKind::Default, index),
+                )
+            })
     }
 }
 

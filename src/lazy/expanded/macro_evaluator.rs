@@ -32,7 +32,7 @@ use crate::lazy::expanded::LazyExpandedValue;
 use crate::lazy::expanded::{EncodingContextRef, TemplateVariableReference};
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
-use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{
     ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyExpandedField,
@@ -94,10 +94,7 @@ where
     /// If the ID cannot be found in the `EncodingContext`, returns `Err`.
     #[inline]
     fn resolve(self, context: EncodingContextRef<'top>) -> IonResult<EExpression<'top, D>> {
-        let invoked_macro = context.macro_table().macro_with_id(self.id()).ok_or_else(
-            #[inline(never)]
-            || IonError::decoding_error(format!("unrecognized macro ID {:?}", self.id())),
-        )?;
+        let invoked_macro = self.id().resolve(context.macro_table())?;
         Ok(EExpression::new(self, invoked_macro))
     }
 
@@ -250,7 +247,7 @@ impl<'top, D: Decoder> MacroExpr<'top, D> {
         use MacroExprKind::*;
         match &self.kind {
             TemplateMacro(m) => m.invoked_macro().expansion_analysis(),
-            EExp(e) => e.invoked_macro().reference().expansion_analysis(),
+            EExp(e) => e.invoked_macro().definition().expansion_analysis(),
             // Argument groups are a low-level construct; they do not invoke a proper macro.
             // They always produce the default expansion analysis.
             TemplateArgGroup(_) | EExpArgGroup(_) => ExpansionAnalysis::default(),

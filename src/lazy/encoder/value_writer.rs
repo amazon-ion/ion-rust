@@ -1,5 +1,7 @@
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
-use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
+use crate::lazy::encoder::value_writer::internal::{
+    EExpWriterInternal, FieldEncoder, MakeValueWriter,
+};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::text::raw::v1_1::reader::MacroIdLike;
 use crate::raw_symbol_ref::AsRawSymbolRef;
@@ -7,6 +9,7 @@ use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp, UInt};
 
 // This module is `pub(crate)` to deter crates from providing their own implementations of these traits.
 pub(crate) mod internal {
+    use crate::lazy::expanded::template::Parameter;
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{ContextWriter, IonResult};
 
@@ -34,6 +37,10 @@ pub(crate) mod internal {
         /// the field name itself, and the delimiting `:`.
         fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()>;
     }
+
+    pub trait EExpWriterInternal {
+        fn expect_next_parameter(&mut self) -> IonResult<&Parameter>;
+    }
 }
 
 /// A writer which can encode nested values.
@@ -46,11 +53,16 @@ pub trait ContextWriter {
         Self: 'a;
 }
 
-pub trait EExpWriter: SequenceWriter {
+pub trait EExpWriter: SequenceWriter + EExpWriterInternal {
     // TODO: more methods for writing tagless encodings
     type ExprGroupWriter<'group>: SequenceWriter
     where
         Self: 'group;
+
+    fn invoked_macro(&self) -> MacroRef<'_>;
+
+    fn current_parameter(&self) -> Option<&Parameter>;
+
     fn write_flex_uint(&mut self, _value: impl Into<UInt>) -> IonResult<()> {
         todo!("current only implemented for binary 1.1 to enable unit testing for the reader")
     }
@@ -217,6 +229,8 @@ macro_rules! delegate_value_writer_to_self {
 }
 
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
+use crate::lazy::expanded::macro_table::MacroRef;
+use crate::lazy::expanded::template::Parameter;
 pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
 

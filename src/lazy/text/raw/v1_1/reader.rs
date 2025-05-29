@@ -8,7 +8,7 @@ use crate::lazy::decoder::{
 };
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_1};
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
-use crate::lazy::expanded::macro_table::{Macro, ION_1_1_SYSTEM_MACROS};
+use crate::lazy::expanded::macro_table::{Macro, MacroRef, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
@@ -19,7 +19,7 @@ use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
-use crate::{v1_1, Encoding, IonResult, MacroTable};
+use crate::{v1_1, Encoding, IonError, IonResult, MacroDef, MacroTable};
 use compact_str::CompactString;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -166,25 +166,36 @@ pub(crate) mod system_macros {
     pub const USE: SystemMacroAddress = SystemMacroAddress(0x17);
 }
 
-/// An identifier that has been resolved/validated in the `MacroTable`.
-/// When writing an e-expression, a `MacroIdRef<'_>` will be turned into a `ResolvedId`.
-#[derive(Clone, Copy)]
-pub struct ResolvedId<'a> {
-    name: Option<&'a str>,
-    address: MacroAddress,
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ModuleKind {
+    Default,
+    System,
+    // TODO: For the moment, this can only be `Default` or `System`.
+    //       We need to add support for user-defined modules,
+    //       possibly with a `UserDefined(CompactString)` variant.
 }
 
-impl<'a> ResolvedId<'a> {
-    pub fn new(name: Option<&'a str>, address: MacroAddress) -> Self {
-        Self { name, address }
+/// A `(module, address)` pair referring to a location in the encoding context where a macro resides.
+/// When writing an e-expression, a `MacroIdRef<'_>` (a potentially qualified name or address)
+/// will be turned into a `ResolvedId` that can be handled more uniformly.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct QualifiedAddress {
+    module: ModuleKind,
+    address: u32,
+}
+
+impl QualifiedAddress {
+    pub fn new(module: ModuleKind, address: usize) -> Self {
+        let address = u32::try_from(address).expect("address too large for u32");
+        Self { module, address }
     }
 
-    pub fn name(&self) -> Option<&'a str> {
-        self.name
+    pub fn module(&self) -> ModuleKind {
+        self.module
     }
 
     pub fn address(&self) -> MacroAddress {
-        self.address
+        self.address as usize
     }
 }
 
@@ -203,50 +214,64 @@ pub trait MacroIdLike<'a>: Sized + Copy {
         self.as_macro_id_ref()
     }
 
-    fn resolve(self, macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
+    fn resolve<'b: 'a>(&self, macro_table: &'b MacroTable) -> IonResult<MacroRef<'b>> {
         use MacroIdRef::*;
         let id = self.as_macro_id_ref();
-        match id {
+
+        let qualified_address = match id {
             LocalName(name) => {
-                if let Some(address) = macro_table.address_for_name(name) {
-                    return Ok(ResolvedId::new(Some(name), address));
-                };
+                let address = macro_table.address_for_id(id).ok_or_else(|| {
+                    IonError::illegal_operation(format!(
+                        "macro table does not contain a macro named '{name}'"
+                    ))
+                })?;
+                QualifiedAddress::new(ModuleKind::Default, address)
             }
-            LocalAddress(address) => {
-                if let Some(name) = macro_table
-                    .macro_at_address(address)
-                    .and_then(|macro_ref| macro_ref.name())
-                {
-                    return Ok(ResolvedId::new(Some(name), address));
-                }
-            }
-            SystemAddress(_system_address) => {
-                todo!("resolving qualified macro IDs")
-            }
+            LocalAddress(address) => QualifiedAddress::new(ModuleKind::Default, address),
+            SystemAddress(address) => QualifiedAddress::new(ModuleKind::System, address.as_usize()),
         };
-        IonResult::encoding_error(format!("could not find macro with ID {id:?}"))
+
+        let macro_table: &MacroTable = match qualified_address.module() {
+            ModuleKind::Default => macro_table,
+            ModuleKind::System => &ION_1_1_SYSTEM_MACROS,
+        };
+
+        let macro_def = macro_table
+            .macro_at_address(qualified_address.address())
+            .ok_or_else(|| {
+                IonError::encoding_error(format!("no macro with the specified ID ({id:?}) found"))
+            })?;
+
+        Ok(MacroRef::new(qualified_address, macro_def))
     }
 }
 
 impl<'a> MacroIdLike<'a> for &'a Macro {
     fn as_macro_id_ref(&self) -> MacroIdRef<'a> {
-        MacroIdRef::LocalAddress(self.address())
+        self.prefer_name()
     }
 
     fn prefer_name(&self) -> MacroIdRef<'a> {
         match self.name() {
             Some(name) => MacroIdRef::LocalName(name),
-            None => MacroIdRef::LocalAddress(self.address()),
+            None if self.module() == ModuleKind::Default => {
+                MacroIdRef::LocalAddress(self.address())
+            }
+            None => MacroIdRef::SystemAddress(SystemMacroAddress::new_unchecked(self.address())),
         }
     }
 
-    fn prefer_address(&self) -> MacroIdRef<'a> {
-        MacroIdRef::LocalAddress(self.address())
-    }
-
-    fn resolve(self, _macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
-        // TODO: Confirm that the macro at the saved address is the same one
-        Ok(ResolvedId::new(self.name(), self.address()))
+    fn resolve<'b: 'a>(&self, macro_table: &'b MacroTable) -> IonResult<MacroRef<'b>> {
+        let actual: &MacroDef = macro_table
+            .macro_at_address(self.address())
+            .ok_or_else(|| {
+                IonError::encoding_error("used a Macro that is no longer in the macro table")
+            })?;
+        let this_def: &MacroDef = self.definition();
+        if !std::ptr::addr_eq(actual, this_def) {
+            return IonResult::encoding_error("used a stale Macro reference");
+        }
+        Ok(MacroRef::new(self.qualified_address(), actual))
     }
 }
 
@@ -260,25 +285,25 @@ where
     }
 }
 
-impl<'a> MacroIdLike<'a> for ResolvedId<'a> {
+impl<'a> MacroIdLike<'a> for QualifiedAddress {
     fn as_macro_id_ref(&self) -> MacroIdRef<'a> {
-        self.prefer_name()
-    }
-
-    fn prefer_name(&self) -> MacroIdRef<'a> {
-        match self.name() {
-            Some(name) => MacroIdRef::LocalName(name),
-            None => MacroIdRef::LocalAddress(self.address()),
+        match self.module() {
+            ModuleKind::Default => MacroIdRef::LocalAddress(self.address()),
+            ModuleKind::System => {
+                MacroIdRef::SystemAddress(SystemMacroAddress::new_unchecked(self.address()))
+            }
         }
     }
 
-    fn prefer_address(&self) -> MacroIdRef<'a> {
-        MacroIdRef::LocalAddress(self.address())
-    }
-
-    fn resolve(self, _macro_table: &'a MacroTable) -> IonResult<ResolvedId<'a>> {
-        // ResolvedId is already resolved
-        Ok(self)
+    fn resolve<'b: 'a>(&self, macro_table: &'b MacroTable) -> IonResult<MacroRef<'b>> {
+        let macro_def = match self.module() {
+            ModuleKind::Default => macro_table.macro_at_address(self.address()),
+            ModuleKind::System => ION_1_1_SYSTEM_MACROS.macro_at_address(self.address()),
+        }
+        .ok_or_else(|| {
+            IonError::encoding_error(format!("could not find macro with ID {self:?}"))
+        })?;
+        Ok(MacroRef::new(*self, macro_def))
     }
 }
 

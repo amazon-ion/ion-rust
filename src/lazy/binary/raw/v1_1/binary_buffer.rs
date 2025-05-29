@@ -24,7 +24,9 @@ use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
-use crate::lazy::text::raw::v1_1::reader::{MacroIdRef, SystemMacroAddress};
+use crate::lazy::text::raw::v1_1::reader::{
+    MacroIdLike, MacroIdRef, ModuleKind, QualifiedAddress, SystemMacroAddress,
+};
 use crate::result::IonFailure;
 use crate::{v1_1, IonError, IonResult, ValueExpr};
 
@@ -908,19 +910,14 @@ impl<'a> BinaryBuffer<'a> {
         macro_id: MacroIdRef<'a>,
     ) -> ParseResult<'a, &'a BinaryEExpression_1_1<'a>> {
         // Get a reference to the macro that lives at that address
-        let macro_ref = self
-            .context
-            .macro_table()
-            .macro_with_id(macro_id)
-            .ok_or_else(
-                #[inline(never)]
-                || {
-                    IonError::decoding_error(format!(
-                        "invocation of macro at unknown ID '{macro_id:?}', buffer: {self:?}"
-                    ))
-                },
-            )?
-            .reference();
+        let macro_ref = macro_id.resolve(self.context.macro_table()).map_err(
+            #[inline(never)]
+            |_| {
+                IonError::decoding_error(format!(
+                    "invocation of macro at unknown ID '{macro_id:?}', buffer: {self:?}"
+                ))
+            },
+        )?;
 
         let signature = macro_ref.signature();
         let bitmap_size_in_bytes = signature.bitmap_size_in_bytes();
@@ -967,7 +964,7 @@ impl<'a> BinaryBuffer<'a> {
 
         let eexp_ref = self.context.allocator().alloc_with(|| {
             BinaryEExpression_1_1::new(
-                MacroRef::new(macro_id, macro_ref),
+                macro_ref,
                 bitmap_bits,
                 matched_eexp_bytes,
                 // There is no length prefix, so we re-use the bitmap_offset as the first position
@@ -997,7 +994,9 @@ impl<'a> BinaryBuffer<'a> {
             return IonResult::incomplete("a length-prefixed e-expression", self.offset);
         }
         let matched_bytes = self.slice(0, total_length);
-        let macro_ref = self
+
+        // Get a reference to the macro that lives at that address
+        let macro_def = self
             .context
             .macro_table()
             .macro_at_address(macro_address)
@@ -1005,8 +1004,12 @@ impl<'a> BinaryBuffer<'a> {
                 IonError::decoding_error(format!(
                     "invocation of macro at unknown address '{macro_address:?}'"
                 ))
-            })?
-            .reference();
+            })?;
+        let macro_ref = MacroRef::new(
+            QualifiedAddress::new(ModuleKind::Default, macro_address),
+            macro_def,
+        );
+
         // Offset from `self`, not offset from the beginning of the stream.
         let length_offset = (input_after_address.offset() - self.offset()) as u8;
         let bitmap_offset = (input_after_length.offset() - self.offset()) as u8;
@@ -1016,7 +1019,7 @@ impl<'a> BinaryBuffer<'a> {
         let remaining_input = self.consume(total_length);
         let eexp_ref = self.context.allocator().alloc_with(|| {
             BinaryEExpression_1_1::new(
-                MacroRef::new(MacroIdRef::LocalAddress(macro_address), macro_ref),
+                macro_ref,
                 bitmap_bits,
                 matched_bytes,
                 length_offset,
