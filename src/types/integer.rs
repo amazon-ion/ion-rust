@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem;
-use std::ops::{Add, Neg};
+use std::ops::{Add, Neg, Sub};
 
 /// Represents an unsigned integer of any size.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -327,6 +327,14 @@ impl Add<Self> for Int {
     }
 }
 
+impl Sub<Self> for Int {
+    type Output = Int;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.data.sub(rhs.data).into()
+    }
+}
+
 impl Zero for Int {
     fn zero() -> Self {
         Int { data: 0i128 }
@@ -342,6 +350,14 @@ impl Add<Self> for UInt {
 
     fn add(self, rhs: Self) -> Self::Output {
         self.data.add(rhs.data).into()
+    }
+}
+
+impl Sub<Self> for UInt {
+    type Output = UInt;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.data.sub(rhs.data).into()
     }
 }
 
@@ -461,6 +477,19 @@ mod integer_tests {
         assert_eq!(
             Int::from(100i128) + Int::from(1000i128),
             Int::from(1100i128)
+        );
+    }
+
+    #[test]
+    fn sub() {
+        assert_eq!(Int::from(0) - Int::from(0), Int::from(0));
+        assert_eq!(Int::from(5) - Int::from(7), Int::from(-2));
+        assert_eq!(Int::from(-5) - Int::from(7), Int::from(-12));
+        assert_eq!(Int::from(100) - Int::from(1000i128), Int::from(-900i128));
+        assert_eq!(Int::from(100i128) - Int::from(1000), Int::from(-900i128));
+        assert_eq!(
+            Int::from(100i128) - Int::from(1000i128),
+            Int::from(-900i128)
         );
     }
 
