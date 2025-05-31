@@ -93,7 +93,9 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     fn list_writer(self) -> IonResult<Self::ListWriter>;
     fn sexp_writer(self) -> IonResult<Self::SExpWriter>;
     fn struct_writer(self) -> IonResult<Self::StructWriter>;
-    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>;
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
+    where
+        Self: 'a;
 
     fn write(self, value: impl WriteAsIon) -> IonResult<()> {
         value.write_as_ion(self)
@@ -198,7 +200,7 @@ macro_rules! delegate_value_writer_to {
                 fn eexp_writer<'a>(
                     self,
                     macro_id: impl MacroIdLike<'a>,
-                 ) -> IonResult<Self::EExpWriter>;
+                 ) -> IonResult<Self::EExpWriter> where Self: 'a;
 
             }
         }
@@ -460,9 +462,9 @@ pub trait SequenceWriter: MakeValueWriter {
     }
 
     fn eexp_writer<'a>(
-        &mut self,
+        &'a mut self,
         macro_id: impl MacroIdLike<'a>,
-    ) -> IonResult<<Self::NestedValueWriter<'_> as ValueWriter>::EExpWriter> {
+    ) -> IonResult<<Self::NestedValueWriter<'a> as ValueWriter>::EExpWriter> {
         self.value_writer().eexp_writer(macro_id)
     }
 

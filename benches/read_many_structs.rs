@@ -391,7 +391,7 @@ mod benchmark {
 
         let empty_context = EncodingContext::for_ion_version(IonVersion::v1_1);
         let compiled_macro = TemplateCompiler::compile_from_source(
-            empty_context.get_ref(),
+            empty_context.macro_table(),
             &test_data_1_1.template_definition_text,
         )
         .unwrap();

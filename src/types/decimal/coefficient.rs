@@ -60,6 +60,13 @@ impl Coefficient {
         }
     }
 
+    pub(crate) fn from_sign_and_value(sign: Sign, magnitude: impl Into<Int>) -> Self {
+        Self {
+            sign,
+            magnitude: magnitude.into(),
+        }
+    }
+
     pub fn sign(&self) -> Sign {
         self.sign
     }

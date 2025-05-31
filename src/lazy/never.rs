@@ -131,6 +131,10 @@ impl<'top, D: Decoder<EExp<'top> = Self>> RawEExpression<'top, D> for Never {
     fn raw_arguments(&self) -> Self::RawArgumentsIterator {
         unreachable!("<Never as RawEExpression>::raw_arguments")
     }
+
+    fn context(&self) -> EncodingContextRef<'top> {
+        unreachable!("<Never as RawEExpression>::context")
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

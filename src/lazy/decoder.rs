@@ -125,6 +125,7 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     }
 
     /// The `IonVersion` that was used to encode this IVM.
+    #[allow(dead_code)]
     fn stream_version_before_marker(&self) -> IonVersion {
         self.stream_encoding_before_marker().version()
     }
@@ -610,6 +611,8 @@ pub trait LazyRawValue<'top, D: Decoder>:
     /// This method is used when converting a `LazyValue` (which may be backed by a slice of the
     /// input buffer) to a `LazyElement` (which needs to be backed by heap data).
     fn with_backing_data(&self, span: Span<'top>) -> Self;
+
+    fn encoding(&self) -> IonEncoding;
 }
 
 pub trait RawSequenceIterator<'top, D: Decoder>:

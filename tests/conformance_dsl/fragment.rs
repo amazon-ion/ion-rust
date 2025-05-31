@@ -22,7 +22,7 @@
 
 use super::context::Context;
 use super::*;
-use ion_rs::{ion_seq, v1_0, v1_1, Encoding, WriteConfig};
+use ion_rs::{ion_seq, v1_1, AnyEncoding, Encoding, Reader, WriteConfig};
 use ion_rs::{Element, SExp, Sequence, Struct, Symbol};
 use ion_rs::{RawSymbolRef, SequenceWriter, StructWriter, ValueWriter, WriteAsIon, Writer};
 
@@ -34,6 +34,12 @@ trait FragmentImpl {
         ctx: &Context,
         config: impl Into<WriteConfig<E>>,
     ) -> InnerResult<Vec<u8>>;
+
+    fn write<E: ion_rs::Encoding, O: std::io::Write>(
+        &self,
+        ctx: &Context,
+        writer: &mut ion_rs::Writer<E, O>,
+    ) -> InnerResult<()>;
 }
 
 /// Fragments represent parts of the ion document read for testing.
@@ -52,50 +58,40 @@ pub(crate) enum Fragment {
 static EMPTY_TOPLEVEL: Fragment = Fragment::TopLevel(TopLevel { elems: vec![] });
 
 impl Fragment {
-    /// Encode the fragment as binary ion.
-    pub fn to_binary(&self, ctx: &Context) -> InnerResult<Vec<u8>> {
-        match ctx.version() {
-            IonVersion::V1_1 => self.write_as_binary(ctx, v1_1::Binary),
-            _ => self.write_as_binary(ctx, v1_0::Binary),
-        }
-    }
-
-    /// Encode the fragment as text ion.
-    pub fn to_text(&self, ctx: &Context) -> InnerResult<Vec<u8>> {
-        match ctx.version() {
-            IonVersion::V1_1 => self.write_as_text(ctx, v1_1::Text),
-            _ => self.write_as_text(ctx, v1_0::Text),
-        }
-    }
-
-    /// Internal. Writes the fragment as binary ion using the provided WriteConfig.
-    fn write_as_binary<E: Encoding>(
+    /// Write the fragment to the test document using the provided writer
+    pub(crate) fn write<E: ion_rs::Encoding, O: std::io::Write>(
         &self,
         ctx: &Context,
-        config: impl Into<WriteConfig<E>>,
-    ) -> InnerResult<Vec<u8>> {
+        writer: &mut ion_rs::Writer<E, O>,
+    ) -> InnerResult<()> {
         match self {
-            Fragment::TopLevel(toplevel) => toplevel.encode(ctx, config),
-            Fragment::Binary(bin) => Ok(bin.clone()),
-            Fragment::Text(_) => unreachable!(),
-            Fragment::Ivm(maj, min) => Ok([0xE0, *maj as u8, *min as u8, 0xEA].to_vec()),
-        }
-    }
-
-    /// Internal. Writes the fragment as text ion using the provided WriteConfig.
-    fn write_as_text<E: Encoding>(
-        &self,
-        ctx: &Context,
-        config: impl Into<WriteConfig<E>>,
-    ) -> InnerResult<Vec<u8>> {
-        match self {
-            Fragment::TopLevel(toplevel) => toplevel.encode(ctx, config),
+            Fragment::TopLevel(toplevel) => toplevel.write(ctx, writer),
             Fragment::Text(txt) => {
-                let bytes = txt.as_bytes();
-                Ok(bytes.to_owned())
+                writer.flush()?;
+                let _ = writer.output_mut().write(txt.as_bytes())?;
+                Ok(())
             }
-            Fragment::Binary(_) => unreachable!(),
-            Fragment::Ivm(maj, min) => Ok(format!("$ion_{}_{}", maj, min).as_bytes().to_owned()),
+            Fragment::Binary(bytes) => {
+                writer.flush()?;
+                let _ = writer.output_mut().write(bytes)?;
+                Ok(())
+            }
+            Fragment::Ivm(maj, min) => match ctx.encoding() {
+                IonEncoding::Binary => {
+                    writer.flush()?;
+                    let _ = writer
+                        .output_mut()
+                        .write(&[0xE0, *maj as u8, *min as u8, 0xEA])?;
+                    Ok(())
+                }
+                _ => {
+                    writer.flush()?;
+                    let _ = writer
+                        .output_mut()
+                        .write(format!("$ion_{}_{} ", maj, min).as_bytes())?;
+                    Ok(())
+                }
+            },
         }
     }
 
@@ -183,6 +179,12 @@ impl TryFrom<Sequence> for Fragment {
     fn try_from(other: Sequence) -> InnerResult<Self> {
         let clause = Clause::try_from(other)?;
         Fragment::try_from(clause)
+    }
+}
+
+pub trait FragmentWriter {
+    fn write(&mut self, _frag: &Fragment) -> InnerResult<usize> {
+        todo!()
     }
 }
 
@@ -390,7 +392,7 @@ impl WriteAsIon for ProxyElement<'_> {
     }
 }
 
-/// Implments the TopLevel fragment.
+/// Implements the TopLevel fragment.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TopLevel {
     elems: Vec<Element>,
@@ -406,10 +408,54 @@ impl FragmentImpl for TopLevel {
         let mut buffer = Vec::with_capacity(1024);
         let mut writer = Writer::new(config, buffer)?;
 
+        self.write(ctx, &mut writer)?;
+
+        buffer = writer.close()?;
+        Ok(buffer)
+    }
+
+    fn write<E: Encoding, O: std::io::Write>(
+        &self,
+        ctx: &Context,
+        writer: &mut Writer<E, O>,
+    ) -> InnerResult<()> {
+        // The Writer is asked to serialize Elements that represent system values.
+        // In many cases, it will emit a macro table containing macros that are not in its own
+        // encoding context. For example, this snippet:
+        //
+        //     (mactab (macro m (v!) v))
+        //
+        // will emit a system value that the reader will understand defines macro `m`.
+        // However, the writer emitting the system value does not have macro `m` in its own
+        // encoding context. If the test later invokes `m` like this:
+        //
+        //     (toplevel ('#$:m' 5))
+        //
+        // the Writer will raise an error reporting that the test is trying to invoke a
+        // non-existent macro.
+        //
+        // As a workaround, when serializing top-level Elements, the writer does an initial
+        // serialization pass to load any necessary encoding context changes.
+        //
+        // Serialize the data once...
+        let serialized = v1_1::Text::encode_all(self.elems.as_slice())?;
+        // ...then read the data, constructing a macro table in the Reader...
+        let mut reader = Reader::new(AnyEncoding, serialized)?;
+        while reader.next()?.is_some() {}
+        let macro_table = reader.macro_table();
+        if ctx.version() == IonVersion::V1_1 {
+            // For each macro in the Reader...
+            for mac in macro_table.iter() {
+                // ...try to register the macro in the Writer. For simplicity, we skip over
+                // system macros that are already defined.
+                let _result = writer.register_macro(&mac);
+            }
+        }
+
+        // Now that the Writer has the necessary context, it can encode the ProxyElements.
         for elem in self.elems.as_slice() {
             writer.write(ProxyElement(elem, ctx))?;
         }
-        buffer = writer.close()?;
-        Ok(buffer)
+        Ok(())
     }
 }

@@ -1,7 +1,8 @@
-use std::io::Write;
-
 use delegate::delegate;
 use ice_code::ice as cold_path;
+use std::io::Write;
+use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::constants::v1_0::system_symbol_ids;
 use crate::constants::v1_1;
@@ -27,34 +28,107 @@ use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
     AnyEncoding, ContextWriter, Decimal, Element, ElementWriter, Int, IonInput, IonResult, IonType,
-    IonVersion, MacroTable, RawSymbolRef, Reader, Symbol, SymbolTable, TemplateCompiler, Timestamp,
-    UInt, Value,
+    IonVersion, MacroDef, MacroTable, RawSymbolRef, Reader, Symbol, SymbolId, SymbolTable,
+    TemplateCompiler, TemplateMacro, Timestamp, UInt, Value,
 };
 
-pub(crate) struct WriterContext {
-    symbol_table: SymbolTable,
-    // This will be used when we add 'managed' macro methods to the writer
-    #[allow(dead_code)]
-    macro_table: MacroTable,
-    num_pending_symbols: usize,
-    num_pending_macros: usize,
+/// A thin wrapper around a `SymbolTable` that tracks the number of symbols whose definition has
+/// not yet been written to output.
+pub(crate) struct WriterSymbolTable {
+    symbols: SymbolTable,
+    num_pending: usize,
 }
 
-impl WriterContext {
-    pub fn new(symbol_table: SymbolTable, macro_table: MacroTable) -> Self {
+impl WriterSymbolTable {
+    pub fn reset_num_pending(&mut self) {
+        self.num_pending = 0;
+    }
+
+    pub fn num_pending(&self) -> usize {
+        self.num_pending
+    }
+
+    pub fn pending(&self) -> &[Symbol] {
+        self.symbols.symbols_tail(self.num_pending)
+    }
+
+    pub fn add_symbol_for_text<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
+        self.num_pending += 1;
+        self.symbols.add_symbol_for_text(text)
+    }
+
+    pub fn new(symbols: SymbolTable) -> Self {
         Self {
-            symbol_table,
-            macro_table,
-            num_pending_symbols: 0,
-            num_pending_macros: 0,
+            symbols,
+            num_pending: 0,
         }
+    }
+}
+
+// Read-only methods on the underlying SymbolTable can be invoked directly.
+impl Deref for WriterSymbolTable {
+    type Target = SymbolTable;
+
+    fn deref(&self) -> &Self::Target {
+        &self.symbols
+    }
+}
+
+/// A thin wrapper around a `MacroTable` that tracks the number of macros whose definition has
+/// not yet been written to output.
+pub(crate) struct WriterMacroTable {
+    macros: MacroTable,
+    num_pending: usize,
+}
+
+impl WriterMacroTable {
+    pub fn new(macros: MacroTable) -> Self {
+        Self {
+            macros,
+            num_pending: 0,
+        }
+    }
+
+    pub fn add_template_macro(&mut self, template_macro: TemplateMacro) -> IonResult<usize> {
+        let address = self.macros.add_template_macro(template_macro)?;
+        self.num_pending += 1;
+        Ok(address)
+    }
+
+    pub(crate) fn add_macro(&mut self, macro_ref: &Arc<MacroDef>) -> IonResult<usize> {
+        let address = self.macros.len();
+        self.macros.append_macro(macro_ref)?;
+        self.num_pending += 1;
+        Ok(address)
+    }
+
+    pub fn reset_num_pending(&mut self) {
+        self.num_pending = 0;
+    }
+
+    pub fn num_pending(&self) -> usize {
+        self.num_pending
+    }
+
+    pub fn pending(&self) -> &[Arc<MacroDef>] {
+        self.macros.macros_tail(self.num_pending)
+    }
+}
+
+// Read-only methods on the underlying MacroTable can be invoked directly.
+impl Deref for WriterMacroTable {
+    type Target = MacroTable;
+
+    fn deref(&self) -> &Self::Target {
+        &self.macros
     }
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
 #[cfg_attr(feature = "experimental-reader-writer", visibility::make(pub))]
 pub(crate) struct Writer<E: Encoding, Output: Write> {
-    context: WriterContext,
+    symbols: WriterSymbolTable,
+    macros: WriterMacroTable,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
     output: Output,
@@ -82,11 +156,11 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         data_writer.output_mut().clear();
         // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
         let ion_version = E::ion_version();
-        let symbol_table = SymbolTable::new(ion_version);
-        let macro_table = MacroTable::with_system_macros(ion_version);
-        let context = WriterContext::new(symbol_table, macro_table);
+        let symbols = WriterSymbolTable::new(SymbolTable::new(ion_version));
+        let macros = WriterMacroTable::new(MacroTable::with_system_macros(ion_version));
         let mut writer = Writer {
-            context,
+            symbols,
+            macros,
             data_writer,
             directive_writer,
             output,
@@ -96,6 +170,10 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(writer)
     }
 
+    pub(crate) fn macro_table(&self) -> &MacroTable {
+        &self.macros
+    }
+
     /// Takes a TDL expression representing a macro definition and returns a `Macro` that can
     /// later be invoked by passing it to [`Writer::eexp_writer()`].
     pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
@@ -103,29 +181,31 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
 
         let template_macro = TemplateCompiler::compile_from_sexp(
-            &self.context.macro_table,
+            self.macro_table(),
             &MacroTable::empty(),
             macro_def_sexp,
         )?;
 
-        let address = self
-            .context
-            .macro_table
-            .add_template_macro(template_macro)?;
-        self.context.num_pending_macros += 1;
+        let address = self.macros.add_template_macro(template_macro)?;
         let macro_def = self
-            .context
-            .macro_table
+            .macro_table()
             .clone_macro_with_address(address)
             .expect("macro freshly placed at address is missing");
         let macro_handle = Macro::new(macro_def, address);
         Ok(macro_handle)
     }
 
+    /// Register a previously compiled `Macro` for use in this `Writer`.
+    pub fn register_macro(&mut self, macro_: &Macro) -> IonResult<Macro> {
+        let address = self.macros.add_macro(macro_.definition())?;
+        let macro_def = Arc::clone(macro_.definition());
+        Ok(Macro::new(macro_def, address))
+    }
+
     /// Gets a macro with the provided ID from the default module.
     pub fn get_macro<'a>(&self, id: impl Into<MacroIdRef<'a>>) -> IonResult<Macro> {
         let id = id.into();
-        let macro_table = &self.context.macro_table;
+        let macro_table = self.macro_table();
         let Some(address) = macro_table.address_for_id(id) else {
             return IonResult::encoding_error(format!(
                 "no macro with the specified ID ({id:?}) found"
@@ -155,18 +235,18 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
     /// Writes bytes of previously encoded values to the output stream.
     pub fn flush(&mut self) -> IonResult<()> {
-        if self.context.num_pending_symbols > 0 {
+        if self.symbols.num_pending() > 0 {
             match E::ion_version() {
                 IonVersion::v1_0 => self.write_lst_append()?,
                 IonVersion::v1_1 => self.write_append_symbols_directive()?,
             }
-            self.context.num_pending_symbols = 0;
+            self.symbols.reset_num_pending();
         }
 
         // TODO: In Ion 1.1, new symbols and new macros could be added using the same directive.
-        if self.context.num_pending_macros > 0 {
+        if self.macros.num_pending() > 0 {
             self.write_append_macros_directive()?;
-            self.context.num_pending_macros = 0;
+            self.macros.reset_num_pending();
         }
 
         self.directive_writer.flush()?;
@@ -178,6 +258,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         self.output
             .write_all(self.data_writer.output().as_slice())?;
         self.data_writer.output_mut().clear();
+
+        self.output.flush()?;
         Ok(())
     }
 
@@ -189,19 +271,19 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
     #[cfg(feature = "experimental-reader-writer")]
     #[inline]
     pub fn symbol_table(&self) -> &SymbolTable {
-        &self.context.symbol_table
+        &self.symbols
     }
 
     #[cfg(not(feature = "experimental-reader-writer"))]
     #[inline]
     pub(crate) fn symbol_table(&self) -> &SymbolTable {
-        &self.context.symbol_table
+        &self.symbols
     }
 
     /// Helper method to encode an LST append containing pending symbols.
     fn write_lst_append(&mut self) -> IonResult<()> {
         let Self {
-            context,
+            symbols,
             directive_writer,
             ..
         } = self;
@@ -216,11 +298,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
         let mut new_symbol_list = lst.field_writer(system_symbol_ids::SYMBOLS).list_writer()?;
 
-        let pending_symbols = context
-            .symbol_table
-            .symbols_tail(context.num_pending_symbols)
-            .iter()
-            .map(Symbol::text);
+        let pending_symbols = symbols.pending().iter().map(Symbol::text);
 
         new_symbol_list.write_all(pending_symbols)?;
         new_symbol_list.close()?;
@@ -230,7 +308,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
     fn write_append_macros_directive(&mut self) -> IonResult<()> {
         let Self {
-            context,
+            macros,
             directive_writer,
             ..
         } = self;
@@ -252,9 +330,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
         symbols_sexp.close()?;
 
-        let pending_macros = context
-            .macro_table
-            .macros_tail(context.num_pending_macros)
+        let pending_macros = macros
+            .pending()
             .iter()
             // Only user-defined template macros can be added to the macro table.
             .map(|m| m.require_template());
@@ -271,7 +348,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Helper method to encode an LST append containing pending symbols.
     fn write_append_symbols_directive(&mut self) -> IonResult<()> {
         let Self {
-            context,
+            symbols,
             directive_writer,
             ..
         } = self;
@@ -285,11 +362,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             .write_symbol(v1_1::system_symbols::MODULE)?
             .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
 
-        let pending_symbols = context
-            .symbol_table
-            .symbols_tail(context.num_pending_symbols)
-            .iter()
-            .map(Symbol::text);
+        let pending_symbols = symbols.pending().iter().map(Symbol::text);
 
         let mut symbol_table = directive.sexp_writer()?;
         symbol_table
@@ -314,7 +387,8 @@ impl<E: Encoding, Output: Write> MakeValueWriter for Writer<E, Output> {
 
         ApplicationValueWriter {
             raw_value_writer,
-            encoding: &mut self.context,
+            symbols: &mut self.symbols,
+            macros: &self.macros,
             value_writer_config: self.value_writer_config,
         }
     }
@@ -330,38 +404,37 @@ impl<E: Encoding, Output: Write> SequenceWriter for Writer<E, Output> {
 }
 
 pub struct ApplicationValueWriter<'a, V: ValueWriter> {
-    encoding: &'a mut WriterContext,
+    symbols: &'a mut WriterSymbolTable,
+    macros: &'a WriterMacroTable,
     raw_value_writer: V,
     value_writer_config: ValueWriterConfig,
 }
 
 impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
     pub(crate) fn new(
-        encoding_context: &'a mut WriterContext,
+        symbols: &'a mut WriterSymbolTable,
+        macros: &'a WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_value_writer: V,
     ) -> Self {
         Self {
-            encoding: encoding_context,
+            symbols,
+            macros,
             value_writer_config,
             raw_value_writer,
         }
     }
 
-    fn symbol_table_mut(&mut self) -> &mut SymbolTable {
-        &mut self.encoding.symbol_table
-    }
-
     #[cfg(feature = "experimental-reader-writer")]
     #[inline]
     pub fn symbol_table(&self) -> &SymbolTable {
-        &self.encoding.symbol_table
+        self.symbols
     }
 
     #[cfg(not(feature = "experimental-reader-writer"))]
     #[inline]
     pub(crate) fn symbol_table(&self) -> &SymbolTable {
-        &self.encoding.symbol_table
+        self.symbols
     }
 }
 
@@ -423,7 +496,8 @@ impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
         };
 
         Ok(ApplicationValueWriter {
-            encoding: self.encoding,
+            symbols: self.symbols,
+            macros: self.macros,
             raw_value_writer: self.raw_value_writer.with_annotations(annotations)?,
             value_writer_config: self.value_writer_config,
         })
@@ -460,8 +534,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                         }
                         None => {
                             // ...that we need to add to the symbol table.
-                            self.encoding.num_pending_symbols += 1;
-                            self.symbol_table_mut().add_symbol_for_text(text)
+                            self.symbols.add_symbol_for_text(text)
                         }
                     };
                     *annotation = RawSymbolRef::SymbolId(sid);
@@ -516,7 +589,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
-                    match self.symbol_table_mut().sid_for(text) {
+                    match self.symbols.sid_for(text) {
                         Some(sid) => {
                             //...that was already in the symbol table.
                             *annotation = RawSymbolRef::SymbolId(sid);
@@ -559,9 +632,10 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         use SymbolValueEncoding::*;
 
         let Self {
-            encoding,
+            symbols,
             raw_value_writer,
             value_writer_config,
+            ..
         } = self;
 
         // Depending on the symbol value encoding config option, map the provided symbol reference
@@ -569,7 +643,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
         let symbol_ref = match value.as_raw_symbol_ref() {
             SymbolId(symbol_id) => {
                 // We can write the symbol ID as-is. Make sure it's in the symbol table.
-                if !encoding.symbol_table.sid_is_valid(symbol_id) {
+                if !symbols.sid_is_valid(symbol_id) {
                     return cold_path!(IonResult::encoding_error(format!(
                         "symbol value ID ${symbol_id} is not in the symbol table"
                     )));
@@ -581,19 +655,16 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                 match value_writer_config.symbol_value_encoding() {
                     SymbolIds => {
                         // Map the text to a symbol ID.
-                        match encoding.symbol_table.sid_for(text) {
+                        match symbols.sid_for(text) {
                             // If it's already in the symbol table, use that SID.
                             Some(symbol_id) => SymbolId(symbol_id),
                             // Otherwise, add it to the symbol table.
-                            None => {
-                                encoding.num_pending_symbols += 1;
-                                SymbolId(encoding.symbol_table.add_symbol_for_text(text))
-                            }
+                            None => SymbolId(symbols.add_symbol_for_text(text)),
                         }
                     }
                     NewSymbolsAsInlineText => {
                         // If the text is in the symbol table, use the symbol ID. Otherwise, use the text itself.
-                        match encoding.symbol_table.sid_for(text) {
+                        match symbols.sid_for(text) {
                             Some(symbol_id) => SymbolId(symbol_id),
                             None => Text(text),
                         }
@@ -609,7 +680,8 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
         Ok(ApplicationListWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             self.value_writer_config,
             self.raw_value_writer.list_writer()?,
         ))
@@ -617,7 +689,8 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
 
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
         Ok(ApplicationSExpWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             self.value_writer_config,
             self.raw_value_writer.sexp_writer()?,
         ))
@@ -626,35 +699,49 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
         let config = self.value_writer_config;
         Ok(ApplicationStructWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             config,
             self.raw_value_writer.struct_writer()?,
         ))
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
+    where
+        Self: 'a,
+    {
+        let resolved_id = macro_id.resolve(self.macros)?;
+        let macro_ref = self
+            .macros
+            .macro_at_address(resolved_id.address())
+            .expect("just resolved");
         Ok(ApplicationEExpWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             self.value_writer_config,
             self.raw_value_writer.eexp_writer(macro_id)?,
+            macro_ref.reference(),
         ))
     }
 }
 
 pub struct ApplicationStructWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriterContext,
+    symbols: &'value mut WriterSymbolTable,
+    macros: &'value WriterMacroTable,
     raw_struct_writer: V::StructWriter,
     value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
     pub(crate) fn new(
-        encoding_context: &'value mut WriterContext,
+        symbols: &'value mut WriterSymbolTable,
+        macros: &'value WriterMacroTable,
         config: ValueWriterConfig,
         raw_struct_writer: V::StructWriter,
     ) -> Self {
         Self {
-            encoding: encoding_context,
+            symbols,
+            macros,
             raw_struct_writer,
             value_writer_config: config,
         }
@@ -680,7 +767,8 @@ impl<V: ValueWriter> ContextWriter for ApplicationStructWriter<'_, V> {
 impl<V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             self.value_writer_config,
             self.raw_struct_writer.make_value_writer(),
         )
@@ -697,7 +785,7 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
             // has a SID at the application level and wants to write text, they can and should
             // resolve the SID in the symbol table before calling this method.
             RawSymbolRef::SymbolId(symbol_id) => {
-                if !self.encoding.symbol_table.sid_is_valid(symbol_id) {
+                if !self.symbols.sid_is_valid(symbol_id) {
                     return cold_path!(IonResult::encoding_error(format!(
                         "symbol ID ${symbol_id} is not in the symbol table"
                     )));
@@ -719,7 +807,7 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
         }
 
         // Otherwise, see if the symbol is already in the symbol table.
-        let token: RawSymbolRef<'_> = match self.encoding.symbol_table.sid_for(text) {
+        let token: RawSymbolRef<'_> = match self.symbols.sid_for(text) {
             // If so, use the existing ID.
             Some(sid) => sid.into(),
             // If it's not but the struct writer is configured to intern new text, add it to the
@@ -727,8 +815,7 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
             None if self.value_writer_config.field_name_encoding()
                 == FieldNameEncoding::SymbolIds =>
             {
-                self.encoding.num_pending_symbols += 1;
-                self.encoding.symbol_table.add_symbol_for_text(text).into()
+                self.symbols.add_symbol_for_text(text).into()
             }
             // Otherwise, we'll write the text as-is.
             None => text.into(),
@@ -754,19 +841,22 @@ impl<V: ValueWriter> StructWriter for ApplicationStructWriter<'_, V> {
 }
 
 pub struct ApplicationListWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriterContext,
+    symbols: &'value mut WriterSymbolTable,
+    macros: &'value WriterMacroTable,
     raw_list_writer: V::ListWriter,
     value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, V: ValueWriter> ApplicationListWriter<'value, V> {
     pub(crate) fn new(
-        encoding_context: &'value mut WriterContext,
+        symbols: &'value mut WriterSymbolTable,
+        macros: &'value WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_list_writer: V::ListWriter,
     ) -> Self {
         Self {
-            encoding: encoding_context,
+            symbols,
+            macros,
             value_writer_config,
             raw_list_writer,
         }
@@ -783,7 +873,8 @@ impl<V: ValueWriter> ContextWriter for ApplicationListWriter<'_, V> {
 impl<V: ValueWriter> MakeValueWriter for ApplicationListWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             self.value_writer_config,
             self.raw_list_writer.make_value_writer(),
         )
@@ -799,19 +890,22 @@ impl<V: ValueWriter> SequenceWriter for ApplicationListWriter<'_, V> {
 }
 
 pub struct ApplicationSExpWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriterContext,
+    symbols: &'value mut WriterSymbolTable,
+    macros: &'value WriterMacroTable,
     raw_sexp_writer: V::SExpWriter,
     value_writer_config: ValueWriterConfig,
 }
 
 impl<'value, V: ValueWriter> ApplicationSExpWriter<'value, V> {
     pub(crate) fn new(
-        encoding: &'value mut WriterContext,
+        symbols: &'value mut WriterSymbolTable,
+        macros: &'value WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_sexp_writer: V::SExpWriter,
     ) -> Self {
         Self {
-            encoding,
+            symbols,
+            macros,
             value_writer_config,
             raw_sexp_writer,
         }
@@ -828,7 +922,8 @@ impl<V: ValueWriter> ContextWriter for ApplicationSExpWriter<'_, V> {
 impl<V: ValueWriter> MakeValueWriter for ApplicationSExpWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             self.value_writer_config,
             self.raw_sexp_writer.make_value_writer(),
         )
@@ -844,21 +939,30 @@ impl<V: ValueWriter> SequenceWriter for ApplicationSExpWriter<'_, V> {
 }
 
 pub struct ApplicationEExpWriter<'value, V: ValueWriter> {
-    encoding: &'value mut WriterContext,
+    symbols: &'value mut WriterSymbolTable,
+    macros: &'value WriterMacroTable,
     raw_eexp_writer: V::EExpWriter,
     value_writer_config: ValueWriterConfig,
+    // TODO: these are now available but not yet used.
+    _invoked_macro: &'value MacroDef,
+    _param_index: usize,
 }
 
 impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
     pub(crate) fn new(
-        encoding: &'value mut WriterContext,
+        symbols: &'value mut WriterSymbolTable,
+        macros: &'value WriterMacroTable,
         value_writer_config: ValueWriterConfig,
         raw_eexp_writer: V::EExpWriter,
+        _invoked_macro: &'value MacroDef,
     ) -> Self {
         Self {
-            encoding,
+            symbols,
+            macros,
             value_writer_config,
             raw_eexp_writer,
+            _invoked_macro,
+            _param_index: 0,
         }
     }
 }
@@ -884,7 +988,8 @@ impl<V: ValueWriter> ContextWriter for ApplicationEExpWriter<'_, V> {
 impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         ApplicationValueWriter::new(
-            self.encoding,
+            self.symbols,
+            self.macros,
             self.value_writer_config,
             self.raw_eexp_writer.make_value_writer(),
         )
@@ -926,9 +1031,10 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
+        v1_0, v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
         RawSymbolRef, SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
     };
+    use std::io::BufWriter;
 
     fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
         encoding: SymbolValueEncoding,
@@ -1224,6 +1330,28 @@ mod tests {
             "// actual\n{actual:?}\n// !=\n// expected\n{expected:?}"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn flush_underlying_sink() -> IonResult<()> {
+        // The final output destination
+        let mut buffer: Vec<u8> = Vec::new();
+        // A BufWriter that, when flushed, writes bytes to the final output destination
+        let buf_writer = BufWriter::new(&mut buffer);
+        // An Ion Writer that writes bytes to the buf_writer
+        let mut writer = Writer::new(v1_0::Binary, buf_writer)?;
+        let len_before_flush = writer.output().get_ref().len();
+        // Write some data
+        writer.write([1, 2, 3, 4, 5])?;
+        // At this point, we've written some data but haven't flushed the inner `buf_writer`,
+        // so the length of its underlying `Vec<u8>` should remain unchanged.
+        assert_eq!(writer.output().get_ref().len(), len_before_flush);
+        // Flush the Ion writer. This should in turn flush the buf_writer, causing bytes to be
+        // written to the underlying `Vec<u8>`.
+        writer.flush()?;
+        // Make sure that this caused the encoded bytes to reach the `Vec<u8>`.
+        assert!(writer.output().get_ref().len() > len_before_flush);
         Ok(())
     }
 }

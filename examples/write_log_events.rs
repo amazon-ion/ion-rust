@@ -61,7 +61,7 @@ mod example {
         // First, we initialize a writer...
         let mut ion_writer = Writer::new(v1_0::Binary, BufWriter::new(ion_1_0_file.as_file()))?;
         // ...then we encode all of the events...
-        ion_writer.write_all(events.iter().map(|e| SerializeWithoutMacros(e)))?;
+        ion_writer.write_all(events.iter().map(SerializeWithoutMacros))?;
         // ...finally, we close the writer, consuming it.
         ion_writer.close()?;
 
@@ -74,7 +74,7 @@ mod example {
             thread_name: ion_writer.compile_macro(
                 // This macro includes the prefix common to all thread names, allowing the writer to only encode
                 // the suffix of each.
-                &format!(
+                format!(
                     r#"
                     (macro thread_name (suffix) (.make_string {THREAD_NAME_PREFIX} (%suffix) ))
                 "#
@@ -167,7 +167,7 @@ mod example {
                 index,
                 logger_name: format!("{PACKAGE_NAME}.{class_name}"),
                 log_level: log_level.to_string(),
-                format: format.into(),
+                format,
                 parameter_types: parameter_types.into(),
                 macro_source,
             }

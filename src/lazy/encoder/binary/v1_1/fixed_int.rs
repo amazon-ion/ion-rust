@@ -11,8 +11,8 @@ pub struct FixedInt {
     size_in_bytes: usize,
 }
 
-pub(crate) const MAX_INT_SIZE_IN_BYTES: usize = std::mem::size_of::<i128>();
-pub(crate) const MAX_UINT_SIZE_IN_BYTES: usize = std::mem::size_of::<u128>();
+pub(crate) const MAX_INT_SIZE_IN_BYTES: usize = size_of::<i128>();
+pub(crate) const MAX_UINT_SIZE_IN_BYTES: usize = size_of::<u128>();
 
 impl FixedInt {
     fn new(size_in_bytes: usize, value: impl Into<Int>) -> Self {
@@ -32,7 +32,7 @@ impl FixedInt {
     /// `size_in_bytes` is the number of bytes to interpret as an unsigned integer.
     /// `offset` is the position of the slice in some larger input stream. It is only used to populate
     ///          an appropriate error message if reading fails.
-    #[inline]
+    #[inline(always)]
     pub fn read(input: &[u8], size_in_bytes: usize, offset: usize) -> IonResult<FixedInt> {
         if input.len() < size_in_bytes {
             return IonResult::incomplete("reading a FixedInt", offset);
@@ -42,9 +42,13 @@ impl FixedInt {
         // sizes.
         let fixed_int = match size_in_bytes {
             0 => FixedInt::from_int(0, Int::ZERO),
-            1 => Self::read_const::<1>(input.try_into().unwrap()),
-            2 => Self::read_const::<2>(input.try_into().unwrap()),
-            n if n <= MAX_INT_SIZE_IN_BYTES => Self::read_general_case(input, n),
+            1 => Self::read_const::<1>(input),
+            2 => Self::read_const::<2>(input),
+            3 => Self::read_const::<3>(input),
+            4 => Self::read_const::<4>(input),
+            5 => Self::read_const::<5>(input),
+            6 => Self::read_const::<6>(input),
+            n @ 7..=MAX_INT_SIZE_IN_BYTES => Self::read_general_case(input, n),
             _ => {
                 return IonResult::decoding_error(
                     "found a FixedInt that was larger than the supported maximum",
@@ -57,7 +61,8 @@ impl FixedInt {
     /// When the size of the FixedInt is known, the generated assembly for parsing it is more
     /// efficient. This `const` read method is useful for optimizing common cases.
     #[inline]
-    pub(crate) fn read_const<const N: usize>(input: [u8; N]) -> FixedInt {
+    pub(crate) fn read_const<const N: usize>(input_slice: &[u8]) -> FixedInt {
+        let input: [u8; N] = input_slice.try_into().unwrap();
         let mut buffer = [0u8; MAX_INT_SIZE_IN_BYTES];
         *buffer.last_chunk_mut::<N>().unwrap() = input;
         let value = i128::from_le_bytes(buffer)

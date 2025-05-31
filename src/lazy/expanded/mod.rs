@@ -46,7 +46,7 @@ use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoding::RawValueLiteral;
 use crate::lazy::expanded::compiler::TemplateCompiler;
 use crate::lazy::expanded::e_expression::EExpression;
-use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, MacroExpr, RawEExpression};
+use crate::lazy::expanded::macro_evaluator::{MacroEvaluator, RawEExpression};
 use crate::lazy::expanded::macro_table::{MacroDef, MacroTable};
 use crate::lazy::expanded::r#struct::LazyExpandedStruct;
 use crate::lazy::expanded::sequence::Environment;
@@ -61,6 +61,7 @@ use crate::lazy::system_reader::{PendingContextChanges, SystemReader};
 use crate::lazy::system_stream_item::SystemStreamItem;
 use crate::lazy::text::raw::v1_1::reader::MacroAddress;
 use crate::lazy::value::LazyValue;
+use crate::location::SourceLocation;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
@@ -277,44 +278,18 @@ impl<'top> EncodingContextRef<'top> {
         &self.context.macro_table
     }
 
-    #[cfg(feature = "lazy-source-location")]
-    pub fn location(&self, value_start: usize) -> Option<(usize, usize)> {
+    pub fn location_for_span(&self, span: Option<Span<'_>>) -> Option<SourceLocation> {
         match unsafe { &*self.io_buffer_source.get() } {
-            IoBufferSource::IoBuffer(ref buffer) => Some((buffer.row(), buffer.column())),
-            IoBufferSource::Reader(handle) => {
-                let prev_newline = handle.prev_newline_offset();
-                let current_row = handle.row();
-
-                if prev_newline == 0 {
-                    // If no newlines have been encountered yet, we're on the first row
-                    // The column is the start position of the value
-                    Some((1, value_start))
-                } else {
-                    // If newlines have been encountered
-                    if value_start > prev_newline {
-                        // If the value starts after the last newline,
-                        // we're on the current row and can calculate the column
-                        Some((current_row, value_start - prev_newline))
-                    } else {
-                        // If the value starts before or at the last newline,
-                        // we need to find the correct row and column
-                        if let Some(last_newline_pos) = handle
-                            .newlines()
-                            .iter()
-                            .enumerate()
-                            .rfind(|&(_index, pos)| pos <= &value_start)
-                        {
-                            // Found the last newline before or at the value start
-                            // Row is the index of this newline + 2 (1-indexed and we're on the next line)
-                            // Column is the distance from this newline to the value start
-                            Some((last_newline_pos.0 + 2, value_start - *last_newline_pos.1))
-                        } else {
-                            // If we couldn't find a newline, we're on the first row
-                            Some((1, value_start))
-                        }
-                    }
-                }
-            }
+            IoBufferSource::IoBuffer(ref buffer) => Some(
+                buffer
+                    .source_location_state()
+                    .calculate_location_for_span(span?),
+            ),
+            IoBufferSource::Reader(handle) => Some(
+                handle
+                    .source_location_state()
+                    .calculate_location_for_span(span?),
+            ),
             IoBufferSource::None => None,
         }
     }
@@ -568,14 +543,10 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         marker: <Encoding as Decoder>::VersionMarker<'top>,
     ) -> IonResult<SystemStreamItem<'top, Encoding>> {
         let new_version = marker.stream_version_after_marker()?;
-        // If this is the first item in the stream or we're changing versions, we need to ensure
-        // the encoding context is set up for this version.
-        if marker.range().start == 0 || new_version != marker.stream_version_before_marker() {
-            // SAFETY: Version markers do not hold a reference to the symbol table.
-            let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
-            pending_changes.switch_to_version = Some(new_version);
-            pending_changes.has_changes = true;
-        }
+        // SAFETY: Version markers do not hold a reference to the symbol table.
+        let pending_changes = unsafe { &mut *self.pending_context_changes.get() };
+        pending_changes.switch_to_version = Some(new_version);
+        pending_changes.has_changes = true;
         Ok(SystemStreamItem::VersionMarker(marker))
     }
 
@@ -962,7 +933,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
 
         Some(Self {
-            context: eexp.context,
+            context: eexp.context(),
             source: ExpandedValueSource::SingletonEExp(eexp),
             variable: None,
         })
@@ -1092,13 +1063,13 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
         }
     }
 
+    // We avoid inlining this to make it easier to inline `read_resolved` above.
     #[inline(never)]
     fn read_resolved_singleton_eexp(
         &self,
         eexp: &EExpression<'top, Encoding>,
     ) -> IonResult<ValueRef<'top, Encoding>> {
-        let new_expansion = MacroExpr::from_eexp(*eexp).expand()?;
-        new_expansion.expand_singleton()?.read_resolved()
+        eexp.expand()?.expand_singleton()?.read_resolved()
     }
 
     pub fn context(&self) -> EncodingContextRef<'top> {

@@ -37,6 +37,7 @@ use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::lazy::reader::Reader;
 use crate::lazy::streaming_raw_reader::{IonInput, IonSlice};
+use crate::location::SourceLocation;
 use crate::result::{
     ConversionOperationError, ConversionOperationResult, IonTypeExpectation, TypeExpectation,
 };
@@ -392,6 +393,8 @@ impl IonDataHash for Element {
 pub struct Element {
     annotations: Annotations,
     value: Value,
+    // Represents the source location metadata (row, column).
+    location: SourceLocation,
 }
 
 impl std::fmt::Debug for Element {
@@ -428,6 +431,15 @@ impl Element {
         Self {
             annotations,
             value: value.into(),
+            location: SourceLocation::empty(),
+        }
+    }
+
+    pub(crate) fn with_location(self, location: SourceLocation) -> Self {
+        Self {
+            annotations: self.annotations,
+            value: self.value,
+            location,
         }
     }
 
@@ -451,6 +463,26 @@ impl Element {
     /// ```
     pub fn value(&self) -> &Value {
         &self.value
+    }
+
+    /// Returns the source location (row, column) of this element in the original Ion text.
+    ///
+    /// The location metadata is primarily intended for error reporting and debugging purposes,
+    /// helping applications provide meaningful feedback to users about the source of issues.
+    ///
+    /// # Returns
+    /// * `Some((row, column))` - Position where this element was found in the source text
+    /// * `None` - Location information is not available
+    ///
+    /// # Important
+    /// Location information is best-effort and may not be available in all cases:
+    /// * Elements created programmatically won't have locations
+    /// * Some parsing scenarios might not preserve location data
+    /// * Binary Ion data does not contain location information
+    ///
+    /// Do not rely on this metadata for programmatic manipulation of Ion data.
+    pub fn location(&self) -> &SourceLocation {
+        &self.location
     }
 
     /// Consumes self and returns this [Element]'s [Value].
@@ -655,7 +687,11 @@ impl Element {
     }
 
     pub fn try_into_text(self) -> ConversionOperationResult<Element, String> {
-        let Self { value, annotations } = self;
+        let Self {
+            value,
+            annotations,
+            location,
+        } = self;
         match value {
             Value::String(text) => Ok(text.to_string()),
             Value::Symbol(sym) => match sym.text {
@@ -665,13 +701,18 @@ impl Element {
                     let sym = Self {
                         value: Value::Symbol(Symbol::unknown_text()),
                         annotations,
+                        location,
                     };
                     Err(ConversionOperationError::new(sym))
                 }
                 SymbolText::Static(static_str) => Ok((*static_str).to_string()),
             },
             _ => {
-                let sym = Self { value, annotations };
+                let sym = Self {
+                    value,
+                    annotations,
+                    location,
+                };
                 Err(ConversionOperationError::new(sym))
             }
         }

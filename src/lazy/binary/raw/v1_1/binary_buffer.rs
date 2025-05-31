@@ -226,6 +226,13 @@ impl<'a> BinaryBuffer<'a> {
         Ok((flex_uint, remaining))
     }
 
+    #[inline(always)]
+    pub fn read_flex_uint_must_inline(self) -> ParseResult<'a, FlexUInt> {
+        let flex_uint = FlexUInt::read(self.bytes(), self.offset())?;
+        let remaining = self.consume(flex_uint.size_in_bytes());
+        Ok((flex_uint, remaining))
+    }
+
     pub fn read_flex_uint_as_lazy_value(self) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
         let Some(first_byte) = self.peek_next_byte() else {
             return IonResult::incomplete("a flex_uint", self.offset());
@@ -376,6 +383,7 @@ impl<'a> BinaryBuffer<'a> {
 
     /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
     /// and at the top level.
+    #[inline]
     pub(crate) fn read_sequence_value_expr(
         self,
     ) -> ParseResult<'a, Option<LazyRawValueExpr<'a, v1_1::Binary>>> {
@@ -384,42 +392,29 @@ impl<'a> BinaryBuffer<'a> {
             None => return Ok((None, self)),
         };
 
-        // Like RawValueExpr, but doesn't use references.
-        enum ParseValueExprResult<'top> {
-            Value(ParseResult<'top, LazyRawBinaryValue_1_1<'top>>),
-            EExp(ParseResult<'top, BinaryEExpression_1_1<'top>>),
-        }
-
-        let result = match opcode.kind {
-            OpcodeKind::EExp => ParseValueExprResult::EExp(self.read_e_expression(opcode)),
+        match opcode.kind {
+            OpcodeKind::EExp => {
+                let (eexp, remaining) = self.read_e_expression(opcode)?;
+                Ok((
+                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::EExp(eexp)),
+                    remaining,
+                ))
+            }
             OpcodeKind::Annotations => {
-                ParseValueExprResult::Value(self.read_annotated_value(opcode))
+                let (value, remaining) = self.read_annotated_value(opcode)?;
+                Ok((
+                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(value)),
+                    remaining,
+                ))
             }
             OpcodeKind::Value(_ion_type) => {
-                ParseValueExprResult::Value(self.read_value_without_annotations(opcode))
-            }
-            _other => return self.read_nop_then_sequence_value(),
-        };
-        let allocator = self.context().allocator();
-        match result {
-            ParseValueExprResult::Value(Ok((value, remaining))) => {
-                let value_ref = &*allocator.alloc_with(|| value);
+                let (value, remaining) = self.read_value_without_annotations(opcode)?;
                 Ok((
-                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(
-                        value_ref,
-                    )),
+                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::ValueLiteral(value)),
                     remaining,
                 ))
             }
-            ParseValueExprResult::EExp(Ok((eexp, remaining))) => {
-                let eexp_ref = &*allocator.alloc_with(|| eexp);
-                Ok((
-                    Some(LazyRawValueExpr::<'a, v1_1::Binary>::EExp(eexp_ref)),
-                    remaining,
-                ))
-            }
-            ParseValueExprResult::Value(Err(e)) => Err(e),
-            ParseValueExprResult::EExp(Err(e)) => Err(e),
+            _other => self.read_nop_then_sequence_value(),
         }
     }
 
@@ -591,22 +586,12 @@ impl<'a> BinaryBuffer<'a> {
     }
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
-    /// the next byte (`type_descriptor`) is not a NOP.
-    pub fn read_value(self, opcode: Opcode) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
-        if opcode.is_annotations_sequence() {
-            self.read_annotated_value(opcode)
-        } else {
-            self.read_value_without_annotations(opcode)
-        }
-    }
-
-    /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is neither a NOP nor an annotations wrapper.
     #[inline(always)]
     fn read_value_without_annotations(
         self,
         opcode: Opcode,
-    ) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
+    ) -> ParseResult<'a, &'a mut LazyRawBinaryValue_1_1<'a>> {
         let input = self;
         let header = opcode.to_header().ok_or_else(|| {
             IonError::decoding_error(format!(
@@ -626,9 +611,7 @@ impl<'a> BinaryBuffer<'a> {
                 let length = match header.length_type() {
                     LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),
                     LengthType::Unknown => FlexUInt::new(0, 0), // Delimited value, we do not know the size.
-                    // This call to `read_value_length` is not always inlined, so we avoid the method call
-                    // if possible.
-                    LengthType::FlexUIntFollows => input.consume(1).read_flex_uint()?.0,
+                    LengthType::FlexUIntFollows => input.consume(1).read_flex_uint_must_inline()?.0,
                 };
 
                 let length_length = length.size_in_bytes() as u8;
@@ -661,13 +644,16 @@ impl<'a> BinaryBuffer<'a> {
             total_length,
         };
 
-        let lazy_value = LazyRawBinaryValue_1_1 {
-            encoded_value,
-            // If this value has a field ID or annotations, this will be replaced by the caller.
-            input: self,
-            delimited_contents,
-        };
-        Ok((lazy_value, self.consume(total_length)))
+        let lazy_value_ref = self
+            .context()
+            .allocator()
+            .alloc_with(|| LazyRawBinaryValue_1_1 {
+                encoded_value,
+                // If this value has a field ID or annotations, this will be replaced by the caller.
+                input: self,
+                delimited_contents,
+            });
+        Ok((lazy_value_ref, self.consume(total_length)))
     }
 
     pub fn read_fixed_int(self, length: usize) -> ParseResult<'a, FixedInt> {
@@ -688,10 +674,13 @@ impl<'a> BinaryBuffer<'a> {
 
     /// Reads an annotations wrapper and its associated value from the buffer. The caller must confirm
     /// that the next byte in the buffer (`type_descriptor`) begins an annotations wrapper.
-    fn read_annotated_value(self, opcode: Opcode) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
+    fn read_annotated_value(
+        self,
+        opcode: Opcode,
+    ) -> ParseResult<'a, &'a LazyRawBinaryValue_1_1<'a>> {
         let (annotations_seq, input_after_annotations) = self.read_annotations_sequence(opcode)?;
         let opcode = input_after_annotations.expect_opcode()?;
-        let (mut value, input_after_value) =
+        let (value, input_after_value) =
             input_after_annotations.read_value_without_annotations(opcode)?;
         let total_annotations_length =
             annotations_seq.header_length as usize + annotations_seq.sequence_length as usize;
@@ -855,7 +844,10 @@ impl<'a> BinaryBuffer<'a> {
     }
 
     #[inline]
-    pub fn read_e_expression(self, opcode: Opcode) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
+    pub fn read_e_expression(
+        self,
+        opcode: Opcode,
+    ) -> ParseResult<'a, &'a BinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
         let (macro_id, input_after_address) = match opcode.opcode_type {
             EExpressionWith6BitAddress => (
@@ -914,7 +906,7 @@ impl<'a> BinaryBuffer<'a> {
         self,
         input_after_address: BinaryBuffer<'a>,
         macro_id: MacroIdRef<'a>,
-    ) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
+    ) -> ParseResult<'a, &'a BinaryEExpression_1_1<'a>> {
         // Get a reference to the macro that lives at that address
         let macro_ref = self
             .context
@@ -972,28 +964,27 @@ impl<'a> BinaryBuffer<'a> {
 
         let bitmap_offset = input_after_address.offset() - self.offset();
         let args_offset = input_after_bitmap.offset() - self.offset();
-        Ok((
-            {
-                BinaryEExpression_1_1::new(
-                    MacroRef::new(macro_id, macro_ref),
-                    bitmap_bits,
-                    matched_eexp_bytes,
-                    // There is no length prefix, so we re-use the bitmap_offset as the first position
-                    // beyond the opcode and address subfields.
-                    bitmap_offset as u8,
-                    bitmap_offset as u8,
-                    args_offset as u8,
-                )
-                .with_arg_expr_cache(cache.into_bump_slice())
-            },
-            remaining_input,
-        ))
+
+        let eexp_ref = self.context.allocator().alloc_with(|| {
+            BinaryEExpression_1_1::new(
+                MacroRef::new(macro_id, macro_ref),
+                bitmap_bits,
+                matched_eexp_bytes,
+                // There is no length prefix, so we re-use the bitmap_offset as the first position
+                // beyond the opcode and address subfields.
+                bitmap_offset as u8,
+                bitmap_offset as u8,
+                args_offset as u8,
+            )
+            .with_arg_expr_cache(cache.into_bump_slice())
+        });
+        Ok((eexp_ref, remaining_input))
     }
 
     fn read_eexp_with_length_prefix(
         self,
         _opcode: Opcode,
-    ) -> ParseResult<'a, BinaryEExpression_1_1<'a>> {
+    ) -> ParseResult<'a, &'a BinaryEExpression_1_1<'a>> {
         let input_after_opcode = self.consume(1);
         let (macro_address_flex_uint, input_after_address) = input_after_opcode.read_flex_uint()?;
         let (args_length_flex_uint, input_after_length) = input_after_address.read_flex_uint()?;
@@ -1023,7 +1014,7 @@ impl<'a> BinaryBuffer<'a> {
             input_after_length.read_eexp_bitmap(macro_ref.signature().bitmap_size_in_bytes())?;
         let args_offset = bitmap_offset + macro_ref.signature().bitmap_size_in_bytes() as u8;
         let remaining_input = self.consume(total_length);
-        Ok((
+        let eexp_ref = self.context.allocator().alloc_with(|| {
             BinaryEExpression_1_1::new(
                 MacroRef::new(MacroIdRef::LocalAddress(macro_address), macro_ref),
                 bitmap_bits,
@@ -1031,9 +1022,9 @@ impl<'a> BinaryBuffer<'a> {
                 length_offset,
                 bitmap_offset,
                 args_offset,
-            ),
-            remaining_input,
-        ))
+            )
+        });
+        Ok((eexp_ref, remaining_input))
     }
 
     fn read_eexp_bitmap(self, bitmap_size_in_bytes: usize) -> ParseResult<'a, u64> {
