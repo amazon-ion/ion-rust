@@ -295,12 +295,6 @@ pub struct TextEExpWriter_1_1<'value, W: Write> {
     signature_iter: SignatureIterator<'value>,
 }
 
-#[test]
-fn say() {
-    println!("{}", size_of::<TextContainerWriter_1_0<'_, Vec<u8>>>());
-    println!("{}", size_of::<MacroIdRef<'_>>());
-}
-
 impl<'value, W: Write> TextEExpWriter_1_1<'value, W> {
     pub(crate) fn new(
         writer: &'value mut LazyRawTextWriter_1_0<W>,

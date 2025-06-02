@@ -26,7 +26,9 @@ pub struct LazyRawBinaryWriter_1_1<W: Write> {
     // A bump allocator that can be used to cheaply create scratch buffers for nested container
     // encoding.
     allocator: BumpAllocator,
-    // TODO: doc
+    // While the raw writer does not manage the macro table, it does need to have access to macro
+    // definitions when writing e-expressions. As such, it owns its macro table and callers can
+    // use `macro_table_mut()` to modify it as needed.
     macros: WriterMacroTable,
     // A pointer to the bump-allocated top-level encoding buffer, if set.
     //
