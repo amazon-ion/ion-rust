@@ -73,6 +73,12 @@ impl SequenceBuilder {
         self
     }
 
+    /// Adds all of the provided elements to the end of the [`Sequence`] being constructed.
+    pub fn push_all<E: Into<Element>, I: IntoIterator<Item = E>>(mut self, elements: I) -> Self {
+        self.values.extend(elements.into_iter().map(|e| e.into()));
+        self
+    }
+
     /// Removes the element at the specified position from the [`Sequence`] being constructed.
     /// If the index is out of bounds, this method will panic.
     pub fn remove(mut self, index: usize) -> Self {

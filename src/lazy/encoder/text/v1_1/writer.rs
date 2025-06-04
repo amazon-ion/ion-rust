@@ -4,20 +4,21 @@ use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
 use crate::lazy::encoder::text::v1_1::value_writer::TextValueWriter_1_1;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
+use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{Encoding, TextEncoding_1_1};
 use crate::text::whitespace_config::{
     COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
 };
 use crate::write_config::WriteConfigKind;
-use crate::{ContextWriter, IonResult, TextFormat, WriteConfig};
-
+use crate::{ContextWriter, IonResult, IonVersion, MacroTable, TextFormat, WriteConfig};
 // Text Ion 1.1 is a syntactic superset of Ion 1.0. The types comprising this writer implementation
-// delegates nearly all of their functionality to the 1.0 text writer.
+// delegate nearly all of their functionality to the 1.0 text writer.
 
 /// A raw text Ion 1.1 writer.
 pub struct LazyRawTextWriter_1_1<W: Write> {
     pub(crate) writer_1_0: LazyRawTextWriter_1_0<W>,
+    macros: WriterMacroTable,
 }
 
 impl<W: Write> SequenceWriter for LazyRawTextWriter_1_1<W> {
@@ -38,7 +39,10 @@ impl<W: Write> ContextWriter for LazyRawTextWriter_1_1<W> {
 impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_1<W> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         let value_writer_1_0 = self.writer_1_0.make_value_writer();
-        TextValueWriter_1_1 { value_writer_1_0 }
+        TextValueWriter_1_1 {
+            value_writer_1_0,
+            macros: &self.macros,
+        }
     }
 }
 
@@ -74,6 +78,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
                         output,
                         whitespace_config,
                     },
+                    macros: WriterMacroTable::new(MacroTable::with_system_macros(IonVersion::v1_1)),
                 })
             }
             WriteConfigKind::Binary(_) => {
@@ -92,6 +97,14 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
 
     fn output_mut(&mut self) -> &mut W {
         self.writer_1_0.output_mut()
+    }
+
+    fn macro_table(&self) -> &WriterMacroTable {
+        &self.macros
+    }
+
+    fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
+        Some(&mut self.macros)
     }
 
     fn write_version_marker(&mut self) -> IonResult<()> {
@@ -119,8 +132,8 @@ mod tests {
     use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{
-        v1_1, Annotatable, Decimal, ElementReader, IonData, IonResult, IonType, Null, RawSymbolRef,
-        Reader, Timestamp, Writer,
+        v1_1, Annotatable, Decimal, EExpWriter, ElementReader, IonData, IonResult, IonType, Null,
+        RawSymbolRef, Reader, Timestamp, Writer,
     };
 
     #[test]
@@ -266,6 +279,7 @@ mod tests {
     #[test]
     fn test_eexp() -> IonResult<()> {
         let mut writer = LazyRawTextWriter_1_1::new(vec![])?;
+        writer.compile_macro("(macro foo (a b c d) (.values (%a) (%b) (%c) (%d)))")?;
         let mut macro_args = writer.eexp_writer("foo")?;
         macro_args
             .write(1)?
@@ -360,11 +374,13 @@ mod tests {
         let mut writer = Writer::new(v1_1::Text, vec![])?;
         let make_string = writer.get_macro("make_string")?;
         let mut macro_args = writer.eexp_writer(&make_string)?;
-        macro_args
+        let mut exp_group = macro_args.expr_group_writer()?;
+        exp_group
             .write("foo")?
             .write("bar")?
             .write("baz")?
             .write_symbol("+++")?;
+        exp_group.close()?;
         macro_args.close()?;
         let encoded_bytes = writer.close()?;
         let mut reader = Reader::new(v1_1::Text, encoded_bytes)?;

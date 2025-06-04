@@ -6,8 +6,10 @@ use crate::lazy::encoder::text::v1_0::value_writer::TextValueWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
+use crate::lazy::expanded::macro_table::EMPTY_MACRO_TABLE;
 use crate::text::whitespace_config::{
     WhitespaceConfig, COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
 };
@@ -115,6 +117,14 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 
     fn output_mut(&mut self) -> &mut W {
         &mut self.output
+    }
+
+    fn macro_table(&self) -> &WriterMacroTable {
+        &EMPTY_MACRO_TABLE
+    }
+
+    fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
+        None
     }
 
     fn write_version_marker(&mut self) -> IonResult<()> {

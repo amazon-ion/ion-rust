@@ -3,12 +3,16 @@ use bumpalo::Bump as BumpAllocator;
 
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::binary::v1_1::{flex_sym::FlexSym, flex_uint::FlexUInt};
-use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
+use crate::lazy::encoder::value_writer::internal::{
+    EExpWriterInternal, FieldEncoder, MakeValueWriter,
+};
 use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::expanded::macro_table::MacroRef;
+use crate::lazy::expanded::template::{Parameter, SignatureIterator};
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::{v1_1, ContextWriter, Encoding, IonResult, UInt};
+use crate::{v1_1, ContextWriter, Encoding, IonResult, MacroTable, UInt};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_1`],
 /// [`BinarySExpWriter_1_1`], and [`BinaryStructWriter_1_1`].
@@ -24,6 +28,7 @@ pub(crate) struct BinaryContainerWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     encoder: ContainerEncodingKind<'value, 'top>,
     value_writer_config: ValueWriterConfig,
+    macros: &'value MacroTable,
 }
 
 enum ContainerEncodingKind<'value, 'top> {
@@ -59,6 +64,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         write_options: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         buffer.push(start_opcode);
         let encoder = ContainerEncodingKind::Delimited(DelimitedEncoder { buffer });
@@ -66,6 +72,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
             allocator,
             encoder,
             value_writer_config: write_options,
+            macros,
         }
     }
 
@@ -75,6 +82,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         write_options: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         const DEFAULT_CAPACITY: usize = 512;
         let encoder = ContainerEncodingKind::LengthPrefixed(LengthPrefixedEncoder {
@@ -87,6 +95,7 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
             allocator,
             encoder,
             value_writer_config: write_options,
+            macros,
         }
     }
 
@@ -107,11 +116,13 @@ impl<'value, 'top> BinaryContainerWriter_1_1<'value, 'top> {
     /// allocator and targeting its child values buffer.
     fn value_writer<'a>(&'a mut self) -> BinaryValueWriter_1_1<'a, 'top> {
         let value_writer_config = self.config();
+        let macros = self.macros;
         // Create a value writer that will use the same container encodings it does by default
         BinaryValueWriter_1_1::new(
             self.allocator,
             self.child_values_buffer(),
             value_writer_config,
+            macros,
         )
     }
 
@@ -165,6 +176,7 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         const DELIMITED_LIST_OPCODE: u8 = 0xF1;
         let container_writer = BinaryContainerWriter_1_1::new_delimited(
@@ -172,6 +184,7 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
             allocator,
             buffer,
             value_writer_config,
+            macros,
         );
         Self::with_container_writer(container_writer)
     }
@@ -180,6 +193,7 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         const LENGTH_PREFIXED_LIST_TYPE_CODE: u8 = 0xB0;
         const LENGTH_PREFIXED_FLEX_LEN_LIST_TYPE_CODE: u8 = 0xFB;
@@ -189,6 +203,7 @@ impl<'value, 'top> BinaryListWriter_1_1<'value, 'top> {
             allocator,
             buffer,
             value_writer_config,
+            macros,
         );
         Self::with_container_writer(container_writer)
     }
@@ -235,6 +250,7 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         const DELIMITED_SEXP_OPCODE: u8 = 0xF2;
         let container_writer = BinaryContainerWriter_1_1::new_delimited(
@@ -242,6 +258,7 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
             allocator,
             buffer,
             value_writer_config,
+            macros,
         );
         Self::with_container_writer(container_writer)
     }
@@ -250,6 +267,7 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         const LENGTH_PREFIXED_SEXP_TYPE_CODE: u8 = 0xC0;
         const LENGTH_PREFIXED_FLEX_LEN_SEXP_TYPE_CODE: u8 = 0xFC;
@@ -259,6 +277,7 @@ impl<'value, 'top> BinarySExpWriter_1_1<'value, 'top> {
             allocator,
             buffer,
             value_writer_config,
+            macros,
         );
         Self::with_container_writer(container_writer)
     }
@@ -274,10 +293,12 @@ impl<'top> ContextWriter for BinarySExpWriter_1_1<'_, 'top> {
 impl MakeValueWriter for BinarySExpWriter_1_1<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         let value_writer_config = self.container_writer.config();
+        let macros = self.container_writer.macros;
         BinaryValueWriter_1_1::new(
             self.container_writer.allocator(),
             self.container_writer.child_values_buffer(),
             value_writer_config,
+            macros,
         )
     }
 }
@@ -310,6 +331,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         const LENGTH_PREFIXED_STRUCT_TYPE_CODE: u8 = 0xD0;
         const LENGTH_PREFIXED_FLEX_LEN_STRUCT_TYPE_CODE: u8 = 0xFD;
@@ -319,6 +341,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
             allocator,
             buffer,
             value_writer_config,
+            macros,
         );
         Self {
             flex_uint_encoding: true,
@@ -330,6 +353,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         const DELIMITED_STRUCT_OPCODE: u8 = 0xF3;
         let container_writer = BinaryContainerWriter_1_1::new_delimited(
@@ -337,6 +361,7 @@ impl<'value, 'top> BinaryStructWriter_1_1<'value, 'top> {
             allocator,
             buffer,
             value_writer_config,
+            macros,
         );
         Self {
             // Delimited structs always use FlexSym encoding.
@@ -407,6 +432,8 @@ pub struct BinaryEExpWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     buffer: &'value mut BumpVec<'top, u8>,
     value_writer_config: ValueWriterConfig,
+    macros: &'value MacroTable,
+    signature_iter: SignatureIterator<'value>,
     // TODO: Hold a reference to the macro signature and advance to the next parameter on
     //       each method call. Any time a value is written:
     //       * compare its type to the parameter to make sure it's legal.
@@ -418,11 +445,16 @@ impl<'value, 'top> BinaryEExpWriter_1_1<'value, 'top> {
         allocator: &'top BumpAllocator,
         buffer: &'value mut BumpVec<'top, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
+        invoked_macro: MacroRef<'value>,
     ) -> Self {
+        let signature_iter = invoked_macro.iter_signature();
         Self {
             allocator,
             buffer,
             value_writer_config,
+            macros,
+            signature_iter,
         }
     }
 }
@@ -436,7 +468,12 @@ impl<'top> ContextWriter for BinaryEExpWriter_1_1<'_, 'top> {
 
 impl MakeValueWriter for BinaryEExpWriter_1_1<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
-        BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.value_writer_config)
+        BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        )
     }
 }
 
@@ -450,11 +487,25 @@ impl SequenceWriter for BinaryEExpWriter_1_1<'_, '_> {
     }
 }
 
+impl<'top> EExpWriterInternal for BinaryEExpWriter_1_1<'_, 'top> {
+    fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
+        self.signature_iter.expect_next_parameter()
+    }
+}
+
 impl<'top> EExpWriter for BinaryEExpWriter_1_1<'_, 'top> {
     type ExprGroupWriter<'group>
         = BinaryExprGroupWriter<'group, 'top>
     where
         Self: 'group;
+
+    fn invoked_macro(&self) -> MacroRef<'_> {
+        self.signature_iter.parent_macro()
+    }
+
+    fn current_parameter(&self) -> Option<&Parameter> {
+        self.signature_iter.current_parameter()
+    }
 
     fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
         FlexUInt::write(self.buffer, value)?;
@@ -470,6 +521,7 @@ pub struct BinaryExprGroupWriter<'group, 'top> {
     allocator: &'top BumpAllocator,
     buffer: &'group mut BumpVec<'top, u8>,
     value_writer_config: ValueWriterConfig,
+    macros: &'group MacroTable,
 }
 
 impl<'top> ContextWriter for BinaryExprGroupWriter<'_, 'top> {
@@ -481,7 +533,12 @@ impl<'top> ContextWriter for BinaryExprGroupWriter<'_, 'top> {
 
 impl MakeValueWriter for BinaryExprGroupWriter<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
-        BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.value_writer_config)
+        BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        )
     }
 }
 

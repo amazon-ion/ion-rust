@@ -18,28 +18,31 @@ use crate::lazy::encoder::value_writer_config::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, SymbolValueEncoding,
     ValueWriterConfig,
 };
-use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, ModuleKind};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::types::float::{FloatRepr, SmallestFloatRepr};
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
+use crate::{Decimal, Int, IonResult, IonType, MacroTable, RawSymbolRef, SymbolId, Timestamp};
 
 pub struct BinaryValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     encoding_buffer: &'value mut BumpVec<'top, u8>,
     value_writer_config: ValueWriterConfig,
+    macros: &'value MacroTable,
 }
 
-impl BinaryValueWriter_1_1<'_, '_> {
+impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
     pub fn new<'a, 'b: 'a>(
         allocator: &'b BumpAllocator,
         encoding_buffer: &'a mut BumpVec<'b, u8>,
         value_writer_config: ValueWriterConfig,
+        macros: &'a MacroTable,
     ) -> BinaryValueWriter_1_1<'a, 'b> {
         BinaryValueWriter_1_1 {
             allocator,
             encoding_buffer,
             value_writer_config,
+            macros,
         }
     }
 
@@ -627,12 +630,18 @@ impl BinaryValueWriter_1_1<'_, '_> {
 
     fn list_writer(self) -> IonResult<<Self as ValueWriter>::ListWriter> {
         let writer = if self.config().has_delimited_containers() {
-            BinaryListWriter_1_1::new_delimited(self.allocator, self.encoding_buffer, self.config())
+            BinaryListWriter_1_1::new_delimited(
+                self.allocator,
+                self.encoding_buffer,
+                self.config(),
+                self.macros,
+            )
         } else {
             BinaryListWriter_1_1::new_length_prefixed(
                 self.allocator,
                 self.encoding_buffer,
                 self.config(),
+                self.macros,
             )
         };
         Ok(writer)
@@ -640,12 +649,18 @@ impl BinaryValueWriter_1_1<'_, '_> {
 
     fn sexp_writer(self) -> IonResult<<Self as ValueWriter>::SExpWriter> {
         let writer = if self.config().has_delimited_containers() {
-            BinarySExpWriter_1_1::new_delimited(self.allocator, self.encoding_buffer, self.config())
+            BinarySExpWriter_1_1::new_delimited(
+                self.allocator,
+                self.encoding_buffer,
+                self.config(),
+                self.macros,
+            )
         } else {
             BinarySExpWriter_1_1::new_length_prefixed(
                 self.allocator,
                 self.encoding_buffer,
                 self.config(),
+                self.macros,
             )
         };
         Ok(writer)
@@ -657,12 +672,14 @@ impl BinaryValueWriter_1_1<'_, '_> {
                 self.allocator,
                 self.encoding_buffer,
                 self.config(),
+                self.macros,
             )
         } else {
             BinaryStructWriter_1_1::new_length_prefixed(
                 self.allocator,
                 self.encoding_buffer,
                 self.config(),
+                self.macros,
             )
         };
         Ok(writer)
@@ -671,7 +688,10 @@ impl BinaryValueWriter_1_1<'_, '_> {
     fn eexp_writer<'a>(
         self,
         macro_id: impl MacroIdLike<'a>,
-    ) -> IonResult<<Self as ValueWriter>::EExpWriter> {
+    ) -> IonResult<<Self as ValueWriter>::EExpWriter>
+    where
+        Self: 'a,
+    {
         // Thresholds within which an address can be encoded using the specified number of bits.
         const MAX_4_BIT_ADDRESS: usize = 63;
 
@@ -681,58 +701,61 @@ impl BinaryValueWriter_1_1<'_, '_> {
         const MIN_20_BIT_ADDRESS: usize = 4_160;
         const MAX_20_BIT_ADDRESS: usize = 1_052_735;
 
-        // Try to get an address from the provided MacroIdLike-thing.
-        let id_ref: MacroIdRef<'_> = macro_id.prefer_address();
-        match id_ref {
-            // We can't invoke e-expressions by name in binary, so if it can't provide an address that's a problem.
-            MacroIdRef::LocalName(_name) => {
-                return IonResult::encoding_error(
-                    "the raw binary writer cannot encode macros by name",
-                );
+        let macro_ref = macro_id.resolve(self.macros)?;
+        let address = macro_ref.address();
+        match macro_ref.module() {
+            ModuleKind::Default => {
+                match address {
+                    0..=MAX_4_BIT_ADDRESS => {
+                        // Invoke this ID with a one-byte opcode
+                        self.encoding_buffer.push(address as u8);
+                    }
+                    MIN_12_BIT_ADDRESS..=MAX_12_BIT_ADDRESS => {
+                        // Encode as an opcode with trailing 1-byte FixedUInt
+                        const BIAS: usize = MIN_12_BIT_ADDRESS;
+                        let biased = address - BIAS;
+                        let low_opcode_nibble = biased >> 8;
+                        self.encoding_buffer.extend_from_slice_copy(&[
+                            // Opcode with low nibble setting bias
+                            0x40 | low_opcode_nibble as u8,
+                            // Remaining byte of magnitude in biased address
+                            biased as u8,
+                        ]);
+                    }
+                    MIN_20_BIT_ADDRESS..=MAX_20_BIT_ADDRESS => {
+                        // Encode as an opcode with trailing 2-byte FixedUInt
+                        const BIAS: usize = MIN_20_BIT_ADDRESS;
+                        let biased = address - BIAS;
+                        let low_opcode_nibble = biased >> 16;
+                        let le_bytes = (biased as u16).to_le_bytes();
+                        self.encoding_buffer.extend_from_slice_copy(&[
+                            // Opcode with low nibble setting bias
+                            0x50 | low_opcode_nibble as u8,
+                            // Remaining bytes of magnitude in biased address
+                            le_bytes[0],
+                            le_bytes[1],
+                        ]);
+                    }
+                    _ => {
+                        todo!("macros with addresses greater than {MAX_20_BIT_ADDRESS}");
+                    }
+                }
             }
-            MacroIdRef::LocalAddress(address) if address <= MAX_4_BIT_ADDRESS => {
-                // Invoke this ID with a one-byte opcode
-                self.encoding_buffer.push(address as u8);
-            }
-            MacroIdRef::LocalAddress(address) if address <= MAX_12_BIT_ADDRESS => {
-                // Encode as an opcode with trailing 1-byte FixedUInt
-                const BIAS: usize = MIN_12_BIT_ADDRESS;
-                let biased = address - BIAS;
-                let low_opcode_nibble = biased >> 8;
+            ModuleKind::System => {
                 self.encoding_buffer.extend_from_slice_copy(&[
-                    // Opcode with low nibble setting bias
-                    0x40 | low_opcode_nibble as u8,
-                    // Remaining byte of magnitude in biased address
-                    biased as u8,
-                ]);
+                    0xEF,
+                    u8::try_from(address)
+                        .expect("system macro addresses are always smaller than 256"),
+                ]); // System e-expression
             }
-            MacroIdRef::LocalAddress(address) if address <= MAX_20_BIT_ADDRESS => {
-                // Encode as an opcode with trailing 2-byte FixedUInt
-                const BIAS: usize = MIN_20_BIT_ADDRESS;
-                let biased = address - BIAS;
-                let low_opcode_nibble = biased >> 16;
-                let le_bytes = (biased as u16).to_le_bytes();
-                self.encoding_buffer.extend_from_slice_copy(&[
-                    // Opcode with low nibble setting bias
-                    0x50 | low_opcode_nibble as u8,
-                    // Remaining bytes of magnitude in biased address
-                    le_bytes[0],
-                    le_bytes[1],
-                ]);
-            }
-            MacroIdRef::LocalAddress(_address) => {
-                todo!("macros with addresses greater than {MAX_20_BIT_ADDRESS}");
-            }
-            MacroIdRef::SystemAddress(address) => {
-                self.encoding_buffer
-                    .extend_from_slice_copy(&[0xEF, address.as_u8()]); // System e-expression
-            }
-        };
+        }
 
         Ok(BinaryEExpWriter_1_1::new(
             self.allocator,
             self.encoding_buffer,
             self.config(),
+            self.macros,
+            macro_ref,
         ))
     }
 }
@@ -757,6 +780,7 @@ impl<'top> AnnotatableWriter for BinaryValueWriter_1_1<'_, 'top> {
             self.encoding_buffer,
             annotations.into_annotations_vec(),
             self.config(),
+            self.macros,
         ))
     }
 }
@@ -786,6 +810,7 @@ macro_rules! annotate_and_delegate_1_1 {
                 self.allocator,
                 self.buffer,
                 self.value_writer_config,
+                self.macros,
             );
             value_writer.$method(value)?;
             Ok(())
@@ -799,6 +824,7 @@ pub struct BinaryAnnotatedValueWriter_1_1<'value, 'top> {
     allocator: &'top BumpAllocator,
     buffer: &'value mut BumpVec<'top, u8>,
     value_writer_config: ValueWriterConfig,
+    macros: &'value MacroTable,
 }
 
 impl BinaryAnnotatedValueWriter_1_1<'_, '_> {
@@ -862,6 +888,7 @@ impl<'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_1<'_, 'top> {
             self.buffer,
             annotations.into_annotations_vec(),
             self.value_writer_config,
+            self.macros,
         ))
     }
 }
@@ -902,7 +929,10 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_1<'value, 'top> 
         self.value_writer().struct_writer()
     }
 
-    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
+    where
+        Self: 'a,
+    {
         if !self.annotations.is_empty() {
             return IonResult::encoding_error("e-expressions cannot have annotations");
         }
@@ -916,17 +946,23 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
         buffer: &'value mut BumpVec<'top, u8>,
         annotations: AnnotationsVec<'value>,
         value_writer_config: ValueWriterConfig,
+        macros: &'value MacroTable,
     ) -> Self {
         Self {
             allocator,
             buffer,
             annotations,
             value_writer_config,
+            macros,
         }
     }
     pub(crate) fn value_writer(self) -> BinaryValueWriter_1_1<'value, 'top> {
-        let writer =
-            BinaryValueWriter_1_1::new(self.allocator, self.buffer, self.value_writer_config);
+        let writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
         writer
     }
 }

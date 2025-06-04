@@ -135,7 +135,7 @@ impl<'top, D: Decoder> EExpression<'top, D> {
                 arguments,
             )),
             MacroKind::Template(template_body) => {
-                let template_ref = TemplateMacroRef::new(invoked_macro.reference(), template_body);
+                let template_ref = TemplateMacroRef::new(invoked_macro.definition(), template_body);
                 environment = self.new_evaluation_environment()?;
                 MacroExpansionKind::Template(TemplateExpansion::new(template_ref))
             }

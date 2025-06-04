@@ -253,13 +253,13 @@ impl<'a> Context<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use ion_rs::IonData;
-
     #[test]
     // Test to ensure that when we render fragments, we don't insert new IVMs breaking the context
     // established by previous fragments.
     fn unbroken_fragment_encoding_context() {
+        use super::*;
+        use ion_rs::IonData;
+
         let elems = Element::read_all("mactab (macro m (v!) (%v))")
             .expect("unable to parse mactab into elements");
         let frags: Vec<Fragment> = vec![
