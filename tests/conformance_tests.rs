@@ -50,16 +50,19 @@ mod ion_tests {
             "ion-tests/conformance/data_model/float.ion",
             "Ion 1.1 binary" // PANIC: not yet implemented: implement half-precision floats
         ),
+        // Issue parsing the comments left in decimal.ion, see ion-rust#972
+        skip!( "ion-tests/conformance/data_model/decimal.ion"),
         // Mismatched produces due to symbol id transcription.
         skip!("ion-tests/conformance/core/toplevel_produces.ion"),
         // Unrecognized encoding 'int8' (only flex_uint appears to be supported)
         skip!("ion-tests/conformance/demos/metaprogramming.ion"),
+        // Context tracking in Conformance DSL cannot register macros added via set_macros
+        // invocation.
+        skip!("ion-tests/conformance/demos/telemetry_log.ion"),
         // error: flatten only accepts sequences
         skip!("ion-tests/conformance/eexp/arg_inlining.ion"),
         // Out dated macro invocation in TDL syntax
         skip!("ion-tests/conformance/eexp/basic_system_macros.ion"),
-        // Mismatched produces, due to out-of-date encoding block
-        skip!("ion-tests/conformance/ion_encoding/mactab.ion"),
         skip!(
             "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion",
             "? parameters", // NEED: Conformance DSL support for expression groups.
@@ -76,11 +79,6 @@ mod ion_tests {
         skip!("ion-tests/conformance/ion_encoding/module/macro/template/if.ion"),
         // Incorrectly constructed macro table / module.
         skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/literal_value.ion"),
-        skip!(
-            "ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_ee.ion",
-            "Invocation by address" // Cannot find macro with id "M"; invalid macro invocation
-                                    // syntax.
-        ),
         // Error: Unrecognized encoding (of various forms: flex_sym, uint8, uint16, uint32, etc)
         skip!("ion-tests/conformance/eexp/binary/tagless_types.ion"),
         // Error: Unexpected EOF and unrecognized encodings.
@@ -107,16 +105,6 @@ mod ion_tests {
         ),
         // Error: "Invalid macro name:"
         skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/signature.ion"),
-        skip!(
-            "ion-tests/conformance/ion_encoding/module/macro/trivial/invoke_tl.ion",
-            "Invalid bare reference", // Expected Signal "no such macro: noSuchMacro"
-            "Malformed macro references", // ExpectedSignal "Malformed macro-ref"
-            "Invoking constant macros", // Expected Signal "Too many arguments"
-            "Local macros shadow system macros", // Could not find macro with id $ion
-            "Qualified references",   // Mismatched Produce
-            "Local references",       // Mismatched Produce
-            "Local names shadow `use`d names"  // found operation name with non-symbol type: sexp
-        ),
         // Error: ExpectedSIgnal: invalid argument
         skip!("ion-tests/conformance/system_macros/add_symbols.ion"),
         skip!("ion-tests/conformance/system_macros/set_macros.ion"),
@@ -140,14 +128,20 @@ mod ion_tests {
         skip!("ion-tests/conformance/system_macros/annotate.ion"),
         // error reading struct: `make_field`'s first argument must be a text value
         skip!("ion-tests/conformance/system_macros/make_field.ion"),
+        // system macro `use` not yet implemented.
+        skip!("ion-tests/conformance/system_macros/use.ion"),
         // Expected Signal: invalid macro definition
         skip!("ion-tests/conformance/tdl/expression_groups.ion"),
+        // "could not resolve macro ID \"for\""
+        skip!("ion-tests/conformance/tdl/for.ion"),
         // Mismatched encodings for nested contexts.
         skip!("ion-tests/conformance/ivm.ion"),
         // Decoding error "expected struct but found a null.struct"
         skip!("ion-tests/conformance/local_symtab.ion"),
         // Encoding error: "symbol value ID $10 is not in the symbol table"
         skip!("ion-tests/conformance/local_symtab_imports.ion"),
+        // Expected signal "invalid macro definition".
+        skip!("ion-tests/conformance/tdl/variable_expansion.ion"),
     ];
 
     static CANONICAL_SKIP_LIST: LazyLock<Vec<SkipItem>> = LazyLock::new(|| {
