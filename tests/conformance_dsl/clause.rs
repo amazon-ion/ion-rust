@@ -31,10 +31,10 @@ pub(crate) enum ClauseType {
     Ivm,
     /// Specify a ion data to be inserted into the document, using inline ion syntax.
     TopLevel,
-    /// Provide ion data defining the contents of an '$ion_encoding' directive.
-    Encoding,
     /// Provide ion data defining the contents of a macro table wrapped by a module within an encoding directive.
     MacTab,
+    /// Provide a set of strings to be inserted into the symbol table.
+    SymTab,
     /// Define data that is expected to be produced by the test's document, using inline ion
     /// syntax.
     Produces,
@@ -80,8 +80,8 @@ impl FromStr for ClauseType {
             "absent" => Ok(Absent),
             "ivm" => Ok(Ivm),
             "signals" => Ok(Signals),
-            "encoding" => Ok(Encoding),
             "mactab" => Ok(MacTab),
+            "symtab" => Ok(SymTab),
             _ => Err(ConformanceErrorKind::UnknownClause(s.to_owned())),
         }
     }
@@ -91,7 +91,7 @@ impl ClauseType {
     /// Utility function to test if the Clause is a fragment node.
     pub fn is_fragment(&self) -> bool {
         use ClauseType::*;
-        matches!(self, Text | Binary | Ivm | TopLevel | Encoding | MacTab)
+        matches!(self, Text | Binary | Ivm | TopLevel | MacTab | SymTab)
     }
 
     /// Utility function to test if the Clause is an expectation node.

@@ -140,13 +140,6 @@ impl TryFrom<Clause> for Fragment {
                 Fragment::Ivm(maj, min)
             }
             ClauseType::TopLevel => Fragment::TopLevel(TopLevel { elems: other.body }),
-            ClauseType::Encoding => {
-                // Rather than treat Encoding special, we expand it to a (toplevel ..) as described
-                // in the spec.
-                let inner: Element = SExp(Sequence::new(other.body)).into();
-                let inner = inner.with_annotations(["$ion"]);
-                Fragment::TopLevel(TopLevel { elems: vec![inner] })
-            }
             ClauseType::MacTab => {
                 // Like encoding, MacTab is expanded into a TopLevel fragment.
                 let mut mac_table_elems: Vec<Element> = vec![Symbol::from("macro_table").into()];
@@ -168,6 +161,7 @@ impl TryFrom<Clause> for Fragment {
                     elems: vec![module.with_annotations(["$ion"])],
                 })
             }
+            ClauseType::SymTab => todo!(),
             _ => return Err(ConformanceErrorKind::ExpectedFragment),
         };
         Ok(frag)
@@ -459,28 +453,109 @@ impl FragmentImpl for TopLevel {
         // the Writer will raise an error reporting that the test is trying to invoke a
         // non-existent macro.
         //
-        // As a workaround, when serializing top-level Elements, the writer does an initial
-        // serialization pass to load any necessary encoding context changes.
+        // As a workaround, when serializing top-level Elements, we walk the elements within the
+        // top-level clause to identify encoding directives. If we find a new module definition
+        // with macros, we extract those macros and add them to the writer's encoding context.
+        // These macros will then be serialized when the writer flushes its encoding context.
         //
-        // Serialize the data once...
-        let serialized = v1_1::Text::encode_all(self.elems.as_slice())?;
-        // ...then read the data, constructing a macro table in the Reader...
-        let mut reader = Reader::new(AnyEncoding, serialized)?;
-        while reader.next()?.is_some() {}
-        let macro_table = reader.macro_table();
-        if ctx.version() == IonVersion::V1_1 {
-            // For each macro in the Reader...
-            for mac in macro_table.iter() {
-                // ...try to register the macro in the Writer. For simplicity, we skip over
-                // system macros that are already defined.
-                let _result = writer.register_macro(&mac);
+        // Since the macros are written by the writer, we do not want to write them again or we
+        // will duplicate them causing decoding errors.
+
+        for elem in self.elems.as_slice() {
+            let proxy = ProxyElement(elem, ctx);
+            if elem.annotations().contains("$ion") { // Directive.
+                self.write_directive(writer, elem)?;
+            } else {
+                writer.write(ProxyElement(elem, ctx))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl TopLevel {
+    fn write_directive<'a, E: Encoding, O: std::io::Write>(&self, writer: &mut Writer<E, O>, elem: &Element) -> InnerResult<()> {
+        let mut sexp_iter = elem.expect_sexp()?.into_iter();
+        let Some(operation) = sexp_iter.next().and_then(|e| e.as_symbol()) else {
+            panic!("Unexpected empty directive");
+        };
+
+        match operation.text() {
+            Some("module") => self.write_module_directive(writer, elem)?,
+            Some("import") | Some("encoding") => (), // These aren't currently implemented in
+                                                     // ion-rust.
+            _ => unreachable!(), // No other directives currently.
+        }
+
+        Ok(())
+    }
+
+    fn write_module_directive<'a, E: Encoding, O: std::io::Write>(&self, writer: &mut Writer<E, O>, elem: &Element) -> InnerResult<()> {
+        let mut seq = elem.expect_sexp()?.into_iter();
+        _ = seq.next(); // Skip directive.
+        _ = seq.next(); // Skip module name.
+
+        // TODO: Need to handle imports.
+
+        // Walk the rest of the items in the directive.. we should find macro and/or symbol tables.
+        for elem in seq {
+            let Some(sexp) = elem.as_sexp() else {
+                continue;
+            };
+
+            let Some(op) = sexp.get(0).and_then(|e| e.as_symbol()) else {
+                continue;
+            };
+
+            // TODO: Update to `macros` and `symbols` once ion-rust handles those versions.
+            match op.text() {
+                Some("macro_table") => self.write_macros(writer, elem)?,
+                Some("symbol_table") => self.write_symbols(writer, elem)?,
+                _ => unreachable!(), // No other directives.
             }
         }
 
-        // Now that the Writer has the necessary context, it can encode the ProxyElements.
-        for elem in self.elems.as_slice() {
-            writer.write(ProxyElement(elem, ctx))?;
-        }
         Ok(())
+    }
+
+    fn write_macros<'a, E: Encoding, O: std::io::Write>(&self, writer: &mut Writer<E, O>, elem: &Element) -> InnerResult<()> {
+        // NOTE: IMO, this breaks some of the assumptions we make about the conformance DSL,
+        // since this allows a non-conformant writer to write macro definitions that a mirrored
+        // non-conformant reader will read. Ideally the DSL would be able to define a macro without
+        // requiring the writer to re-interpret it.
+
+        let mut seq = elem.expect_sexp()?.into_iter();
+        _ = seq.next(); // Skip `macro_table`, we wouldn't be here if it didn't match.
+
+        // Walk the remaining arguments, which can be macro or export clauses, or a module name.
+        for elem in seq {
+            if let Some(sexp) = elem.as_sexp() {
+                match sexp.get(0).and_then(|s| s.as_symbol()).and_then(|s| s.text()) {
+                    Some("macro") => {
+                        println!("Compiling: {:?}", elem);
+                        // First encode the Element that we have into binary ion..
+                        let encoded = elem.encode_to(Vec::new(), v1_1::Binary)?;
+                        // ..so that it can be compiled and registered into the writer.
+                        let _ = writer.compile_macro(encoded)?;
+                        println!("..compiled.");
+                    }
+                    Some("export") => todo!(), // TODO: we do not support 'export' in ion-rust yet
+                                               // so we'll need to figure out how to handle this in
+                                               // the writer once we do.
+
+                    _ => (), // Not a symbol, or not our problem.
+                }
+            } else if let Some(sym) = elem.as_symbol() {
+                // TODO: Look at the value, and add it to imported modules. We only support the
+                // active module `_` at the moment.
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write_symbols<'a, E: Encoding, O: std::io::Write>(&self, writer: &mut Writer<E, O>, elem: &Element) -> InnerResult<()> {
+        // TODO: Need to write symbols into the module.
+        todo!()
     }
 }
