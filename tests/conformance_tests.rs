@@ -117,7 +117,6 @@ mod ion_tests {
     #[test]
     #[ignore = "Only used to maintain skiplist, no need to break builds because of it. (use --include-ignored to run)"]
     fn check_skiplist() {
-        use std::fs;
         let mut pass = true;
         for skip_item in GLOBAL_CONFORMANCE_SKIPLIST.iter() {
             match skip_item.canonicalize() {
