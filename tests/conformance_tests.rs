@@ -117,17 +117,14 @@ mod ion_tests {
     #[test]
     #[ignore = "Only used to maintain skiplist, no need to break builds because of it. (use --include-ignored to run)"]
     fn check_skiplist() {
-        let mut pass = true;
+        let mut skip_file_removed = true;
         for skip_item in GLOBAL_CONFORMANCE_SKIPLIST.iter() {
-            match skip_item.canonicalize() {
-                None => {
-                    pass = false;
-                    println!("MISSING: {}", skip_item.source);
-                }
-                _ => (),
+            if skip_item.canonicalize().is_none() {
+                skip_file_removed = false;
+                println!("MISSING: {}", skip_item.source);
             }
         }
-        assert!(pass);
+        assert!(skip_file_removed);
     }
 
     #[test_resources("ion-tests/conformance/**/*.ion")]
