@@ -61,51 +61,14 @@ mod ion_tests {
         skip!("ion-tests/conformance/demos/telemetry_log.ion"),
         // error: flatten only accepts sequences
         skip!("ion-tests/conformance/eexp/arg_inlining.ion"),
-        // Out dated macro invocation in TDL syntax
-        skip!("ion-tests/conformance/eexp/basic_system_macros.ion"),
-        skip!(
-            "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion",
-            "? parameters", // NEED: Conformance DSL support for expression groups.
-            "+ parameters", // NEED: Conformance DSL support for expression groups.
-            "* parameters"  // NEED: Conformande DSL support for expression groups.
-        ),
-        // Incorrectly constructed macro table.
-        skip!("ion-tests/conformance/ion_encoding/module/macro/template/literal_form.ion"),
-        // Incorrectly used parameters in TDL.
-        skip!("ion-tests/conformance/ion_encoding/module/macro/template/quasiliteral.ion"),
-        // Incorrectly used parameters in TDL.
-        skip!("ion-tests/conformance/ion_encoding/module/macro/template/variable_reference.ion"),
-        // Incorrectly used parameters in TDL
-        skip!("ion-tests/conformance/ion_encoding/module/macro/template/if.ion"),
-        // Incorrectly constructed macro table / module.
-        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/literal_value.ion"),
         // Error: Unrecognized encoding (of various forms: flex_sym, uint8, uint16, uint32, etc)
         skip!("ion-tests/conformance/eexp/binary/tagless_types.ion"),
         // Error: Unexpected EOF and unrecognized encodings.
         skip!("ion-tests/conformance/eexp/binary/argument_encoding.ion"),
         // Error: Mismatched Produces; incorrect symbol table creation.
-        skip!("ion-tests/conformance/ion_encoding/symtab.ion"),
-        skip!("ion-tests/conformance/ion_encoding/load_symtab.ion"),
-        skip!("ion-tests/conformance/ion_encoding/trivial_forms.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/trivial.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/macro_table.ion"),
         skip!("ion-tests/conformance/system_macros/add_macros.ion"),
-        skip!("ion-tests/conformance/ion_literal.ion"),
         skip!("ion-tests/conformance/system_symbols.ion"),
-        // Uses testing DSL syntax that may not be legal? This test file is removed in the latest ion-tests.
-        skip!(
-            "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_ee.ion"
-        ),
-        // Error: found operation name with non-symbol type: sexp
-        skip!("ion-tests/conformance/ion_encoding/module/load_symtab.ion"),
-        skip!("ion-tests/conformance/ion_encoding/module/symtab.ion"),
-        // Error: Too few arguments.
-        skip!(
-            "ion-tests/conformance/ion_encoding/module/macro/cardinality/invoke_cardinality_tl.ion"
-        ),
-        // Error: "Invalid macro name:"
-        skip!("ion-tests/conformance/ion_encoding/module/macro/trivial/signature.ion"),
-        // Error: ExpectedSIgnal: invalid argument
+        // Error: ExpectedSignal: invalid argument
         skip!("ion-tests/conformance/system_macros/add_symbols.ion"),
         skip!("ion-tests/conformance/system_macros/set_macros.ion"),
         skip!("ion-tests/conformance/system_macros/set_symbols.ion"),
@@ -150,6 +113,23 @@ mod ion_tests {
             .filter_map(|skip| skip.canonicalize())
             .collect()
     });
+
+    #[test]
+    #[ignore = "Only used to maintain skiplist, no need to break builds because of it. (use --include-ignored to run)"]
+    fn check_skiplist() {
+        use std::fs;
+        let mut pass = true;
+        for skip_item in GLOBAL_CONFORMANCE_SKIPLIST.iter() {
+            match skip_item.canonicalize() {
+                None => {
+                    pass = false;
+                    println!("MISSING: {}", skip_item.source);
+                }
+                _ => (),
+            }
+        }
+        assert!(pass);
+    }
 
     #[test_resources("ion-tests/conformance/**/*.ion")]
     fn conformance(file_name: &str) {
