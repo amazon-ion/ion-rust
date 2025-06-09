@@ -360,6 +360,7 @@ impl WriteAsIon for ProxyElement<'_> {
                     Some(Symbol(symbol)) if symbol.text().is_some() => {
                         let text = symbol.text().unwrap();
                         const EEXP_PREFIX: &str = "#$:";
+                        const EXP_GROUP_PLACEHOLDER: &str = "#$::";
                         if text.starts_with(EEXP_PREFIX) {
                             // It's an e-expression. Start by isolating the macro ID.
                             let macro_id = text.strip_prefix(EEXP_PREFIX).unwrap(); // SAFETY: Tested above.
@@ -381,7 +382,7 @@ impl WriteAsIon for ProxyElement<'_> {
                                     .as_sexp()
                                     .and_then(|sexp| sexp.get(0))
                                     .and_then(Element::as_symbol)
-                                    .map(|sym| sym.text() == Some("::"))
+                                    .map(|sym| sym.text() == Some(EXP_GROUP_PLACEHOLDER))
                                     .unwrap_or(false);
                                 // Whether this argument is being passed to a parameter that accepts
                                 // 'rest' syntax. This is true for the last parameter when its
@@ -391,11 +392,24 @@ impl WriteAsIon for ProxyElement<'_> {
                                     .map(|p| p.accepts_rest())
                                     .unwrap_or(false);
 
-                                // If this argument isn't in 'rest' position or it's already an
+                                // If this argument isn't in 'rest' position and it's not an
                                 // expression group...
-                                if !is_rest_parameter || arg_is_expr_group {
+                                if !is_rest_parameter && !arg_is_expr_group {
                                     // ...then wrap it in a `ProxyElement` and write it out.
                                     eexp_writer.write(ProxyElement(arg, self.1))?;
+                                } else if arg_is_expr_group {
+                                    // ...if it is an expression group, we need to encode it in an
+                                    // expression group built via our expression writer
+                                    // ProxyElement cannot do this alone.
+                                    let mut group_writer = eexp_writer.expr_group_writer()?;
+                                    let group_args = arg
+                                        .as_sexp()
+                                        .unwrap() // Verified above
+                                        .iter()
+                                        .skip(1);
+                                    group_writer
+                                        .write_all(group_args.map(|e| ProxyElement(e, self.1)))?;
+                                    let _ = group_writer.close();
                                 } else {
                                     // However, if the argument is in rest position and it isn't an
                                     // expression group, we need to convert it to an expression group
@@ -404,7 +418,7 @@ impl WriteAsIon for ProxyElement<'_> {
                                     group_writer.write(ProxyElement(arg, self.1))?;
                                     group_writer
                                         .write_all(arg_elements.map(|e| ProxyElement(e, self.1)))?;
-                                    group_writer.close()?;
+                                    let _ = group_writer.close()?;
                                 }
                             }
                             eexp_writer.close()?;
