@@ -304,16 +304,15 @@ impl TryFrom<&Sequence> for ModelValue {
             "Blob" => Ok(ModelValue::Blob(parse_bytes_exp(elems.iter().skip(1))?)),
             "Clob" => Ok(ModelValue::Clob(parse_bytes_exp(elems.iter().skip(1))?)),
             "annot" => {
-                let mut elems = elems;
                 let value = elems
                     .get(1)
                     .ok_or(ConformanceErrorKind::ExpectedModelValue)
-                    .and_then(|e| ModelValue::try_from(e))
+                    .and_then(ModelValue::try_from)
                     ;
                 let annots: Result<Vec<SymbolToken>, _> = elems
                     .iter()
                     .skip(2)
-                    .map(|e| SymbolToken::try_from(e))
+                    .map(SymbolToken::try_from)
                     .collect()
                     ;
                 Ok(ModelValue::Annot(Box::new(value?), annots?))
@@ -738,16 +737,16 @@ mod tests {
     #[test]
     /// Tests to ensure that the parsing of `annot` clauses for denotes' data model is correct.
     fn test_annot() {
-        struct test_case {
+        struct TestCase {
             source: &'static str,
             value: ModelValue,
             annots: &'static [&'static str],
         }
-        let tests: &[test_case] = &[
-            test_case{ source: "(annot true a)", value: ModelValue::Bool(true), annots: &["a"] },
-            test_case{ source: "(annot false a b c)", value: ModelValue::Bool(false), annots: &["a", "b", "c"] },
-            test_case{ source: "(annot (Bool true) a b c)", value: ModelValue::Bool(true), annots: &["a", "b", "c"] },
-            test_case{ source: "(annot (Int 5) a)", value: ModelValue::Int(5.into()), annots: &["a"] },
+        let tests: &[TestCase] = &[
+            TestCase{ source: "(annot true a)", value: ModelValue::Bool(true), annots: &["a"] },
+            TestCase{ source: "(annot false a b c)", value: ModelValue::Bool(false), annots: &["a", "b", "c"] },
+            TestCase{ source: "(annot (Bool true) a b c)", value: ModelValue::Bool(true), annots: &["a", "b", "c"] },
+            TestCase{ source: "(annot (Int 5) a)", value: ModelValue::Int(5.into()), annots: &["a"] },
         ];
 
         for test in tests {
