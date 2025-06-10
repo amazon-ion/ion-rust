@@ -87,7 +87,7 @@ mod ion_tests {
         skip!("ion-tests/conformance/system_macros/sum.ion"),
         // System macro make_timestamp not yet implemented
         skip!("ion-tests/conformance/system_macros/make_timestamp.ion"),
-        // Annot clause not currently supported.
+        // $0 is not resolving: "expected text but found a symbol with undefined text"
         skip!("ion-tests/conformance/system_macros/annotate.ion"),
         // error reading struct: `make_field`'s first argument must be a text value
         skip!("ion-tests/conformance/system_macros/make_field.ion"),
