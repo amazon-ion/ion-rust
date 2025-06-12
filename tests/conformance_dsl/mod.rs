@@ -26,7 +26,7 @@ pub(crate) mod prelude {
 }
 
 /// Specific errors used during parsing and test evaluation.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub(crate) enum ConformanceErrorKind {
     #[default]
     UnknownError,
