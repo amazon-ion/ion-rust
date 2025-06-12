@@ -46,6 +46,7 @@ impl TryFrom<&Element> for SymbolToken {
 
     fn try_from(other: &Element) -> InnerResult<Self> {
         match other.ion_type() {
+            IonType::Symbol => Ok(SymbolToken::Text(other.as_symbol().unwrap().text().unwrap_or("").to_string())),
             IonType::String => Ok(SymbolToken::Text(other.as_string().unwrap().to_owned())),
             IonType::Int => Ok(SymbolToken::Address(other.as_usize().unwrap())),
             IonType::SExp => {
@@ -82,7 +83,7 @@ impl TryFrom<&Element> for SymbolToken {
 /// clause.
 ///
 /// [Grammar]: https://github.com/amazon-ion/ion-tests/tree/master/conformance#grammar
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ModelValue {
     Null(IonType),
     Bool(bool),
@@ -97,6 +98,7 @@ pub(crate) enum ModelValue {
     Struct(Vec<(SymbolToken, ModelValue)>),
     Blob(Vec<u8>),
     Clob(Vec<u8>),
+    Annot(Box<ModelValue>, Vec<SymbolToken>),
 }
 
 impl TryFrom<&Element> for ModelValue {
@@ -157,6 +159,7 @@ impl TryFrom<&ModelValue> for Element {
             ModelValue::Struct(_) => todo!(),
             ModelValue::Blob(_) => todo!(),
             ModelValue::Clob(_) => todo!(),
+            ModelValue::Annot(_, _) => todo!(), // Not used currently.
         };
         Ok(element)
     }
@@ -300,6 +303,20 @@ impl TryFrom<&Sequence> for ModelValue {
             }
             "Blob" => Ok(ModelValue::Blob(parse_bytes_exp(elems.iter().skip(1))?)),
             "Clob" => Ok(ModelValue::Clob(parse_bytes_exp(elems.iter().skip(1))?)),
+            "annot" => {
+                let value = elems
+                    .get(1)
+                    .ok_or(ConformanceErrorKind::ExpectedModelValue)
+                    .and_then(ModelValue::try_from)
+                    ;
+                let annots: Result<Vec<SymbolToken>, _> = elems
+                    .iter()
+                    .skip(2)
+                    .map(SymbolToken::try_from)
+                    .collect()
+                    ;
+                Ok(ModelValue::Annot(Box::new(value?), annots?))
+            }
             _ => unreachable!(),
         }
     }
@@ -422,6 +439,28 @@ pub(crate) fn compare_values<T: ion_rs::Decoder>(
                     return Ok(false);
                 }
             }
+            Ok(true)
+        }
+        ModelValue::Annot(value, annots) => {
+            let other_annots: Result<Vec<SymbolRef>, _> = other.annotations().collect();
+            let other_annots = other_annots?;
+
+            if other_annots.len() != annots.len() {
+                return Ok(false)
+            }
+
+            let annots_match = other_annots
+                .iter()
+                .zip(annots.iter())
+                .fold(true, |acc, (a, e)| acc && (a == &e.as_symbol_ref()));
+            if !annots_match {
+                return Ok(false)
+            }
+
+            if !compare_values(ctx, value, other)? {
+                return Ok(false)
+            }
+
             Ok(true)
         }
         _ => {
@@ -687,5 +726,40 @@ fn ion_type_from_str(name: &str) -> Option<IonType> {
         "blob" => Some(IonType::Blob),
         "clob" => Some(IonType::Clob),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ion_rs::Element;
+
+    #[test]
+    /// Tests to ensure that the parsing of `annot` clauses for denotes' data model is correct.
+    fn test_annot() {
+        struct TestCase {
+            source: &'static str,
+            value: ModelValue,
+            annots: &'static [&'static str],
+        }
+        let tests: &[TestCase] = &[
+            TestCase{ source: "(annot true a)", value: ModelValue::Bool(true), annots: &["a"] },
+            TestCase{ source: "(annot false a b c)", value: ModelValue::Bool(false), annots: &["a", "b", "c"] },
+            TestCase{ source: "(annot (Bool true) a b c)", value: ModelValue::Bool(true), annots: &["a", "b", "c"] },
+            TestCase{ source: "(annot (Int 5) a)", value: ModelValue::Int(5.into()), annots: &["a"] },
+        ];
+
+        for test in tests {
+            println!("Testing: {}", test.source);
+            let element = Element::read_one(test.source).expect("unable to read ion clause");
+            let model_value = ModelValue::try_from(&element).expect("unable to convert elements to model value");
+            let expected_annots: Vec<SymbolToken> = test.annots.iter().map(|a| SymbolToken::Text(a.to_string())).collect();
+            if let ModelValue::Annot(value, annots) = model_value {
+                assert_eq!(Box::leak(value), &test.value);
+                assert_eq!(annots, expected_annots);
+            } else {
+                panic!("Parsed annot clause to unexpected value");
+            }
+        }
     }
 }
