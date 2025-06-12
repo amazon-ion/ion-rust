@@ -406,7 +406,7 @@ impl WriteAsIon for ProxyElement<'_> {
                                         .as_sexp()
                                         .unwrap() // Verified above
                                         .iter()
-                                        .skip(1);
+                                        .skip(1); // Skip past expression group marker.
                                     group_writer
                                         .write_all(group_args.map(|e| ProxyElement(e, self.1)))?;
                                     let _ = group_writer.close();
