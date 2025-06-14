@@ -238,7 +238,7 @@ impl Produces {
             match (actual_value, expected_elem) {
                 (None, None) => break,
                 (Some(actual_value), Some(expected_elem)) => {
-                    is_equal &= dbg!(dbg!(expected_elem).eq(dbg!(&actual_value)));
+                    is_equal &= expected_elem.eq(&actual_value);
                 }
                 _ => is_equal = false,
             }

@@ -1413,7 +1413,7 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
         (0..self.current_offset).for_each(|_| { arguments.next(); }); // Skip to the next argument
 
         let value_arg_expr = match arguments.next() {
-            None => { println!("Empty value arg expr"); todo!(); }, // How do we handle empty values?
+            None => todo!(), // How do we handle empty values?
             Some(Err(e)) => return Err(e),
             Some(Ok(expr)) => expr,
         };
@@ -1426,12 +1426,10 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
         }
 
         if self.current_iteration == max_repeat {
-            println!("Emitting final step at iteration {} max {}", self.current_iteration, max_repeat);
             Ok(MacroExpansionStep::FinalStep(Some(
                 value_arg_expr,
             )))
         } else {
-            println!("Emitting step at iteration {} max {}", self.current_iteration, max_repeat);
             Ok(MacroExpansionStep::Step(
                 value_arg_expr,
             ))
