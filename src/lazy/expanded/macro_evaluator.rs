@@ -1350,13 +1350,9 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
 
     fn get_number_to_repeat(&mut self, environment: Environment<'top, D>) -> IonResult<i64> {
         let mut arguments = self.arguments;
-        let count_expr = match arguments.next() {
-            None => {
-                return IonResult::decoding_error("`repeat` takes 2 or more parameters, received none")
-            }
-            Some(Err(e)) => return Err(e),
-            Some(Ok(expr)) => expr,
-        };
+        let count_expr = arguments
+            .next()
+            .unwrap_or(IonResult::decoding_error("`repeat` takes 2 or more parameters"))?;
 
         match count_expr {
             ValueExpr::ValueLiteral(value_literal) => {
@@ -1364,7 +1360,7 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
                     .read_resolved()?
                     .expect_int()?
                     .as_i64()
-                    .ok_or(IonError::decoding_error("`repeat` takes a single integer value >= 0 as the first parameter; found non-integer value"))?;
+                    .ok_or(IonError::decoding_error("`repeat` takes a single integer value >= 0 as the first parameter; found integer value that cannot be represented in 64bits"))?;
 
                 if count < 0 {
                     return IonResult::decoding_error("`repeat` takes a single integer value >= 0 as the first parameter; found negative value");
@@ -3111,6 +3107,39 @@ mod tests {
         )
         "#;
         eval_template_invocation(invocation, "(:foo)", r#" "foobarbaz" "Hello, world!" "#)
+    }
+
+    #[test]
+    fn repeat_eexp() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:repeat 0 a)
+            (:repeat 2 a)
+            (:repeat 3 {foo: bar})
+            (:repeat 2 (:repeat 2 a))
+            "#,
+            r#"
+            a a
+            {foo: bar} {foo: bar} {foo: bar}
+            a a a a
+            "#,
+        )
+    }
+
+    #[test]
+    fn repeat_eexp_numeric_arg() -> IonResult<()> {
+        use crate::IonError;
+
+        let source = "(:repeat foo a)";
+
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        let result= actual_reader.read_all_elements();
+
+        if let Err(IonError::Decoding(_)) = result {
+            Ok(())
+        } else {
+            panic!("unexpected success");
+        }
     }
 
     #[test]
