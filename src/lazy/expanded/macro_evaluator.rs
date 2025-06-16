@@ -35,7 +35,7 @@ use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{
-    ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyExpandedField,
+    ExpandedValueRef, ExpandedValueSource, Int, IonError, IonResult, LazyExpandedField,
     LazyExpandedFieldName, LazyExpandedStruct, LazyStruct, LazyValue, Span, SymbolRef, ValueRef,
 };
 
@@ -514,6 +514,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     Template(TemplateExpansion<'top>),
     // `if_none`, `if_single`, `if_multi`
     Conditional(ConditionalExpansion<'top, D>),
+    Sum(SumExpansion<'top, D>),
 }
 
 pub enum ExpansionCardinality {
@@ -589,6 +590,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             Conditional(cardinality_test_expansion) => cardinality_test_expansion.next(environment),
+            Sum(sum_expansion) => sum_expansion.next(context, environment),
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
@@ -607,6 +609,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::MakeStruct(_) => "make_struct",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
+            MacroExpansionKind::Sum(_) => "sum",
             MacroExpansionKind::Conditional(test) => test.name(),
             MacroExpansionKind::Template(t) => {
                 return if let Some(name) = t.template.name() {
@@ -1320,6 +1323,68 @@ impl<'top, D: Decoder> MakeTextExpansion<'top, D> {
                 EMPTY_ANNOTATIONS,
                 value_ref,
             )),
+        )))
+    }
+}
+
+// ====== Implementation of the `sum` macro
+#[derive(Debug)]
+pub struct SumExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+}
+
+impl <'top, D: Decoder> SumExpansion<'top, D> {
+    pub fn new(
+        arguments: MacroExprArgsIterator<'top, D>,
+    ) -> Self {
+
+        Self {
+            arguments,
+        }
+    }
+
+    fn get_integer(&self, env: Environment<'top, D>, value: ValueExpr<'top, D>) -> IonResult<Int> {
+        match value {
+            ValueExpr::ValueLiteral(value_literal) => {
+                value_literal
+                    .read_resolved()?
+                    .expect_int()
+            }
+            ValueExpr::MacroInvocation(invocation) => {
+                let mut evaluator = MacroEvaluator::new_with_environment(env);
+                evaluator.push(invocation.expand()?);
+                match evaluator.next()? {
+                    None => IonResult::decoding_error("`sum` takes two integers as arguments; empty value found"),
+                    Some(value) => {
+                        value
+                            .read_resolved()?
+                            .expect_int()
+                    }
+                }
+            }
+        }
+    }
+
+    fn next(
+        &mut self,
+        context: EncodingContextRef<'top>,
+        env: Environment<'top, D>
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        let mut sum = Int::new(0);
+        // Walk each of our arguments..
+        for value in self.arguments {
+            let value = value?;
+            let i = self.get_integer(env, value)?;
+            sum = sum + i;
+        }
+
+        let value_ref = context
+            .allocator()
+            .alloc_with(|| ValueRef::Int(sum));
+        let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
+
+        Ok(MacroExpansionStep::FinalStep(Some(
+                ValueExpr::ValueLiteral(lazy_expanded_value)
         )))
     }
 }
@@ -2945,6 +3010,43 @@ mod tests {
             {bar: {baz: 4}}
         "#,
         )
+    }
+
+    #[test]
+    fn sum_eexp() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:sum 1 2)
+            (:sum (:sum 1 2) 2)
+            "#,
+            r#"
+            3
+            5
+            "#,
+        )
+    }
+
+    #[test]
+    fn sum_eexp_arg_non_int() -> IonResult<()> {
+        use crate::IonError;
+
+        let source = "(:sum foo foo)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        let result= actual_reader.read_all_elements();
+
+        let Err(IonError::Decoding(_)) = result else {
+            panic!("Unexpected success");
+        };
+
+        let source = "(:sum 1 foo)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        let result= actual_reader.read_all_elements();
+
+        let Err(IonError::Decoding(_)) = result else {
+            panic!("Unexpected success");
+        };
+
+        Ok(())
     }
 
     #[test]
