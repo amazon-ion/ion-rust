@@ -83,8 +83,6 @@ mod ion_tests {
         skip!("ion-tests/conformance/system_macros/repeat.ion"),
         // System macro parse_ion not yet implemented
         skip!("ion-tests/conformance/system_macros/parse_ion.ion"),
-        // System macro sum not yet implemented
-        skip!("ion-tests/conformance/system_macros/sum.ion"),
         // System macro make_timestamp not yet implemented
         skip!("ion-tests/conformance/system_macros/make_timestamp.ion"),
         // $0 is not resolving: "expected text but found a symbol with undefined text"
