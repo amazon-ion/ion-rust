@@ -35,7 +35,7 @@ use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{
-    ExpandedValueRef, ExpandedValueSource, IonError, IonResult, LazyExpandedField,
+    ExpandedValueRef, ExpandedValueSource, Int, IonError, IonResult, LazyExpandedField,
     LazyExpandedFieldName, LazyExpandedStruct, LazyStruct, LazyValue, Span, SymbolRef, ValueRef,
 };
 
@@ -514,6 +514,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     Template(TemplateExpansion<'top>),
     // `if_none`, `if_single`, `if_multi`
     Conditional(ConditionalExpansion<'top, D>),
+    Delta(DeltaExpansion<'top, D>),
 }
 
 pub enum ExpansionCardinality {
@@ -589,6 +590,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             Conditional(cardinality_test_expansion) => cardinality_test_expansion.next(environment),
+            Delta(delta_expansion) => delta_expansion.next(),
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
         }
@@ -607,6 +609,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::MakeStruct(_) => "make_struct",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
+            MacroExpansionKind::Delta(_) => "delta",
             MacroExpansionKind::Conditional(test) => test.name(),
             MacroExpansionKind::Template(t) => {
                 return if let Some(name) = t.template.name() {
@@ -1417,6 +1420,86 @@ impl<'top, D: Decoder> FlattenExpansion<'top, D> {
             // that it is either a list or an s-expression.
             self.set_current_sequence(next_seq)?;
         }
+    }
+}
+
+// ===== Implementation of the `delta` macro ====
+#[derive(Debug)]
+pub struct DeltaExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+    context: EncodingContextRef<'top>,
+    environment: Environment<'top, D>,
+    evaluator: &'top mut MacroEvaluator<'top, D>,
+    current_base: Int,
+
+}
+
+impl<'top, D: Decoder> DeltaExpansion<'top, D> {
+    pub fn new(
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+        arguments: MacroExprArgsIterator<'top, D>
+    ) -> Self {
+        let allocator = context.allocator();
+        let evaluator = allocator.alloc_with(|| MacroEvaluator::new_with_environment(environment));
+        Self {
+            arguments,
+            context,
+            environment,
+            evaluator,
+            current_base: Int::new(0),
+        }
+    }
+
+    fn get_next_delta(&mut self) -> IonResult<Option<Int>> {
+        // First, check if we have anything going on in the evaluator..
+        if !self.evaluator.is_empty() {
+            match self.evaluator.next()? {
+                None => self.get_next_delta(),
+                Some(value) => {
+                    let i = value
+                        .read_resolved()?
+                        .expect_int()?;
+                    Ok(Some(i))
+                }
+            }
+        } else { // Otherwise we check our next parameter..
+            let arg = self.arguments.next();
+            if arg.is_none() {
+                return Ok(None);
+            }
+
+            let i = match arg.unwrap()? {
+                ValueExpr::ValueLiteral(value_literal) => {
+                    let i = value_literal
+                        .read_resolved()?
+                        .expect_int()?;
+                    Some(i)
+                }
+                ValueExpr::MacroInvocation(invocation) => {
+                    self.evaluator.push(invocation.expand()?);
+                    self.get_next_delta()?
+                }
+            };
+            Ok(i)
+        }
+    }
+
+
+    pub fn next(&mut self) -> IonResult<MacroExpansionStep<'top, D>> {
+        let delta = self.get_next_delta()?;
+        if delta.is_none() {
+            return Ok(MacroExpansionStep::FinalStep(None));
+        }
+
+        self.current_base = self.current_base + delta.unwrap();
+
+        let value_ref = self.context.allocator().alloc_with(|| ValueRef::Int(self.current_base));
+        let lazy_expanded_value = LazyExpandedValue::from_constructed(self.context, &[], value_ref);
+
+        Ok(MacroExpansionStep::Step(
+            ValueExpr::ValueLiteral(lazy_expanded_value)
+        ))
     }
 }
 
@@ -2943,6 +3026,26 @@ mod tests {
             {a: 1}
             {foo: [1, 2, 3]}
             {bar: {baz: 4}}
+        "#,
+        )
+    }
+
+    #[test]
+    fn delta_eexp() -> IonResult<()> {
+        stream_eq(
+        r#"
+           (:delta )
+           (:delta 0)
+           (:delta 0 1 2 3)
+           (:delta (:: 1000 1 2 3 -2))
+           (:delta 0 2 (:values 2 3))
+        "#,
+        r#"
+
+           0
+           0 1 3 6
+           1000 1001 1003 1006 1004
+           0 2 4 7
         "#,
         )
     }

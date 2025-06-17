@@ -366,6 +366,7 @@ pub enum MacroKind {
     IfSome,
     IfSingle,
     IfMulti,
+    Delta,
     // A placeholder for not-yet-implemented macros
     ToDo,
 }
@@ -593,7 +594,7 @@ impl MacroTable {
             builtin(
                 "delta",
                 "(deltas*)",
-                MacroKind::ToDo,
+                MacroKind::Delta,
                 ExpansionAnalysis::application_value_stream(),
             ),
             builtin(

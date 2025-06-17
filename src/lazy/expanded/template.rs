@@ -2,7 +2,7 @@ use crate::lazy::binary::raw::v1_1::binary_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{
-    AnnotateExpansion, ConditionalExpansion, ExprGroupExpansion, FlattenExpansion, MacroEvaluator,
+    AnnotateExpansion, ConditionalExpansion, DeltaExpansion, ExprGroupExpansion, FlattenExpansion, MacroEvaluator,
     MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeFieldExpansion,
     MakeStructExpansion, MakeTextExpansion, TemplateExpansion, ValueExpr,
 };
@@ -1398,6 +1398,11 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
             MacroKind::IfMulti => {
                 MacroExpansionKind::Conditional(ConditionalExpansion::if_multi(arguments))
             }
+            MacroKind::Delta => MacroExpansionKind::Delta(DeltaExpansion::new(
+                    self.context(),
+                    self.environment,
+                    arguments,
+            ))
         };
         Ok(MacroExpansion::new(
             self.context(),
