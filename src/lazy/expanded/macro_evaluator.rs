@@ -1409,7 +1409,7 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
         (0..self.current_offset).for_each(|_| { arguments.next(); }); // Skip to the next argument
 
         let value_arg_expr = match arguments.next() {
-            None => todo!(), // How do we handle empty values?
+            None => return Ok(MacroExpansionStep::FinalStep(None)),
             Some(Err(e)) => return Err(e),
             Some(Ok(expr)) => expr,
         };
@@ -3113,12 +3113,14 @@ mod tests {
     fn repeat_eexp() -> IonResult<()> {
         stream_eq(
             r#"
+            (:repeat 1 )
             (:repeat 0 a)
             (:repeat 2 a)
             (:repeat 3 {foo: bar})
             (:repeat 2 (:repeat 2 a))
             "#,
             r#"
+
             a a
             {foo: bar} {foo: bar} {foo: bar}
             a a a a
@@ -3141,6 +3143,7 @@ mod tests {
             panic!("unexpected success");
         }
     }
+
 
     #[test]
     fn e_expressions_inside_a_list() -> IonResult<()> {
