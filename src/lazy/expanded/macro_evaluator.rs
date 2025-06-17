@@ -1431,7 +1431,6 @@ pub struct DeltaExpansion<'top, D: Decoder> {
     environment: Environment<'top, D>,
     evaluator: &'top mut MacroEvaluator<'top, D>,
     current_base: Int,
-
 }
 
 impl<'top, D: Decoder> DeltaExpansion<'top, D> {
@@ -1451,11 +1450,15 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         }
     }
 
+    /// Returns the next [`Int`] to be used in the delta encoding by querying the current
+    /// evaluator, and falling back to arguments otherwise.
     fn get_next_delta(&mut self) -> IonResult<Option<Int>> {
         // First, check if we have anything going on in the evaluator..
         if !self.evaluator.is_empty() {
             match self.evaluator.next()? {
+                // If we get a None even after checking is_empty, recurse back in to check the arguments.
                 None => self.get_next_delta(),
+                // When we do get a value, we just need to expand it and ensure it is an Int
                 Some(value) => {
                     let i = value
                         .read_resolved()?
@@ -1464,18 +1467,20 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
                 }
             }
         } else { // Otherwise we check our next parameter..
-            let arg = self.arguments.next();
-            if arg.is_none() {
+            let Some(arg) = self.arguments.next() else {
                 return Ok(None);
-            }
+            };
 
-            let i = match arg.unwrap()? {
+            let i = match arg? {
+                // Expand and check that our literal is an Int.
                 ValueExpr::ValueLiteral(value_literal) => {
                     let i = value_literal
                         .read_resolved()?
                         .expect_int()?;
                     Some(i)
                 }
+                // If we get a MacroInvocation, we load it into the evaluator and recurse back in
+                // to evaluate it.
                 ValueExpr::MacroInvocation(invocation) => {
                     self.evaluator.push(invocation.expand()?);
                     self.get_next_delta()?
@@ -1487,12 +1492,11 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
 
 
     pub fn next(&mut self) -> IonResult<MacroExpansionStep<'top, D>> {
-        let delta = self.get_next_delta()?;
-        if delta.is_none() {
+        let Some(delta) = self.get_next_delta()? else {
             return Ok(MacroExpansionStep::FinalStep(None));
-        }
+        };
 
-        self.current_base = self.current_base + delta.unwrap();
+        self.current_base = self.current_base + delta;
 
         let value_ref = self.context.allocator().alloc_with(|| ValueRef::Int(self.current_base));
         let lazy_expanded_value = LazyExpandedValue::from_constructed(self.context, &[], value_ref);
