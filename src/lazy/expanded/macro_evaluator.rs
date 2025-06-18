@@ -1428,7 +1428,6 @@ impl<'top, D: Decoder> FlattenExpansion<'top, D> {
 pub struct DeltaExpansion<'top, D: Decoder> {
     arguments: MacroExprArgsIterator<'top, D>,
     context: EncodingContextRef<'top>,
-    environment: Environment<'top, D>,
     evaluator: &'top mut MacroEvaluator<'top, D>,
     current_base: Int,
 }
@@ -1444,7 +1443,6 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         Self {
             arguments,
             context,
-            environment,
             evaluator,
             current_base: Int::new(0),
         }
