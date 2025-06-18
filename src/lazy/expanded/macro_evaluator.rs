@@ -1343,6 +1343,8 @@ impl <'top, D: Decoder> SumExpansion<'top, D> {
         }
     }
 
+    /// Given a [`ValueExpr`], this function will expand it into its underlying value; An
+    /// error is returned if the value does not expand to exactly one Int.
     fn get_integer(&self, env: Environment<'top, D>, value: ValueExpr<'top, D>) -> IonResult<Int> {
         match value {
             ValueExpr::ValueLiteral(value_literal) => {
@@ -1353,14 +1355,19 @@ impl <'top, D: Decoder> SumExpansion<'top, D> {
             ValueExpr::MacroInvocation(invocation) => {
                 let mut evaluator = MacroEvaluator::new_with_environment(env);
                 evaluator.push(invocation.expand()?);
-                match evaluator.next()? {
+                let int_arg = match evaluator.next()? {
                     None => IonResult::decoding_error("`sum` takes two integers as arguments; empty value found"),
-                    Some(value) => {
-                        value
-                            .read_resolved()?
-                            .expect_int()
-                    }
+                    Some(value) => value
+                        .read_resolved()?
+                        .expect_int(),
+                };
+
+                // Ensure that we don't have any other values in the argument's stream.
+                if !evaluator.is_empty() && evaluator.next()?.is_some() {
+                    return IonResult::decoding_error("`sum` takes two integers as arguments; multiple values found");
                 }
+
+                int_arg
             }
         }
     }
@@ -3028,26 +3035,45 @@ mod tests {
 
     #[test]
     fn sum_eexp_arg_non_int() -> IonResult<()> {
-        use crate::IonError;
-
+        // Test non-integer in first parameter
         let source = "(:sum foo foo)";
         let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        let result= actual_reader.read_all_elements();
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
 
-        let Err(IonError::Decoding(_)) = result else {
-            panic!("Unexpected success");
-        };
 
+        // Test non-integer in second parameter
         let source = "(:sum 1 foo)";
         let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        let result= actual_reader.read_all_elements();
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
 
-        let Err(IonError::Decoding(_)) = result else {
-            panic!("Unexpected success");
-        };
+        // Test no-value argument
+        let source = "(:sum 1 (:none))";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        // Test multi-value in second argument
+        let source = "(:sum 1 (:values 1 3))";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        // Test multi-value in second argument
+        let source = "(:sum 1 (:values 1 3))";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
 
         Ok(())
     }
+
 
     #[test]
     fn combine_make_struct_with_make_field() -> IonResult<()> {
