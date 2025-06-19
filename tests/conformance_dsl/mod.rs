@@ -26,7 +26,7 @@ pub(crate) mod prelude {
 }
 
 /// Specific errors used during parsing and test evaluation.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub(crate) enum ConformanceErrorKind {
     #[default]
     UnknownError,
@@ -576,5 +576,14 @@ mod tests {
                 .run()
                 .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
         }
+    }
+
+    #[test]
+    fn test_symtab() {
+        let source = r#"(ion_1_1 (symtab "a" "b") (text "$2") (produces b))"#;
+        let doc = Document::from_str(source)
+            .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", source, e));
+        println!("Document: {:?}", doc);
+        doc.run().expect("test document failed");
     }
 }
