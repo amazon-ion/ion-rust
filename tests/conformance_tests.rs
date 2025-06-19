@@ -72,15 +72,15 @@ mod ion_tests {
         skip!("ion-tests/conformance/system_macros/add_symbols.ion"),
         skip!("ion-tests/conformance/system_macros/set_macros.ion"),
         skip!("ion-tests/conformance/system_macros/set_symbols.ion"),
-        // Error: Decoding Error: macro none signature has 0 parameters(s), e-expression had an
-        // extra argument.
-        skip!("ion-tests/conformance/system_macros/default.ion"),
+        skip!(
+            "ion-tests/conformance/system_macros/default.ion",
+            // Error: Decoding Error: macro none signature has 0 parameters(s)
+            "when the first argument is non-empty, the second argument is not expanded"
+        ),
         // System macro delta not yet implemented
         skip!("ion-tests/conformance/system_macros/delta.ion"),
         // System macro make_decimal not yet implemented
         skip!("ion-tests/conformance/system_macros/make_decimal.ion"),
-        // System macro repeat not yet implemented
-        skip!("ion-tests/conformance/system_macros/repeat.ion"),
         // System macro parse_ion not yet implemented
         skip!("ion-tests/conformance/system_macros/parse_ion.ion"),
         // System macro make_timestamp not yet implemented

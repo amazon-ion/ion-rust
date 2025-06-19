@@ -226,7 +226,7 @@ impl Produces {
     /// Creates a reader using the provided context, and compares the read values from the input
     /// document with the elements specified in the associated Produces clause for equality.
     pub fn evaluate(&self, ctx: &Context) -> InnerResult<()> {
-        use ion_rs::{AnyEncoding, Decoder};
+        use ion_rs::{AnyEncoding, Decoder, IonData};
         let (input, _encoding) = ctx.input(ctx.encoding())?;
         let mut reader = ion_rs::Reader::new(AnyEncoding.with_catalog(ctx.build_catalog()), input)?;
 
@@ -238,7 +238,7 @@ impl Produces {
             match (actual_value, expected_elem) {
                 (None, None) => break,
                 (Some(actual_value), Some(expected_elem)) => {
-                    is_equal &= dbg!(dbg!(expected_elem).eq(dbg!(&actual_value)));
+                    is_equal &= IonData::eq(expected_elem, &actual_value);
                 }
                 _ => is_equal = false,
             }

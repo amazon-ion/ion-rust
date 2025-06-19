@@ -514,6 +514,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     Template(TemplateExpansion<'top>),
     // `if_none`, `if_single`, `if_multi`
     Conditional(ConditionalExpansion<'top, D>),
+    Repeat(RepeatExpansion<'top, D>),
     Sum(SumExpansion<'top, D>),
 }
 
@@ -590,6 +591,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             Conditional(cardinality_test_expansion) => cardinality_test_expansion.next(environment),
+            Repeat(repeat_expansion) => repeat_expansion.next(environment),
             Sum(sum_expansion) => sum_expansion.next(context, environment),
             // `none` is trivial and requires no delegation
             None => Ok(MacroExpansionStep::FinalStep(Option::None)),
@@ -609,6 +611,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::MakeStruct(_) => "make_struct",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
+            MacroExpansionKind::Repeat(_) => "repeat",
             MacroExpansionKind::Sum(_) => "sum",
             MacroExpansionKind::Conditional(test) => test.name(),
             MacroExpansionKind::Template(t) => {
@@ -1393,6 +1396,104 @@ impl <'top, D: Decoder> SumExpansion<'top, D> {
         Ok(MacroExpansionStep::FinalStep(Some(
                 ValueExpr::ValueLiteral(lazy_expanded_value)
         )))
+    }
+}
+
+// ====== Implementation of the `repeat` macro
+#[derive(Debug)]
+pub struct RepeatExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+    repeat_iterations: Option<usize>,
+    content: Option<ValueExpr<'top, D>>,
+}
+
+impl<'top, D: Decoder> RepeatExpansion<'top, D> {
+    pub fn new(
+        arguments: MacroExprArgsIterator<'top, D>,
+    ) -> Self {
+        Self {
+            arguments,
+            repeat_iterations: None,
+            content: None,
+        }
+    }
+
+    // Extracts the first argument from `arguments` and verifies that it is a single integer value
+    // >= 0 that can be used as the repeat count. Any other value will return an error.
+    fn get_number_to_repeat(&mut self, arguments: &mut MacroExprArgsIterator<'top, D>, environment: Environment<'top, D>) -> IonResult<usize> {
+        let count_expr = arguments
+            .next()
+            .unwrap_or(IonResult::decoding_error("`repeat` takes 2 or more parameters"))?;
+
+        let repeat_count = match count_expr {
+            ValueExpr::ValueLiteral(value_literal) => value_literal
+                .read_resolved()?
+                .expect_int()?,
+
+            ValueExpr::MacroInvocation(invocation) => {
+                let mut evaluator = MacroEvaluator::new_with_environment(environment);
+                evaluator.push(invocation.expand()?);
+                match evaluator.next()? {
+                    None => return IonResult::decoding_error("`repeat` takes a single integer value >= 0 as the first parameter; found empty value"),
+                    Some(value) => {
+                        let num = value
+                            .read_resolved()?
+                            .expect_int()?;
+
+                        if !evaluator.is_empty() && evaluator.next()?.is_some() {
+                            return IonResult::decoding_error("`repeat` takes a single integer value >= 0 as the first parameter; found multiple values");
+                        }
+                        num
+                    }
+                }
+            }
+        };
+
+        if repeat_count.is_negative() {
+            return IonResult::decoding_error("`repeat` takes a single integer value >= 0 as the first parameter; found negative value");
+        }
+
+        let repeat_count = repeat_count
+            .as_usize().ok_or(IonError::decoding_error("`repeat` takes a single value >= 0 as the first parameter; found a value that exceeded usize"))?;
+
+        Ok(repeat_count)
+    }
+
+    pub fn next(
+        &mut self,
+        environment: Environment<'top, D>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        // If we haven't yet, evaluate the first argument, to find out how many iterations we have.
+        if self.repeat_iterations.is_none() {
+            let mut arguments = self.arguments;
+            self.repeat_iterations = Some(self.get_number_to_repeat(&mut arguments, environment)?);
+            self.content= match arguments.next() {
+                None => None,
+                Some(Err(e)) => return Err(e),
+                Some(Ok(expr)) => Some(expr),
+            };
+        }
+
+        // Check if we've reached our desired number of iterations, or if we have empty content.
+        if Some(0) == self.repeat_iterations || self.content.is_none() {
+            return Ok(MacroExpansionStep::FinalStep(None)) // End early.
+        }
+
+        if let Some(ref mut repeat_iterations) = self.repeat_iterations {
+            *repeat_iterations = repeat_iterations.saturating_sub(1);
+            match self.content {
+                Some(value_arg_expr) => {
+                    if *repeat_iterations == 0 {
+                        Ok(MacroExpansionStep::FinalStep(Some(value_arg_expr)))
+                    } else {
+                        Ok(MacroExpansionStep::Step(value_arg_expr))
+                    }
+                }
+                None => unreachable!(), // Handled above.
+            }
+        } else {
+            unreachable!();
+        }
     }
 }
 
@@ -3127,6 +3228,42 @@ mod tests {
         "#;
         eval_template_invocation(invocation, "(:foo)", r#" "foobarbaz" "Hello, world!" "#)
     }
+
+    #[test]
+    fn repeat_eexp() -> IonResult<()> {
+        stream_eq(
+            r#"
+            (:repeat 1 )
+            (:repeat 0 A)
+            (:repeat 2 a)
+            (:repeat 3 {foo: bar})
+            (:repeat 2 (:repeat 2 a))
+            "#,
+            r#"
+
+            a a
+            {foo: bar} {foo: bar} {foo: bar}
+            a a a a
+            "#,
+        )
+    }
+
+    #[test]
+    fn repeat_eexp_numeric_arg() -> IonResult<()> {
+        use crate::IonError;
+
+        let source = "(:repeat foo a)";
+
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        let result= actual_reader.read_all_elements();
+
+        if let Err(IonError::Decoding(_)) = result {
+            Ok(())
+        } else {
+            panic!("unexpected success");
+        }
+    }
+
 
     #[test]
     fn e_expressions_inside_a_list() -> IonResult<()> {

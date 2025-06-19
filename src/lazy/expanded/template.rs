@@ -4,7 +4,7 @@ use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{
     AnnotateExpansion, ConditionalExpansion, ExprGroupExpansion, FlattenExpansion, MacroEvaluator,
     MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeFieldExpansion,
-    MakeStructExpansion, MakeTextExpansion, SumExpansion, TemplateExpansion, ValueExpr,
+    MakeStructExpansion, MakeTextExpansion, RepeatExpansion, SumExpansion, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroDef, MacroKind, MacroRef};
 use crate::lazy::expanded::r#struct::FieldExpr;
@@ -1397,6 +1397,9 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
             }
             MacroKind::IfMulti => {
                 MacroExpansionKind::Conditional(ConditionalExpansion::if_multi(arguments))
+            }
+            MacroKind::Repeat => {
+                MacroExpansionKind::Repeat(RepeatExpansion::new(arguments))
             }
             MacroKind::Sum => {
                 MacroExpansionKind::Sum(SumExpansion::new(arguments))
