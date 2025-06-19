@@ -1429,14 +1429,14 @@ pub struct DeltaExpansion<'top, D: Decoder> {
     arguments: MacroExprArgsIterator<'top, D>,
     context: EncodingContextRef<'top>,
     evaluator: &'top mut MacroEvaluator<'top, D>,
-    current_base: Int,
+    current_base: Option<Int>,
 }
 
 impl<'top, D: Decoder> DeltaExpansion<'top, D> {
     pub fn new(
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
-        arguments: MacroExprArgsIterator<'top, D>
+        arguments: MacroExprArgsIterator<'top, D>,
     ) -> Self {
         let allocator = context.allocator();
         let evaluator = allocator.alloc_with(|| MacroEvaluator::new_with_environment(environment));
@@ -1444,7 +1444,7 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
             arguments,
             context,
             evaluator,
-            current_base: Int::new(0),
+            current_base: None,
         }
     }
 
@@ -1452,56 +1452,57 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
     /// evaluator, and falling back to arguments otherwise.
     fn get_next_delta(&mut self) -> IonResult<Option<Int>> {
         // First, check if we have anything going on in the evaluator..
-        if !self.evaluator.is_empty() {
-            match self.evaluator.next()? {
-                // If we get a None even after checking is_empty, recurse back in to check the arguments.
-                None => self.get_next_delta(),
-                // When we do get a value, we just need to expand it and ensure it is an Int
-                Some(value) => {
-                    let i = value
-                        .read_resolved()?
-                        .expect_int()?;
-                    Ok(Some(i))
-                }
+        match self.evaluator.next()? {
+            // If we get a None, then we're done evaluating our expression group.
+            None => Ok(None),
+            // When we do get a value, we just need to expand it and ensure it is an Int
+            Some(value) => {
+                let i = value.read_resolved()?.expect_int()?;
+                Ok(Some(i))
             }
-        } else { // Otherwise we check our next parameter..
-            let Some(arg) = self.arguments.next() else {
-                return Ok(None);
-            };
-
-            let i = match arg? {
-                // Expand and check that our literal is an Int.
-                ValueExpr::ValueLiteral(value_literal) => {
-                    let i = value_literal
-                        .read_resolved()?
-                        .expect_int()?;
-                    Some(i)
-                }
-                // If we get a MacroInvocation, we load it into the evaluator and recurse back in
-                // to evaluate it.
-                ValueExpr::MacroInvocation(invocation) => {
-                    self.evaluator.push(invocation.expand()?);
-                    self.get_next_delta()?
-                }
-            };
-            Ok(i)
         }
     }
 
-
     pub fn next(&mut self) -> IonResult<MacroExpansionStep<'top, D>> {
+        // If we haven't evaluated any of the deltas yet, we need to grab our expression group and
+        // load it into the evaluator.
+        if self.current_base.is_none() {
+            // If we've already done this, but we have no values to populate current_base with,
+            // we'll exhaust the arguments and return FinalStep here.
+            match self.arguments.next() {
+                None => return Ok(MacroExpansionStep::FinalStep(None)),
+                Some(Err(e)) => return Err(e),
+                Some(Ok(expr)) => match expr {
+                    ValueExpr::MacroInvocation(invocation) => {
+                        self.evaluator.push(invocation.expand()?)
+                    }
+                    // We will always have an expression group, so we should never see a
+                    // ValueLiteral here.
+                    ValueExpr::ValueLiteral(_) => unreachable!(),
+                },
+            }
+            self.current_base = Some(Int::new(0));
+        }
+
         let Some(delta) = self.get_next_delta()? else {
             return Ok(MacroExpansionStep::FinalStep(None));
         };
 
-        self.current_base = self.current_base + delta;
+        if let Some(ref mut current_base) = self.current_base {
+            *current_base = *current_base + delta;
+            let value_ref = self
+                .context
+                .allocator()
+                .alloc_with(|| ValueRef::Int(self.current_base.unwrap()));
+            let lazy_expanded_value =
+                LazyExpandedValue::from_constructed(self.context, &[], value_ref);
 
-        let value_ref = self.context.allocator().alloc_with(|| ValueRef::Int(self.current_base));
-        let lazy_expanded_value = LazyExpandedValue::from_constructed(self.context, &[], value_ref);
-
-        Ok(MacroExpansionStep::Step(
-            ValueExpr::ValueLiteral(lazy_expanded_value)
-        ))
+            Ok(MacroExpansionStep::Step(ValueExpr::ValueLiteral(
+                lazy_expanded_value,
+            )))
+        } else {
+            unreachable!()
+        }
     }
 }
 
@@ -3035,21 +3036,41 @@ mod tests {
     #[test]
     fn delta_eexp() -> IonResult<()> {
         stream_eq(
-        r#"
+            r#"
            (:delta )
            (:delta 0)
            (:delta 0 1 2 3)
            (:delta (:: 1000 1 2 3 -2))
            (:delta 0 2 (:values 2 3))
+           (:delta 1 4 (:none))
         "#,
-        r#"
+            r#"
 
            0
            0 1 3 6
            1000 1001 1003 1006 1004
            0 2 4 7
+           1 5
         "#,
         )
+    }
+
+    #[test]
+    fn delta_eexp_invalid_args() -> IonResult<()> {
+        let source = "(:delta foo foo)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        let source = "(:delta 1 3 foo)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+
+        Ok(())
     }
 
     #[test]
