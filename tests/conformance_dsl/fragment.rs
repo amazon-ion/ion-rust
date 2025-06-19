@@ -167,6 +167,26 @@ impl TryFrom<Clause> for Fragment {
                     elems: vec![module.with_annotations(["$ion"])],
                 })
             }
+            ClauseType::SymTab => {
+                use ion_rs::{ion_struct, Sequence, SequenceBuilder};
+                let symbols = other
+                    .body
+                    .iter()
+                    .try_fold(Sequence::builder(), |seq: SequenceBuilder, elem| {
+                        elem.as_string()
+                            .ok_or(ConformanceErrorKind::ExpectedString)
+                            .map(|s| seq.push(s))
+                    })?
+                    .build_list();
+
+                let table: Element = ion_struct! {
+                    "symbols": symbols,
+                }
+                .into();
+                Fragment::TopLevel(TopLevel {
+                    elems: vec![table.with_annotations(["$ion_symbol_table"])],
+                })
+            }
             _ => return Err(ConformanceErrorKind::ExpectedFragment),
         };
         Ok(frag)
@@ -517,5 +537,82 @@ impl FragmentImpl for TopLevel {
             writer.write(ProxyElement(elem, ctx))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_symtab_strings() {
+        let source = r#"(symtab 1 2 3)"#;
+        let clause_elem = Element::read_one(source).expect("unable to read source");
+        let seq = clause_elem.as_sequence().expect("could not read sequence");
+        let clause: Clause = seq
+            .try_into()
+            .expect("unable to convert elements into clause");
+
+        assert_eq!(
+            ConformanceErrorKind::ExpectedString,
+            Fragment::try_from(clause).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn parse_symtab() {
+        struct TestCase {
+            source: &'static str,
+            symbols: &'static [&'static str],
+        }
+
+        let tests = &[
+            TestCase {
+                source: r#"(symtab "a")"#,
+                symbols: &["a"],
+            },
+            TestCase {
+                source: r#"(symtab "a" "b" "c")"#,
+                symbols: &["a", "b", "c"],
+            },
+        ];
+
+        for test in tests {
+            println!("Testing: {:?}", test.source);
+            let clause_elem = Element::read_one(test.source).expect("unable to read source");
+            let seq = clause_elem.as_sequence().expect("could not read sequence");
+            let clause: Clause = seq
+                .try_into()
+                .expect("unable to convert elements into clause");
+            let frag: Fragment = clause
+                .try_into()
+                .expect("unable to convert clause into fragment");
+
+            let Fragment::TopLevel(toplevel) = frag else {
+                panic!("SymTab clause did not parse into a top-level fragment");
+            };
+
+            let element = toplevel
+                .elems
+                .first()
+                .expect("No sub-elements of toplevel fragment");
+            let annotations = element.annotations();
+
+            assert_eq!(annotations.len(), 1);
+            assert_eq!(annotations.first(), Some("$ion_symbol_table"));
+
+            let strukt = element
+                .as_struct()
+                .expect("could not turn element into struct");
+            let field = strukt.get("symbols").expect("unable to find symbol field");
+            let symbols = field.as_list().expect("symbols field is not a list");
+
+            assert_eq!(symbols.len(), test.symbols.len());
+            let symbols_match = symbols
+                .iter()
+                .zip(test.symbols)
+                .fold(true, |acc, (a, b)| acc && (a == &Element::string(*b)));
+            assert!(symbols_match);
+        }
     }
 }

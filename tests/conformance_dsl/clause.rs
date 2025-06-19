@@ -35,6 +35,8 @@ pub(crate) enum ClauseType {
     Encoding,
     /// Provide ion data defining the contents of a macro table wrapped by a module within an encoding directive.
     MacTab,
+    /// Provide string arguments which are used to populate the current symbol table.
+    SymTab,
     /// Define data that is expected to be produced by the test's document, using inline ion
     /// syntax.
     Produces,
@@ -82,6 +84,7 @@ impl FromStr for ClauseType {
             "signals" => Ok(Signals),
             "encoding" => Ok(Encoding),
             "mactab" => Ok(MacTab),
+            "symtab" => Ok(SymTab),
             _ => Err(ConformanceErrorKind::UnknownClause(s.to_owned())),
         }
     }
