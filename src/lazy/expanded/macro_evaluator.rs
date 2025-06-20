@@ -1651,7 +1651,7 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
                     }
                     // If a single value is provided for the delta parameter, it can be encoded as
                     // a single non-grouped value.
-                    ValueExpr::ValueLiteral(l) => {
+                    ValueExpr::ValueLiteral(_) => {
                         return Ok(MacroExpansionStep::FinalStep(Some(expr)));
                     }
                 },
