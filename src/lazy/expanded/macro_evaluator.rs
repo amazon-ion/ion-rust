@@ -1619,8 +1619,8 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         }
     }
 
-    /// Returns the next [`Int`] to be used in the delta encoding by querying the current
-    /// evaluator, and falling back to arguments otherwise.
+    /// Returns the next [`Int`] to be used in the delta encoding by querying the macro evaluator
+    /// used for expanding the expression group.
     fn get_next_delta(&mut self) -> IonResult<Option<Int>> {
         // First, check if we have anything going on in the evaluator..
         match self.evaluator.next()? {
@@ -1644,12 +1644,16 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
                 None => return Ok(MacroExpansionStep::FinalStep(None)),
                 Some(Err(e)) => return Err(e),
                 Some(Ok(expr)) => match expr {
+                    // If we have an exp group, we have to evaluate it in order to get all of our
+                    // arguments.
                     ValueExpr::MacroInvocation(invocation) => {
                         self.evaluator.push(invocation.expand()?)
                     }
-                    // We will always have an expression group, so we should never see a
-                    // ValueLiteral here.
-                    ValueExpr::ValueLiteral(_) => unreachable!(),
+                    // If a single value is provided for the delta parameter, it can be encoded as
+                    // a single non-grouped value.
+                    ValueExpr::ValueLiteral(l) => {
+                        return Ok(MacroExpansionStep::FinalStep(Some(expr)));
+                    }
                 },
             }
             self.current_base = Some(Int::new(0));
@@ -3208,19 +3212,24 @@ mod tests {
         stream_eq(
             r#"
            (:delta )
-           (:delta 0)
+           (:delta 1)
            (:delta 0 1 2 3)
            (:delta (:: 1000 1 2 3 -2))
            (:delta 0 2 (:values 2 3))
            (:delta 1 4 (:none))
+           (:delta (:repeat 4 1))
+           (:delta (::))
+           (:delta a::1 b::2)
         "#,
             r#"
 
-           0
+           1
            0 1 3 6
            1000 1001 1003 1006 1004
            0 2 4 7
            1 5
+           1 2 3 4
+           1 3
         "#,
         )
     }
