@@ -367,6 +367,7 @@ pub enum MacroKind {
     IfSingle,
     IfMulti,
     Repeat,
+    Sum,
     // A placeholder for not-yet-implemented macros
     ToDo,
 }
@@ -600,7 +601,7 @@ impl MacroTable {
             builtin(
                 "sum",
                 "(a b)",
-                MacroKind::ToDo,
+                MacroKind::Sum,
                 ExpansionAnalysis::single_application_value(IonType::Int),
             ),
             builtin(

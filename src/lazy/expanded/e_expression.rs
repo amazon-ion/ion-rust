@@ -11,7 +11,7 @@ use crate::lazy::expanded::macro_evaluator::{
     AnnotateExpansion, ConditionalExpansion, EExpressionArgGroup, ExprGroupExpansion,
     FlattenExpansion, IsExhaustedIterator, MacroExpansion, MacroExpansionKind, MacroExpr,
     MacroExprArgsIterator, MakeFieldExpansion, MakeStructExpansion, MakeTextExpansion,
-    RawEExpression, RepeatExpansion, TemplateExpansion, ValueExpr,
+    RawEExpression, RepeatExpansion, SumExpansion, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::template::TemplateMacroRef;
@@ -154,6 +154,9 @@ impl<'top, D: Decoder> EExpression<'top, D> {
             }
             MacroKind::Repeat => {
                 MacroExpansionKind::Repeat(RepeatExpansion::new(arguments))
+            }
+            MacroKind::Sum => {
+                MacroExpansionKind::Sum(SumExpansion::new(arguments))
             }
         };
         Ok(MacroExpansion::new(
