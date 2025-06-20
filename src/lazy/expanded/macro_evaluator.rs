@@ -592,7 +592,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             Conditional(cardinality_test_expansion) => cardinality_test_expansion.next(environment),
-            Delta(delta_expansion) => delta_expansion.next(),
+            Delta(delta_expansion) => delta_expansion.next(context),
             Repeat(repeat_expansion) => repeat_expansion.next(environment),
             Sum(sum_expansion) => sum_expansion.next(context, environment),
             // `none` is trivial and requires no delegation
@@ -1600,7 +1600,6 @@ impl<'top, D: Decoder> FlattenExpansion<'top, D> {
 #[derive(Debug)]
 pub struct DeltaExpansion<'top, D: Decoder> {
     arguments: MacroExprArgsIterator<'top, D>,
-    context: EncodingContextRef<'top>,
     evaluator: &'top mut MacroEvaluator<'top, D>,
     current_base: Option<Int>,
 }
@@ -1615,7 +1614,6 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         let evaluator = allocator.alloc_with(|| MacroEvaluator::new_with_environment(environment));
         Self {
             arguments,
-            context,
             evaluator,
             current_base: None,
         }
@@ -1636,7 +1634,7 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         }
     }
 
-    pub fn next(&mut self) -> IonResult<MacroExpansionStep<'top, D>> {
+    pub fn next(&mut self, context: EncodingContextRef<'top>) -> IonResult<MacroExpansionStep<'top, D>> {
         // If we haven't evaluated any of the deltas yet, we need to grab our expression group and
         // load it into the evaluator.
         if self.current_base.is_none() {
@@ -1663,12 +1661,11 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
 
         if let Some(ref mut current_base) = self.current_base {
             *current_base = *current_base + delta;
-            let value_ref = self
-                .context
+            let value_ref = context
                 .allocator()
                 .alloc_with(|| ValueRef::Int(self.current_base.unwrap()));
             let lazy_expanded_value =
-                LazyExpandedValue::from_constructed(self.context, &[], value_ref);
+                LazyExpandedValue::from_constructed(context, &[], value_ref);
 
             Ok(MacroExpansionStep::Step(ValueExpr::ValueLiteral(
                 lazy_expanded_value,
