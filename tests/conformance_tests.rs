@@ -50,8 +50,11 @@ mod ion_tests {
             "ion-tests/conformance/data_model/float.ion",
             "Ion 1.1 binary" // PANIC: not yet implemented: implement half-precision floats
         ),
-        // Issue parsing the comments left in decimal.ion, see ion-rust#972
-        skip!("ion-tests/conformance/data_model/decimal.ion"),
+        skip!(
+            "ion-tests/conformance/data_model/decimal.ion",
+            // Error: Found a 13-byte VarInt. Max supported size is 9 bytes.
+            "the decimal positive zero"
+        ),
         // Mismatched produces due to symbol id transcription.
         skip!("ion-tests/conformance/core/toplevel_produces.ion"),
         // Unrecognized encoding 'int8' (only flex_uint appears to be supported)
