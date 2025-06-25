@@ -211,6 +211,39 @@ mod tests {
     use chrono::{DateTime, FixedOffset, Utc};
     use serde::{Deserialize, Serialize};
     use serde_with::serde_as;
+    use rstest::*;
+
+    #[rstest]
+    #[case::i8(to_binary(&-1_i8).unwrap(),     &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::i16(to_binary(&-1_i16).unwrap(),   &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::i32(to_binary(&-1_i32).unwrap(),   &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::i64(to_binary(&-1_i64).unwrap(),   &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::u8(to_binary(&1_u8).unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::u16(to_binary(&1_u16).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::u32(to_binary(&1_u32).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::u64(to_binary(&1_u64).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::char(to_binary(&'a').unwrap(),     &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
+    #[case::str(to_binary(&"a").unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
+    #[case::some(to_binary(&Some(1)).unwrap(), &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    fn test_primitives_binary(#[case] ion_data: Vec<u8>, #[case] expected: &[u8]) {
+        assert_eq!(&ion_data[..], expected);
+    }
+
+    #[rstest]
+    #[case::i8(to_string(&-1_i8).unwrap(),     "-1")]
+    #[case::i16(to_string(&-1_i16).unwrap(),   "-1")]
+    #[case::i32(to_string(&-1_i32).unwrap(),   "-1")]
+    #[case::i64(to_string(&-1_i64).unwrap(),   "-1")]
+    #[case::u8(to_string(&1_u8).unwrap(),      "1")]
+    #[case::u16(to_string(&1_u16).unwrap(),    "1")]
+    #[case::u32(to_string(&1_u32).unwrap(),    "1")]
+    #[case::u64(to_string(&1_u64).unwrap(),    "1")]
+    #[case::char(to_string(&'a').unwrap(),     "\"a\"")]
+    #[case::str(to_string(&"a").unwrap(),      "\"a\"")]
+    #[case::some(to_string(&Some(1)).unwrap(), "1" )]
+    fn test_primitives_text(#[case] ion_data: String, #[case] expected: &str) {
+        assert_eq!(ion_data.trim(), expected);
+    }
 
     #[test]
     fn test_struct() {
