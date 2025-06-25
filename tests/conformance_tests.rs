@@ -77,8 +77,13 @@ mod ion_tests {
             // Error: Decoding Error: macro none signature has 0 parameters(s)
             "when the first argument is non-empty, the second argument is not expanded"
         ),
-        // System macro delta not yet implemented
-        skip!("ion-tests/conformance/system_macros/delta.ion"),
+        skip!(
+            "ion-tests/conformance/system_macros/delta.ion",
+            // macro named 'from_x_count_n_by_step' already exists.
+            "delta and repeat can be combined to generate",
+            // unrecognized encoding 'flex_int' specified for parameter
+            "it is possible to create a delta of deltas encoding"
+        ),
         // System macro make_decimal not yet implemented
         skip!("ion-tests/conformance/system_macros/make_decimal.ion"),
         // System macro parse_ion not yet implemented
