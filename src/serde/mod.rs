@@ -227,6 +227,7 @@ mod tests {
     #[case::char(to_binary(&'a').unwrap(),     &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
     #[case::str(to_binary(&"a").unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
     #[case::some(to_binary(&Some(1)).unwrap(), &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::unit(to_binary(&()).unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x0F])]
     fn test_primitives_binary(#[case] ion_data: Vec<u8>, #[case] expected: &[u8]) {
         assert_eq!(&ion_data[..], expected);
     }
@@ -243,13 +244,14 @@ mod tests {
     #[case::char(to_string(&'a').unwrap(),     "\"a\"")]
     #[case::str(to_string(&"a").unwrap(),      "\"a\"")]
     #[case::some(to_string(&Some(1)).unwrap(), "1" )]
+    #[case::unit(to_string(&()).unwrap(),      "null")]
     fn test_primitives_text(#[case] ion_data: String, #[case] expected: &str) {
         assert_eq!(ion_data.trim(), expected);
     }
 
     #[test]
     fn test_blob() {
-        #[derive(Serialize, Deserialize, Debug, PartialEq)]
+        #[derive(Serialize, Deserialize)]
         struct Test {
             #[serde(with = "serde_bytes")]
             binary: Vec<u8>,
@@ -266,12 +268,12 @@ mod tests {
         let ion_data = to_binary(&test).unwrap();
         assert_eq!(&ion_data[..], expected);
         let de: Test = from_ion(ion_data).expect("unable to parse test");
-        assert_eq!(de, test);
+        assert_eq!(de.binary, test.binary);
 
         let ion_data_str = to_string(&test).unwrap();
         assert_eq!(ion_data_str.trim(), "{binary: {{aGVsbG8=}}, }");
         let de: Test = from_ion(ion_data_str).expect("unable to parse test");
-        assert_eq!(de, test);
+        assert_eq!(de.binary, test.binary);
     }
 
     #[test]
