@@ -344,6 +344,36 @@ mod tests {
     }
 
     #[test]
+    fn test_nested_newtype_variant() {
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        enum Outter {
+            First(Inner),
+        }
+
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        enum Inner {
+            Second(u32),
+        }
+
+        let expected_binary = [
+            0xE0, 0x01, 0x00, 0xEA,                          // IVM
+            0xEE, 0x96, 0x81, 0x83,                          // $ion_symbol_table::
+            0xDE, 0x92, 0x86, 0x71, 0x03,                    // { imports: $ion_symbol_table,
+            0x87, 0xBD, 0x85, 0x46, 0x69, 0x72, 0x73, 0x74,  //   symbols: ["First",
+            0x86, 0x53, 0x65, 0x63, 0x6F, 0x6E, 0x64,        //             "Second"]}
+            0xE5, 0x82, 0x8A, 0x8B, 0x21, 0x03,              // First::Second::3
+
+        ];
+
+        let i = r#"First::Second::3"#;
+        let expected = Outter::First(Inner::Second(3));
+        assert_eq!(expected, from_ion(i).unwrap());
+
+        let b = to_binary(&expected).unwrap();
+        assert_eq!(expected_binary, &b[..]);
+    }
+
+    #[test]
     fn test_symbol() {
         let i = r#"inches"#;
         let expected = String::from("inches");
@@ -369,8 +399,8 @@ mod tests {
         ];
         let expected_s = "\"127.0.0.1\" ";
         let binary = to_binary(&ip).unwrap();
-        assert_eq!(&binary[..], &expected_binary[..]);
         let s = to_string(&ip).unwrap();
+        assert_eq!(&binary[..], &expected_binary[..]);
         assert_eq!(s, expected_s);
         assert_eq!(&from_ion::<IpAddr, _>(s).unwrap(), &ip);
         assert_eq!(&from_ion::<IpAddr, _>(binary).unwrap(), &ip);
