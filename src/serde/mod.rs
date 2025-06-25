@@ -249,10 +249,10 @@ mod tests {
 
     #[test]
     fn test_blob() {
-        #[derive(Serialize, Deserialize)]
+        #[derive(Serialize, Deserialize, Debug, PartialEq)]
         struct Test {
             #[serde(with = "serde_bytes")]
-            binary: &'static [u8],
+            binary: Vec<u8>,
         }
         let expected = &[
             0xE0, 0x01, 0x00, 0xEA,                               // IVM
@@ -262,12 +262,16 @@ mod tests {
             0xD7, 0x8A, 0xA5, 0x68, 0x65, 0x6C, 0x6C, 0x6F,       // {binary: {{ aGVsbG8= }}
         ];
 
-        let test = Test { binary: b"hello" }; // aGVsbG8=
+        let test = Test { binary: b"hello".to_vec() }; // aGVsbG8=
         let ion_data = to_binary(&test).unwrap();
         assert_eq!(&ion_data[..], expected);
+        let de: Test = from_ion(ion_data).expect("unable to parse test");
+        assert_eq!(de, test);
 
         let ion_data_str = to_string(&test).unwrap();
         assert_eq!(ion_data_str.trim(), "{binary: {{aGVsbG8=}}, }");
+        let de: Test = from_ion(ion_data_str).expect("unable to parse test");
+        assert_eq!(de, test);
     }
 
     #[test]
