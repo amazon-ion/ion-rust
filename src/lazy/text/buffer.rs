@@ -11,7 +11,7 @@ use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
     StreamIsPartial,
 };
-use winnow::token::{one_of, rest, take_till, take_until, take_while};
+use winnow::token::{one_of, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
 use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
@@ -2098,16 +2098,6 @@ where
     P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
 {
     repeat::<_, _, (), _, _>(n, parser).take()
-}
-
-pub fn incomplete_is_ok<'data, P>(
-    parser: P,
-) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
-where
-    P: Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>,
-{
-    // If we run out of input while applying the parser, consider the rest of the input to match.
-    alt((parser.complete_err(), rest))
 }
 
 #[cfg(test)]
