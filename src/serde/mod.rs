@@ -222,6 +222,8 @@ mod tests {
     #[case::u16(to_binary(&1_u16).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
     #[case::u32(to_binary(&1_u32).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
     #[case::u64(to_binary(&1_u64).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::f32(to_binary(&1_f32).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x44, 0x3f, 0x80, 0x00, 0x00])]
+    #[case::f64(to_binary(&1_f64).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x44, 0x3f, 0x80, 0x00, 0x00])]
     #[case::char(to_binary(&'a').unwrap(),     &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
     #[case::str(to_binary(&"a").unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
     #[case::some(to_binary(&Some(1)).unwrap(), &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
@@ -246,12 +248,36 @@ mod tests {
     }
 
     #[test]
+    fn test_blob() {
+        #[derive(Serialize, Deserialize)]
+        struct Test {
+            #[serde(with = "serde_bytes")]
+            binary: &'static [u8],
+        }
+        let expected = &[
+            0xE0, 0x01, 0x00, 0xEA,                               // IVM
+            0xEE, 0x8F, 0x81, 0x83, 0xDC,                         // $ion_symbol_table:: {
+            0x86, 0x71, 0x03,                                     //   imports: $ion_symbol_table,
+            0x87, 0xB7, 0x86, 0x62, 0x69, 0x6E, 0x61, 0x72, 0x79, // symbols: ["binary"] ]}
+            0xD7, 0x8A, 0xA5, 0x68, 0x65, 0x6C, 0x6C, 0x6F,       // {binary: {{ aGVsbG8= }}
+        ];
+
+        let test = Test { binary: b"hello" }; // aGVsbG8=
+        let ion_data = to_binary(&test).unwrap();
+        assert_eq!(&ion_data[..], expected);
+
+        let ion_data_str = to_string(&test).unwrap();
+        assert_eq!(ion_data_str.trim(), "{binary: {{aGVsbG8=}}, }");
+    }
+
+    #[test]
     fn test_struct() {
         #[serde_as]
         #[derive(Serialize, Deserialize)]
         struct Test {
             int: u32,
             float: f64,
+            #[serde(with = "serde_bytes")]
             binary: Vec<u8>,
             seq: Vec<String>,
             decimal: Decimal,
