@@ -355,6 +355,7 @@ fn write_template_struct_element<V: ValueWriter>(
 pub enum MacroKind {
     None, // `(.none)` returns the empty stream
     ExprGroup,
+    MakeDecimal,
     MakeString,
     MakeSymbol,
     MakeField,
@@ -625,7 +626,7 @@ impl MacroTable {
             builtin(
                 "make_decimal",
                 "(coefficient exponent)",
-                MacroKind::ToDo,
+                MacroKind::MakeDecimal,
                 ExpansionAnalysis::single_application_value(IonType::Decimal),
             ),
             builtin(
