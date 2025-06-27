@@ -48,12 +48,11 @@ pub trait ElementReader {
         match iter.next() {
             Some(Ok(element)) => {
                 return IonResult::decoding_error(format!(
-                    "found more than one value; second value: {}",
-                    element
+                    "found more than one value; second value: {element}",
                 ))
             }
             Some(Err(e)) => {
-                return IonResult::decoding_error(format!("error after expected value: {}", e))
+                return IonResult::decoding_error(format!("error after expected value: {e}"))
             }
             None => {}
         };

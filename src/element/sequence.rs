@@ -244,7 +244,7 @@ mod tests {
         let mut it = seq.into_iter();
 
         assert_eq!(
-            format!("{:?}", it),
+            format!("{it:?}"),
             "OwnedSequenceIterator([true, false, \"hello\"])"
         );
 

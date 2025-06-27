@@ -555,8 +555,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
             1 => true,
             invalid => {
                 return IonResult::decoding_error(format!(
-                    "found a boolean value with an illegal representation (must be 0 or 1): {}",
-                    invalid
+                    "found a boolean value with an illegal representation (must be 0 or 1): {invalid}",
                 ))
             }
         };

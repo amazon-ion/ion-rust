@@ -96,7 +96,7 @@ impl Debug for BytesRef<'_> {
         // Shows up to the first 32 bytes in hex
         write!(f, "BytesRef: [")?;
         for byte in data.iter().copied().take(NUM_BYTES_TO_SHOW) {
-            write!(f, "{:x} ", byte)?;
+            write!(f, "{byte:x} ")?;
         }
         if data.len() > NUM_BYTES_TO_SHOW {
             write!(f, "...{} more", (data.len() - NUM_BYTES_TO_SHOW))?;

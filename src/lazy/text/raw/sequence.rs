@@ -278,8 +278,7 @@ mod tests {
         let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,
-            "Sequence range ({:?}) did not match expected range ({:?})",
-            actual_range, expected
+            "Sequence range ({actual_range:?}) did not match expected range ({expected:?})",
         );
         Ok(())
     }

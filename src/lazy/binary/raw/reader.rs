@@ -290,7 +290,7 @@ mod tests {
         let _symbol_table = reader.next()?.expect_value()?;
         let lazy_list = reader.next()?.expect_value()?.read()?.expect_list()?;
         // Exercise the `Debug` impl
-        println!("Lazy Raw Sequence: {:?}", lazy_list);
+        println!("Lazy Raw Sequence: {lazy_list:?}");
         let mut list_values = lazy_list.sequence.iter();
         assert_eq!(
             list_values

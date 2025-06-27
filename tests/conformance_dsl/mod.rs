@@ -471,9 +471,9 @@ mod tests {
 
         for test in tests {
             Document::from_str(test)
-                .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
+                .unwrap_or_else(|e| panic!("Failed to load document: <<{test}>>\n{e:?}"))
                 .run()
-                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
+                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{test}>>\n{e:?}"));
         }
     }
 
@@ -486,9 +486,9 @@ mod tests {
                  (produces 1)
              )"#;
         Document::from_str(test)
-            .unwrap_or_else(|e| panic!("Failed to load document:\n{:?}", e))
+            .unwrap_or_else(|e| panic!("Failed to load document:\n{e:?}"))
             .run()
-            .unwrap_or_else(|e| panic!("Test failed: {:?}", e));
+            .unwrap_or_else(|e| panic!("Test failed: {e:?}"));
     }
 
     #[test]
@@ -514,11 +514,11 @@ mod tests {
             r#"(ion_1_1 (text "2.3") (denotes (Decimal 23 -1)))"#,
         ];
         for test in tests {
-            println!("Testing: {}", test);
+            println!("Testing: {test}");
             Document::from_str(test)
-                .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
+                .unwrap_or_else(|e| panic!("Failed to load document: <<{test}>>\n{e:?}"))
                 .run()
-                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
+                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{test}>>\n{e:?}"));
         }
     }
 
@@ -533,11 +533,11 @@ mod tests {
         ];
 
         for test in tests {
-            println!("Testing: {}", test);
+            println!("Testing: {test}");
             Document::from_str(test)
-                .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
+                .unwrap_or_else(|e| panic!("Failed to load document: <<{test}>>\n{e:?}"))
                 .run()
-                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
+                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{test}>>\n{e:?}"));
         }
     }
 
@@ -550,10 +550,10 @@ mod tests {
                        (produces halb))
                )
             "#;
-        println!("Testing: {}", test);
+        println!("Testing: {test}");
         let doc = Document::from_str(test)
-            .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e));
-        println!("Document: {:?}", doc);
+            .unwrap_or_else(|e| panic!("Failed to load document: <<{test}>>\n{e:?}"));
+        println!("Document: {doc:?}");
         match doc.run() {
             Err(_) => (),
             Ok(_) => panic!("Unexpected successful test evaluation"),
@@ -570,11 +570,11 @@ mod tests {
         ];
 
         for test in tests {
-            println!("Testing: {}", test);
+            println!("Testing: {test}");
             Document::from_str(test)
-                .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", test, e))
+                .unwrap_or_else(|e| panic!("Failed to load document: <<{test}>>\n{e:?}"))
                 .run()
-                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{}>>\n{:?}", test, e));
+                .unwrap_or_else(|e| panic!("Test failed for simple doc: <<{test}>>\n{e:?}"));
         }
     }
 
@@ -582,8 +582,8 @@ mod tests {
     fn test_symtab() {
         let source = r#"(ion_1_1 (symtab "a" "b") (text "$2") (produces b))"#;
         let doc = Document::from_str(source)
-            .unwrap_or_else(|e| panic!("Failed to load document: <<{}>>\n{:?}", source, e));
-        println!("Document: {:?}", doc);
+            .unwrap_or_else(|e| panic!("Failed to load document: <<{source}>>\n{e:?}"));
+        println!("Document: {doc:?}");
         doc.run().expect("test document failed");
     }
 }

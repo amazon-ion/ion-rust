@@ -1225,8 +1225,7 @@ impl<Encoding: Decoder> PartialEq for ExpandedValueRef<'_, Encoding> {
 impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
     fn expected<T>(self, expected_name: &str) -> IonResult<T> {
         IonResult::decoding_error(format!(
-            "expected a(n) {} but found a {:?}",
-            expected_name, self
+            "expected a(n) {expected_name} but found a {self:?}",
         ))
     }
 
@@ -1366,14 +1365,14 @@ impl<D: Decoder> Debug for ExpandedValueRef<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ExpandedValueRef::*;
         match self {
-            Null(ion_type) => write!(f, "null.{}", ion_type),
-            Bool(b) => write!(f, "{}", b),
-            Int(i) => write!(f, "{}", i),
-            Float(float) => write!(f, "{}", float),
-            Decimal(d) => write!(f, "{}", d),
-            Timestamp(t) => write!(f, "{}", t),
-            String(s) => write!(f, "{}", s),
-            Symbol(s) => write!(f, "{:?}", s),
+            Null(ion_type) => write!(f, "null.{ion_type}"),
+            Bool(b) => write!(f, "{b}"),
+            Int(i) => write!(f, "{i}"),
+            Float(float) => write!(f, "{float}"),
+            Decimal(d) => write!(f, "{d}"),
+            Timestamp(t) => write!(f, "{t}"),
+            String(s) => write!(f, "{s}"),
+            Symbol(s) => write!(f, "{s:?}"),
             Blob(b) => write!(f, "blob ({} bytes)", b.len()),
             Clob(c) => write!(f, "clob ({} bytes)", c.len()),
             // TODO: Debug impls for LazyExpandedRaw[ContainerType]

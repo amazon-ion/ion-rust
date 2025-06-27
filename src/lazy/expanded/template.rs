@@ -1249,7 +1249,7 @@ impl<D: Decoder> Debug for TemplateExprGroup<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(.. /*expr group for param={}*/", self.parameter().name())?;
         for expr in self.arg_expressions() {
-            write!(f, "\n {:?}", expr)?;
+            write!(f, "\n {expr:?}")?;
         }
         write!(f, "\n)",)
     }
@@ -1276,7 +1276,7 @@ impl<D: Decoder> Debug for TemplateMacroInvocation<'_, D> {
             self.invoked_macro().name().unwrap_or("<anonymous>")
         )?;
         for expr in self.arg_expressions() {
-            write!(f, " {:?}", expr)?;
+            write!(f, " {expr:?}")?;
         }
         write!(f, ")")
     }

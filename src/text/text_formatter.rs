@@ -496,7 +496,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
             let list_value = peekable_itr.next().unwrap();
             write!(self.output, "{list_value}")?;
             if peekable_itr.peek().is_some() {
-                write!(self.output, "{}", delimiter)?;
+                write!(self.output, "{delimiter}")?;
             }
         }
         Ok(())

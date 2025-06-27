@@ -335,7 +335,7 @@ impl<'top, D: Decoder> LazyExpandedStruct<'top, D> {
         if let Some(value) = self.get(name)? {
             Ok(value)
         } else {
-            IonResult::decoding_error(format!("did not find expected struct field '{}'", name))
+            IonResult::decoding_error(format!("did not find expected struct field '{name}'"))
         }
     }
 }
@@ -644,8 +644,7 @@ fn next_struct_from_macro<'top, D: Decoder>(
     let value_ref = expanded_value.read()?;
     let ExpandedValueRef::Struct(struct_) = value_ref else {
         return IonResult::decoding_error(format!(
-            "macros in field name position must produce structs; found: {:?}",
-            value_ref
+            "macros in field name position must produce structs; found: {value_ref:?}",
         ));
     };
     Ok(Some(struct_))

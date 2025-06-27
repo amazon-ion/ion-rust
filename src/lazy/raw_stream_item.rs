@@ -88,7 +88,7 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<M> {
         self.version_marker()
-            .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {:?}", self)))
+            .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {self:?}")))
     }
 
     /// If this item is a value, returns `Some(&LazyValue)`. Otherwise, returns `None`.
@@ -106,7 +106,7 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
         if let Self::Value(value) = self {
             Ok(value)
         } else {
-            IonResult::decoding_error(format!("expected value, found {:?}", self))
+            IonResult::decoding_error(format!("expected value, found {self:?}"))
         }
     }
 
@@ -122,7 +122,7 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
         if let Self::EExp(m) = self {
             Ok(m)
         } else {
-            IonResult::decoding_error(format!("expected a macro invocation, found {:?}", self))
+            IonResult::decoding_error(format!("expected a macro invocation, found {self:?}"))
         }
     }
 }

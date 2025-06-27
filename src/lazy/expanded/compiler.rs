@@ -362,8 +362,7 @@ impl TemplateCompiler {
             Some(Err(e)) => return Err(e),
             Some(Ok(annotation)) => {
                 return IonResult::decoding_error(format!(
-                    "found unexpected third annotation ('{:?}') on parameter",
-                    annotation
+                    "found unexpected third annotation ('{annotation:?}') on parameter",
                 ))
             }
         };

@@ -125,10 +125,9 @@ mod tests {
         let actual_range = value.data_range();
         assert_eq!(
             actual_range, expected,
-            "Struct range ({:?}) did not match expected range ({:?})",
-            actual_range, expected
+            "Struct range ({actual_range:?}) did not match expected range ({expected:?})",
         );
-        println!("input ok: {}", ion_data);
+        println!("input ok: {ion_data}");
         Ok(())
     }
 

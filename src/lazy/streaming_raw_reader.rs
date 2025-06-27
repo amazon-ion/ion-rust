@@ -797,7 +797,7 @@ mod tests {
         let result = reader.next(context);
         // Because the input stream is exhausted, the incomplete value is illegal data and raises
         // a decoding error.
-        assert!(matches!(result, Err(IonError::Decoding(_))), "{:?}", result);
+        assert!(matches!(result, Err(IonError::Decoding(_))), "{result:?}");
         Ok(())
     }
 

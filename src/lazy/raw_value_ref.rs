@@ -57,19 +57,19 @@ impl<D: Decoder> PartialEq for RawValueRef<'_, D> {
 impl<D: Decoder> Debug for RawValueRef<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RawValueRef::Null(ion_type) => write!(f, "null.{}", ion_type),
-            RawValueRef::Bool(b) => write!(f, "{}", b),
-            RawValueRef::Int(i) => write!(f, "{}", i),
-            RawValueRef::Float(float) => write!(f, "{}", float),
-            RawValueRef::Decimal(d) => write!(f, "{}", d),
-            RawValueRef::Timestamp(t) => write!(f, "{}", t),
-            RawValueRef::String(s) => write!(f, "{}", s),
-            RawValueRef::Symbol(s) => write!(f, "{:?}", s),
+            RawValueRef::Null(ion_type) => write!(f, "null.{ion_type}"),
+            RawValueRef::Bool(b) => write!(f, "{b}"),
+            RawValueRef::Int(i) => write!(f, "{i}"),
+            RawValueRef::Float(float) => write!(f, "{float}"),
+            RawValueRef::Decimal(d) => write!(f, "{d}"),
+            RawValueRef::Timestamp(t) => write!(f, "{t}"),
+            RawValueRef::String(s) => write!(f, "{s}"),
+            RawValueRef::Symbol(s) => write!(f, "{s:?}"),
             RawValueRef::Blob(b) => write!(f, "blob ({} bytes)", b.len()),
             RawValueRef::Clob(c) => write!(f, "clob ({} bytes)", c.len()),
-            RawValueRef::SExp(s) => write!(f, "sexp={:?}", s),
-            RawValueRef::List(l) => write!(f, "{:?}", l),
-            RawValueRef::Struct(s) => write!(f, "{:?}", s),
+            RawValueRef::SExp(s) => write!(f, "sexp={s:?}"),
+            RawValueRef::List(l) => write!(f, "{l:?}"),
+            RawValueRef::Struct(s) => write!(f, "{s:?}"),
         }
     }
 }
@@ -128,7 +128,7 @@ impl<'top, D: Decoder> RawValueRef<'top, D> {
         if let RawValueRef::Int(i) = self {
             i.expect_i64()
         } else {
-            IonResult::decoding_error(format!("expected an i64 (int), found: {:?}", self))
+            IonResult::decoding_error(format!("expected an i64 (int), found: {self:?}"))
         }
     }
 
@@ -208,7 +208,7 @@ impl<'top, D: Decoder> RawValueRef<'top, D> {
         if let RawValueRef::Struct(s) = self {
             Ok(s)
         } else {
-            IonResult::decoding_error(format!("expected a struct, found: {:?}", self))
+            IonResult::decoding_error(format!("expected a struct, found: {self:?}"))
         }
     }
 }

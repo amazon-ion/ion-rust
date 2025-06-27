@@ -77,7 +77,7 @@ impl Debug for LazyRawBinaryStruct_1_1<'_> {
         for field in self {
             let (name, lazy_value) = field?.expect_name_value()?;
             let value = lazy_value.read()?;
-            write!(f, "{:?}:{:?},", name, value)?;
+            write!(f, "{name:?}:{value:?},")?;
         }
         write!(f, "}}")?;
         Ok(())

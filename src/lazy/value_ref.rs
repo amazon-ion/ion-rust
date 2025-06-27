@@ -64,19 +64,19 @@ impl<D: Decoder> Debug for ValueRef<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ValueRef::*;
         match self {
-            Null(ion_type) => write!(f, "null.{}", ion_type),
-            Bool(b) => write!(f, "{}", b),
-            Int(i) => write!(f, "{}", i),
-            Float(float) => write!(f, "{}", float),
-            Decimal(d) => write!(f, "{}", d),
-            Timestamp(t) => write!(f, "{}", t),
-            String(s) => write!(f, "{}", s),
+            Null(ion_type) => write!(f, "null.{ion_type}"),
+            Bool(b) => write!(f, "{b}"),
+            Int(i) => write!(f, "{i}"),
+            Float(float) => write!(f, "{float}"),
+            Decimal(d) => write!(f, "{d}"),
+            Timestamp(t) => write!(f, "{t}"),
+            String(s) => write!(f, "{s}"),
             Symbol(s) => write!(f, "{}", s.text().unwrap_or("$0")),
             Blob(b) => write!(f, "blob ({} bytes)", b.len()),
             Clob(c) => write!(f, "clob ({} bytes)", c.len()),
-            SExp(s) => write!(f, "sexp={:?}", s),
-            List(l) => write!(f, "{:?}", l),
-            Struct(s) => write!(f, "{:?}", s),
+            SExp(s) => write!(f, "sexp={s:?}"),
+            List(l) => write!(f, "{l:?}"),
+            Struct(s) => write!(f, "{s:?}"),
         }
     }
 }
@@ -183,7 +183,7 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         if let ValueRef::Symbol(s) = self {
             Ok(s)
         } else {
-            IonResult::decoding_error(format!("expected a symbol, found {:?}", self))
+            IonResult::decoding_error(format!("expected a symbol, found {self:?}"))
         }
     }
 

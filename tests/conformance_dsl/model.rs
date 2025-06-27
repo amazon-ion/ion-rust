@@ -34,9 +34,9 @@ impl SymbolToken {
 impl std::fmt::Display for SymbolToken {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            SymbolToken::Text(txt) => write!(f, "{}", txt),
-            SymbolToken::Address(id) => write!(f, "#${}", id),
-            SymbolToken::Absent(txt, id) => write!(f, "#${}#{}", txt, id),
+            SymbolToken::Text(txt) => write!(f, "{txt}"),
+            SymbolToken::Address(id) => write!(f, "#${id}"),
+            SymbolToken::Absent(txt, id) => write!(f, "#${txt}#{id}"),
         }
     }
 }

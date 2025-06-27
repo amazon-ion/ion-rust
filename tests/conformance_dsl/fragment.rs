@@ -88,7 +88,7 @@ impl Fragment {
                     writer.flush()?;
                     let _ = writer
                         .output_mut()
-                        .write(format!("$ion_{}_{} ", maj, min).as_bytes())?;
+                        .write(format!("$ion_{maj}_{min} ").as_bytes())?;
                     Ok(())
                 }
             },
