@@ -245,7 +245,7 @@ impl MatchedFloat {
         let text = sanitized.as_utf8(matched_input.offset())?;
         let float = f64::from_str(text).map_err(|e| {
             matched_input
-                .invalid(format!("encountered an unexpected error ({:?})", e))
+                .invalid(format!("encountered an unexpected error ({e:?})"))
                 .context("reading a float")
         })?;
         Ok(float)
@@ -640,7 +640,7 @@ fn decode_escape_into_bytes<'data>(
         }
         _ => {
             return Err(IonError::Decoding(
-                DecodingError::new(format!("invalid escape sequence '\\{}", escape_id))
+                DecodingError::new(format!("invalid escape sequence '\\{escape_id}"))
                     .with_position(input.offset()),
             ))
         }
@@ -688,8 +688,7 @@ fn decode_hex_digits_escape<'data>(
     if !all_are_hex_digits {
         return Err(IonError::Decoding(
             DecodingError::new(format!(
-                "found a {}-hex-digit escape sequence that contained an invalid hex digit",
-                num_digits,
+                "found a {num_digits}-hex-digit escape sequence that contained an invalid hex digit",
             ))
             .with_position(input.offset()),
         ));
@@ -1234,8 +1233,7 @@ mod tests {
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
                 actual, expected,
-                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
-                data, actual, expected
+                "Actual didn't match expected for input '{data}'.\n{actual:?}\n!=\n{expected:?}",
             );
         }
 
@@ -1270,8 +1268,7 @@ mod tests {
             let actual = matched.read(buffer).unwrap();
             assert_eq!(
                 actual, expected,
-                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
-                data, actual, expected
+                "Actual didn't match expected for input '{data}'.\n{actual:?}\n!=\n{expected:?}",
             );
         }
 
@@ -1372,34 +1369,27 @@ mod tests {
             let result = peek(TextBuffer::match_decimal).parse_next(&mut buffer);
             assert!(
                 result.is_ok(),
-                "Unexpected match error for input: '{data}': {:?}",
-                result
+                "Unexpected match error for input: '{data}': {result:?}",
             );
             let result = result.unwrap().read(buffer);
             assert!(
                 result.is_ok(),
-                "Unexpected read error for input '{data}': {:?}",
-                result
+                "Unexpected read error for input '{data}': {result:?}",
             );
             let actual = result.unwrap();
             assert_eq!(
                 actual, expected,
-                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
-                data, actual, expected
+                "Actual didn't match expected for input '{data}'.\n{actual:?}\n!=\n{expected:?}",
             );
             assert_eq!(
                 actual.coefficient(),
                 expected.coefficient(),
-                "Actual coefficient didn't match expected coefficient for input '{}' .\n{:?}\n!=\n{:?}",
-                data, actual, expected
+                "Actual coefficient didn't match expected coefficient for input '{data}' .\n{actual:?}\n!=\n{expected:?}",
             );
             assert_eq!(
                 actual.exponent(),
                 expected.exponent(),
-                "Actual exponent didn't match expected exponent for input '{}' .\n{:?}\n!=\n{:?}",
-                data,
-                actual,
-                expected
+                "Actual exponent didn't match expected exponent for input '{data}' .\n{actual:?}\n!=\n{expected:?}",
             );
         }
 
@@ -1457,10 +1447,7 @@ mod tests {
             assert_eq!(
                 actual,
                 expected.as_ref(),
-                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
-                data,
-                actual,
-                expected
+                "Actual didn't match expected for input '{data}'.\n{actual:?}\n!=\n{expected:?}",
             );
         }
 
@@ -1496,8 +1483,7 @@ mod tests {
             let actual = matched.read(context.allocator(), buffer).unwrap();
             assert_eq!(
                 actual, expected,
-                "Actual didn't match expected for input '{}'.\n{:?}\n!=\n{:?}",
-                data, actual, expected
+                "Actual didn't match expected for input '{data}'.\n{actual:?}\n!=\n{expected:?}",
             );
         }
 
@@ -1551,8 +1537,7 @@ mod tests {
             let result = read_clob(context, data);
             assert!(
                 result.is_ok(),
-                "Unexpected read failure for input '{data}': {:?}",
-                result
+                "Unexpected read failure for input '{data}': {result:?}",
             );
             let actual = result.unwrap();
             assert_eq!(

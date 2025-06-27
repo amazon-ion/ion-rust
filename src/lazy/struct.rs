@@ -168,7 +168,7 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
     /// ```
     pub fn find_expected(&self, name: &str) -> IonResult<LazyValue<'top, D>> {
         self.find(name)?
-            .ok_or_else(|| IonError::decoding_error(format!("missing required field {}", name)))
+            .ok_or_else(|| IonError::decoding_error(format!("missing required field {name}")))
     }
 
     /// Like [`LazyStruct::find`], but eagerly calls [`LazyValue::read`] on the first field with a
@@ -222,7 +222,7 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
     /// ```
     pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, D>> {
         self.get(name)?.ok_or_else(move || {
-            IonError::decoding_error(format!("missing required field {}", name))
+            IonError::decoding_error(format!("missing required field {name}"))
         })
     }
 
