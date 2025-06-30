@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::writer::Writer;
-use crate::lazy::encoder::LazyRawWriter;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, OutputFromBytes, TextEncoding_1_0,
     TextEncoding_1_1,
@@ -51,11 +50,6 @@ impl<E: Encoding> WriteConfig<E> {
         let mut writer = Writer::new(self.clone(), output)?;
         writer.write_all(values)?;
         writer.close()
-    }
-
-    #[cfg(feature = "experimental-tooling-apis")]
-    pub fn build_raw_writer<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
-        E::Writer::build(self, output)
     }
 }
 
