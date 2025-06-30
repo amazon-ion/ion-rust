@@ -138,7 +138,7 @@ mod tests {
                 lazy_value.is_null()
             );
             let value_ref = lazy_value.read().expect("reading failed");
-            assert_eq!(value_ref, expected, "{:?} != {:?}", value_ref, expected);
+            assert_eq!(value_ref, expected, "{value_ref:?} != {expected:?}");
         }
     }
 

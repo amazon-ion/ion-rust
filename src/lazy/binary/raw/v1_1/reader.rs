@@ -1003,7 +1003,7 @@ mod tests {
                         assert_eq!(name.read()?, *expected_name);
                         assert_eq!(value.ion_type(), *expected_value_type);
                     }
-                    other => panic!("unexpected value for field: {:?}", other),
+                    other => panic!("unexpected value for field: {other:?}"),
                 }
             }
         }

@@ -278,7 +278,7 @@ mod tests {
         };
 
         let result = to_pretty(&test).expect("failed to serialize");
-        println!("result: {}", result);
+        println!("result: {result}");
         let back_result: Test = from_ion(result.as_str()).expect("failed to deserialize");
 
         assert_eq!(back_result.int, 1);
