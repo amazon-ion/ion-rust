@@ -627,7 +627,7 @@ impl<'top> TextBuffer<'top> {
             MacroIdRef::LocalName(name) => {
                 let Some(macro_address) = ION_1_1_SYSTEM_MACROS.address_for_name(name) else {
                     return self
-                        .invalid(format!("found unrecognized system macro name: '{}'", name))
+                        .invalid(format!("found unrecognized system macro name: '{name}'"))
                         .context("reading an e-expression's macro ID as a local name")
                         .cut();
                 };
@@ -638,8 +638,7 @@ impl<'top> TextBuffer<'top> {
                 let Some(system_address) = SystemMacroAddress::new(address) else {
                     return self
                         .invalid(format!(
-                            "found out-of-bounds system macro address {}",
-                            address
+                            "found out-of-bounds system macro address {address}",
                         ))
                         .context("reading an e-expression's macro ID as a system address")
                         .cut();
@@ -676,7 +675,7 @@ impl<'top> TextBuffer<'top> {
 
             let macro_ref = id.resolve(input.context().macro_table()).map_err(|_| {
                 (*input)
-                    .invalid(format!("could not find macro with id {:?}", id))
+                    .invalid(format!("could not find macro with id {id:?}"))
                     .context("reading an e-expression")
                     .cut_err()
             })?;
@@ -1905,7 +1904,7 @@ impl<'top> TextBuffer<'top> {
     fn validate_clob_text(&self) -> IonParseResult<'top, ()> {
         for byte in self.bytes().iter().copied() {
             if !Self::byte_is_legal_clob_ascii(byte) {
-                let message = format!("found an illegal byte '{:0x}' in clob", byte);
+                let message = format!("found an illegal byte '{byte:0x}' in clob");
                 return self.invalid(message).context("reading a clob").cut();
             }
         }

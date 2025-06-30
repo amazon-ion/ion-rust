@@ -32,7 +32,7 @@ impl<D: Decoder> Debug for Environment<'_, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Environment::[")?;
         for expr in self.expressions {
-            writeln!(f, "{:?}", expr)?;
+            writeln!(f, "{expr:?}")?;
         }
         write!(f, "]")
     }

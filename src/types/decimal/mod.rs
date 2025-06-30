@@ -485,7 +485,7 @@ impl Display for Decimal {
                 write!(f, "{}.{}", &digits[0..dot_index], &digits[dot_index..len])
             } else if dot_index > -(WIDE_NUMBER as i64) { // e.g. 0.ABC or 0.000ABC
                 let width = dot_index.unsigned_abs() as usize + len;
-                write!(f, "0.{digits:0>width$}", width = width, digits = digits)
+                write!(f, "0.{digits:0>width$}")
             } else { // e.g. A.BCd-12
                 write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
             }

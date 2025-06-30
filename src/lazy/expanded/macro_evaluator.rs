@@ -199,10 +199,10 @@ pub enum MacroExprKind<'top, D: Decoder> {
 impl<D: Decoder> Debug for MacroExprKind<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            MacroExprKind::TemplateMacro(t) => write!(f, "{:?}", t),
-            MacroExprKind::TemplateArgGroup(g) => write!(f, "{:?}", g),
-            MacroExprKind::EExp(e) => write!(f, "{:?}", e),
-            MacroExprKind::EExpArgGroup(g) => write!(f, "{:?}", g),
+            MacroExprKind::TemplateMacro(t) => write!(f, "{t:?}"),
+            MacroExprKind::TemplateArgGroup(g) => write!(f, "{g:?}"),
+            MacroExprKind::EExp(e) => write!(f, "{e:?}"),
+            MacroExprKind::EExpArgGroup(g) => write!(f, "{g:?}"),
         }
     }
 }
@@ -376,8 +376,8 @@ pub enum ValueExpr<'top, D: Decoder> {
 impl<D: Decoder> Debug for ValueExpr<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValueExpr::ValueLiteral(v) => write!(f, "value={:?}", v),
-            ValueExpr::MacroInvocation(i) => write!(f, "invocation={:?}", i),
+            ValueExpr::ValueLiteral(v) => write!(f, "value={v:?}"),
+            ValueExpr::MacroInvocation(i) => write!(f, "invocation={i:?}"),
         }
     }
 }
@@ -616,7 +616,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::Conditional(test) => test.name(),
             MacroExpansionKind::Template(t) => {
                 return if let Some(name) = t.template.name() {
-                    write!(f, "<expansion of template '{}'>", name)
+                    write!(f, "<expansion of template '{name}'>")
                 } else {
                     write!(f, "<expansion of anonymous template>")
                 }
@@ -1744,8 +1744,7 @@ mod tests {
         let expected = expected_reader.read_all_elements()?;
         assert_eq!(
             actual, &expected,
-            "actual\n{:?}\nwas not equal to expected\n{:?}\n",
-            actual, expected
+            "actual\n{actual:?}\nwas not equal to expected\n{expected:?}\n",
         );
         Ok(())
     }
