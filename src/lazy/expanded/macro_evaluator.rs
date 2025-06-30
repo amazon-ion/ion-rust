@@ -1167,6 +1167,40 @@ impl<'top, D: Decoder> ConditionalExpansion<'top, D> {
 }
 
 // ===== Implementation of the `make_decimal` macro ===
+
+// A simple wrapper for make_decimal's known arguments. Provides context for error reporting, and
+// functionality to expand e-exp and validate integer types.
+struct MakeDecimalArgument<'top, D: Decoder>(&'static str, ValueExpr<'top, D>);
+impl<'top, D: Decoder> MakeDecimalArgument<'top, D> {
+    /// Given a [`ValueExpr`], this function will expand it into its underlying value; An
+    /// error is return if the value does not expand to exactly one Int.
+    fn get_integer(&self, env: Environment<'top, D>) -> IonResult<Int> {
+        let parameter = self.0;
+        match self.1 {
+            ValueExpr::ValueLiteral(value_literal) => {
+                value_literal
+                    .read_resolved()?
+                    .expect_int()
+            }
+            ValueExpr::MacroInvocation(invocation) => {
+                let mut evaluator = MacroEvaluator::new_with_environment(env);
+                evaluator.push(invocation.expand()?);
+                let int_arg = match evaluator.next()? {
+                    None => IonResult::decoding_error(format!("`make_decimal` requires an integer {parameter} but the provided argument contained no value.")),
+                    Some(value) => value
+                        .read_resolved()?
+                        .expect_int(),
+                };
+
+                if !evaluator.is_empty() && evaluator.next()?.is_some() {
+                    return IonResult::decoding_error(format!("`make_decimal` requires an integer {parameter} but the provided argument contained multiple values."));
+                }
+                int_arg
+            }
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct MakeDecimalExpansion<'top, D: Decoder> {
     arguments: MacroExprArgsIterator<'top, D>,
@@ -1177,33 +1211,6 @@ impl<'top, D: Decoder> MakeDecimalExpansion<'top, D> {
         Self { arguments }
     }
 
-    /// Given a [`ValueExpr`], this function will expand it into its underlying value; An
-    /// error is return if the value does not expand to exactly one Int.
-    fn get_integer(&self, env: Environment<'top, D>, value: ValueExpr<'top, D>) -> IonResult<Int> {
-        match value {
-            ValueExpr::ValueLiteral(value_literal) => {
-                value_literal
-                    .read_resolved()?
-                    .expect_int()
-            }
-            ValueExpr::MacroInvocation(invocation) => {
-                let mut evaluator = MacroEvaluator::new_with_environment(env);
-                evaluator.push(invocation.expand()?);
-                let int_arg = match evaluator.next()? {
-                    None => IonResult::decoding_error("`make_decimal` takes two integers as arguments; empty value found"),
-                    Some(value) => value
-                        .read_resolved()?
-                        .expect_int(),
-                };
-
-                if !evaluator.is_empty() && evaluator.next()?.is_some() {
-                    return IonResult::decoding_error("`make_decimal` takes two integers as arguments; multiple values found as argument");
-                }
-                int_arg
-            }
-        }
-    }
-
     pub fn next(
         &mut self,
         context: EncodingContextRef<'top>,
@@ -1211,13 +1218,13 @@ impl<'top, D: Decoder> MakeDecimalExpansion<'top, D> {
     ) -> IonResult<MacroExpansionStep<'top, D>> {
         // Arguments should be: (coefficient exponent)
         //   Both coefficient and exponent should evaluate to a single integer value.
-        let coeff_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments"))?;
-        let coefficient = self.get_integer(environment, coeff_expr?)?;
+        let coeff_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments; found 0 arguments"))?;
+        let coefficient = MakeDecimalArgument("coefficient", coeff_expr?).get_integer(environment)?;
 
-        let expo_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments; missing second argument"))?;
-        let exponent = self.get_integer(environment, expo_expr?)?;
+        let expo_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments; found only 1 argument"))?;
+        let exponent = MakeDecimalArgument("exponent", expo_expr?).get_integer(environment)?;
 
-        let decimal = Decimal::new(coefficient, exponent.as_i64().ok_or_else(|| IonError::decoding_error("Unable to convert coefficient Int to i64"))?);
+        let decimal = Decimal::new(coefficient, exponent.as_i64().ok_or_else(|| IonError::decoding_error("Exponent does not fit within the range supported by this implementation."))?);
 
         let value_ref = context
             .allocator()
@@ -3207,16 +3214,16 @@ mod tests {
         stream_eq(
         r#"
         (:make_decimal 1 1)
-        (:make_decimal -1 1)
-        (:make_decimal (:values 1) 1)
-        (:make_decimal (:values 1) (:values 1))
+        (:make_decimal -2 2)
+        (:make_decimal (:values 3) 3)
+        (:make_decimal (:values 4) (:values 4))
         (:make_decimal 199 -2)
         "#,
         r#"
         1d1
-        -1d1
-        1d1
-        1d1
+        -2d2
+        3d3
+        4d4
         1.99
         "#,
         )
