@@ -235,7 +235,7 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     }
 
     fn serialize_newtype_variant<T>(
-        self,
+        mut self,
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
@@ -244,13 +244,8 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     where
         T: ?Sized + Serialize,
     {
-        let mut annotations = self.annotations.clone();
-        annotations.push(variant);
-        value.serialize(ValueSerializer::new_with_annotations(
-            self.value_writer,
-            self.is_human_readable,
-            annotations,
-        ))
+        self.annotations.push(variant);
+        value.serialize(self)
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
