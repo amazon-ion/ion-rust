@@ -211,6 +211,70 @@ mod tests {
     use chrono::{DateTime, FixedOffset, Utc};
     use serde::{Deserialize, Serialize};
     use serde_with::serde_as;
+    use rstest::*;
+
+    #[rstest]
+    #[case::i8(to_binary(&-1_i8).unwrap(),     &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::i16(to_binary(&-1_i16).unwrap(),   &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::i32(to_binary(&-1_i32).unwrap(),   &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::i64(to_binary(&-1_i64).unwrap(),   &[0xE0, 0x01, 0x00, 0xEA, 0x31, 0x01])]
+    #[case::u8(to_binary(&1_u8).unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::u16(to_binary(&1_u16).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::u32(to_binary(&1_u32).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::u64(to_binary(&1_u64).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::f32(to_binary(&1_f32).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x44, 0x3f, 0x80, 0x00, 0x00])]
+    #[case::f64(to_binary(&1_f64).unwrap(),    &[0xE0, 0x01, 0x00, 0xEA, 0x44, 0x3f, 0x80, 0x00, 0x00])]
+    #[case::char(to_binary(&'a').unwrap(),     &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
+    #[case::str(to_binary(&"a").unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x81, 0x61])]
+    #[case::some(to_binary(&Some(1)).unwrap(), &[0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01])]
+    #[case::unit(to_binary(&()).unwrap(),      &[0xE0, 0x01, 0x00, 0xEA, 0x0F])]
+    fn test_primitives_binary(#[case] ion_data: Vec<u8>, #[case] expected: &[u8]) {
+        assert_eq!(&ion_data[..], expected);
+    }
+
+    #[rstest]
+    #[case::i8(to_string(&-1_i8).unwrap(),     "-1")]
+    #[case::i16(to_string(&-1_i16).unwrap(),   "-1")]
+    #[case::i32(to_string(&-1_i32).unwrap(),   "-1")]
+    #[case::i64(to_string(&-1_i64).unwrap(),   "-1")]
+    #[case::u8(to_string(&1_u8).unwrap(),      "1")]
+    #[case::u16(to_string(&1_u16).unwrap(),    "1")]
+    #[case::u32(to_string(&1_u32).unwrap(),    "1")]
+    #[case::u64(to_string(&1_u64).unwrap(),    "1")]
+    #[case::char(to_string(&'a').unwrap(),     "\"a\"")]
+    #[case::str(to_string(&"a").unwrap(),      "\"a\"")]
+    #[case::some(to_string(&Some(1)).unwrap(), "1" )]
+    #[case::unit(to_string(&()).unwrap(),      "null")]
+    fn test_primitives_text(#[case] ion_data: String, #[case] expected: &str) {
+        assert_eq!(ion_data.trim(), expected);
+    }
+
+    #[test]
+    fn test_blob() {
+        #[derive(Serialize, Deserialize)]
+        struct Test {
+            #[serde(with = "serde_bytes")]
+            binary: Vec<u8>,
+        }
+        let expected = &[
+            0xE0, 0x01, 0x00, 0xEA,                               // IVM
+            0xEE, 0x8F, 0x81, 0x83, 0xDC,                         // $ion_symbol_table:: {
+            0x86, 0x71, 0x03,                                     //   imports: $ion_symbol_table,
+            0x87, 0xB7, 0x86, 0x62, 0x69, 0x6E, 0x61, 0x72, 0x79, // symbols: ["binary"] ]}
+            0xD7, 0x8A, 0xA5, 0x68, 0x65, 0x6C, 0x6C, 0x6F,       // {binary: {{ aGVsbG8= }}
+        ];
+
+        let test = Test { binary: b"hello".to_vec() }; // aGVsbG8=
+        let ion_data = to_binary(&test).unwrap();
+        assert_eq!(&ion_data[..], expected);
+        let de: Test = from_ion(ion_data).expect("unable to parse test");
+        assert_eq!(de.binary, test.binary);
+
+        let ion_data_str = to_string(&test).unwrap();
+        assert_eq!(ion_data_str.trim(), "{binary: {{aGVsbG8=}}, }");
+        let de: Test = from_ion(ion_data_str).expect("unable to parse test");
+        assert_eq!(de.binary, test.binary);
+    }
 
     #[test]
     fn test_struct() {
@@ -219,6 +283,7 @@ mod tests {
         struct Test {
             int: u32,
             float: f64,
+            #[serde(with = "serde_bytes")]
             binary: Vec<u8>,
             seq: Vec<String>,
             decimal: Decimal,
@@ -344,6 +409,36 @@ mod tests {
     }
 
     #[test]
+    fn test_nested_newtype_variant() {
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        enum Outter {
+            First(Inner),
+        }
+
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        enum Inner {
+            Second(u32),
+        }
+
+        let expected_binary = [
+            0xE0, 0x01, 0x00, 0xEA,                          // IVM
+            0xEE, 0x96, 0x81, 0x83,                          // $ion_symbol_table::
+            0xDE, 0x92, 0x86, 0x71, 0x03,                    // { imports: $ion_symbol_table,
+            0x87, 0xBD, 0x85, 0x46, 0x69, 0x72, 0x73, 0x74,  //   symbols: ["First",
+            0x86, 0x53, 0x65, 0x63, 0x6F, 0x6E, 0x64,        //             "Second"]}
+            0xE5, 0x82, 0x8A, 0x8B, 0x21, 0x03,              // First::Second::3
+
+        ];
+
+        let i = r#"First::Second::3"#;
+        let expected = Outter::First(Inner::Second(3));
+        assert_eq!(expected, from_ion(i).unwrap());
+
+        let b = to_binary(&expected).unwrap();
+        assert_eq!(expected_binary, &b[..]);
+    }
+
+    #[test]
     fn test_symbol() {
         let i = r#"inches"#;
         let expected = String::from("inches");
@@ -369,8 +464,8 @@ mod tests {
         ];
         let expected_s = "\"127.0.0.1\" ";
         let binary = to_binary(&ip).unwrap();
-        assert_eq!(&binary[..], &expected_binary[..]);
         let s = to_string(&ip).unwrap();
+        assert_eq!(&binary[..], &expected_binary[..]);
         assert_eq!(s, expected_s);
         assert_eq!(&from_ion::<IpAddr, _>(s).unwrap(), &ip);
         assert_eq!(&from_ion::<IpAddr, _>(binary).unwrap(), &ip);
