@@ -81,13 +81,6 @@ impl<V: ValueWriter> ValueSerializer<'_, V> {
             lifetime: PhantomData,
         }
     }
-
-    pub fn new_with_annotations(value_writer: V, is_human_readable: bool, annotations: Vec<&'static str>) -> Self {
-        Self {
-            annotations,
-            ..Self::new(value_writer, is_human_readable)
-        }
-    }
 }
 
 impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
@@ -268,14 +261,13 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         name: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        let mut annotations = self.annotations.clone();
+        let ValueSerializer { value_writer, is_human_readable, mut annotations, .. } = self;
         annotations.push(name);
         Ok(SeqWriter {
-            seq_writer: self
-                .value_writer
+            seq_writer: value_writer
                 .with_annotations(annotations)?
                 .list_writer()?,
-            is_human_readable: self.is_human_readable,
+            is_human_readable,
         })
     }
 
@@ -286,14 +278,13 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        let mut annotations = self.annotations.clone();
+        let ValueSerializer { value_writer, is_human_readable, mut annotations, .. } = self;
         annotations.push(variant);
         Ok(SeqWriter {
-            seq_writer: self
-                .value_writer
+            seq_writer: value_writer
                 .with_annotations(annotations)?
                 .list_writer()?,
-            is_human_readable: self.is_human_readable,
+            is_human_readable,
         })
     }
 
@@ -322,14 +313,13 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        let mut annotations = self.annotations.clone();
+        let ValueSerializer { value_writer, is_human_readable, mut annotations, .. } = self;
         annotations.push(variant);
         Ok(MapWriter {
-            map_writer: self
-                .value_writer
+            map_writer: value_writer
                 .with_annotations(annotations)?
                 .struct_writer()?,
-            is_human_readable: self.is_human_readable,
+            is_human_readable,
         })
     }
 }
