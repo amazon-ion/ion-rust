@@ -11,7 +11,7 @@ use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
     StreamIsPartial,
 };
-use winnow::token::{one_of, rest, take_till, take_until, take_while};
+use winnow::token::{one_of, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
 use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
@@ -627,7 +627,7 @@ impl<'top> TextBuffer<'top> {
             MacroIdRef::LocalName(name) => {
                 let Some(macro_address) = ION_1_1_SYSTEM_MACROS.address_for_name(name) else {
                     return self
-                        .invalid(format!("found unrecognized system macro name: '{}'", name))
+                        .invalid(format!("found unrecognized system macro name: '{name}'"))
                         .context("reading an e-expression's macro ID as a local name")
                         .cut();
                 };
@@ -638,8 +638,7 @@ impl<'top> TextBuffer<'top> {
                 let Some(system_address) = SystemMacroAddress::new(address) else {
                     return self
                         .invalid(format!(
-                            "found out-of-bounds system macro address {}",
-                            address
+                            "found out-of-bounds system macro address {address}",
                         ))
                         .context("reading an e-expression's macro ID as a system address")
                         .cut();
@@ -676,7 +675,7 @@ impl<'top> TextBuffer<'top> {
 
             let macro_ref = id.resolve(input.context().macro_table()).map_err(|_| {
                 (*input)
-                    .invalid(format!("could not find macro with id {:?}", id))
+                    .invalid(format!("could not find macro with id {id:?}"))
                     .context("reading an e-expression")
                     .cut_err()
             })?;
@@ -1905,7 +1904,7 @@ impl<'top> TextBuffer<'top> {
     fn validate_clob_text(&self) -> IonParseResult<'top, ()> {
         for byte in self.bytes().iter().copied() {
             if !Self::byte_is_legal_clob_ascii(byte) {
-                let message = format!("found an illegal byte '{:0x}' in clob", byte);
+                let message = format!("found an illegal byte '{byte:0x}' in clob");
                 return self.invalid(message).context("reading a clob").cut();
             }
         }
@@ -2098,16 +2097,6 @@ where
     P: Parser<TextBuffer<'data>, Output, IonParseError<'data>>,
 {
     repeat::<_, _, (), _, _>(n, parser).take()
-}
-
-pub fn incomplete_is_ok<'data, P>(
-    parser: P,
-) -> impl Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>
-where
-    P: Parser<TextBuffer<'data>, TextBuffer<'data>, IonParseError<'data>>,
-{
-    // If we run out of input while applying the parser, consider the rest of the input to match.
-    alt((parser.complete_err(), rest))
 }
 
 #[cfg(test)]

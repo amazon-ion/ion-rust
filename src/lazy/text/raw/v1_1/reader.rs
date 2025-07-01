@@ -13,7 +13,7 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::lazy::text::buffer::{incomplete_is_ok, TextBuffer};
+use crate::lazy::text::buffer::TextBuffer;
 use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
@@ -24,7 +24,6 @@ use compact_str::CompactString;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
-use winnow::Parser;
 
 pub struct LazyRawTextReader_1_1<'data> {
     input: TextBuffer<'data>,
@@ -86,8 +85,9 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
             .match_top_level_item_1_1()
             .with_context("reading a v1.1 top-level value", self.input)?;
 
-        let _trailing_ws = incomplete_is_ok(TextBuffer::match_optional_comments_and_whitespace)
-            .parse_next(&mut self.input)
+        let _trailing_ws = self
+            .input
+            .match_optional_comments_and_whitespace()
             .with_context(
                 "reading trailing top-level whitespace/comments in v1.1",
                 self.input,
@@ -328,8 +328,8 @@ impl MacroIdRef<'_> {
 impl Display for MacroIdRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            MacroIdRef::LocalName(name) => write!(f, "{}", name),
-            MacroIdRef::LocalAddress(address) => write!(f, "{}", address),
+            MacroIdRef::LocalName(name) => write!(f, "{name}"),
+            MacroIdRef::LocalAddress(address) => write!(f, "{address}"),
             MacroIdRef::SystemAddress(address) => {
                 write!(f, "$ion::{}", address.as_usize())
             }
@@ -601,7 +601,7 @@ mod tests {
             lazy_value.is_null()
         );
         let value_ref = lazy_value.read().expect("reading failed");
-        assert_eq!(value_ref, expected, "{:?} != {:?}", value_ref, expected);
+        assert_eq!(value_ref, expected, "{value_ref:?} != {expected:?}");
     }
 
     #[test]
