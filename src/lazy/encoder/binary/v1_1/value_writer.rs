@@ -3119,7 +3119,7 @@ mod tests {
                     use std::fmt::Write;
                     let is_eq = before.ion_eq(after);
                     let flag = if is_eq { "" } else { "<- not IonEq" };
-                    writeln!(&mut text, "({}, {}) {}", before, after, flag).unwrap();
+                    writeln!(&mut text, "({before}, {after}) {flag}").unwrap();
                     text
                 }
             )

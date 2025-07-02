@@ -1073,8 +1073,7 @@ mod tests {
             let actual_bytes = raw_value.span().bytes();
             assert_eq!(
                 actual_bytes, *expected_bytes,
-                "actual {:02X?} != expected {:02X?}",
-                actual_bytes, expected_bytes
+                "actual {actual_bytes:02X?} != expected {expected_bytes:02X?}",
             );
             println!(
                 "{:?} {:02X?} == {:02X?}",
@@ -1247,7 +1246,7 @@ mod tests {
         struct_writer.close()?;
         let bytes = writer.close()?;
 
-        println!("encoded bytes: {:02X?}", bytes);
+        println!("encoded bytes: {bytes:02X?}");
 
         let mut reader = SystemReader::new(v1_1::Binary, bytes.as_slice());
         let struct_ = reader.expect_next_value()?.read()?.expect_struct()?;

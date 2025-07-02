@@ -328,8 +328,8 @@ impl MacroIdRef<'_> {
 impl Display for MacroIdRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            MacroIdRef::LocalName(name) => write!(f, "{}", name),
-            MacroIdRef::LocalAddress(address) => write!(f, "{}", address),
+            MacroIdRef::LocalName(name) => write!(f, "{name}"),
+            MacroIdRef::LocalAddress(address) => write!(f, "{address}"),
             MacroIdRef::SystemAddress(address) => {
                 write!(f, "$ion::{}", address.as_usize())
             }
@@ -601,7 +601,7 @@ mod tests {
             lazy_value.is_null()
         );
         let value_ref = lazy_value.read().expect("reading failed");
-        assert_eq!(value_ref, expected, "{:?} != {:?}", value_ref, expected);
+        assert_eq!(value_ref, expected, "{value_ref:?} != {expected:?}");
     }
 
     #[test]

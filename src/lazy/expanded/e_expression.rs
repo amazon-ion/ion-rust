@@ -76,7 +76,7 @@ impl<D: Decoder> Debug for EExpArgGroup<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "(: {:?}", self.raw_arg_group)?;
         for expr in self.expressions() {
-            write!(f, " {:?}", expr)?;
+            write!(f, " {expr:?}")?;
         }
         write!(f, ")")
     }

@@ -678,9 +678,9 @@ mod tests {
                 SystemStreamItem::VersionMarker(marker) => {
                     println!("ivm => v{}.{}", marker.major(), marker.minor())
                 }
-                SystemStreamItem::SymbolTable(ref s) => println!("symtab => {:?}", s),
+                SystemStreamItem::SymbolTable(ref s) => println!("symtab => {s:?}"),
                 SystemStreamItem::EncodingDirective(ref s) => {
-                    println!("encoding directive => {:?}", s)
+                    println!("encoding directive => {s:?}")
                 }
                 SystemStreamItem::Value(ref v) => println!("value => {:?}", v.read()?),
                 SystemStreamItem::EndOfStream(_) => break,

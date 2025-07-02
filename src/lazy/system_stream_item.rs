@@ -57,7 +57,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
     /// is not an IVM.
     pub fn expect_ivm(self) -> IonResult<D::VersionMarker<'top>> {
         self.as_version_marker()
-            .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {:?}", self)))
+            .ok_or_else(|| IonError::decoding_error(format!("expected IVM, found {self:?}")))
     }
 
     /// If this item is a application-level value, returns `Some(&LazyValue)`. Otherwise,
@@ -76,7 +76,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         if let Self::Value(value) = self {
             Ok(value)
         } else {
-            IonResult::decoding_error(format!("expected value, found {:?}", self))
+            IonResult::decoding_error(format!("expected value, found {self:?}"))
         }
     }
 
@@ -95,7 +95,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         if let Self::SymbolTable(value) = self {
             Ok(value)
         } else {
-            IonResult::decoding_error(format!("expected symbol table, found {:?}", self))
+            IonResult::decoding_error(format!("expected symbol table, found {self:?}"))
         }
     }
 
@@ -114,7 +114,7 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         if let Self::EncodingDirective(sexp) = self {
             Ok(sexp)
         } else {
-            IonResult::decoding_error(format!("expected encoding directive, found {:?}", self))
+            IonResult::decoding_error(format!("expected encoding directive, found {self:?}"))
         }
     }
 

@@ -50,8 +50,11 @@ mod ion_tests {
             "ion-tests/conformance/data_model/float.ion",
             "Ion 1.1 binary" // PANIC: not yet implemented: implement half-precision floats
         ),
-        // Issue parsing the comments left in decimal.ion, see ion-rust#972
-        skip!("ion-tests/conformance/data_model/decimal.ion"),
+        skip!(
+            "ion-tests/conformance/data_model/decimal.ion",
+            // Error: Found a 13-byte VarInt. Max supported size is 9 bytes.
+            "the decimal positive zero"
+        ),
         // Mismatched produces due to symbol id transcription.
         skip!("ion-tests/conformance/core/toplevel_produces.ion"),
         // Unrecognized encoding 'int8' (only flex_uint appears to be supported)
@@ -143,7 +146,7 @@ mod ion_tests {
                 .is_some_and(|source| *source == file_name)
         });
         if skip_item.is_some_and(|item| item.tests.is_empty()) {
-            println!("SKIPPING: {}", file_name);
+            println!("SKIPPING: {file_name}");
             return;
         }
 
@@ -155,7 +158,7 @@ mod ion_tests {
             total_tests += 1;
             let name = if let Some(name) = &test.name {
                 if skip_tests.contains(&name.as_str()) {
-                    println!("Skipping: {} => \"{}\"", file_name, name);
+                    println!("Skipping: {file_name} => \"{name}\"");
                     total_skipped += 1;
                     continue;
                 }
@@ -164,13 +167,12 @@ mod ion_tests {
                 ""
             };
 
-            println!("TESTING: {} => {}", file_name, name);
+            println!("TESTING: {file_name} => {name}");
             test.run().expect("test failed");
         }
 
         println!(
-            "SUMMARY: {} : Total Tests {} :  Skipped {}",
-            file_name, total_tests, total_skipped
+            "SUMMARY: {file_name} : Total Tests {total_tests} :  Skipped {total_skipped}",
         );
     }
 }
