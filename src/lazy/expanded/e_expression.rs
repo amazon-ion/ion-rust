@@ -8,7 +8,7 @@ use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::macro_evaluator::{
-    AnnotateExpansion, ConditionalExpansion, EExpressionArgGroup, ExprGroupExpansion,
+    AnnotateExpansion, ConditionalExpansion, DeltaExpansion, EExpressionArgGroup, ExprGroupExpansion,
     FlattenExpansion, IsExhaustedIterator, MacroExpansion, MacroExpansionKind, MacroExpr,
     MacroExprArgsIterator, MakeDecimalExpansion, MakeFieldExpansion, MakeStructExpansion,
     MakeTextExpansion, RawEExpression, RepeatExpansion, SumExpansion, TemplateExpansion,
@@ -156,6 +156,11 @@ impl<'top, D: Decoder> EExpression<'top, D> {
             MacroKind::IfMulti => {
                 MacroExpansionKind::Conditional(ConditionalExpansion::if_multi(arguments))
             }
+            MacroKind::Delta => MacroExpansionKind::Delta(DeltaExpansion::new(
+                self.context(),
+                environment,
+                arguments
+            )),
             MacroKind::Repeat => {
                 MacroExpansionKind::Repeat(RepeatExpansion::new(arguments))
             }
