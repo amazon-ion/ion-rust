@@ -514,6 +514,7 @@ pub enum MacroExpansionKind<'top, D: Decoder> {
     Template(TemplateExpansion<'top>),
     // `if_none`, `if_single`, `if_multi`
     Conditional(ConditionalExpansion<'top, D>),
+    Delta(DeltaExpansion<'top, D>),
     Repeat(RepeatExpansion<'top, D>),
     Sum(SumExpansion<'top, D>),
 }
@@ -591,6 +592,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             Conditional(cardinality_test_expansion) => cardinality_test_expansion.next(environment),
+            Delta(delta_expansion) => delta_expansion.next(context),
             Repeat(repeat_expansion) => repeat_expansion.next(environment),
             Sum(sum_expansion) => sum_expansion.next(context, environment),
             // `none` is trivial and requires no delegation
@@ -611,6 +613,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
             MacroExpansionKind::MakeStruct(_) => "make_struct",
             MacroExpansionKind::Annotate(_) => "annotate",
             MacroExpansionKind::Flatten(_) => "flatten",
+            MacroExpansionKind::Delta(_) => "delta",
             MacroExpansionKind::Repeat(_) => "repeat",
             MacroExpansionKind::Sum(_) => "sum",
             MacroExpansionKind::Conditional(test) => test.name(),
@@ -1589,6 +1592,90 @@ impl<'top, D: Decoder> FlattenExpansion<'top, D> {
             // Set it as our new current sequence. This step also type-checks the value to confirm
             // that it is either a list or an s-expression.
             self.set_current_sequence(next_seq)?;
+        }
+    }
+}
+
+// ===== Implementation of the `delta` macro ====
+#[derive(Debug)]
+pub struct DeltaExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+    evaluator: &'top mut MacroEvaluator<'top, D>,
+    current_base: Option<Int>,
+}
+
+impl<'top, D: Decoder> DeltaExpansion<'top, D> {
+    pub fn new(
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+        arguments: MacroExprArgsIterator<'top, D>,
+    ) -> Self {
+        let allocator = context.allocator();
+        let evaluator = allocator.alloc_with(|| MacroEvaluator::new_with_environment(environment));
+        Self {
+            arguments,
+            evaluator,
+            current_base: None,
+        }
+    }
+
+    /// Returns the next [`Int`] to be used in the delta encoding by querying the macro evaluator
+    /// used for expanding the expression group.
+    fn get_next_delta(&mut self) -> IonResult<Option<Int>> {
+        // First, check if we have anything going on in the evaluator..
+        match self.evaluator.next()? {
+            // If we get a None, then we're done evaluating our expression group.
+            None => Ok(None),
+            // When we do get a value, we just need to expand it and ensure it is an Int
+            Some(value) => {
+                let i = value.read_resolved()?.expect_int()?;
+                Ok(Some(i))
+            }
+        }
+    }
+
+    pub fn next(&mut self, context: EncodingContextRef<'top>) -> IonResult<MacroExpansionStep<'top, D>> {
+        // If we haven't evaluated any of the deltas yet, we need to grab our expression group and
+        // load it into the evaluator.
+        if self.current_base.is_none() {
+            // If we've already done this, but we have no values to populate current_base with,
+            // we'll exhaust the arguments and return FinalStep here.
+            match self.arguments.next() {
+                None => return Ok(MacroExpansionStep::FinalStep(None)),
+                Some(Err(e)) => return Err(e),
+                Some(Ok(expr)) => match expr {
+                    // If we have an exp group, we have to evaluate it in order to get all of our
+                    // arguments.
+                    ValueExpr::MacroInvocation(invocation) => {
+                        self.evaluator.push(invocation.expand()?)
+                    }
+                    // If a single value is provided for the delta parameter, it can be encoded as
+                    // a single non-grouped value.
+                    ValueExpr::ValueLiteral(_) => {
+                        return Ok(MacroExpansionStep::FinalStep(Some(expr)));
+                    }
+                },
+            }
+            self.current_base = Some(Int::new(0));
+        }
+
+        let Some(delta) = self.get_next_delta()? else {
+            return Ok(MacroExpansionStep::FinalStep(None));
+        };
+
+        if let Some(ref mut current_base) = self.current_base {
+            *current_base = *current_base + delta;
+            let value_ref = context
+                .allocator()
+                .alloc_with(|| ValueRef::Int(self.current_base.unwrap()));
+            let lazy_expanded_value =
+                LazyExpandedValue::from_constructed(context, &[], value_ref);
+
+            Ok(MacroExpansionStep::Step(ValueExpr::ValueLiteral(
+                lazy_expanded_value,
+            )))
+        } else {
+            unreachable!()
         }
     }
 }
@@ -3120,6 +3207,51 @@ mod tests {
     }
 
     #[test]
+    fn delta_eexp() -> IonResult<()> {
+        stream_eq(
+            r#"
+           (:delta )
+           (:delta 1)
+           (:delta 0 1 2 3)
+           (:delta (:: 1000 1 2 3 -2))
+           (:delta 0 2 (:values 2 3))
+           (:delta 1 4 (:none))
+           (:delta (:repeat 4 1))
+           (:delta (::))
+           (:delta a::1 b::2)
+        "#,
+            r#"
+
+           1
+           0 1 3 6
+           1000 1001 1003 1006 1004
+           0 2 4 7
+           1 5
+           1 2 3 4
+           
+           1 3
+        "#,
+        )
+    }
+
+    #[test]
+    fn delta_eexp_invalid_args() -> IonResult<()> {
+        let source = "(:delta foo foo)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        let source = "(:delta 1 3 foo)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        Ok(())
+    }
+
+    #[test]
     fn sum_eexp() -> IonResult<()> {
         stream_eq(
             r#"
@@ -3173,7 +3305,6 @@ mod tests {
 
         Ok(())
     }
-
 
     #[test]
     fn combine_make_struct_with_make_field() -> IonResult<()> {
