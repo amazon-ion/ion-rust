@@ -130,7 +130,7 @@ fn test_file(file_name: &str) -> IonHashTestResult<()> {
                 .text()
                 .expect("test name without text");
             if should_ignore(test_case_name) {
-                println!("skipping: {}", test_case_name);
+                println!("skipping: {test_case_name}");
                 continue;
             }
         }
@@ -205,7 +205,7 @@ fn test_case(
     };
 
     if should_ignore(&test_case_name) {
-        println!("skipping: {}", test_case_name);
+        println!("skipping: {test_case_name}");
         return Ok(());
     }
 
@@ -227,8 +227,7 @@ fn test_case(
         Err(IonHashTestError::TestFailed {
             test_case_name,
             message: Some(format!(
-                "expected: {}\nwas: {}",
-                expected_string, actual_string
+                "expected: {expected_string}\nwas: {actual_string}",
             )),
         })
     } else {
@@ -256,7 +255,7 @@ fn expected_hash(struct_: &Struct) -> IonResult<Vec<u8>> {
 
         match method {
             "digest" | "final_digest" => Ok(bytes),
-            _ => panic!("unknown expectation `{}`", method),
+            _ => panic!("unknown expectation `{method}`"),
         }
     } else {
         panic!("expected at least expectation!")

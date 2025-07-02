@@ -37,7 +37,7 @@ mod lazy_reader_example {
         while let Some(lazy_value) = reader.next()? {
             count += count_value_and_children(&lazy_value)?;
         }
-        println!("Read {} values.", count);
+        println!("Read {count} values.");
         Ok(())
     }
 

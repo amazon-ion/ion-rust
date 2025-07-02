@@ -83,8 +83,7 @@ impl TryFrom<Element> for SharedSymbolTable {
             .ok_or_else(|| IonError::decoding_error("missing a 'name' field"))?;
         let name = name_field.as_string().ok_or_else(|| {
             IonError::decoding_error(format!(
-                "expected the 'name' field to be a string, but found a(n) {}",
-                name_field
+                "expected the 'name' field to be a string, but found a(n) {name_field}",
             ))
         })?;
         let mut version = sst_struct

@@ -202,8 +202,7 @@ impl<V: Debug, M: Debug> RawValueExpr<V, M> {
     pub fn expect_macro(self) -> IonResult<M> {
         match self {
             RawValueExpr::ValueLiteral(v) => IonResult::decoding_error(format!(
-                "expected a macro invocation but found a value literal ({:?})",
-                v
+                "expected a macro invocation but found a value literal ({v:?})",
             )),
             RawValueExpr::EExp(m) => Ok(m),
         }
@@ -280,8 +279,7 @@ impl<'top, D: Decoder> LazyRawFieldExpr<'top, D> {
     pub fn expect_name_value(self) -> IonResult<(D::FieldName<'top>, D::Value<'top>)> {
         let LazyRawFieldExpr::NameValue(name, value) = self else {
             return IonResult::decoding_error(format!(
-                "expected a name/value pair but found {:?}",
-                self
+                "expected a name/value pair but found {self:?}",
             ));
         };
         Ok((name, value))
@@ -290,8 +288,7 @@ impl<'top, D: Decoder> LazyRawFieldExpr<'top, D> {
     pub fn expect_name_eexp(self) -> IonResult<(D::FieldName<'top>, D::EExp<'top>)> {
         let LazyRawFieldExpr::NameEExp(name, eexp) = self else {
             return IonResult::decoding_error(format!(
-                "expected a name/e-expression pair but found {:?}",
-                self
+                "expected a name/e-expression pair but found {self:?}",
             ));
         };
         Ok((name, eexp))
@@ -300,8 +297,7 @@ impl<'top, D: Decoder> LazyRawFieldExpr<'top, D> {
     pub fn expect_eexp(self) -> IonResult<D::EExp<'top>> {
         let LazyRawFieldExpr::EExp(eexp) = self else {
             return IonResult::decoding_error(format!(
-                "expected an e-expression but found {:?}",
-                self
+                "expected an e-expression but found {self:?}",
             ));
         };
         Ok(eexp)

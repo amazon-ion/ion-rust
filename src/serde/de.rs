@@ -50,6 +50,9 @@ where
 pub struct ValueDeserializer<'a, 'de> {
     pub(crate) value: &'a LazyValue<'de, AnyEncoding>,
     is_human_readable: bool,
+    variant_nesting_depth: usize,  // Holds the number of nested variants we are for tracking
+                                   // variant names in annotations. 0 indicates we're not in a
+                                   // variant.
 }
 
 impl<'a, 'de> ValueDeserializer<'a, 'de> {
@@ -57,6 +60,7 @@ impl<'a, 'de> ValueDeserializer<'a, 'de> {
         Self {
             value,
             is_human_readable,
+            variant_nesting_depth: 0,
         }
     }
 
@@ -427,9 +431,14 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'_, 'de> {
     where
         V: Visitor<'de>,
     {
+        // Make sure we've started reading an enum.
+        if self.variant_nesting_depth == 0 {
+            return IonResult::decoding_error("unexpected serde state; was not expecting to read an identifier");
+        }
+
         let mut annotations = self.value.annotations();
-        let first_annotation = annotations.next().transpose()?;
-        match first_annotation {
+        let our_annotation = annotations.nth(self.variant_nesting_depth - 1).transpose()?;
+        match our_annotation {
             None => {
                 let symbol = self.value.read()?.expect_symbol()?;
                 let symbol_text = symbol.text().ok_or_else(|| {
@@ -535,6 +544,8 @@ struct VariantAccess<'a, 'de> {
 
 impl<'a, 'de> VariantAccess<'a, 'de> {
     fn new(de: ValueDeserializer<'a, 'de>) -> Self {
+        let de = ValueDeserializer { variant_nesting_depth: de.variant_nesting_depth + 1, ..de };
+
         VariantAccess { de }
     }
 }
