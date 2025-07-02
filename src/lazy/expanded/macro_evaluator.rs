@@ -35,8 +35,9 @@ use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::result::IonFailure;
 use crate::{
-    ExpandedValueRef, ExpandedValueSource, Int, IonError, IonResult, LazyExpandedField,
-    LazyExpandedFieldName, LazyExpandedStruct, LazyStruct, LazyValue, Span, SymbolRef, ValueRef,
+    Decimal, ExpandedValueRef, ExpandedValueSource, Int, IonError, IonResult,
+    LazyExpandedField, LazyExpandedFieldName, LazyExpandedStruct, LazyStruct,
+    LazyValue, Span, SymbolRef, ValueRef
 };
 
 pub trait IsExhaustedIterator<'top, D: Decoder>:
@@ -505,6 +506,7 @@ impl<'top, D: Decoder> ValueExpr<'top, D> {
 pub enum MacroExpansionKind<'top, D: Decoder> {
     None, // `(.none)` returns the empty stream
     ExprGroup(ExprGroupExpansion<'top, D>),
+    MakeDecimal(MakeDecimalExpansion<'top, D>),
     MakeString(MakeTextExpansion<'top, D>),
     MakeSymbol(MakeTextExpansion<'top, D>),
     MakeStruct(MakeStructExpansion<'top, D>),
@@ -586,6 +588,7 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         match &mut self.kind {
             Template(template_expansion) => template_expansion.next(context, environment),
             ExprGroup(expr_group_expansion) => expr_group_expansion.next(context, environment),
+            MakeDecimal(make_decimal_expansion) => make_decimal_expansion.next(context, environment),
             MakeString(expansion) | MakeSymbol(expansion) => expansion.make_text_value(context),
             MakeField(make_field_expansion) => make_field_expansion.next(context, environment),
             MakeStruct(make_struct_expansion) => make_struct_expansion.next(context, environment),
@@ -607,6 +610,7 @@ impl<D: Decoder> Debug for MacroExpansion<'_, D> {
         let name = match &self.kind {
             MacroExpansionKind::None => "none",
             MacroExpansionKind::ExprGroup(_) => "[internal] expr_group",
+            MacroExpansionKind::MakeDecimal(_) => "make_decimal",
             MacroExpansionKind::MakeString(_) => "make_string",
             MacroExpansionKind::MakeSymbol(_) => "make_symbol",
             MacroExpansionKind::MakeField(_) => "make_field",
@@ -1165,6 +1169,77 @@ impl<'top, D: Decoder> ConditionalExpansion<'top, D> {
     }
 }
 
+// ===== Implementation of the `make_decimal` macro ===
+
+// A simple wrapper for make_decimal's known arguments. Provides context for error reporting, and
+// functionality to expand e-exp and validate integer types.
+struct MakeDecimalArgument<'top, D: Decoder>(&'static str, ValueExpr<'top, D>);
+impl<'top, D: Decoder> MakeDecimalArgument<'top, D> {
+    /// Given a [`ValueExpr`], this function will expand it into its underlying value; An
+    /// error is return if the value does not expand to exactly one Int.
+    fn get_integer(&self, env: Environment<'top, D>) -> IonResult<Int> {
+        let parameter = self.0;
+        match self.1 {
+            ValueExpr::ValueLiteral(value_literal) => {
+                value_literal
+                    .read_resolved()?
+                    .expect_int()
+            }
+            ValueExpr::MacroInvocation(invocation) => {
+                let mut evaluator = MacroEvaluator::new_with_environment(env);
+                evaluator.push(invocation.expand()?);
+                let int_arg = match evaluator.next()? {
+                    None => IonResult::decoding_error(format!("`make_decimal` requires an integer {parameter} but the provided argument contained no value.")),
+                    Some(value) => value
+                        .read_resolved()?
+                        .expect_int(),
+                };
+
+                if !evaluator.is_empty() && evaluator.next()?.is_some() {
+                    return IonResult::decoding_error(format!("`make_decimal` requires an integer {parameter} but the provided argument contained multiple values."));
+                }
+                int_arg
+            }
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct MakeDecimalExpansion<'top, D: Decoder> {
+    arguments: MacroExprArgsIterator<'top, D>,
+}
+
+impl<'top, D: Decoder> MakeDecimalExpansion<'top, D> {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self { arguments }
+    }
+
+    pub fn next(
+        &mut self,
+        context: EncodingContextRef<'top>,
+        environment: Environment<'top, D>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
+        // Arguments should be: (coefficient exponent)
+        //   Both coefficient and exponent should evaluate to a single integer value.
+        let coeff_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments; found 0 arguments"))?;
+        let coefficient = MakeDecimalArgument("coefficient", coeff_expr?).get_integer(environment)?;
+
+        let expo_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments; found only 1 argument"))?;
+        let exponent = MakeDecimalArgument("exponent", expo_expr?).get_integer(environment)?;
+
+        let decimal = Decimal::new(coefficient, exponent.as_i64().ok_or_else(|| IonError::decoding_error("Exponent does not fit within the range supported by this implementation."))?);
+
+        let value_ref = context
+            .allocator()
+            .alloc_with(|| ValueRef::Decimal(decimal));
+        let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
+
+        Ok(MacroExpansionStep::FinalStep(Some(
+            ValueExpr::ValueLiteral(lazy_expanded_value)
+        )))
+    }
+}
+
 // ===== Implementation of the `make_field` macro =====
 
 #[derive(Copy, Clone, Debug)]
@@ -1177,7 +1252,7 @@ impl<'top, D: Decoder> MakeFieldExpansion<'top, D> {
         Self { arguments }
     }
 
-    fn next(
+    pub fn next(
         &mut self,
         context: EncodingContextRef<'top>,
         environment: Environment<'top, D>,
@@ -3263,6 +3338,72 @@ mod tests {
             5
             "#,
         )
+    }
+
+    #[test]
+    fn make_decimal_eexp() -> IonResult<()> {
+        stream_eq(
+        r#"
+        (:make_decimal 1 1)
+        (:make_decimal -2 2)
+        (:make_decimal (:values 3) 3)
+        (:make_decimal (:values 4) (:values 4))
+        (:make_decimal 199 -2)
+        "#,
+        r#"
+        1d1
+        -2d2
+        3d3
+        4d4
+        1.99
+        "#,
+        )
+    }
+
+    #[test]
+    fn make_decimal_arg_errors() -> IonResult<()> {
+        // Test non-integer in first parameter
+        let source = "(:make_decimal foo 0)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        // Test non-integer in second parameter
+        let source = "(:make_decimal 0 foo)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        // Test multiple values in first parameter
+        let source = "(:make_decimal (:values 0 1 2) 0)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        // Test multiple values in second parameter
+        let source = "(:make_decimal 0 (:values 0 1 2))";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        // Test empty value in first parameter
+        let source = "(:make_decimal (:none) 0)";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+
+        // Test empty value in second parameter
+        let source = "(:make_decimal 0 (:none))";
+        let mut actual_reader = Reader::new(v1_1::Text, source)?;
+        actual_reader
+            .read_all_elements()
+            .expect_err("Unexpected success");
+        Ok(())
     }
 
     #[test]

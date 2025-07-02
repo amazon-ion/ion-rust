@@ -2,9 +2,10 @@ use crate::lazy::binary::raw::v1_1::binary_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{
-    AnnotateExpansion, ConditionalExpansion, DeltaExpansion, ExprGroupExpansion, FlattenExpansion, MacroEvaluator,
-    MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator, MakeFieldExpansion,
-    MakeStructExpansion, MakeTextExpansion, RepeatExpansion, SumExpansion, TemplateExpansion, ValueExpr,
+    AnnotateExpansion, ConditionalExpansion, DeltaExpansion, ExprGroupExpansion, FlattenExpansion,
+    MakeDecimalExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr,
+    MacroExprArgsIterator, MakeFieldExpansion, MakeStructExpansion, MakeTextExpansion, RepeatExpansion,
+    SumExpansion, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroDef, MacroKind, MacroRef};
 use crate::lazy::expanded::r#struct::FieldExpr;
@@ -1359,6 +1360,9 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
             MacroKind::None => MacroExpansionKind::None,
             MacroKind::ExprGroup => {
                 unreachable!("cannot invoke ExprGroup from a TemplateMacroInvocation")
+            }
+            MacroKind::MakeDecimal => {
+                MacroExpansionKind::MakeDecimal(MakeDecimalExpansion::new(arguments))
             }
             MacroKind::MakeString => {
                 MacroExpansionKind::MakeString(MakeTextExpansion::string_maker(arguments))
