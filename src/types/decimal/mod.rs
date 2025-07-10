@@ -258,6 +258,8 @@ impl Decimal {
         }
     }
 
+    /// Returns the fractional part of `self`. Values with no fractional component will return
+    /// zero.
     pub fn fract(&self) -> Decimal {
         if self.exponent >= 0 {
             Decimal::ZERO
