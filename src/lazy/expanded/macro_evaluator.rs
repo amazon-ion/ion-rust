@@ -1482,14 +1482,17 @@ impl TimestampBuilderWrapper {
                     IonResult::decoding_error("value provided for 'Second' is out of range [0, 59]")?;
                 }
 
-                let whole_seconds= second_dec.trunc();
-                let fractional_seconds= second_dec.fract();
+                let whole_seconds = second_dec.trunc();
+                let fractional_seconds = second_dec.fract();
 
-                let whole_seconds_i64= whole_seconds
+                // The whole value should be between 0 and 60, tested above.
+                let whole_seconds_i64 = whole_seconds
                     .coefficient()
                     .as_int()
                     .and_then(|v| v.as_i64())
                     .unwrap(); // Tested above that the whole decimal is < 60 and > 0.
+                // Correct with the exponent jic the value is normalized to 5x10^1 or something.
+                let whole_seconds_i64 = whole_seconds_i64 * 10i64.pow(whole_seconds.exponent() as u32);
 
                 let builder = builder.clone().with_second(whole_seconds_i64 as u32);
 
@@ -3781,6 +3784,7 @@ mod tests {
             (:make_timestamp 2025 5 2 1 3 10.00)
             (:make_timestamp 2025 5 2 1 3 1.25 8)
             (:make_timestamp 2025 5 2 1 3 (:none) 8)
+            (:make_timestamp 2025 5 2 1 3 5d1)
           "#,
           r#"
             2025T
@@ -3791,6 +3795,7 @@ mod tests {
             2025-05-02T01:03:10.00Z
             2025-05-02T01:03:01.25+00:08
             2025-05-02T01:03+00:08
+            2025-05-02T01:03:50Z
           "#,
         )
     }
