@@ -1189,15 +1189,6 @@ macro_rules! sysmacro_arg_info {
                 }
             }
         }
-
-        impl From<usize> for $name {
-            fn from(value: usize) -> Self {
-                match value {
-                    $($val => $name::$variant,)*
-                    _ => unreachable!(),
-                }
-            }
-        }
     }
 }
 
@@ -2251,6 +2242,7 @@ impl<'top> TemplateExpansion<'top> {
 #[cfg(test)]
 mod tests {
     use crate::{v1_1, ElementReader, Int, IonResult, MacroTable, Reader, Sequence};
+    use rstest::*;
 
     /// Reads `input` and `expected` and asserts that their output is Ion-equivalent.
     fn stream_eq<'data>(input: &'data str, expected: &'data str) -> IonResult<()> {
@@ -3780,76 +3772,51 @@ mod tests {
             (:make_timestamp 2025 5)
             (:make_timestamp 2025 5 2)
             (:make_timestamp 2025 5 2 1 3)
+            (:make_timestamp 2025 5 2 1 3 5)
             (:make_timestamp 2025 5 2 1 3 1.25)
             (:make_timestamp 2025 5 2 1 3 10.00)
             (:make_timestamp 2025 5 2 1 3 1.25 8)
             (:make_timestamp 2025 5 2 1 3 (:none) 8)
             (:make_timestamp 2025 5 2 1 3 5d1)
+            (:make_timestamp 2025 5 2 1 3 5 8)
           "#,
           r#"
             2025T
             2025-05T
             2025-05-02T
             2025-05-02T01:03Z
+            2025-05-02T01:03:05Z
             2025-05-02T01:03:01.25Z
             2025-05-02T01:03:10.00Z
             2025-05-02T01:03:01.25+00:08
             2025-05-02T01:03+00:08
             2025-05-02T01:03:50Z
+            2025-05-02T01:03:05+00:08
           "#,
         )
     }
 
-    #[test]
-    fn make_timestamp_errors() -> IonResult<()> {
-        // Error if no year provided
-        let source = "(:make_timestamp )";
+    #[rstest]
+    #[case("(:make_timestamp)",                                    "no year specified")]
+    #[case("(:make_timestamp 2025 (:none) 2)",                     "month empty, day provided")]
+    #[case("(:make_timestamp 2025 5 2 1)",                         "no minute provided")]
+    #[case("(:make_timestamp 2025 5 2 (:none) (:none) (:none) 5)", "offset provided with no minute")]
+    #[case("(:make_timestamp 2025 5 2 (:none) (:none) 4",          "second provided with no minute")]
+    #[case("(:make_timestamp 2025 100000)",                        "year out of range")]
+    #[case("(:make_timestamp 2025 1 2 1 70)",                      "minute out of range")]
+    #[case("(:make_timestamp 2025 1 2 1 40 -1)",                   "second out of range")]
+    #[case("(:make_timestamp asdf)",                               "invalid type for year")]
+    #[case("(:make_timestamp 2025 asdf)",                          "invalid type for month")]
+    #[case("(:make_timestamp 2025 1 asdf)",                        "invalid type for day")]
+    #[case("(:make_timestamp 2025 1 2 asdf 4)",                    "invalid type for hour")]
+    #[case("(:make_timestamp 2025 1 2 3 asdf)",                    "invalid type for minute")]
+    #[case("(:make_timestamp 2025 1 2 3 4 asdf)",                  "invalid type for second")]
+    #[case("(:make_timestamp 2025 1 2 3 4 5 asdf)",                "invalid type for offset")]
+    fn make_timestamp_errors(#[case] source: &str, #[case] message: &str) -> IonResult<()> {
         let mut actual_reader = Reader::new(v1_1::Text, source)?;
         actual_reader
             .read_all_elements()
-            .expect_err("Unexpected success with no year");
-
-        // Error if we have an hour but no minute.
-        let source = "(:make_timestamp 2025 5 2 1)";
-        let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        actual_reader
-            .read_all_elements()
-            .expect_err("Unexpected success with no minute");
-
-        // Error if we have an offset but no minute or hour
-        let source = "(:make_timestamp 2025 5 2 (:none) (:none) (:none) 5)";
-        let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        actual_reader
-            .read_all_elements()
-            .expect_err("Unexpected success with no minute, but offset provided");
-
-        // Error if we have a second but no minute or hour
-        let source = "(:make_timestamp 2025 5 2 (:none) (:none) 4)";
-        let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        actual_reader
-            .read_all_elements()
-            .expect_err("Unexpected success with no minute, but second provided");
-
-        // Error if year out of bounds.
-        let source = "(:make_timestamp 100000)";
-        let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        actual_reader
-            .read_all_elements()
-            .expect_err("Unexpected success with out of bounds year");
-
-        // Error if minute out of bounds.
-        let source = "(:make_timestamp 2025 1 2 1 70)";
-        let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        actual_reader
-            .read_all_elements()
-            .expect_err("Unexpected success with out of bounds minute");
-
-        let source = "(:make_timestamp 2025 1 2 1 40 -1)";
-        let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        actual_reader
-            .read_all_elements()
-            .expect_err("Unexpected success with out of bounds second");
-
+            .expect_err(message);
         Ok(())
     }
 
