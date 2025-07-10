@@ -1,6 +1,7 @@
 //! Types related to [`Decimal`], the in-memory representation of an Ion decimal value.
 
 use std::cmp::Ordering;
+use std::ops::Sub;
 
 use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
@@ -244,6 +245,28 @@ impl Decimal {
         scaled_coefficient *= 10u128.pow(exponent_delta as u32);
         UInt::from(scaled_coefficient).cmp(&d2.coefficient().magnitude())
     }
+
+    /// Returns the integer part of `self`. This means that non-integer numbers are always
+    /// truncated towards zero.
+    pub fn trunc(&self) -> Decimal {
+        if self.exponent >= 0 {
+            *self
+        } else {
+            let mut coeff = self.coefficient().as_int().unwrap();
+            coeff.data /= 10i128.pow(self.exponent.unsigned_abs() as u32);
+            Decimal::new(coeff, 0)
+        }
+    }
+
+    pub fn fract(&self) -> Decimal {
+        if self.exponent >= 0 {
+            Decimal::ZERO
+        } else {
+            let mut coeff = self.coefficient().as_int().unwrap();
+            coeff.data %= 10i128.pow(self.exponent.unsigned_abs() as u32);
+            Decimal::new(coeff, self.exponent)
+        }
+    }
 }
 
 impl PartialEq for Decimal {
@@ -299,6 +322,27 @@ impl PartialOrd for Decimal {
 impl Ord for Decimal {
     fn cmp(&self, other: &Self) -> Ordering {
         Decimal::compare(self, other)
+    }
+}
+
+impl Sub for Decimal {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        // Scale the larger value up so that both coefficients are the same scaling factor apart
+        // and we can do integer arithmetic.
+        let mut lhs_int = self.coefficient().as_int().unwrap();
+        let mut rhs_int = rhs.coefficient().as_int().unwrap();
+
+        let exp = if self.exponent >  rhs.exponent {
+            lhs_int.data *= 10i128.pow((self.exponent - rhs.exponent) as u32);
+            rhs.exponent
+        } else {
+            rhs_int.data *= 10i128.pow((rhs.exponent - self.exponent) as u32);
+            self.exponent
+        };
+        let new_coeff = lhs_int - rhs_int;
+        Decimal::new(new_coeff, exp)
     }
 }
 
@@ -759,4 +803,31 @@ mod decimal_tests {
     ) {
         assert_eq!(Decimal::new(coefficient, 0), expected);
     }
+
+    #[rstest]
+    #[case(Decimal::new(1, 0), Decimal::new(1, 0), Decimal::new(0, 0))]
+    #[case(Decimal::new(-1, 0), Decimal::new(1, 0), Decimal::new(-2, 0))]
+    #[case(Decimal::new(1, -5), Decimal::new(1, 0), Decimal::new(-99999, -5))]
+    #[case(Decimal::new(1, 0), Decimal::new(1, 0), Decimal::new(0, 0))]
+    #[case(Decimal::new(-1, 0), Decimal::new(-2, 0), Decimal::new(1, 0))]
+    fn decimal_sub(#[case] lhs: Decimal, #[case] rhs: Decimal, #[case] expected: Decimal) {
+        assert_eq!(lhs - rhs, expected);
+    }
+
+    #[rstest]
+    #[case(Decimal::new(1, 0), Decimal::new(1, 0))]
+    #[case(Decimal::new(15, -1), Decimal::new(1, 0))]
+    #[case(Decimal::new(105, -1), Decimal::new(10, 0))]
+    fn decimal_trunc(#[case] value: Decimal, #[case] expected: Decimal) {
+        assert_eq!(value.trunc(), expected);
+    }
+
+    #[rstest]
+    #[case(Decimal::new(1, 0), Decimal::new(0, 0))]
+    #[case(Decimal::new(15, -1), Decimal::new(5, -1))]
+    #[case(Decimal::new(105, -1), Decimal::new(5, -1))]
+    fn decimal_fract(#[case] value: Decimal, #[case] expected: Decimal) {
+        assert_eq!(value.fract(), expected);
+    }
+
 }

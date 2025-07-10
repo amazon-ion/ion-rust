@@ -1482,23 +1482,18 @@ impl TimestampBuilderWrapper {
                     IonResult::decoding_error("value provided for 'Second' is out of range [0, 59]")?;
                 }
 
-                let coeff_int = second_dec
+                let whole_seconds= second_dec.trunc();
+                let fractional_seconds= second_dec.fract();
+
+                let whole_seconds_i64= whole_seconds
                     .coefficient()
                     .as_int()
-                    .unwrap(); // Value is between 0 and 59; Will not return None
-                let exp = second_dec.exponent();
+                    .and_then(|v| v.as_i64())
+                    .unwrap(); // Tested above that the whole decimal is < 60 and > 0.
 
-                let coeff_i64 = coeff_int.as_i64().unwrap();
-                // Normalize the coefficient.. so we can pull it apart.
-                let coeff_f64 = coeff_i64 as f64 * 10f64.powf(exp as f64); // Value is between 0 and 59, we should be fine.
-                let whole_seconds= coeff_f64.trunc() as u32;
-                let coeff_frac = (coeff_f64.fract() * 10f64.powf(-(exp-1) as f64)) as i64;
+                let builder = builder.clone().with_second(whole_seconds_i64 as u32);
 
-                let frac_sec = Decimal::new(coeff_frac, exp - 1);
-
-                let builder = builder.clone().with_second(whole_seconds);
-
-                let builder = builder.with_fractional_seconds(frac_sec);
+                let builder = builder.with_fractional_seconds(fractional_seconds);
 
                 TimestampBuilderWrapper::WithFractionalSeconds(builder)
             }
