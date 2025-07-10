@@ -1511,9 +1511,7 @@ impl TimestampBuilderWrapper {
         Ok(builder_wrapper)
     }
 
-    /// Process the provided ValueRef as the offset parameter for the timestamp. The caller is
-    /// responsible for setting the offset on the timestamp, since there are multiple
-    /// TimestampBuilder types that can do that.
+    /// Process the provided ValueRef as the offset parameter for the timestamp.
     fn process_offset<'top, D: Decoder>(&self, value: ValueRef<'top, D>) -> IonResult<TimestampBuilderWrapper> {
         let offset = value
             .expect_int()?
@@ -1525,7 +1523,7 @@ impl TimestampBuilderWrapper {
             Self::WithMinute(builder) => builder.clone().with_offset(offset as i32),
             Self::WithSecond(builder) => builder.clone().with_offset(offset as i32),
             Self::WithFractionalSeconds(builder) => builder.clone().with_offset(offset as i32),
-            _ => unimplemented!(),
+            _ => return IonResult::decoding_error("Invalid state while building timestamp; tried to set field 'Offset' without setting time"),
         };
 
         Ok(TimestampBuilderWrapper::WithOffset(new_builder))
