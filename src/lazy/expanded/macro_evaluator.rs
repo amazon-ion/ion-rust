@@ -1364,11 +1364,11 @@ impl TimestampBuilderWrapper {
 
         let month_i64= value_ref
             .expect_int()?
-            .as_i64()
-            .ok_or_else(|| IonError::decoding_error("value provided for 'Month' does not fit within a 64bit integer"))?;
+            .as_u32()
+            .ok_or_else(|| IonError::decoding_error("value provided for 'Month' does not fit within a 32bit unsigned integer"))?;
 
         let TimestampBuilderWrapper::WithYear(builder) = self.take() else { unreachable!() };
-        let new_builder = builder.with_month(month_i64 as u32);
+        let new_builder = builder.with_month(month_i64);
         *self = new_builder.into();
 
         Ok(())
