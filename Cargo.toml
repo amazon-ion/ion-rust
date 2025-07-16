@@ -47,6 +47,8 @@ experimental-tooling-apis = []
 # Experimental serde API to serialize and deserialize Ion data into Rust objects using serde crate
 experimental-serde = ["experimental-reader-writer", "dep:serde_with", "dep:serde"]
 
+bigdecimal = ["dep:bigdecimal"]
+
 [dependencies]
 base64 = "0.12"
 
