@@ -247,26 +247,28 @@ impl Decimal {
     }
 
     /// Returns the integer part of `self`. This means that non-integer numbers are always
-    /// truncated towards zero.
+    /// truncated towards zero, maintaining the sign of the original coefficient.
     pub fn trunc(&self) -> Decimal {
         if self.exponent >= 0 {
             *self
         } else {
-            let mut coeff = self.coefficient().as_int().unwrap();
+            // Extract the coefficient, we'll lose the sign if it's ZERO, but we add it back at the
+            // end.
+            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
             coeff.data /= 10i128.pow(self.exponent.unsigned_abs() as u32);
-            Decimal::new(coeff, 0)
+            Decimal::new(Coefficient::from_sign_and_value(self.coefficient_sign, coeff), 0)
         }
     }
 
     /// Returns the fractional part of `self`. Values with no fractional component will return
-    /// zero.
+    /// zero maintaining the sign of the original coefficient.
     pub fn fract(&self) -> Decimal {
         if self.exponent >= 0 {
-            Decimal::ZERO
+            Decimal::new(Coefficient::from_sign_and_value(self.coefficient_sign, 0), 0)
         } else {
-            let mut coeff = self.coefficient().as_int().unwrap();
+            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
             coeff.data %= 10i128.pow(self.exponent.unsigned_abs() as u32);
-            Decimal::new(coeff, self.exponent)
+            Decimal::new(Coefficient::from_sign_and_value(self.coefficient_sign, coeff), self.exponent)
         }
     }
 }
@@ -330,21 +332,42 @@ impl Ord for Decimal {
 impl Sub for Decimal {
     type Output = Self;
 
+    /// Calculate the result of self - rhs.
+    ///
+    /// Regarding signed zero: This function will propogate negative zero following
+    /// the rules of IEEE 754 subtraction with signed zero and default rounding.
+    /// Specifically:
+    ///     +0.0 - +0.0 == 0
+    ///     +0.0 - -0.0 == 0
+    ///     -0.0 - +0.0 == -0
+    ///     -0.0 - -0.0 == 0
     fn sub(self, rhs: Self) -> Self::Output {
-        // Scale the larger value up so that both coefficients are the same scaling factor apart
-        // and we can do integer arithmetic.
-        let mut lhs_int = self.coefficient().as_int().unwrap();
-        let mut rhs_int = rhs.coefficient().as_int().unwrap();
+        let lhs_coeff = self.coefficient();
+        let rhs_coeff = rhs.coefficient();
 
-        let exp = if self.exponent >  rhs.exponent {
-            lhs_int.data *= 10i128.pow((self.exponent - rhs.exponent) as u32);
-            rhs.exponent
+        // Handle propogating signed zeros. Only when LHS is negative, and RHS differs, is the
+        // result negative zero on subtraction.
+        if rhs.is_zero() && self.is_zero() {
+            if lhs_coeff.is_negative() && !rhs_coeff.is_negative() {
+                Decimal::NEGATIVE_ZERO
+            } else {
+                Decimal::ZERO
+            }
         } else {
-            rhs_int.data *= 10i128.pow((rhs.exponent - self.exponent) as u32);
-            self.exponent
-        };
-        let new_coeff = lhs_int - rhs_int;
-        Decimal::new(new_coeff, exp)
+            // Scale the larger value up so that both coefficients are the same scaling factor apart
+            // and we can do integer arithmetic.
+            let mut lhs_int = self.coefficient().as_int().unwrap_or(Int::ZERO);
+            let mut rhs_int = rhs.coefficient().as_int().unwrap_or(Int::ZERO);
+            let exp = if self.exponent >  rhs.exponent {
+                lhs_int.data *= 10i128.pow((self.exponent - rhs.exponent) as u32);
+                rhs.exponent
+            } else {
+                rhs_int.data *= 10i128.pow((rhs.exponent - self.exponent) as u32);
+                self.exponent
+            };
+            let new_coeff = lhs_int - rhs_int;
+            Decimal::new(new_coeff, exp)
+        }
     }
 }
 
@@ -541,7 +564,7 @@ impl Display for Decimal {
 
 #[cfg(test)]
 mod decimal_tests {
-    use crate::decimal::coefficient::Coefficient;
+    use crate::decimal::coefficient::{Coefficient, Sign};
     use crate::result::IonResult;
     use crate::{Decimal, Int};
 
@@ -812,14 +835,34 @@ mod decimal_tests {
     #[case(Decimal::new(1, -5), Decimal::new(1, 0), Decimal::new(-99999, -5))]
     #[case(Decimal::new(1, 0), Decimal::new(1, 0), Decimal::new(0, 0))]
     #[case(Decimal::new(-1, 0), Decimal::new(-2, 0), Decimal::new(1, 0))]
+    #[case(Decimal::ZERO, Decimal::ZERO, Decimal::ZERO)]
+    #[case(Decimal::ZERO, Decimal::NEGATIVE_ZERO, Decimal::ZERO)]
+    #[case(Decimal::NEGATIVE_ZERO, Decimal::ZERO, Decimal::NEGATIVE_ZERO)]
+    #[case(Decimal::NEGATIVE_ZERO, Decimal::NEGATIVE_ZERO, Decimal::ZERO)]
+    #[case(Decimal::NEGATIVE_ZERO, Decimal::new(1, 0), Decimal::new(-1, 0))]
     fn decimal_sub(#[case] lhs: Decimal, #[case] rhs: Decimal, #[case] expected: Decimal) {
         assert_eq!(lhs - rhs, expected);
+    }
+
+    #[rstest]
+    #[case(Decimal::NEGATIVE_ZERO, Decimal::NEGATIVE_ZERO, Sign::Positive)]
+    #[case(Decimal::NEGATIVE_ZERO, Decimal::ZERO, Sign::Negative)]
+    #[case(Decimal::ZERO, Decimal::ZERO, Sign::Positive)]
+    #[case(Decimal::ZERO, Decimal::NEGATIVE_ZERO, Sign::Positive)]
+    fn decimal_sub_signzero(#[case] lhs: Decimal, #[case] rhs: Decimal, #[case]sign: Sign) {
+        let val = lhs - rhs;
+        assert_eq!(val.coefficient().sign(), sign);
     }
 
     #[rstest]
     #[case(Decimal::new(1, 0), Decimal::new(1, 0))]
     #[case(Decimal::new(15, -1), Decimal::new(1, 0))]
     #[case(Decimal::new(105, -1), Decimal::new(10, 0))]
+    #[case(Decimal::new(-5, -1), Decimal::new(0, 0))]
+    #[case(Decimal::new(-5, -1), Decimal::NEGATIVE_ZERO)]
+    #[case(Decimal::NEGATIVE_ZERO, Decimal::NEGATIVE_ZERO)]
+    #[case(Decimal::new(0, -5), Decimal::new(0, 0))]
+    #[case(Decimal::new(Coefficient::from_sign_and_value(Sign::Negative, 0), -5), Decimal::new(0, 0))]
     fn decimal_trunc(#[case] value: Decimal, #[case] expected: Decimal) {
         assert_eq!(value.trunc(), expected);
     }
