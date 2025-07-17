@@ -562,6 +562,119 @@ impl Display for Decimal {
     }
 }
 
+#[cfg(feature = "bigdecimal")]
+mod bigdecimal {
+    use crate::decimal::coefficient::Sign;
+    use crate::result::IonFailure;
+    use crate::{Decimal, IonError, IonResult};
+    use bigdecimal::num_bigint::BigInt;
+    use bigdecimal::BigDecimal;
+    use num_traits::ToPrimitive;
+
+    impl TryInto<BigDecimal> for Decimal {
+        type Error = IonError;
+
+        /// Attempts to create a BigDecimal from a Decimal. Returns an Error if the Decimal being
+        /// converted is a special value (negative zero) or has a magnitude no representable as u128.
+        fn try_into(self) -> Result<BigDecimal, Self::Error> {
+            if self.coefficient().is_negative_zero() {
+                return IonResult::illegal_operation("Cannot convert negative zero to BigDecimal.");
+            }
+            let magnitude = self
+                .coefficient()
+                .magnitude()
+                .as_u128()
+                .expect("All Decimal magnitudes are within u128, this is impossible");
+
+            let bigint = match self.coefficient().sign() {
+                Sign::Negative => -BigInt::from(magnitude),
+                Sign::Positive => BigInt::from(magnitude),
+            };
+            Ok(BigDecimal::new(bigint, self.scale()))
+        }
+    }
+
+    impl TryFrom<BigDecimal> for Decimal {
+        type Error = IonError;
+
+        /// Attempts to create a Decimal from a BigDecimal. Returns an Error if the BigDecimal cannot be
+        /// represented as a Decimal in this library.
+        fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
+            let (coeff, exponent) = value.into_bigint_and_exponent();
+            let Some(data) = coeff.to_i128() else {
+                return IonResult::illegal_operation("Cannot represent coefficient as i128.");
+            };
+
+            Ok(Decimal::new(data, -exponent))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::Decimal;
+        use bigdecimal::BigDecimal;
+        use rstest::*;
+
+        #[fixture]
+        /// We use this function to represent when we don't expect to have a value to interact with.
+        /// In a less safe language this would be a "null object" or "pebble object" but here we'll just
+        /// document the expectation.
+        fn no_such_decimal() -> Decimal {
+            Decimal::NEGATIVE_ZERO
+        }
+
+        #[rstest]
+        #[case("123e1", Decimal::new(123, 1))]
+        #[case("123.", Decimal::new(123, 0))]
+        #[case("-123.", Decimal::new(-123,  0))]
+        #[case("12.3", Decimal::new( 123, -1))]
+        #[case("0.123", Decimal::new( 123, -3))]
+        #[case("-0.00123", Decimal::new(-123, -5))]
+        #[case("0.00123", Decimal::new( 123, -5))]
+        #[case("1.23e-8", Decimal::new( 123, -10))]
+        #[case("-1.23e-8", Decimal::new(-123, -10))]
+        #[case::out_of_double("9_007_199_254_740_993", Decimal::new(9_007_199_254_740_993i128, 0))]
+        #[should_panic]
+        #[case::coeff_too_large(
+            "1427247692705959881058285969449495136382746624",
+            no_such_decimal()
+        )]
+        /// Effectively tests TryFrom<BigDecimal> for Decimal. The only failure cases should be when
+        /// the coefficient is larger i128
+        fn try_from_bigdecimal_for_decimal(#[case] input: BigDecimal, #[case] expected: Decimal) {
+            let actual = Decimal::try_from(input).unwrap();
+            assert_eq!(actual, expected);
+        }
+
+        #[fixture]
+        /// We use this function to represent when we don't expect to have a value to interact with.
+        /// In a less safe language this would be a "null object" or "pebble object" but here we'll just
+        /// document the expectation.
+        fn no_such_bigdecimal() -> BigDecimal {
+            0.into()
+        }
+
+        #[rstest]
+        #[case(Decimal::new(123, 1), "123e1")]
+        #[case(Decimal::new(123, 0), "123.")]
+        #[case(Decimal::new(-123,  0),"-123.")]
+        #[case(Decimal::new( 123, -1),  "12.3")]
+        #[case(Decimal::new( 123, -3),   "0.123")]
+        #[case(Decimal::new(-123, -5),  "-0.00123")]
+        #[case(Decimal::new( 123, -5),   "0.00123")]
+        #[case(Decimal::new( 123, -10),  "1.23e-8")]
+        #[case(Decimal::new(-123, -10), "-1.23e-8")]
+        #[should_panic]
+        #[case::negative_zero(Decimal::NEGATIVE_ZERO, no_such_bigdecimal())]
+        /// Effectively tests TryFrom<Decimal> for BigDecimal. The only failure cases should be when
+        /// the coefficient is larger i128
+        fn try_into_bigdecimal_for_decimal(#[case] input: Decimal, #[case] expected: BigDecimal) {
+            let actual: BigDecimal = Decimal::try_into(input).unwrap();
+            assert_eq!(actual, expected);
+        }
+    }
+}
+
 #[cfg(test)]
 mod decimal_tests {
     use crate::decimal::coefficient::{Coefficient, Sign};

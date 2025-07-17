@@ -47,6 +47,8 @@ experimental-tooling-apis = []
 # Experimental serde API to serialize and deserialize Ion data into Rust objects using serde crate
 experimental-serde = ["experimental-reader-writer", "dep:serde_with", "dep:serde"]
 
+bigdecimal = ["dep:bigdecimal"]
+
 [dependencies]
 base64 = "0.12"
 
@@ -72,9 +74,10 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 serde_with = { version = "3.7.0", optional = true }
 visibility = "0.1.1"
 memchr = "2.7.4"
+bigdecimal = { version = "0.4", optional = true }
 
 [dev-dependencies]
-rstest = "0.19.0"
+rstest = "0.25.0"
 rstest_reuse = "0.6.0"
 serde_bytes = "0.11.17"
 # Used by ion-tests integration
