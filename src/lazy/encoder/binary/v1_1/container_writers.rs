@@ -512,6 +512,11 @@ impl<'top> EExpWriter for BinaryEExpWriter_1_1<'_, 'top> {
         Ok(())
     }
 
+    fn write_fixed_uint8(&mut self, value: impl Into<u8>) -> IonResult<()> {
+        self.buffer.push(value.into());
+        Ok(())
+    }
+
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
         todo!("safe binary expression group serialization")
     }

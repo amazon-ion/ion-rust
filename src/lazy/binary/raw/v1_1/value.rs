@@ -111,6 +111,7 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
 pub enum BinaryValueEncoding {
     Tagged,
     FlexUInt,
+    UInt8,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -343,6 +344,33 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             },
 
             // FlexUInts cannot have any annotations
+            annotations_header_length: 0,
+            annotations_sequence_length: 0,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
+
+            header_offset: input.offset(),
+            length_length: 0,
+            value_body_length: input.len(),
+            total_length: input.len(),
+        };
+
+        LazyRawBinaryValue_1_1 {
+            encoded_value,
+            input,
+            delimited_contents: DelimitedContents::None,
+        }
+    }
+
+    pub(crate) fn for_fixed_uint8(input: BinaryBuffer<'top>) -> Self {
+        let encoded_value = EncodedBinaryValue {
+            encoding: BinaryValueEncoding::UInt8,
+            header: Header {
+                ion_type: IonType::Int,
+                ion_type_code: OpcodeType::Nop,
+                length_type: LengthType::Unknown,
+                byte: 0,
+            },
+
             annotations_header_length: 0,
             annotations_sequence_length: 0,
             annotations_encoding: AnnotationsEncoding::SymbolAddress,

@@ -1022,6 +1022,12 @@ impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
         self.raw_eexp_writer.write_flex_uint(value)
     }
 
+    fn write_fixed_uint8(&mut self, value: impl Into<u8>) -> IonResult<()> {
+        self.expect_next_parameter()
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::UInt8))?;
+        self.raw_eexp_writer.write_fixed_uint8(value)
+    }
+
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
         self.expect_next_parameter()
             .and_then(|p| p.expect_variadic())?;
@@ -1433,6 +1439,34 @@ mod tests {
             // Attempt to write a tagged value for parameter `a`, which has a cardinality of
             // zero-or-more, and therefore requires an expression group.
             assert!(eexp_writer.write("hello").is_err());
+            Ok(())
+        }
+
+        #[test]
+        fn tagless_uint8_encoding() -> IonResult<()> {
+            let expected: &[u8] = &[
+                0xE0, 0x01, 0x01, 0xEA,                       // IVM
+                0xE7, 0xF9, 0x24, 0x69, 0x6F, 0x6E,           // $ion::
+                0xFC, 0x55, 0xEE, 0x10, 0xA1, 0x5F,           // (module _
+                0xC4, 0xEE, 0x0F, 0xA1, 0x5F,                 //   (symbol_table _ )
+                0xFC, 0x3F, 0xEE, 0x0E, 0xA1, 0x5F,           //   (macro_table _
+                0xFC, 0x33,                                   //      (
+                0xA5, 0x6d, 0x61, 0x63, 0x72, 0x6F,           //        macro
+                0xA3, 0x66, 0x6F, 0x6F,                       //        foo
+                0xC9,                                         //        (
+                0xE7, 0xF7, 0x75, 0x69, 0x6E, 0x74, 0x38,     //          uint8::
+                0xA1, 0x78,                                   //          x )
+                0xC4, 0xA1, 0x25, 0xA1, 0x78,                 //        ('%' x))))
+                0x18, 0x05,                                   //  (:foo 5)
+
+            ];
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro("(macro foo (uint8::x) (%x))")?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            eexp_writer.write_fixed_uint8(5)?;
+            let _ = eexp_writer.close();
+            let output = writer.close()?;
+            assert_eq!(output.as_slice(), expected);
             Ok(())
         }
     }
