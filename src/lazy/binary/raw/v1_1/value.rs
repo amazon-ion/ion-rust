@@ -361,7 +361,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         }
     }
 
-    pub(crate) fn for_fixed_uint(input: BinaryBuffer<'top>) -> Self {
+    pub(crate) fn for_fixed_uint8(input: BinaryBuffer<'top>) -> Self {
         let encoded_value = EncodedBinaryValue {
             encoding: BinaryValueEncoding::UInt8,
             header: Header {

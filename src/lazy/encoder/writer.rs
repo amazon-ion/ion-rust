@@ -1464,7 +1464,7 @@ mod tests {
             let foo = writer.compile_macro("(macro foo (uint8::x) (%x))")?;
             let mut eexp_writer = writer.eexp_writer(&foo)?;
             eexp_writer.write_fixed_uint8(5)?;
-            eexp_writer.close();
+            let _ = eexp_writer.close();
             let output = writer.close()?;
             assert_eq!(output.as_slice(), expected);
             Ok(())
