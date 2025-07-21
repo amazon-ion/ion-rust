@@ -207,6 +207,7 @@ pub enum ParameterEncoding {
     /// A 'tagged' type is one whose binary encoding begins with an opcode (sometimes called a 'tag'.)
     Tagged,
     FlexUInt,
+    UInt8,
     // TODO: tagless types, including fixed-width types and macros
     MacroShaped(Arc<MacroDef>),
 }
@@ -217,6 +218,7 @@ impl Display for ParameterEncoding {
         match self {
             Tagged => write!(f, "tagged"),
             FlexUInt => write!(f, "flex_uint"),
+            UInt8 => write!(f, "uint8"),
             MacroShaped(m) => write!(f, "{}", m.name().unwrap_or("<anonymous>")),
         }
     }
