@@ -363,6 +363,7 @@ pub enum MacroKind {
     MakeSymbol,
     MakeField,
     MakeStruct,
+    MakeTimestamp,
     Annotate,
     Flatten,
     Template(TemplateBody),
@@ -636,7 +637,7 @@ impl MacroTable {
             builtin(
                 "make_timestamp",
                 "(year month? day? hour? minute? second? offset_minutes?)",
-                MacroKind::ToDo,
+                MacroKind::MakeTimestamp,
                 ExpansionAnalysis::single_application_value(IonType::Timestamp),
             ),
             builtin(
