@@ -1075,18 +1075,13 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
             .and_then(|p| p.expect_single_expression())?;
 
         let result = match param.encoding() {
-            PE::UInt8 => {
-                value
-                    .try_into()
-                    .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint))
-                    .map(|_| ())
-            }
-            PE::FlexUInt => {
-                value
-                    .try_into()
-                    .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
-                    .map(|_| ())
-            }
+            PE::UInt8 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint)),
+            PE::FlexUInt => value
+                .try_into()
+                .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
+                .map(|_| ()),
             PE::Tagged => {
                 let value_writer = BinaryValueWriter_1_1::new(
                     self.allocator,
@@ -1096,8 +1091,9 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
                 );
                 value_writer.write_i64(value)
             }
-            encoding => return IonResult::encoding_error(format!("value does not satisfy encoding type {encoding}")),
-
+            encoding => IonResult::encoding_error(
+                format!("value does not satisfy encoding type {encoding}")
+            ),
         };
 
         result.map_err(|err| error_context(param.name(), err))
@@ -1119,17 +1115,13 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
             .and_then(|p| p.expect_single_expression())?;
 
         let result = match param.encoding() {
-            PE::UInt8 => {
-                value
-                    .try_into()
-                    .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint))
-            }
-            PE::FlexUInt => {
-                value
-                    .try_into()
-                    .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
-                    .map(|_| ())
-            }
+            PE::UInt8 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint)),
+            PE::FlexUInt => value
+                .try_into()
+                .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
+                .map(|_| ()),
             PE::Tagged => {
                 let value_writer = BinaryValueWriter_1_1::new(
                     self.allocator,
@@ -1139,7 +1131,9 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
                 );
                 value_writer.write_int(value)
             }
-            encoding => return IonResult::encoding_error(format!("value provided for '{}' does not satisfy encoding type {encoding}", param.name())),
+            encoding => IonResult::encoding_error(
+                format!("value does not satisfy encoding type {encoding}")
+            ),
         };
 
         result.map_err(|err| error_context(param.name(), err))
