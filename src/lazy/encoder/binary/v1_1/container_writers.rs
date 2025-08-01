@@ -1,7 +1,7 @@
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 
-use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
+use crate::lazy::encoder::binary::v1_1::value_writer::{BinaryEExpParameterValueWriter_1_1, BinaryValueWriter_1_1};
 use crate::lazy::encoder::binary::v1_1::{flex_sym::FlexSym, flex_uint::FlexUInt};
 use crate::lazy::encoder::value_writer::internal::{
     EExpWriterInternal, FieldEncoder, MakeValueWriter,
@@ -461,18 +461,20 @@ impl<'value, 'top> BinaryEExpWriter_1_1<'value, 'top> {
 
 impl<'top> ContextWriter for BinaryEExpWriter_1_1<'_, 'top> {
     type NestedValueWriter<'a>
-        = BinaryValueWriter_1_1<'a, 'top>
+        = BinaryEExpParameterValueWriter_1_1<'a, 'top>
     where
         Self: 'a;
 }
 
 impl MakeValueWriter for BinaryEExpWriter_1_1<'_, '_> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
-        BinaryValueWriter_1_1::new(
+        let param = self.signature_iter.expect_next_parameter().ok();
+        BinaryEExpParameterValueWriter_1_1::new(
             self.allocator,
             self.buffer,
             self.value_writer_config,
             self.macros,
+            param,
         )
     }
 }
@@ -518,7 +520,18 @@ impl<'top> EExpWriter for BinaryEExpWriter_1_1<'_, 'top> {
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        todo!("safe binary expression group serialization")
+        let param = self.signature_iter.expect_next_parameter()
+            .and_then(|p| p.expect_variadic())?;
+
+        let writer = BinaryExprGroupWriter::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+            param,
+        );
+
+        Ok(writer)
     }
 }
 
@@ -527,6 +540,26 @@ pub struct BinaryExprGroupWriter<'group, 'top> {
     buffer: &'group mut BumpVec<'top, u8>,
     value_writer_config: ValueWriterConfig,
     macros: &'group MacroTable,
+    // TODO: validate parameter type when writing group members.
+    _parameter: &'group Parameter,
+}
+
+impl<'group, 'top> BinaryExprGroupWriter<'group, 'top> {
+    fn new(
+        allocator: &'top BumpAllocator,
+        buffer: &'group mut BumpVec<'top, u8>,
+        value_writer_config: ValueWriterConfig,
+        macros: &'group MacroTable,
+        parameter: &'group Parameter,
+    ) -> Self {
+        Self {
+            allocator,
+            buffer,
+            value_writer_config,
+            macros,
+            _parameter: parameter,
+        }
+    }
 }
 
 impl<'top> ContextWriter for BinaryExprGroupWriter<'_, 'top> {
