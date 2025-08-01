@@ -962,11 +962,11 @@ impl<V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'_, V> {
     /// Writes a value in the current context (list, s-expression, or stream) and upon success
     /// returns another reference to `self` to enable method chaining.
     fn write<Value: WriteAsIon>(&mut self, value: Value) -> IonResult<&mut Self> {
-        self.expect_next_parameter()
-            // Make sure this parameter accepts an ungrouped value expression
-            .and_then(|p| p.expect_single_expression())
-            // Make sure this parameter supports the tagged encoding
-            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))?;
+        // self.expect_next_parameter()
+        //     // Make sure this parameter accepts an ungrouped value expression
+        //     .and_then(|p| p.expect_single_expression())
+        //     // Make sure this parameter supports the tagged encoding
+        //     .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))?;
         value.write_as_ion(self.make_value_writer())?;
         Ok(self)
     }
@@ -1022,8 +1022,14 @@ impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
         self.raw_eexp_writer.write_flex_uint(value)
     }
 
-    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+    fn write_fixed_uint8(&mut self, value: impl Into<u8>) -> IonResult<()> {
         self.expect_next_parameter()
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::UInt8))?;
+        self.raw_eexp_writer.write_fixed_uint8(value)
+    }
+
+    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
+        let _param = self.expect_next_parameter()
             .and_then(|p| p.expect_variadic())?;
         // TODO: Pass `Parameter` to group writer so it can do its own validation
         self.raw_eexp_writer.expr_group_writer()
@@ -1433,6 +1439,70 @@ mod tests {
             // Attempt to write a tagged value for parameter `a`, which has a cardinality of
             // zero-or-more, and therefore requires an expression group.
             assert!(eexp_writer.write("hello").is_err());
+            Ok(())
+        }
+
+        #[test]
+        fn tagless_uint8_encoding() -> IonResult<()> {
+            let macro_source = "(macro foo (uint8::x) (%x))";
+            let expected: &[u8] = &[
+                0xE0, 0x01, 0x01, 0xEA,                       // IVM
+                0xE7, 0xF9, 0x24, 0x69, 0x6F, 0x6E,           // $ion::
+                0xFC, 0x55, 0xEE, 0x10, 0xA1, 0x5F,           // (module _
+                0xC4, 0xEE, 0x0F, 0xA1, 0x5F,                 //   (symbol_table _ )
+                0xFC, 0x3F, 0xEE, 0x0E, 0xA1, 0x5F,           //   (macro_table _
+                0xFC, 0x33,                                   //      (
+                0xA5, 0x6d, 0x61, 0x63, 0x72, 0x6F,           //        macro
+                0xA3, 0x66, 0x6F, 0x6F,                       //        foo
+                0xC9,                                         //        (
+                0xE7, 0xF7, 0x75, 0x69, 0x6E, 0x74, 0x38,     //          uint8::
+                0xA1, 0x78,                                   //          x )
+                0xC4, 0xA1, 0x25, 0xA1, 0x78,                 //        ('%' x))))
+                0x18, 0x05,                                   //  (:foo 5)
+
+            ];
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // eexp_writer should do the "right thing" given the parameter's encoding.
+            eexp_writer.write_int(&5.into())?;
+            let _ = eexp_writer.close();
+            let output = writer.close()?;
+            assert_eq!(output.as_slice(), expected);
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // eexp_writer should do the "right thing" given the parameter's encoding.
+            eexp_writer.write_i64(5i64)?;
+            let _ = eexp_writer.close();
+            let output = writer.close()?;
+            assert_eq!(output.as_slice(), expected);
+
+            Ok(())
+        }
+
+        #[test]
+        fn tagless_uint8_encoding_fails() -> IonResult<()> {
+            let macro_source = "(macro foo (uint8::x) (%x))";
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // eexp_writer should do the "right thing" given the parameter's encoding.
+            let result = eexp_writer.write_int(&1024.into());
+            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
+            assert!(result.is_err(), "unexpected success");
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            // eexp_writer should do the "right thing" given the parameter's encoding.
+            let result = eexp_writer.write_i64(1024.into());
+            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
+            assert!(result.is_err(), "unexpected success");
+
             Ok(())
         }
     }

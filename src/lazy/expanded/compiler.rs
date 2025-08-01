@@ -378,6 +378,7 @@ impl TemplateCompiler {
             // If it's not in the local scope, see if it's a built-in.
             return match encoding_name {
                 "flex_uint" => Ok(ParameterEncoding::FlexUInt),
+                "uint8" => Ok(ParameterEncoding::UInt8),
                 _ => IonResult::decoding_error(format!(
                     "unrecognized encoding '{encoding_name}' specified for parameter"
                 )),
@@ -1687,6 +1688,29 @@ mod tests {
                 .unwrap()
                 .encoding(),
             &ParameterEncoding::FlexUInt
+        );
+        expect_variable(&template, 0, 0)?;
+        Ok(())
+    }
+
+    #[test]
+    fn identity_with_uint8() -> IonResult<()> {
+        let resources = TestResources::new();
+        let context = resources.context();
+
+        let expression = "(macro identity (uint8::x) (%x))";
+
+        let template = TemplateCompiler::compile_from_source(context.macro_table(), expression)?;
+        assert_eq!(template.name(), "identity");
+        assert_eq!(template.signature().len(), 1);
+        assert_eq!(
+            template
+                .signature()
+                .parameters()
+                .first()
+                .unwrap()
+                .encoding(),
+            &ParameterEncoding::UInt8,
         );
         expect_variable(&template, 0, 0)?;
         Ok(())

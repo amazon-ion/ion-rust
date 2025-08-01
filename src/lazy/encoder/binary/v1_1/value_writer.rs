@@ -18,6 +18,7 @@ use crate::lazy::encoder::value_writer_config::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, SymbolValueEncoding,
     ValueWriterConfig,
 };
+use crate::lazy::expanded::template::Parameter;
 use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, ModuleKind};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
@@ -964,6 +965,323 @@ impl<'value, 'top> BinaryAnnotatedValueWriter_1_1<'value, 'top> {
             self.macros,
         );
         writer
+    }
+}
+
+macro_rules! validate_parameter_and_delegate {
+    () => {};
+    ($value_type:ty => $method:ident, $($rest:tt)*) => {
+        fn $method(self, value: $value_type) -> IonResult<()> {
+            use $crate::IonError;
+            use $crate::lazy::expanded::template::ParameterEncoding;
+            let _param = self
+                .parameter
+                .ok_or(IonError::encoding_error("unexpected parameter provided"))
+                .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+                .and_then(|p| p.expect_single_expression())?;
+
+            let value_writer = $crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1::new(
+                self.allocator,
+                self.buffer,
+                self.value_writer_config,
+                self.macros,
+            );
+            value_writer.$method(value)?;
+            Ok(())
+        }
+        validate_parameter_and_delegate!($($rest)*);
+    };
+}
+
+pub struct BinaryEExpParameterValueWriter_1_1<'value, 'top> {
+    allocator: &'top BumpAllocator,
+    buffer: &'value mut BumpVec<'top, u8>,
+    value_writer_config: ValueWriterConfig,
+    macros: &'value MacroTable,
+    parameter: Option<&'value Parameter>,
+}
+
+impl<'value, 'top> BinaryEExpParameterValueWriter_1_1<'value, 'top> {
+    pub(crate) fn new<'a, 'b: 'a>(
+        allocator: &'b BumpAllocator,
+        buffer: &'a mut BumpVec<'b, u8>,
+        value_writer_config: ValueWriterConfig,
+        macros: &'a MacroTable,
+        parameter: Option<&'a Parameter>,
+    ) -> BinaryEExpParameterValueWriter_1_1<'a, 'b> {
+        BinaryEExpParameterValueWriter_1_1{
+            allocator,
+            buffer,
+            value_writer_config,
+            macros,
+            parameter,
+        }
+    }
+}
+
+impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 'top> {
+    type ListWriter = BinaryListWriter_1_1<'value, 'top>;
+    type SExpWriter = BinarySExpWriter_1_1<'value, 'top>;
+    type StructWriter = BinaryStructWriter_1_1<'value, 'top>;
+    type EExpWriter = BinaryEExpWriter_1_1<'value, 'top>;
+
+    validate_parameter_and_delegate!(
+        IonType => write_null,
+        bool => write_bool,
+        &Decimal => write_decimal,
+        &Timestamp => write_timestamp,
+        impl AsRef<str> => write_string,
+        impl AsRef<[u8]> => write_clob,
+        impl AsRef<[u8]> => write_blob,
+    );
+
+    // These types need to have ranges validated to ensure we can write the value to a tagless
+    // parameter if the parameter is tagless.
+
+    fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()> {
+        use crate::IonError;
+        use crate::lazy::expanded::template::ParameterEncoding;
+
+        // TODO: Support tagless types.
+        let _param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let value_writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
+        value_writer.write_symbol(value)
+    }
+
+    fn write_i64(self, value: i64) -> IonResult<()> {
+        use crate::IonError;
+        use crate::UInt;
+        use crate::lazy::expanded::template::ParameterEncoding as PE;
+
+        #[inline(never)]
+        fn error_context(name: &str, err: impl std::error::Error) -> IonError {
+            IonError::encoding_error(format!("error with value provided for '{name}': {err}"))
+        }
+
+        let param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let result = match param.encoding() {
+            PE::UInt8 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint)),
+            PE::FlexUInt => value
+                .try_into()
+                .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
+                .map(|_| ()),
+            PE::Tagged => {
+                let value_writer = BinaryValueWriter_1_1::new(
+                    self.allocator,
+                    self.buffer,
+                    self.value_writer_config,
+                    self.macros,
+                );
+                value_writer.write_i64(value)
+            }
+            encoding => IonResult::encoding_error(
+                format!("value does not satisfy encoding type {encoding}")
+            ),
+        };
+
+        result.map_err(|err| error_context(param.name(), err))
+    }
+
+    fn write_int(self, value: &Int) -> IonResult<()> {
+        use crate::lazy::expanded::template::ParameterEncoding as PE;
+        use crate::UInt;
+        use crate::IonError;
+
+        #[inline(never)]
+        fn error_context(name: &str, err: impl std::error::Error) -> IonError {
+            IonError::encoding_error(format!("error with value provided for '{name}': {err}"))
+        }
+
+        let param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let result = match param.encoding() {
+            PE::UInt8 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint)),
+            PE::FlexUInt => value
+                .try_into()
+                .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
+                .map(|_| ()),
+            PE::Tagged => {
+                let value_writer = BinaryValueWriter_1_1::new(
+                    self.allocator,
+                    self.buffer,
+                    self.value_writer_config,
+                    self.macros,
+                );
+                value_writer.write_int(value)
+            }
+            encoding => IonResult::encoding_error(
+                format!("value does not satisfy encoding type {encoding}")
+            ),
+        };
+
+        result.map_err(|err| error_context(param.name(), err))
+    }
+
+    fn write_f32(self, value: f32) -> IonResult<()> {
+        use crate::IonError;
+        use crate::lazy::expanded::template::ParameterEncoding;
+
+        // TODO: Support tagless types.
+        let _param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let value_writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
+        value_writer.write_f32(value)
+    }
+
+    fn write_f64(self, value: f64) -> IonResult<()> {
+        use crate::IonError;
+        use crate::lazy::expanded::template::ParameterEncoding;
+
+        // TODO: Support tagless types.
+        let _param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let value_writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
+        value_writer.write_f64(value)
+    }
+
+    fn list_writer(self) -> IonResult<Self::ListWriter> {
+        use crate::IonError;
+        use crate::lazy::expanded::template::ParameterEncoding;
+
+        let _param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let value_writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
+
+        value_writer.list_writer()
+    }
+
+    fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
+        use crate::IonError;
+        use crate::lazy::expanded::template::ParameterEncoding;
+
+        let _param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let value_writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
+
+        value_writer.sexp_writer()
+    }
+
+    fn struct_writer(self) -> IonResult<Self::StructWriter> {
+        use crate::IonError;
+        use crate::lazy::expanded::template::ParameterEncoding;
+
+        let _param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let value_writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
+
+        value_writer.struct_writer()
+    }
+
+    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
+        where
+            Self: 'a
+    {
+        use crate::IonError;
+        use crate::lazy::expanded::template::ParameterEncoding;
+
+        let _param = self
+            .parameter
+            .ok_or(IonError::encoding_error("unexpected parameter provided"))
+            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
+            .and_then(|p| p.expect_single_expression())?;
+
+        let value_writer = BinaryValueWriter_1_1::new(
+            self.allocator,
+            self.buffer,
+            self.value_writer_config,
+            self.macros,
+        );
+
+        value_writer.eexp_writer(macro_id)
+    }
+}
+
+impl<'top> AnnotatableWriter for BinaryEExpParameterValueWriter_1_1<'_, 'top> {
+    type AnnotatedValueWriter<'a>
+        = BinaryAnnotatedValueWriter_1_1<'a, 'top>
+    where
+        Self: 'a;
+
+    fn with_annotations<'a>(
+        self,
+        annotations: impl AnnotationSeq<'a>,
+    ) -> IonResult<Self::AnnotatedValueWriter<'a>>
+    where
+        Self: 'a,
+    {
+        Ok(BinaryAnnotatedValueWriter_1_1::new(
+                self.allocator,
+                self.buffer,
+                annotations.into_annotations_vec(),
+                self.value_writer_config,
+                self.macros,
+        ))
     }
 }
 
@@ -2920,21 +3238,23 @@ mod tests {
         Ok(())
     }
 
+    // TODO: Revisit this unit test, we need to change the system macro being called.. originally
+    // it was calling (:none), but with the parameter tracking it will fail since :none does not
+    // take arguments.
     #[test]
     fn write_macro_invocations() -> IonResult<()> {
         encoding_test(
             |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
-                let mut args = writer.eexp_writer(0)?;
-                args.write_symbol("foo")?
-                    .write_symbol("bar")?
-                    .write_symbol("baz")?;
+                let mut args = writer.eexp_writer(7)?; // sum
+                args
+                    .write_i64(5)?
+                    .write_i64(6)?;
                 args.close()
             },
             &[
-                0x00, // Invoke macro address 0
-                0xA3, 0x66, 0x6f, 0x6f, // foo
-                0xA3, 0x62, 0x61, 0x72, // bar
-                0xA3, 0x62, 0x61, 0x7a, // baz
+                0x07, // Invoke macro address 7
+                0x61, 0x05, // 5
+                0x61, 0x06, // 6
             ],
         )?;
         Ok(())
@@ -2945,17 +3265,16 @@ mod tests {
         encoding_test(
             |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
                 let mut args =
-                    writer.eexp_writer(MacroIdRef::SystemAddress(system_macros::MAKE_STRING))?;
-                args.write_symbol("foo")?
-                    .write_symbol("bar")?
-                    .write_symbol("baz")?;
+                    writer.eexp_writer(MacroIdRef::SystemAddress(system_macros::SUM))?;
+                args
+                    .write_i64(5)?
+                    .write_i64(6)?;
                 args.close()
             },
             &[
-                0xEF, 0x09, // Invoke system macro address 3
-                0xA3, 0x66, 0x6f, 0x6f, // foo
-                0xA3, 0x62, 0x61, 0x72, // bar
-                0xA3, 0x62, 0x61, 0x7a, // baz
+                0xEF, 0x07, // Invoke system macro address 7 (sum)
+                0x61, 0x05, // 5
+                0x61, 0x06, // 6
             ],
         )?;
         Ok(())
