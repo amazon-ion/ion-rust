@@ -73,7 +73,7 @@ impl FixedUInt {
         let encoded_bytes = value.to_le_bytes();
 
         if !(0..256u128).contains(&value) {
-            return IonResult::encoding_error("provided unsigned intger value does not fit within 1 byte");
+            return IonResult::encoding_error("provided unsigned integer value does not fit within 1 byte");
         }
 
         output.write_all(&encoded_bytes[..1])?;

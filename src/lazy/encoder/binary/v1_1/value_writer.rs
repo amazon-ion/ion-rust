@@ -974,7 +974,6 @@ macro_rules! validate_parameter_and_delegate {
         fn $method(self, value: $value_type) -> IonResult<()> {
             use $crate::IonError;
             use $crate::lazy::expanded::template::ParameterEncoding;
-            println!("Param: {:?}", self.parameter);
             let _param = self
                 .parameter
                 .ok_or(IonError::encoding_error("unexpected parameter provided"))
