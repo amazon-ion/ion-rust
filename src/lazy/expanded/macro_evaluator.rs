@@ -3173,6 +3173,30 @@ mod tests {
     }
 
     #[test]
+    fn uint8_parameters() -> IonResult<()> {
+        let template_definition =
+            "(macro int_pair (uint8::x uint8::y) (.values (%x) (%y)))";
+        let macro_id = MacroTable::FIRST_USER_MACRO_ID as u8;
+        let tests: &[(&[u8], (u64, u64))] = &[
+            (&[macro_id, 0x00, 0x00], (0, 0)),
+        ];
+
+        for (stream, (num1, num2)) in tests.iter().copied() {
+            let mut reader = Reader::new(v1_1::Binary, stream)?;
+            reader.register_template_src(template_definition)?;
+            assert_eq!(
+                reader.next()?.unwrap().read()?.expect_int()?,
+                Int::from(num1)
+            );
+            assert_eq!(
+                reader.next()?.unwrap().read()?.expect_int()?,
+                Int::from(num2)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn it_takes_all_kinds() -> IonResult<()> {
         eval_template_invocation(
             r#"(macro foo () 

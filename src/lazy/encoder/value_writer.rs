@@ -64,7 +64,11 @@ pub trait EExpWriter: SequenceWriter + EExpWriterInternal {
     fn current_parameter(&self) -> Option<&Parameter>;
 
     fn write_flex_uint(&mut self, _value: impl Into<UInt>) -> IonResult<()> {
-        todo!("current only implemented for binary 1.1 to enable unit testing for the reader")
+        todo!("currently only implemented for binary 1.1 to enable unit testing for the reader")
+    }
+
+    fn write_fixed_uint8(&mut self, _value: impl Into<u8>) -> IonResult<()> {
+        todo!("currently only implemented for binary 1.1 to enable unit testing for the reader")
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>>;
