@@ -208,6 +208,9 @@ pub enum ParameterEncoding {
     Tagged,
     FlexUInt,
     UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
     // TODO: tagless types, including fixed-width types and macros
     MacroShaped(Arc<MacroDef>),
 }
@@ -219,6 +222,9 @@ impl Display for ParameterEncoding {
             Tagged => write!(f, "tagged"),
             FlexUInt => write!(f, "flex_uint"),
             UInt8 => write!(f, "uint8"),
+            UInt16 => write!(f, "uint16"),
+            UInt32 => write!(f, "uint32"),
+            UInt64 => write!(f, "uint64"),
             MacroShaped(m) => write!(f, "{}", m.name().unwrap_or("<anonymous>")),
         }
     }

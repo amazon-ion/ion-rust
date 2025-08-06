@@ -1,5 +1,6 @@
 use std::io::Write;
 
+use num_traits::{PrimInt, Unsigned};
 use ice_code::ice as cold_path;
 
 use crate::decimal::coefficient::Coefficient;
@@ -66,17 +67,19 @@ impl FixedUInt {
         self.size_in_bytes
     }
 
-    /// Write the provided UInt-like as a uint8 ensuring that the value fits in 8bits.
     #[inline]
-    pub(crate) fn write_as_uint8<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<()> {
-        let value = value.into().data;
+    pub(crate) fn write_as_uint<I: PrimInt + Unsigned>(output: &mut impl Write, value: impl Into<UInt>) -> IonResult<()> {
+        let size_in_bytes = std::mem::size_of::<I>();
+        let value: u128 = value.into().data;
         let encoded_bytes = value.to_le_bytes();
+        let max_value: u128 = num_traits::cast::cast(I::max_value())
+            .ok_or(IonError::encoding_error("Unable to represent bounds for value as 128bit value"))?;
 
-        if !(0..256u128).contains(&value) {
+        if !(0..=max_value).contains(&value) {
             return IonResult::encoding_error("provided unsigned integer value does not fit within 1 byte");
         }
 
-        output.write_all(&encoded_bytes[..1])?;
+        output.write_all(&encoded_bytes[..size_in_bytes])?;
         Ok(())
     }
 }

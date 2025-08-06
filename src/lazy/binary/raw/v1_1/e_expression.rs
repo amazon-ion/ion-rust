@@ -342,6 +342,48 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                         remaining,
                     )
                 }
+                ParameterEncoding::UInt16 => {
+                    let (fixed_uint_lazy_value, remaining) = try_or_some_err! {
+                        self.remaining_args_buffer.read_fixed_uint_as_lazy_value(2)
+                    };
+                    let value_ref = &*self
+                        .remaining_args_buffer
+                        .context()
+                        .allocator()
+                        .alloc_with(|| fixed_uint_lazy_value);
+                    (
+                        EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
+                        remaining,
+                    )
+                }
+                ParameterEncoding::UInt32 => {
+                    let (fixed_uint_lazy_value, remaining) = try_or_some_err! {
+                        self.remaining_args_buffer.read_fixed_uint_as_lazy_value(4)
+                    };
+                    let value_ref = &*self
+                        .remaining_args_buffer
+                        .context()
+                        .allocator()
+                        .alloc_with(|| fixed_uint_lazy_value);
+                    (
+                        EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
+                        remaining,
+                    )
+                }
+                ParameterEncoding::UInt64 => {
+                    let (fixed_uint_lazy_value, remaining) = try_or_some_err! {
+                        self.remaining_args_buffer.read_fixed_uint_as_lazy_value(8)
+                    };
+                    let value_ref = &*self
+                        .remaining_args_buffer
+                        .context()
+                        .allocator()
+                        .alloc_with(|| fixed_uint_lazy_value);
+                    (
+                        EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
+                        remaining,
+                    )
+                }
                 ParameterEncoding::MacroShaped(_macro_ref) => {
                     todo!("macro-shaped parameter encoding")
                 } // TODO: The other tagless encodings
