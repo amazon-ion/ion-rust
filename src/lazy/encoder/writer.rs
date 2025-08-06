@@ -962,11 +962,6 @@ impl<V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'_, V> {
     /// Writes a value in the current context (list, s-expression, or stream) and upon success
     /// returns another reference to `self` to enable method chaining.
     fn write<Value: WriteAsIon>(&mut self, value: Value) -> IonResult<&mut Self> {
-        // self.expect_next_parameter()
-        //     // Make sure this parameter accepts an ungrouped value expression
-        //     .and_then(|p| p.expect_single_expression())
-        //     // Make sure this parameter supports the tagged encoding
-        //     .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))?;
         value.write_as_ion(self.make_value_writer())?;
         Ok(self)
     }
