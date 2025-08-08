@@ -112,6 +112,9 @@ pub enum BinaryValueEncoding {
     Tagged,
     FlexUInt,
     UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -361,9 +364,9 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         }
     }
 
-    pub(crate) fn for_fixed_uint8(input: BinaryBuffer<'top>) -> Self {
+    pub(crate) fn for_fixed_uint(input: BinaryBuffer<'top>, encoding: BinaryValueEncoding) -> Self {
         let encoded_value = EncodedBinaryValue {
-            encoding: BinaryValueEncoding::UInt8,
+            encoding,
             header: Header {
                 ion_type: IonType::Int,
                 ion_type_code: OpcodeType::Nop,
