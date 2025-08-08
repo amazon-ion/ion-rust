@@ -65,6 +65,20 @@ impl FixedUInt {
     pub fn size_in_bytes(&self) -> usize {
         self.size_in_bytes
     }
+
+    /// Write the provided UInt-like as a uint8 ensuring that the value fits in 8bits.
+    #[inline]
+    pub(crate) fn write_as_uint8<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<()> {
+        let value = value.into().data;
+        let encoded_bytes = value.to_le_bytes();
+
+        if !(0..256u128).contains(&value) {
+            return IonResult::encoding_error("provided unsigned integer value does not fit within 1 byte");
+        }
+
+        output.write_all(&encoded_bytes[..1])?;
+        Ok(())
+    }
 }
 
 impl TryFrom<FixedUInt> for Coefficient {
