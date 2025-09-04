@@ -538,6 +538,7 @@ impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_0<W> {
     }
 }
 
+#[allow(dead_code)] // TODO: Evaluate
 fn transcribe_raw_binary_to_text<
     'a,
     W: Write + 'a,

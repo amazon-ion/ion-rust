@@ -379,6 +379,9 @@ impl TemplateCompiler {
             return match encoding_name {
                 "flex_uint" => Ok(ParameterEncoding::FlexUInt),
                 "uint8" => Ok(ParameterEncoding::UInt8),
+                "uint16" => Ok(ParameterEncoding::UInt16),
+                "uint32" => Ok(ParameterEncoding::UInt32),
+                "uint64" => Ok(ParameterEncoding::UInt64),
                 _ => IonResult::decoding_error(format!(
                     "unrecognized encoding '{encoding_name}' specified for parameter"
                 )),

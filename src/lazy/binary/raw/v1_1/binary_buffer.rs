@@ -258,14 +258,22 @@ impl<'a> BinaryBuffer<'a> {
         Ok((value, remaining_input))
     }
 
-    pub fn read_fixed_uint_as_lazy_value(self, size_in_bytes: usize) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
+    pub fn read_fixed_uint_as_lazy_value(self, encoding: BinaryValueEncoding) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
+        let size_in_bytes = match encoding {
+            BinaryValueEncoding::UInt8 => 1,
+            BinaryValueEncoding::UInt16 => 2,
+            BinaryValueEncoding::UInt32 => 4,
+            BinaryValueEncoding::UInt64 => 8,
+            _ => return IonResult::illegal_operation(format!("invalid binary encoding for fixed uint: {encoding:?}")),
+        };
+
         if self.len() < size_in_bytes {
-            return IonResult::incomplete("a uint8", self.offset());
+            return IonResult::incomplete("a uint", self.offset());
         }
 
         let matched_input = self.slice(0, size_in_bytes);
         let remaining_input = self.slice_to_end(size_in_bytes);
-        let value = LazyRawBinaryValue_1_1::for_fixed_uint8(matched_input);
+        let value = LazyRawBinaryValue_1_1::for_fixed_uint(matched_input, encoding);
         Ok((value, remaining_input))
     }
 

@@ -1469,7 +1469,7 @@ impl TimestampBuilderWrapper {
         } else if arg.0 == MakeTimestampArgs::Offset {
             self.process_offset(value_ref)
         } else {
-            return IonResult::decoding_error(format!("value provided for '{parameter_name}', but no value for 'second' specified."));
+            IonResult::decoding_error(format!("value provided for '{parameter_name}', but no value for 'second' specified."))
         }
     }
 

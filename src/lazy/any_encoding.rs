@@ -295,6 +295,7 @@ pub enum AnyEExpArgGroupKind<'top> {
 }
 
 impl AnyEExpArgGroupKind<'_> {
+    #[allow(dead_code)] // TODO: Evaluate
     fn encoding(&self) -> &ParameterEncoding {
         match self {
             AnyEExpArgGroupKind::Text_1_1(g) => g.encoding(),
