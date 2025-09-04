@@ -571,6 +571,7 @@ impl<'top> EExpressionArgGroup<'top, BinaryEncoding_1_1> for BinaryEExpArgGroup<
     }
 }
 
+#[allow(dead_code)] // TODO: Evaluate
 #[derive(Debug, Clone)]
 pub struct RawBinarySequenceCacheIterator_1_1<'top> {
     child_exprs: &'top [LazyRawValueExpr<'top, v1_1::Binary>],
