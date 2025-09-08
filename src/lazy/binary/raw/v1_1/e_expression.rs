@@ -331,36 +331,21 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                 enc@ ParameterEncoding::UInt8 |
                 enc@ ParameterEncoding::UInt16 |
                 enc@ ParameterEncoding::UInt32 |
-                enc@ ParameterEncoding::UInt64
+                enc@ ParameterEncoding::UInt64 |
+                enc@ ParameterEncoding::Int8 |
+                enc@ ParameterEncoding::Int16 |
+                enc@ ParameterEncoding::Int32 |
+                enc@ ParameterEncoding::Int64
                     => {
                     let binary_enc = try_or_some_err!(enc.try_into());
                     let (fixed_uint_lazy_value, remaining) = try_or_some_err! {
-                        self.remaining_args_buffer.read_fixed_uint_as_lazy_value(binary_enc)
+                        self.remaining_args_buffer.read_fixed_int_type_as_lazy_value(binary_enc)
                     };
                     let value_ref = &*self
                         .remaining_args_buffer
                         .context()
                         .allocator()
                         .alloc_with(|| fixed_uint_lazy_value);
-                    (
-                        EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
-                        remaining,
-                    )
-                }
-                enc @ ParameterEncoding::Int8 |
-                enc @ ParameterEncoding::Int16 |
-                enc @ ParameterEncoding::Int32 |
-                enc @ ParameterEncoding::Int64
-                    => {
-                    let binary_enc = try_or_some_err!(enc.try_into());
-                    let (fixed_int_lazy_value, remaining) = try_or_some_err! {
-                        self.remaining_args_buffer.read_fixed_int_as_lazy_value(binary_enc)
-                    };
-                    let value_ref = &*self
-                        .remaining_args_buffer
-                        .context()
-                        .allocator()
-                        .alloc_with(|| fixed_int_lazy_value);
                     (
                         EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
                         remaining,
