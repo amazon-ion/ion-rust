@@ -1086,6 +1086,10 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
             PE::UInt64 => value
                 .try_into()
                 .and_then(|uint: UInt| FixedUInt::write_as_uint::<u64>(self.buffer, uint)),
+            PE::Int8 => FixedInt::write_as_int::<i8>(self.buffer, value),
+            PE::Int16 => FixedInt::write_as_int::<i16>(self.buffer, value),
+            PE::Int32 => FixedInt::write_as_int::<i32>(self.buffer, value),
+            PE::Int64 => FixedInt::write_as_int::<i64>(self.buffer, value),
             PE::FlexUInt => value
                 .try_into()
                 .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
@@ -1135,6 +1139,10 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
             PE::UInt64 => value
                 .try_into()
                 .and_then(|uint: UInt| FixedUInt::write_as_uint::<u64>(self.buffer, uint)),
+            PE::Int8 => FixedInt::write_as_int::<i8>(self.buffer, value),
+            PE::Int16 => FixedInt::write_as_int::<i16>(self.buffer, value),
+            PE::Int32 => FixedInt::write_as_int::<i32>(self.buffer, value),
+            PE::Int64 => FixedInt::write_as_int::<i64>(self.buffer, value),
             PE::FlexUInt => value
                 .try_into()
                 .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))

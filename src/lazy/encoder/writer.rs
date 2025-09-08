@@ -1508,6 +1508,14 @@ mod tests {
         #[case::uint16("(macro foo (uint16::x) (%x))", 5, "5")]
         #[case::uint32("(macro foo (uint32::x) (%x))", 5, "5")]
         #[case::uint64("(macro foo (uint64::x) (%x))", 5, "5")]
+        #[case::int8_neg("(macro foo (int8::x) (%x))", -5, "-5")]
+        #[case::int8_pos("(macro foo (int8::x) (%x))", 5, "5")]
+        #[case::int16_neg("(macro foo (int16::x) (%x))", -5, "-5")]
+        #[case::int16_pos("(macro foo (int16::x) (%x))", 5, "5")]
+        #[case::int32_neg("(macro foo (int32::x) (%x))", -5, "-5")]
+        #[case::int32_pos("(macro foo (int32::x) (%x))", 5, "5")]
+        #[case::int64_neg("(macro foo (int64::x) (%x))", -5, "-5")]
+        #[case::int64_pos("(macro foo (int64::x) (%x))", 5, "5")]
         fn tagless_uint_encoding(#[case] macro_source: &str, #[case] input: i64, #[case] expected: &str) -> IonResult<()> {
             use crate::{Int, Element};
 
@@ -1593,5 +1601,6 @@ mod tests {
 
             Ok(())
         }
+
     }
 }
