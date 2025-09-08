@@ -328,9 +328,14 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                         remaining,
                     )
                 }
-                ParameterEncoding::UInt8 => {
+                enc@ ParameterEncoding::UInt8 |
+                enc@ ParameterEncoding::UInt16 |
+                enc@ ParameterEncoding::UInt32 |
+                enc@ ParameterEncoding::UInt64
+                    => {
+                    let binary_enc = try_or_some_err!(enc.try_into());
                     let (fixed_uint_lazy_value, remaining) = try_or_some_err! {
-                        self.remaining_args_buffer.read_fixed_uint_as_lazy_value(1)
+                        self.remaining_args_buffer.read_fixed_uint_as_lazy_value(binary_enc)
                     };
                     let value_ref = &*self
                         .remaining_args_buffer
@@ -566,6 +571,7 @@ impl<'top> EExpressionArgGroup<'top, BinaryEncoding_1_1> for BinaryEExpArgGroup<
     }
 }
 
+#[allow(dead_code)] // TODO: Evaluate
 #[derive(Debug, Clone)]
 pub struct RawBinarySequenceCacheIterator_1_1<'top> {
     child_exprs: &'top [LazyRawValueExpr<'top, v1_1::Binary>],

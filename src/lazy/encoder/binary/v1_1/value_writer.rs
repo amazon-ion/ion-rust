@@ -1076,7 +1076,16 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
         let result = match param.encoding() {
             PE::UInt8 => value
                 .try_into()
-                .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint)),
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u8>(self.buffer, uint)),
+            PE::UInt16 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u16>(self.buffer, uint)),
+            PE::UInt32 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u32>(self.buffer, uint)),
+            PE::UInt64 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u64>(self.buffer, uint)),
             PE::FlexUInt => value
                 .try_into()
                 .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))
@@ -1116,7 +1125,16 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
         let result = match param.encoding() {
             PE::UInt8 => value
                 .try_into()
-                .and_then(|uint: UInt| FixedUInt::write_as_uint8(self.buffer, uint)),
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u8>(self.buffer, uint)),
+            PE::UInt16 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u16>(self.buffer, uint)),
+            PE::UInt32 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u32>(self.buffer, uint)),
+            PE::UInt64 => value
+                .try_into()
+                .and_then(|uint: UInt| FixedUInt::write_as_uint::<u64>(self.buffer, uint)),
             PE::FlexUInt => value
                 .try_into()
                 .and_then(|uint: UInt| FlexUInt::write(self.buffer, uint))

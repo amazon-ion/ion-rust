@@ -1,4 +1,4 @@
-use crate::lazy::binary::raw::v1_1::binary_buffer::ArgGroupingBitmap;
+use crate::lazy::binary::raw::v1_1::{value::BinaryValueEncoding, binary_buffer::ArgGroupingBitmap};
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{
@@ -208,6 +208,9 @@ pub enum ParameterEncoding {
     Tagged,
     FlexUInt,
     UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
     // TODO: tagless types, including fixed-width types and macros
     MacroShaped(Arc<MacroDef>),
 }
@@ -219,7 +222,27 @@ impl Display for ParameterEncoding {
             Tagged => write!(f, "tagged"),
             FlexUInt => write!(f, "flex_uint"),
             UInt8 => write!(f, "uint8"),
+            UInt16 => write!(f, "uint16"),
+            UInt32 => write!(f, "uint32"),
+            UInt64 => write!(f, "uint64"),
             MacroShaped(m) => write!(f, "{}", m.name().unwrap_or("<anonymous>")),
+        }
+    }
+}
+
+impl TryFrom<&ParameterEncoding> for BinaryValueEncoding {
+    type Error = IonError;
+
+    fn try_from(value: &ParameterEncoding) -> Result<Self, Self::Error> {
+        match value {
+            ParameterEncoding::MacroShaped(_) =>
+                Err(IonError::illegal_operation("attempt to convert macro-shape parameter encoding to binary value encoding")),
+            ParameterEncoding::FlexUInt => Ok(BinaryValueEncoding::FlexUInt),
+            ParameterEncoding::Tagged => Ok(BinaryValueEncoding::Tagged),
+            ParameterEncoding::UInt8 => Ok(BinaryValueEncoding::UInt8),
+            ParameterEncoding::UInt16 => Ok(BinaryValueEncoding::UInt16),
+            ParameterEncoding::UInt32 => Ok(BinaryValueEncoding::UInt32),
+            ParameterEncoding::UInt64 => Ok(BinaryValueEncoding::UInt64),
         }
     }
 }

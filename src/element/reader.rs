@@ -70,6 +70,7 @@ pub trait ElementReader {
 
 /// Holds a reference to a given [ElementReader] implementation and yields one [Element] at a time
 /// until the stream is exhausted or invalid data is encountered.
+#[allow(dead_code)] // TODO: Evaluate.
 pub struct ElementIterator<'a, R: ElementReader + ?Sized> {
     reader: &'a mut R,
 }
