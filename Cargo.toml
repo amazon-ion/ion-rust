@@ -99,6 +99,11 @@ harness = false
 name = "encoding_primitives"
 harness = false
 
+[[bench]]
+name = "byod"
+harness = false
+bench = false
+
 [profile.release]
 lto = true
 codegen-units = 1

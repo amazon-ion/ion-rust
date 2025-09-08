@@ -10,7 +10,8 @@ mod benchmark {
 
 #[cfg(feature = "experimental")]
 mod benchmark {
-    use criterion::{black_box, Criterion};
+    use std::hint::black_box;
+    use criterion::Criterion;
     use ion_rs::{v1_0, v1_1, IonResult, RawSymbolRef, SequenceWriter, StructWriter, ValueWriter};
 
     fn write_struct_with_string_values(value_writer: impl ValueWriter) -> IonResult<()> {
