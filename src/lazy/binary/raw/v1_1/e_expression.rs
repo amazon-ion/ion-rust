@@ -351,6 +351,23 @@ impl<'top> Iterator for BinaryEExpArgsInputIter<'top> {
                         remaining,
                     )
                 }
+                enc@ ParameterEncoding::Float32 |
+                enc@ ParameterEncoding::Float64
+                    => {
+                        let binary_enc = try_or_some_err!(enc.try_into());
+                        let (float_lazy_value, remaining) = try_or_some_err! {
+                            self.remaining_args_buffer.read_float_as_lazy_value(binary_enc)
+                        };
+                        let value_ref = &*self
+                            .remaining_args_buffer
+                            .context()
+                            .allocator()
+                            .alloc_with(|| float_lazy_value);
+                        (
+                            EExpArg::new(parameter, EExpArgExpr::ValueLiteral(value_ref)),
+                            remaining,
+                        )
+                }
                 ParameterEncoding::MacroShaped(_macro_ref) => {
                     todo!("macro-shaped parameter encoding")
                 } // TODO: The other tagless encodings

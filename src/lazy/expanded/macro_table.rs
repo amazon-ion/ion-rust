@@ -187,6 +187,12 @@ fn write_macro_signature_as_ion<V: ValueWriter>(
             ParameterEncoding::Int64 => value_writer
                 .with_annotations("int64")?
                 .write_symbol(param.name())?,
+            ParameterEncoding::Float32 => value_writer
+                .with_annotations("float32")?
+                .write_symbol(param.name())?,
+            ParameterEncoding::Float64 => value_writer
+                .with_annotations("float64")?
+                .write_symbol(param.name())?,
             ParameterEncoding::MacroShaped(_) => todo!(),
         };
         let cardinality_modifier = match param.cardinality() {

@@ -1375,7 +1375,7 @@ mod tests {
 
     mod eexp_parameter_validation {
         use super::*;
-        use num_traits::{PrimInt, Signed, Unsigned};
+        use num_traits::{Float, PrimInt, Signed, Unsigned};
         use rstest::*;
 
         #[test]
@@ -1667,6 +1667,34 @@ mod tests {
             let mut eexp_writer = writer.eexp_writer(&foo)?;
             let result = eexp_writer.write_i64(min_int_minus_one.try_into().unwrap());
             assert!(result.is_err(), "unexpected success");
+
+            Ok(())
+        }
+
+        #[rstest]
+        #[case::float32("(macro foo (float32::x) (%x))", 1.0f32, "1.0e0")]
+        #[case::float32_neg("(macro foo (float32::x) (%x))", -1.0f32, "-1.0e0")]
+        #[case::float64("(macro foo (float64::x) (%x))", 5.0f64, "5.0e0")]
+        #[case::float64_neg("(macro foo (float64::x) (%x))", -5.0f64, "-5.0e0")]
+        fn tagless_float_encoding<T: Float>(#[case] macro_source: &str, #[case] input: T, #[case] expected: &str) -> IonResult<()> {
+            use crate::Element;
+
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+
+            if std::mem::size_of::<T>() == std::mem::size_of::<f64>() {
+                eexp_writer.write_f64(num_traits::cast::<_, f64>(input).unwrap())?;
+            } else {
+                eexp_writer.write_f32(num_traits::cast::<_, f32>(input).unwrap())?;
+            }
+            eexp_writer.close()?;
+
+            let output = writer.close()?;
+            let actual = Element::read_all(&output)?;
+            let exp_elem = Element::read_all(expected)?;
+            assert_eq!(actual, exp_elem);
 
             Ok(())
         }

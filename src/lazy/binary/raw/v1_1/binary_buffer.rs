@@ -278,6 +278,24 @@ impl<'a> BinaryBuffer<'a> {
         Ok((value, remaining_input))
     }
 
+    pub fn read_float_as_lazy_value(self, encoding: BinaryValueEncoding) -> ParseResult<'a, LazyRawBinaryValue_1_1<'a>> {
+        use BinaryValueEncoding::{Float32, Float64};
+        let size_in_bytes = match encoding {
+            Float32 => 4,
+            Float64 => 8,
+            _ => return IonResult::illegal_operation(format!("invalid binary encoding for taggless float value: {encoding:?}")),
+        };
+
+        if self.len() < size_in_bytes {
+            return IonResult::incomplete("a float", self.offset());
+        }
+
+        let matched_input = self.slice(0, size_in_bytes);
+        let remaining_input = self.slice_to_end(size_in_bytes);
+        let value = LazyRawBinaryValue_1_1::for_float_type(matched_input, encoding);
+        Ok((value, remaining_input))
+    }
+
     pub fn slice_to_end(&self, offset: usize) -> BinaryBuffer<'a> {
         BinaryBuffer {
             data: &self.data[offset..],

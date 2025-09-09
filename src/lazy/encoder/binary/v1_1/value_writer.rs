@@ -222,6 +222,16 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
         Ok(())
     }
 
+    pub fn write_tagless_f32(mut self, value: f32) -> IonResult<()> {
+        self.push_bytes(&value.to_le_bytes());
+        Ok(())
+    }
+
+    pub fn write_tagless_f64(mut self, value: f64) -> IonResult<()> {
+        self.push_bytes(&value.to_le_bytes());
+        Ok(())
+    }
+
     pub fn write_decimal(mut self, value: &Decimal) -> IonResult<()> {
         // Insert a placeholder opcode; we'll overwrite the length nibble with the appropriate value when the encoding
         // is complete.
@@ -1169,10 +1179,9 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
         use crate::lazy::expanded::template::ParameterEncoding;
 
         // TODO: Support tagless types.
-        let _param = self
+        let param = self
             .parameter
             .ok_or(IonError::encoding_error("unexpected parameter provided"))
-            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
             .and_then(|p| p.expect_single_expression())?;
 
         let value_writer = BinaryValueWriter_1_1::new(
@@ -1181,18 +1190,22 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
             self.value_writer_config,
             self.macros,
         );
-        value_writer.write_f32(value)
+        if param.is_tagged() {
+            value_writer.write_f32(value)
+        } else if matches!(param.encoding(), &ParameterEncoding::Float32 | &ParameterEncoding::Float64) {
+            value_writer.write_tagless_f32(value)
+        } else {
+            IonResult::encoding_error(format!("unable to write float for tagless parameter with encoding: {:?}", param.encoding()))
+        }
     }
 
     fn write_f64(self, value: f64) -> IonResult<()> {
         use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
 
-        // TODO: Support tagless types.
-        let _param = self
+        let param = self
             .parameter
             .ok_or(IonError::encoding_error("unexpected parameter provided"))
-            .and_then(|p| p.expect_encoding(&ParameterEncoding::Tagged))
             .and_then(|p| p.expect_single_expression())?;
 
         let value_writer = BinaryValueWriter_1_1::new(
@@ -1201,7 +1214,15 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
             self.value_writer_config,
             self.macros,
         );
-        value_writer.write_f64(value)
+
+        if param.is_tagged() {
+            value_writer.write_f64(value)
+        }
+        else if matches!(param.encoding(), &ParameterEncoding::Float32 | &ParameterEncoding::Float64) {
+            value_writer.write_tagless_f64(value)
+        } else {
+            IonResult::encoding_error(format!("unable to write float for tagless parameter with encoding: {:?}", param.encoding()))
+        }
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
