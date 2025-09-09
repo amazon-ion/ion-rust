@@ -265,8 +265,9 @@ mod benchmark {
         for elem in &elems {
             writer
                 .value_writer()
+                .with_annotations_encoding(AnnotationsEncoding::InlineText)
                 .with_symbol_value_encoding(SymbolValueEncoding::InlineText)
-                // .with_annotations_encoding(AnnotationsEncoding::InlineText)
+                .with_field_name_encoding(FieldNameEncoding::InlineText)
                 .write(elem)
                 .expect("unable to write value");
         }
@@ -284,6 +285,8 @@ mod benchmark {
             writer
                 .value_writer()
                 .with_annotations_encoding(AnnotationsEncoding::SymbolIds)
+                .with_symbol_value_encoding(SymbolValueEncoding::SymbolIds)
+                .with_field_name_encoding(FieldNameEncoding::SymbolIds)
                 .write(elem)
                 .expect("unable to write value");
         }
