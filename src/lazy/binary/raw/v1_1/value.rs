@@ -119,6 +119,8 @@ pub enum BinaryValueEncoding {
     Int16,
     Int32,
     Int64,
+    Float32,
+    Float64,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -373,6 +375,33 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             encoding,
             header: Header {
                 ion_type: IonType::Int,
+                ion_type_code: OpcodeType::Nop,
+                length_type: LengthType::Unknown,
+                byte: 0,
+            },
+
+            annotations_header_length: 0,
+            annotations_sequence_length: 0,
+            annotations_encoding: AnnotationsEncoding::SymbolAddress,
+
+            header_offset: input.offset(),
+            length_length: 0,
+            value_body_length: input.len(),
+            total_length: input.len(),
+        };
+
+        LazyRawBinaryValue_1_1 {
+            encoded_value,
+            input,
+            delimited_contents: DelimitedContents::None,
+        }
+    }
+
+    pub(crate) fn for_float_type(input: BinaryBuffer<'top>, encoding: BinaryValueEncoding) -> Self {
+        let encoded_value = EncodedBinaryValue {
+            encoding,
+            header: Header {
+                ion_type: IonType::Float,
                 ion_type_code: OpcodeType::Nop,
                 length_type: LengthType::Unknown,
                 byte: 0,

@@ -215,6 +215,8 @@ pub enum ParameterEncoding {
     Int16,
     Int32,
     Int64,
+    Float32,
+    Float64,
     // TODO: tagless types, including fixed-width types and macros
     MacroShaped(Arc<MacroDef>),
 }
@@ -233,6 +235,8 @@ impl Display for ParameterEncoding {
             Int16 => write!(f, "int16"),
             Int32 => write!(f, "int32"),
             Int64 => write!(f, "int64"),
+            Float32 => write!(f, "float32"),
+            Float64 => write!(f, "float64"),
             MacroShaped(m) => write!(f, "{}", m.name().unwrap_or("<anonymous>")),
         }
     }
@@ -255,6 +259,8 @@ impl TryFrom<&ParameterEncoding> for BinaryValueEncoding {
             ParameterEncoding::Int16 => Ok(BinaryValueEncoding::Int16),
             ParameterEncoding::Int32 => Ok(BinaryValueEncoding::Int32),
             ParameterEncoding::Int64 => Ok(BinaryValueEncoding::Int64),
+            ParameterEncoding::Float32 => Ok(BinaryValueEncoding::Float32),
+            ParameterEncoding::Float64 => Ok(BinaryValueEncoding::Float64),
         }
     }
 }
