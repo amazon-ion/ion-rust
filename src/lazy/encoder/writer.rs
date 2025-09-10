@@ -472,6 +472,16 @@ impl ApplicationValueWriter<'_, BinaryValueWriter_1_1<'_, '_>> {
             .with_symbol_value_encoding(symbol_value_encoding);
         self
     }
+
+    pub fn with_field_name_encoding(
+        mut self,
+        field_name_encoding: FieldNameEncoding,
+    ) -> Self {
+        self.value_writer_config = self
+            .value_writer_config
+            .with_field_name_encoding(field_name_encoding);
+        self
+    }
 }
 
 impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
