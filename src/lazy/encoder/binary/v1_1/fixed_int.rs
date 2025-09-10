@@ -1,8 +1,10 @@
 use std::io::Write;
 
 use crate::decimal::coefficient::Coefficient;
-use crate::result::IonFailure;
+use crate::result::{IonError, IonFailure};
 use crate::{Int, IonResult};
+
+use num_traits::{PrimInt, Signed};
 
 /// An Ion 1.1 encoding primitive that represents a fixed-length signed integer.
 #[derive(Debug)]
@@ -98,6 +100,27 @@ impl FixedInt {
 
     pub fn write(output: &mut impl Write, value: &Int) -> IonResult<usize> {
         Self::write_i128(output, value.data)
+    }
+
+    /// Writes the given Into<Int> as a taggless int value with the specified primitive size
+    /// represented by I.
+    #[inline]
+    pub fn write_as_int<I: PrimInt + Signed>(output: &mut impl Write, value: impl Into<Int>) -> IonResult<()> {
+        let size_in_bytes = std::mem::size_of::<I>();
+        let value: i128 = value.into().data;
+        let encoded_bytes = value.to_le_bytes();
+        let max_value: i128 = num_traits::cast(I::max_value())
+            .ok_or(IonError::encoding_error("Unable to represent bounds for value as 128bit value"))?;
+        let min_value: i128 = num_traits::cast(I::min_value())
+            .ok_or(IonError::encoding_error("Unable to represent bounds for value as 128bit value"))?;
+
+        if !(min_value..=max_value).contains(&value) {
+            return IonResult::encoding_error(format!("provided signed integer value does not fit within {size_in_bytes} bytes(s)"));
+        }
+
+        output.write_all(&encoded_bytes[..size_in_bytes])?;
+
+        Ok(())
     }
 
     #[inline]

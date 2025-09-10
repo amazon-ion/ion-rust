@@ -1385,7 +1385,7 @@ mod tests {
 
     mod eexp_parameter_validation {
         use super::*;
-        use num_traits::{PrimInt, Unsigned};
+        use num_traits::{PrimInt, Signed, Unsigned};
         use rstest::*;
 
         #[test]
@@ -1518,7 +1518,15 @@ mod tests {
         #[case::uint16("(macro foo (uint16::x) (%x))", 5, "5")]
         #[case::uint32("(macro foo (uint32::x) (%x))", 5, "5")]
         #[case::uint64("(macro foo (uint64::x) (%x))", 5, "5")]
-        fn tagless_uint_encoding(#[case] macro_source: &str, #[case] input: i64, #[case] expected: &str) -> IonResult<()> {
+        #[case::int8_neg("(macro foo (int8::x) (%x))", -5, "-5")]
+        #[case::int8_pos("(macro foo (int8::x) (%x))", 5, "5")]
+        #[case::int16_neg("(macro foo (int16::x) (%x))", -5, "-5")]
+        #[case::int16_pos("(macro foo (int16::x) (%x))", 5, "5")]
+        #[case::int32_neg("(macro foo (int32::x) (%x))", -5, "-5")]
+        #[case::int32_pos("(macro foo (int32::x) (%x))", 5, "5")]
+        #[case::int64_neg("(macro foo (int64::x) (%x))", -5, "-5")]
+        #[case::int64_pos("(macro foo (int64::x) (%x))", 5, "5")]
+        fn tagless_int_type_encoding(#[case] macro_source: &str, #[case] input: i64, #[case] expected: &str) -> IonResult<()> {
             use crate::{Int, Element};
 
             // write_int
@@ -1551,6 +1559,10 @@ mod tests {
             Ok(())
         }
 
+        /// Ensure that writing fixed int values outside the range of the tagless type's size is
+        /// caught as an error. This test uses the '_input' field to get the type of the primitive
+        /// we want to write in order to retrieve the maximum values for the primitive via
+        /// num_traits.
         #[rstest]
         #[case::uint8("(macro foo (uint8::x) (%x))", 5u8)]
         #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
@@ -1577,6 +1589,11 @@ mod tests {
             Ok(())
         }
 
+        /// Ensure that writing fixed int values outside the range of the tagless type's size is
+        /// caught as an error. This test uses the '_input' field to get the type of the primitive
+        /// we want to write in order to retrieve the maximum values for the primitive via
+        /// num_traits. This test differs from the above test in that it uses `write_i64` and
+        /// cannot handle 64bit values.
         #[rstest]
         #[case::uint8("(macro foo (uint8::x) (%x))", 5u8)]
         #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
@@ -1603,5 +1620,66 @@ mod tests {
 
             Ok(())
         }
+
+        /// Ensure that writing fixed int values outside the range of the tagless type's size is
+        /// caught as an error. This test uses the '_input' field to get the type of the primitive
+        /// we want to write in order to retrieve the minimum and maximum values for the primitive
+        /// via num_traits.
+        #[rstest]
+        #[case::int8("(macro foo (int8::x) (%x))", 5i8)]
+        #[case::uint16("(macro foo (int16::x) (%x))", 5i16)]
+        #[case::uint32("(macro foo (int32::x) (%x))", 5i32)]
+        #[case::uint64("(macro foo (int64::x) (%x))", 5i64)]
+        fn tagless_int_encoding_write_int_fails<T: PrimInt + Signed>(#[case] macro_source: &str, #[case] _input: T) -> IonResult<()> {
+            let max_int = T::max_value();
+            let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
+            let min_int = T::min_value();
+            let min_int_minus_one = num_traits::cast::cast::<_, i128>(min_int).unwrap() - 1i128;
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            let result = eexp_writer.write_int(&max_int_plus_one.into());
+            assert!(result.is_err(), "unexpected success");
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            let result = eexp_writer.write_int(&min_int_minus_one.into());
+            assert!(result.is_err(), "unexpected success");
+
+            Ok(())
+        }
+
+        /// Ensure that writing fixed int values outside the range of the tagless type's size is
+        /// caught as an error. This test uses the '_input' field to get the type of the primitive
+        /// we want to write in order to retrieve the minimum and maximum values for the primitive
+        /// via num_traits. This test differs from the above test in that it uses `write_i64` and
+        /// cannot handle 64bit values.
+        #[rstest]
+        #[case::int8("(macro foo (int8::x) (%x))", 5i8)]
+        #[case::uint16("(macro foo (int16::x) (%x))", 5i16)]
+        #[case::uint32("(macro foo (int32::x) (%x))", 5i32)]
+        fn tagless_int_encoding_write_i64_fails<T: PrimInt + Signed>(#[case] macro_source: &str, #[case] _input: T) -> IonResult<()> {
+            let max_int = T::max_value();
+            let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
+            let min_int = T::min_value();
+            let min_int_minus_one = num_traits::cast::cast::<_, i128>(min_int).unwrap() - 1i128;
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            let result = eexp_writer.write_i64(max_int_plus_one.try_into().unwrap());
+            assert!(result.is_err(), "unexpected success");
+
+            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
+            let foo = writer.compile_macro(macro_source)?;
+            let mut eexp_writer = writer.eexp_writer(&foo)?;
+            let result = eexp_writer.write_i64(min_int_minus_one.try_into().unwrap());
+            assert!(result.is_err(), "unexpected success");
+
+            Ok(())
+        }
+
     }
 }

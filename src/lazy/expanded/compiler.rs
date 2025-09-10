@@ -382,6 +382,10 @@ impl TemplateCompiler {
                 "uint16" => Ok(ParameterEncoding::UInt16),
                 "uint32" => Ok(ParameterEncoding::UInt32),
                 "uint64" => Ok(ParameterEncoding::UInt64),
+                "int8" => Ok(ParameterEncoding::Int8),
+                "int16" => Ok(ParameterEncoding::Int16),
+                "int32" => Ok(ParameterEncoding::Int32),
+                "int64" => Ok(ParameterEncoding::Int64),
                 _ => IonResult::decoding_error(format!(
                     "unrecognized encoding '{encoding_name}' specified for parameter"
                 )),
