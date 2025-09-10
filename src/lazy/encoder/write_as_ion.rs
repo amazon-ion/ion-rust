@@ -229,6 +229,7 @@ pub struct SExpTypeHint<S, T> {
     spooky: PhantomData<T>,
 }
 
+#[allow(dead_code)] // TODO: Evaluate
 impl<S, T> SExpTypeHint<S, T> {
     pub fn new(values: S) -> Self {
         Self {

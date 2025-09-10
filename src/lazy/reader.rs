@@ -164,6 +164,7 @@ impl<Encoding: Decoder, Input: IonInput> Iterator for Reader<Encoding, Input> {
     }
 }
 
+#[allow(dead_code)] // TODO: Evaluate
 pub struct LazyElementIterator<'iter, Encoding: Decoder, Input: IonInput> {
     lazy_reader: &'iter mut Reader<Encoding, Input>,
 }
