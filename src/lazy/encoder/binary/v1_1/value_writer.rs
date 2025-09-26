@@ -491,7 +491,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             }
             // (hour, minute, offset) are an atomic unit in the encoding--when one is present they must all be present.
             HourAndMinute => (6, OFFSET_BIT_OFFSET + NUM_OFFSET_BITS),
-            Second => (7, SECOND_BIT_OFFSET + SECOND_BIT_OFFSET),
+            Second => (7, SECOND_BIT_OFFSET + NUM_SECOND_BITS),
         };
 
         // Because we eagerly (and branchless-ly) encoded all of the time units, we may have populated bits that are
@@ -517,11 +517,13 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             _ => {
                 // We've confirmed that there are subseconds, so we can `unwrap()` this safely.
                 let subseconds = value.fractional_seconds_as_decimal().unwrap();
-                let encoded_coefficient_size =
-                    FlexUInt::write(self.encoding_buffer, subseconds.coefficient().magnitude())?;
+                // Write scale first, then coefficient (to match decoder expectations)
                 let encoded_scale_size =
-                    FixedUInt::write(self.encoding_buffer, u64::try_from(scale).unwrap())?;
-                encoded_coefficient_size + encoded_scale_size
+                    FlexUInt::write(self.encoding_buffer, u64::try_from(scale).unwrap())?;
+                let encoded_coefficient_size =
+                    FixedUInt::write(self.encoding_buffer, subseconds.coefficient().magnitude())?;
+
+                encoded_scale_size + encoded_coefficient_size
             }
         };
         encoded_length += subsecond_encoding_size;
@@ -2422,8 +2424,8 @@ mod tests {
                     0b1000_0000, // oooo_oomm
                     0b0001_0110, // ssoo_oooo
                     0b0000_0000, // ...._ssss
-                    0b0000_0001, // FlexUInt: 0 subseconds
-                    0b0000_0011, // FixedUInt: scale of 3 (exp: -3)
+                    0b0000_0111, // FlexUInt: scale of 3 (exp: -3)
+                    0b0000_0000, // FixedUInt: 0 subseconds
                 ],
             ),
             (
@@ -2438,8 +2440,8 @@ mod tests {
                     0b1000_0001, // oooo_oomm
                     0b1001_0110, // ssoo_oooo
                     0b0000_0111, // ...._ssss
-                    0b0011_1101, // FlexUInt: 30 subseconds
-                    0b0000_0110, // FixedUInt: scale of 6 (exp: -6)
+                    0b0000_1101, // FlexUInt: scale of 6 (exp: -6)
+                    0b0001_1110, // FixedUInt: 30 subseconds
                 ],
             ),
             (
@@ -2454,8 +2456,8 @@ mod tests {
                     0b1000_0010, // oooo_oomm
                     0b0101_0110, // ssoo_oooo
                     0b0000_1011, // ...._ssss
-                    0b0101_1011, // FlexUInt: 45 subseconds
-                    0b0000_1001, // FixedUInt: scale of 9 (exp: -9)
+                    0b0001_0011, // FlexUInt: scale of 9 (exp: -9)
+                    0b0010_1101, // FixedUInt: 45 subseconds
                 ],
             ),
             (
@@ -2470,8 +2472,8 @@ mod tests {
                     0b1111_1110, // oooo_oomm
                     0b0111_1111, // ssoo_oooo
                     0b0000_1011, // ...._ssss
-                    0b0101_1011, // FlexUInt: 45 subseconds
-                    0b0000_1001, // FixedUInt: scale of 9 (exp: -9)
+                    0b0001_0011, // FlexUInt: scale of 9 (exp: -9)
+                    0b0010_1101, // FixedUInt: 45 subseconds
                 ],
             ),
         ];
