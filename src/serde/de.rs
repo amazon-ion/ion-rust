@@ -595,57 +595,6 @@ impl<'de> de::VariantAccess<'de> for VariantAccess<'_, 'de> {
     }
 }
 
-#[derive(Clone, Copy)]
-struct UnitVariantAccess<'a, 'de> {
-    de: ValueDeserializer<'a, 'de>,
-}
-
-impl<'de> EnumAccess<'de> for UnitVariantAccess<'_, 'de> {
-    type Error = IonError;
-    type Variant = Self;
-
-    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
-    where
-        V: DeserializeSeed<'de>,
-    {
-        let variant = seed.deserialize(self.de)?;
-        Ok((variant, self))
-    }
-}
-
-impl<'de> de::VariantAccess<'de> for UnitVariantAccess<'_, 'de> {
-    type Error = IonError;
-
-    fn unit_variant(self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn newtype_variant_seed<T>(self, _seed: T) -> Result<T::Value, Self::Error>
-    where
-        T: DeserializeSeed<'de>,
-    {
-        IonResult::decoding_error("Unexpected newtype variant")
-    }
-
-    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        IonResult::decoding_error("Unexpected tuple variant")
-    }
-
-    fn struct_variant<V>(
-        self,
-        _fields: &'static [&'static str],
-        _visitor: V,
-    ) -> Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        IonResult::decoding_error("Unexpected struct variant")
-    }
-}
-
 struct MapKeyDeserializer {
     key: String,
 }
