@@ -1,3 +1,33 @@
+//! Bring Your Own Data Benchmark
+//!
+//! This benchmark is disabled by default but can be run explicitly.
+//!
+//! The intention is to provide your own ion data to run benchmarks on, rather than running
+//! benchmarks on hardcoded data.
+//!
+//! The current implementation works like this:
+//!
+//! - The benchmark looks for an environment variabled named "ION_BENCH", this variable should
+//!   contain the path to the ion data that you wish to benchmark.
+//! - The `full-read` benchmark is a benchmark that will measure reading all of the data in the
+//!   original file as provided by the user.
+//! - There are a number of benchmarks prefixed with `convert-`. These benchmarks will convert the
+//!   original data into either a 1.0 or 1.1 stream with potentially other options. For instance,
+//!   the `convert-prefixed-full-read` benchmark will convert the original data into a 1.1 stream
+//!   using prefixed containers for all containers in the stream. One caveat to this however, is
+//!   that the current conversion does not handle macro invocations, and instead evaluates the
+//!   macros. This will lead to a converted data set that does not execute any macros, but rather
+//!   inlines all of the values that the macros generated. The benchmark will need to be updated
+//!   in order to facilitate a more accurate conversion.
+//! - The write benchmarks, which are prefixed with `full-write` use the same converted data to
+//!   test write performance. The same caveat exists with these, the converted data does not invoke
+//!   macros, and will inline all of the data produced by the macros.
+//!
+//! An example use of this benchmark would look something like this:
+//! ```bash
+//! ION_BENCH=./benchmark_data/simple.10n cargo bench --features experimental --bench byod
+//! ```
+//!
 use criterion::{criterion_group, criterion_main};
 
 #[cfg(not(feature = "experimental"))]
@@ -69,6 +99,8 @@ mod benchmark {
         );
         drop(delimited_data);
 
+        // Convert the provided data into an ion 1.1 stream that uses prefixed containers and then
+        // measure the performance of reading the stream-equivalent data using a 1.1 reader.
         let prefixed_data = rewrite_prefixed_containers(&data);
         read_group.bench_with_input(
             BenchmarkId::new("convert-prefixed-full-read", &file),
@@ -99,6 +131,8 @@ mod benchmark {
         );
         drop(inlined_data);
 
+        // Convert the provided data into an ion 1.1 stream that uses symbol IDs and then measure
+        // the performance of reading the stream-equivalent data using a 1.1 reader.
         let referenced_data = rewrite_referenced_symbols(&data);
         read_group.bench_with_input(
             BenchmarkId::new("convert-referenced-symbols-full-read", &file),
@@ -118,7 +152,8 @@ mod benchmark {
         let mut write_group = c.benchmark_group("write");
         write_group.measurement_time(std::time::Duration::from_secs(30));
 
-        // Re-write the provided data with an ion 1.1 writer using default settings.
+        // Read the original data using the Element API, and re-write it to an ion 1.1 stream using
+        // a writer configured with default settings.
         write_group.bench_with_input(
             BenchmarkId::new("full-write-binary-1.1-default", &file),
             &data,
@@ -137,7 +172,8 @@ mod benchmark {
             }
         );
 
-        // Re-write the provided data using an ion 1.1 writer configured to use delimited containers.
+        // Read the original data using the Element API, and re-write it to an ion 1.1 stream using
+        // a writer configured to use delimited containers.
         write_group.bench_with_input(
             BenchmarkId::new("full-write-binary-1.1-delimited", &file),
             &data,
@@ -158,7 +194,8 @@ mod benchmark {
             }
         );
 
-        // Re-write the provided data using an ion 1.1 writer configured to use inline symbols
+        // Read the original data using the Element API, and re-write it to an ion 1.1 stream using
+        // a writer configured to use inline symbols.
         write_group.bench_with_input(
             BenchmarkId::new("full-write-binary-1.1-inline-symbols", &file),
             &data,
@@ -179,7 +216,8 @@ mod benchmark {
             }
         );
 
-        // Re-write the provided data using an ion 1.1 writer configured to use inline annotations.
+        // Read the original data using the Element API, and re-write it to an ion 1.1 stream using
+        // a writer configured to use inline symbols for annotations.
         write_group.bench_with_input(
             BenchmarkId::new("full-write-binary-1.1-inline-annotations", &file),
             &data,
@@ -200,7 +238,8 @@ mod benchmark {
             }
         );
 
-        // Re-write the provided data using an ion 1.0 writer.
+        // Read the original data using the Element API, and re-write it to an ion 1.0 stream using
+        // a writer configured with default settings.
         write_group.bench_with_input(
             BenchmarkId::new("full-write-binary-1.0", &file),
             &data,
