@@ -2424,8 +2424,8 @@ mod tests {
                     0b1000_0000, // oooo_oomm
                     0b0001_0110, // ssoo_oooo
                     0b0000_0000, // ...._ssss
-                    0b0000_0001, // FlexUInt: 0 subseconds
-                    0b0000_0011, // FixedUInt: scale of 3 (exp: -3)
+                    0b0000_0111, // FlexUInt: scale of 3 (exp: -3)
+                    0b0000_0000, // FixedUInt: 0 subseconds
                 ],
             ),
             (
@@ -2440,8 +2440,8 @@ mod tests {
                     0b1000_0001, // oooo_oomm
                     0b1001_0110, // ssoo_oooo
                     0b0000_0111, // ...._ssss
-                    0b0011_1101, // FlexUInt: 30 subseconds
-                    0b0000_0110, // FixedUInt: scale of 6 (exp: -6)
+                    0b0000_1101, // FlexUInt: scale of 6 (exp: -6)
+                    0b0001_1110, // FixedUInt: 30 subseconds
                 ],
             ),
             (
@@ -2456,8 +2456,8 @@ mod tests {
                     0b1000_0010, // oooo_oomm
                     0b0101_0110, // ssoo_oooo
                     0b0000_1011, // ...._ssss
-                    0b0101_1011, // FlexUInt: 45 subseconds
-                    0b0000_1001, // FixedUInt: scale of 9 (exp: -9)
+                    0b0001_0011, // FlexUInt: scale of 9 (exp: -9)
+                    0b0010_1101, // FixedUInt: 45 subseconds
                 ],
             ),
             (
@@ -2472,8 +2472,8 @@ mod tests {
                     0b1111_1110, // oooo_oomm
                     0b0111_1111, // ssoo_oooo
                     0b0000_1011, // ...._ssss
-                    0b0101_1011, // FlexUInt: 45 subseconds
-                    0b0000_1001, // FixedUInt: scale of 9 (exp: -9)
+                    0b0001_0011, // FlexUInt: scale of 9 (exp: -9)
+                    0b0010_1101, // FixedUInt: 45 subseconds
                 ],
             ),
         ];
