@@ -491,7 +491,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             }
             // (hour, minute, offset) are an atomic unit in the encoding--when one is present they must all be present.
             HourAndMinute => (6, OFFSET_BIT_OFFSET + NUM_OFFSET_BITS),
-            Second => (7, SECOND_BIT_OFFSET + SECOND_BIT_OFFSET),
+            Second => (7, SECOND_BIT_OFFSET + NUM_SECOND_BITS),
         };
 
         // Because we eagerly (and branchless-ly) encoded all of the time units, we may have populated bits that are
@@ -517,11 +517,13 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             _ => {
                 // We've confirmed that there are subseconds, so we can `unwrap()` this safely.
                 let subseconds = value.fractional_seconds_as_decimal().unwrap();
-                let encoded_coefficient_size =
-                    FlexUInt::write(self.encoding_buffer, subseconds.coefficient().magnitude())?;
+                // Write scale first, then coefficient (to match decoder expectations)
                 let encoded_scale_size =
-                    FixedUInt::write(self.encoding_buffer, u64::try_from(scale).unwrap())?;
-                encoded_coefficient_size + encoded_scale_size
+                    FlexUInt::write(self.encoding_buffer, u64::try_from(scale).unwrap())?;
+                let encoded_coefficient_size =
+                    FixedUInt::write(self.encoding_buffer, subseconds.coefficient().magnitude())?;
+
+                encoded_scale_size + encoded_coefficient_size
             }
         };
         encoded_length += subsecond_encoding_size;
