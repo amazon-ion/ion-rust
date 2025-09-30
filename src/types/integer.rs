@@ -261,6 +261,19 @@ impl Int {
     }
 
     #[inline(always)]
+    pub fn as_u64(&self) -> Option<u64> {
+        u64::try_from(self.data).ok()
+    }
+
+    #[inline]
+    pub fn expect_u64(&self) -> IonResult<u64> {
+        self.as_u64().ok_or_else(
+            #[inline(never)]
+            || IonError::decoding_error(format!("Int {self} was not in the range of a u64.")),
+        )
+    }
+
+    #[inline(always)]
     pub fn as_usize(&self) -> Option<usize> {
         usize::try_from(self.data).ok()
     }
@@ -635,5 +648,21 @@ mod integer_tests {
         assert_eq!(UInt::from(128_000u64).expect_u64(), Ok(128_000u64));
         assert_eq!(UInt::from(128_000u128).expect_u64(), Ok(128_000u64));
         assert!(UInt::from(u128::MAX).expect_u64().is_err())
+    }
+
+    #[test]
+    fn int_as_u64() {
+        assert_eq!(Int::from(128_000i64).as_u64(), Some(128_000u64));
+        assert_eq!(Int::from(0i64).as_u64(), Some(0u64));
+        assert!(Int::from(-1i64).as_u64().is_none());
+        assert!(Int::from(i128::MAX).as_u64().is_none());
+    }
+
+    #[test]
+    fn int_expect_u64() {
+        assert_eq!(Int::from(128_000i64).expect_u64(), Ok(128_000u64));
+        assert_eq!(Int::from(0i64).expect_u64(), Ok(0u64));
+        assert!(Int::from(-1i64).expect_u64().is_err());
+        assert!(Int::from(i128::MAX).expect_u64().is_err());
     }
 }
