@@ -553,23 +553,29 @@ mod tests {
     fn write_element_owned_and_borrowed() -> IonResult<()> {
         let mut writer = Writer::new(v1_0::Text, Vec::new())?;
 
-        // Test owned Element
-        let element: Element = ion_list![].with_annotations(["valid"]);
-        writer.write(element)?;
+        // Test owned Element with annotations (else branch)
+        let annotated_element: Element = ion_list![].with_annotations(["valid"]);
+        writer.write(annotated_element)?;
 
-        // Test borrowed Element
-        let element2: Element = ion_list![1, 2, 3].with_annotations(["numbers"]);
+        // Test owned Element without annotations (if branch)
+        let plain_element: Element = ion_list![1, 2, 3].into();
+        writer.write(plain_element)?;
+
+        // Test borrowed Element with annotations
+        let element2: Element = "ion!".with_annotations(["amazon"]);
         writer.write(&element2)?;
 
-        // Test Element types as owned values
-        writer.write("hello, world".with_annotations(["greeting"]))?;
+        // Test borrowed Element without annotations
+        let element3: Element = 10.into();
+        writer.write(&element3)?;
 
         let output = writer.close()?;
         let output_str = String::from_utf8_lossy(&output);
 
         assert!(output_str.contains("valid::[]"));
-        assert!(output_str.contains("numbers::[1, 2, 3"));
-        assert!(output_str.contains("greeting::\"hello, world\""));
+        assert!(output_str.contains("[1, 2, 3"));
+        assert!(output_str.contains("amazon::\"ion!\""));
+        assert!(output_str.contains("10"));
 
         Ok(())
     }
