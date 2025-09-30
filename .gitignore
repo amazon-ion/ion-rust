@@ -242,3 +242,4 @@ bb.out.*
 .history
 
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,rust,cmake,clion,visualstudiocode,valgrind
+.vscode/launch.json

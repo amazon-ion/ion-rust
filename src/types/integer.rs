@@ -261,6 +261,19 @@ impl Int {
     }
 
     #[inline(always)]
+    pub fn as_u64(&self) -> Option<u64> {
+        u64::try_from(self.data).ok()
+    }
+
+    #[inline]
+    pub fn expect_u64(&self) -> IonResult<u64> {
+        self.as_u64().ok_or_else(
+            #[inline(never)]
+            || IonError::decoding_error(format!("Int {self} was not in the range of a u64.")),
+        )
+    }
+
+    #[inline(always)]
     pub fn as_usize(&self) -> Option<usize> {
         usize::try_from(self.data).ok()
     }
