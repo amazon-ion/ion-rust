@@ -77,7 +77,7 @@ pub trait WriteAsIon {
     }
 }
 
-impl WriteAsIon for &Element {
+impl WriteAsIon for Element {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         if self.annotations().is_empty() {
             self.value().write_as_ion(writer)
