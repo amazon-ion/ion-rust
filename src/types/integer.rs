@@ -649,4 +649,20 @@ mod integer_tests {
         assert_eq!(UInt::from(128_000u128).expect_u64(), Ok(128_000u64));
         assert!(UInt::from(u128::MAX).expect_u64().is_err())
     }
+
+    #[test]
+    fn int_as_u64() {
+        assert_eq!(Int::from(128_000i64).as_u64(), Some(128_000u64));
+        assert_eq!(Int::from(0i64).as_u64(), Some(0u64));
+        assert!(Int::from(-1i64).as_u64().is_none());
+        assert!(Int::from(i128::MAX).as_u64().is_none());
+    }
+
+    #[test]
+    fn int_expect_u64() {
+        assert_eq!(Int::from(128_000i64).expect_u64(), Ok(128_000u64));
+        assert_eq!(Int::from(0i64).expect_u64(), Ok(0u64));
+        assert!(Int::from(-1i64).expect_u64().is_err());
+        assert!(Int::from(i128::MAX).expect_u64().is_err());
+    }
 }
