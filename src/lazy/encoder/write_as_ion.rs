@@ -543,3 +543,34 @@ impl<T: WriteAsIon> WriteAsIon for Option<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ion_list, v1_0, Writer, IntoAnnotatedElement};
+
+    #[test]
+    fn write_element_owned_and_borrowed() -> IonResult<()> {
+        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+
+        // Test owned Element
+        let element: Element = ion_list![].with_annotations(["valid"]);
+        writer.write(element)?;
+
+        // Test borrowed Element
+        let element2: Element = ion_list![1, 2, 3].with_annotations(["numbers"]);
+        writer.write(&element2)?;
+
+        // Test Element types as owned values
+        writer.write("hello, world".with_annotations(["greeting"]))?;
+
+        let output = writer.close()?;
+        let output_str = String::from_utf8_lossy(&output);
+
+        assert!(output_str.contains("valid::[]"));
+        assert!(output_str.contains("numbers::[1, 2, 3"));
+        assert!(output_str.contains("greeting::\"hello, world\""));
+
+        Ok(())
+    }
+}
