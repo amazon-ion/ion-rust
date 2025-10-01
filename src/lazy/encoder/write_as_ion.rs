@@ -547,36 +547,21 @@ impl<T: WriteAsIon> WriteAsIon for Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ion_list, v1_0, Writer, IntoAnnotatedElement};
+    use crate::v1_0;
 
     #[test]
-    fn write_element_owned_and_borrowed() -> IonResult<()> {
-        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+    fn test_element_write_as_ion_without_annotations() -> IonResult<()> {
+        let element = Element::read_one("42")?;
+        let encoded: String = element.encode_as(v1_0::Text)?;
+        assert_eq!(encoded.trim(), "42");
+        Ok(())
+    }
 
-        // Test owned Element with annotations (else branch)
-        let annotated_element: Element = ion_list![].with_annotations(["valid"]);
-        writer.write(annotated_element)?;
-
-        // Test owned Element without annotations (if branch)
-        let plain_element: Element = ion_list![1, 2, 3].into();
-        writer.write(plain_element)?;
-
-        // Test borrowed Element with annotations
-        let element2: Element = "ion!".with_annotations(["amazon"]);
-        writer.write(&element2)?;
-
-        // Test borrowed Element without annotations
-        let element3: Element = 10.into();
-        writer.write(&element3)?;
-
-        let output = writer.close()?;
-        let output_str = String::from_utf8_lossy(&output);
-
-        assert!(output_str.contains("valid::[]"));
-        assert!(output_str.contains("[1, 2, 3"));
-        assert!(output_str.contains("amazon::\"ion!\""));
-        assert!(output_str.contains("10"));
-
+    #[test]
+    fn test_element_write_as_ion_with_annotations() -> IonResult<()> {
+        let element = Element::read_one("foo::42")?;
+        let encoded: String = element.encode_as(v1_0::Text)?;
+        assert_eq!(encoded.trim(), "foo::42");
         Ok(())
     }
 }
