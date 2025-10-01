@@ -429,11 +429,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
     }
 
     fn read_null(&self) -> IonResult<IonType> {
-        Ok(if self.encoded_value.header.type_code() == OpcodeType::TypedNull {
-            ION_1_1_TYPED_NULL_TYPES[self.value_body()[0] as usize]
+        let ion_type = if self.encoded_value.header.type_code() == OpcodeType::TypedNull {
+            let body = self.value_body();
+            ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
         } else {
             self.encoded_value.ion_type()
-        })
+        };
+        Ok(ion_type)
     }
 
     pub fn is_delimited(&self) -> bool {
