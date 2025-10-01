@@ -77,7 +77,7 @@ pub trait WriteAsIon {
     }
 }
 
-impl WriteAsIon for &Element {
+impl WriteAsIon for Element {
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
         if self.annotations().is_empty() {
             self.value().write_as_ion(writer)
@@ -541,5 +541,27 @@ impl<T: WriteAsIon> WriteAsIon for Option<T> {
         } else {
             writer.write_null(IonType::Null)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::v1_0;
+
+    #[test]
+    fn test_element_write_as_ion_without_annotations() -> IonResult<()> {
+        let element = Element::read_one("42")?;
+        let encoded: String = element.encode_as(v1_0::Text)?;
+        assert_eq!(encoded.trim(), "42");
+        Ok(())
+    }
+
+    #[test]
+    fn test_element_write_as_ion_with_annotations() -> IonResult<()> {
+        let element = Element::read_one("foo::42")?;
+        let encoded: String = element.encode_as(v1_0::Text)?;
+        assert_eq!(encoded.trim(), "foo::42");
+        Ok(())
     }
 }
