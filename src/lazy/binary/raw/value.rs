@@ -501,10 +501,13 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// calling this method will not read additional data; the `RawValueRef` will provide a
     /// [`LazyRawBinaryList_1_0`], [`LazyRawBinarySExp_1_0`], or [`LazyRawBinaryStruct_1_0`]
     /// that can be traversed to access the container's contents.
+    fn read_null(&self) -> IonResult<IonType> {
+        Ok(self.encoded_value.ion_type())
+    }
+
     pub fn read(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         if self.is_null() {
-            let raw_value_ref = RawValueRef::Null(self.ion_type());
-            return Ok(raw_value_ref);
+            return Ok(RawValueRef::Null(self.read_null()?));
         }
 
         match self.ion_type() {
