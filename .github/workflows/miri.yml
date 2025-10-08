@@ -28,6 +28,7 @@ jobs:
           profile: minimal
           toolchain: nightly
           components: miri
+          rustflags: "" # Default: "-D warnings', we do not want that for now.
           override: true
       - name: Setup Miri
         run: cargo miri setup
