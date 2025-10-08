@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         # use the available runner types that were determined by the setup step
-        os: ${{ fromJSON(needs.setup.outputs.available-runners)[matrix.os] }}
+        os: ${{ fromJSON(needs.setup.outputs.available-runners) }}
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
     permissions:
