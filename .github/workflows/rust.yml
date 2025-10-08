@@ -76,6 +76,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
+          rustflags: "" # Default: '-D warnings', we do not want that for now.
           override: true
       - name: Cargo Test (default/no features)
         if: matrix.features == 'default'
