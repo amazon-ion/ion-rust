@@ -459,6 +459,11 @@ impl LazyRawAnyReader<'_> {
         match *data {
             [0xE0, 0x01, 0x00, 0xEA, ..] => IonEncoding::Binary_1_0,
             [0xE0, 0x01, 0x01, 0xEA, ..] => IonEncoding::Binary_1_1,
+
+            // We should try binary first since it can handle incomplete data better when we have incomplete data
+            [0xE0, 0x01, 0x00] | [0xE0, 0x01, 0x01] => IonEncoding::Binary_1_0,
+            [0xE0, 0x01] => IonEncoding::Binary_1_0,
+            [0xE0] => IonEncoding::Binary_1_0,
             _ => IonEncoding::Text_1_0,
         }
     }
@@ -1991,5 +1996,58 @@ mod tests {
         expect_int(&mut reader, IonEncoding::Binary_1_0, 5)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_detect_encoding_from_stream() {
+        use std::io::{self, Cursor, Read};
+        use crate::{Reader, AnyEncoding};
+
+        let data = [
+            0xE0u8, 0x01, 0x00, 0xEA, // IVM
+            0x83, 65, 66, 67, // String: "ABC"
+        ];
+
+        let mut input: Box<dyn Read> = Box::new(io::empty());
+        for input_byte in data {
+            input = Box::new(input.chain(Cursor::new([input_byte])));
+        }
+        let _values: Vec<_> = Reader::new(AnyEncoding, input)
+            .expect("a reader")
+            .collect::<IonResult<_>>()
+            .expect("values should be read successfully");
+    }
+
+    #[test]
+    fn test_detect_encoding_incomplete_patterns() {
+        // Test that incomplete binary IVM patterns are handled correctly
+        let test_cases = vec![
+            vec![0xE0],
+            vec![0xE0, 0x01],
+            vec![0xE0, 0x01, 0x00],
+            vec![0xE0, 0x01, 0x01],
+        ];
+
+        for incomplete_data in test_cases {
+            let encoding = LazyRawAnyReader::detect_encoding(&incomplete_data);
+            assert_eq!(encoding, IonEncoding::Binary_1_0, 
+                      "Failed for data: {:?}", incomplete_data);
+        }
+    }
+
+    #[test]
+    fn test_detect_encoding_complete_patterns() {
+        let test_cases = vec![
+            (vec![0xE0, 0x01, 0x00, 0xEA], IonEncoding::Binary_1_0),
+            (vec![0xE0, 0x01, 0x01, 0xEA], IonEncoding::Binary_1_1),
+            (vec![0xE0, 0x01, 0x00, 0xEA, 0x21, 0x01], IonEncoding::Binary_1_0), // with extra data
+            (vec![0xE0, 0x01, 0x01, 0xEA, 0x21, 0x01], IonEncoding::Binary_1_1), // with extra data
+        ];
+
+        for (data, expected_encoding) in test_cases {
+            let encoding = LazyRawAnyReader::detect_encoding(&data);
+            assert_eq!(encoding, expected_encoding, 
+                      "Failed for data: {:?}", data);
+        }
     }
 }
