@@ -19,21 +19,18 @@ jobs:
 
     steps:
       - name: Git Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Rust Toolchain
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
           components: miri
           override: true
-      - name: Install Miri
-        run: |
-          rustup toolchain install nightly --component miri
-          rustup override set nightly
-          cargo miri setup
+      - name: Setup Miri
+        run: cargo miri setup
       - name: Test with Miri (ubuntu and macos)
         # miri test for Linux and macOS os, since Windows os requires a different syntax to enable miri flags
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
