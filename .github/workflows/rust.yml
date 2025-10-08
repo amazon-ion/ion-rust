@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         # use the available runner types that were determined by the setup step
-        os: ${{ fromJSON(needs.setup.outputs.available-runners) }}
+        os: ${{ fromJSON(needs.setup.outputs.available-runners)[matrix.os] }}
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
     permissions:
@@ -88,7 +88,7 @@ jobs:
         run: cargo test --verbose --workspace --features "${{ matrix.features }}"
       - name: Rustfmt Check
         # We really only need to run this once--ubuntu/all features mode is as good as any
-        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
+        if: matrix.os == 'ubuntu' && matrix.features == 'all'
         uses: actions-rust-lang/rustfmt@v1
 
       # `rs-clippy-check` will run `cargo clippy` on new pull requests. Due to a limitation in GitHub
