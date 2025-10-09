@@ -256,7 +256,10 @@ impl Decimal {
             // end.
             let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
             coeff.data /= 10i128.pow(self.exponent.unsigned_abs() as u32);
-            Decimal::new(Coefficient::from_sign_and_value(self.coefficient_sign, coeff), 0)
+            Decimal::new(
+                Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
+                0,
+            )
         }
     }
 
@@ -264,11 +267,17 @@ impl Decimal {
     /// zero maintaining the sign of the original coefficient.
     pub fn fract(&self) -> Decimal {
         if self.exponent >= 0 {
-            Decimal::new(Coefficient::from_sign_and_value(self.coefficient_sign, 0), 0)
+            Decimal::new(
+                Coefficient::from_sign_and_value(self.coefficient_sign, 0),
+                0,
+            )
         } else {
             let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
             coeff.data %= 10i128.pow(self.exponent.unsigned_abs() as u32);
-            Decimal::new(Coefficient::from_sign_and_value(self.coefficient_sign, coeff), self.exponent)
+            Decimal::new(
+                Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
+                self.exponent,
+            )
         }
     }
 }
@@ -358,7 +367,7 @@ impl Sub for Decimal {
             // and we can do integer arithmetic.
             let mut lhs_int = self.coefficient().as_int().unwrap_or(Int::ZERO);
             let mut rhs_int = rhs.coefficient().as_int().unwrap_or(Int::ZERO);
-            let exp = if self.exponent >  rhs.exponent {
+            let exp = if self.exponent > rhs.exponent {
                 lhs_int.data *= 10i128.pow((self.exponent - rhs.exponent) as u32);
                 rhs.exponent
             } else {
@@ -962,7 +971,7 @@ mod decimal_tests {
     #[case(Decimal::NEGATIVE_ZERO, Decimal::ZERO, Sign::Negative)]
     #[case(Decimal::ZERO, Decimal::ZERO, Sign::Positive)]
     #[case(Decimal::ZERO, Decimal::NEGATIVE_ZERO, Sign::Positive)]
-    fn decimal_sub_signzero(#[case] lhs: Decimal, #[case] rhs: Decimal, #[case]sign: Sign) {
+    fn decimal_sub_signzero(#[case] lhs: Decimal, #[case] rhs: Decimal, #[case] sign: Sign) {
         let val = lhs - rhs;
         assert_eq!(val.coefficient().sign(), sign);
     }
@@ -987,5 +996,4 @@ mod decimal_tests {
     fn decimal_fract(#[case] value: Decimal, #[case] expected: Decimal) {
         assert_eq!(value.fract(), expected);
     }
-
 }

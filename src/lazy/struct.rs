@@ -221,9 +221,8 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
     ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn get_expected(&self, name: &str) -> IonResult<ValueRef<'top, D>> {
-        self.get(name)?.ok_or_else(move || {
-            IonError::decoding_error(format!("missing required field {name}"))
-        })
+        self.get(name)?
+            .ok_or_else(move || IonError::decoding_error(format!("missing required field {name}")))
     }
 
     /// Returns an iterator over the annotations on this value. If this value has no annotations,

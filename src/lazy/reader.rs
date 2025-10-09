@@ -107,7 +107,7 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
     }
-    
+
     #[allow(dead_code)]
     pub fn symbol_table(&self) -> &SymbolTable {
         self.system_reader.symbol_table()

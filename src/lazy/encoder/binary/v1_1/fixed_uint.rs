@@ -1,7 +1,7 @@
 use std::io::Write;
 
-use num_traits::{PrimInt, Unsigned};
 use ice_code::ice as cold_path;
+use num_traits::{PrimInt, Unsigned};
 
 use crate::decimal::coefficient::Coefficient;
 use crate::lazy::encoder::binary::v1_1::fixed_int::{
@@ -68,15 +68,21 @@ impl FixedUInt {
     }
 
     #[inline]
-    pub(crate) fn write_as_uint<I: PrimInt + Unsigned>(output: &mut impl Write, value: impl Into<UInt>) -> IonResult<()> {
+    pub(crate) fn write_as_uint<I: PrimInt + Unsigned>(
+        output: &mut impl Write,
+        value: impl Into<UInt>,
+    ) -> IonResult<()> {
         let size_in_bytes = std::mem::size_of::<I>();
         let value: u128 = value.into().data;
         let encoded_bytes = value.to_le_bytes();
-        let max_value: u128 = num_traits::cast::cast(I::max_value())
-            .ok_or(IonError::encoding_error("Unable to represent bounds for value as 128bit value"))?;
+        let max_value: u128 = num_traits::cast::cast(I::max_value()).ok_or(
+            IonError::encoding_error("Unable to represent bounds for value as 128bit value"),
+        )?;
 
         if !(0..=max_value).contains(&value) {
-            return IonResult::encoding_error(format!("provided unsigned integer value does not fit within {size_in_bytes} byte(s)"));
+            return IonResult::encoding_error(format!(
+                "provided unsigned integer value does not fit within {size_in_bytes} byte(s)"
+            ));
         }
 
         output.write_all(&encoded_bytes[..size_in_bytes])?;

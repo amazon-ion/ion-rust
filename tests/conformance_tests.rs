@@ -176,8 +176,6 @@ mod ion_tests {
             test.run().expect("test failed");
         }
 
-        println!(
-            "SUMMARY: {file_name} : Total Tests {total_tests} :  Skipped {total_skipped}",
-        );
+        println!("SUMMARY: {file_name} : Total Tests {total_tests} :  Skipped {total_skipped}",);
     }
 }
