@@ -18,7 +18,6 @@ use crate::{IonError, IonResult};
 ///
 /// ```
 ///# use ion_rs::IonResult;
-///# #[cfg(feature = "experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
@@ -50,8 +49,6 @@ use crate::{IonError, IonResult};
 ///
 ///# Ok(())
 ///# }
-///# #[cfg(not(feature = "experimental-reader-writer"))]
-///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[derive(Copy, Clone)]
 pub struct LazyList<'top, D: Decoder> {
@@ -92,7 +89,6 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     ///
     /// ```
     ///# use ion_rs::IonResult;
-    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -115,8 +111,6 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     ///
     ///# Ok(())
     ///# }
-    ///# #[cfg(not(feature = "experimental-reader-writer"))]
-    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {
@@ -253,7 +247,6 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
     ///
     /// ```
     ///# use ion_rs::IonResult;
-    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///
     /// // Construct an Element and serialize it as binary Ion.
@@ -276,8 +269,6 @@ impl<'top, D: Decoder> LazySExp<'top, D> {
     ///
     ///# Ok(())
     ///# }
-    ///# #[cfg(not(feature = "experimental-reader-writer"))]
-    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     pub fn annotations(&self) -> AnnotationsIterator<'top, D> {
         AnnotationsIterator {

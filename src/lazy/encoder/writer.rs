@@ -128,8 +128,7 @@ impl Deref for WriterMacroTable {
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
-#[cfg_attr(feature = "experimental-reader-writer", visibility::make(pub))]
-pub(crate) struct Writer<E: Encoding, Output: Write> {
+pub struct Writer<E: Encoding, Output: Write> {
     symbols: WriterSymbolTable,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
@@ -147,7 +146,6 @@ pub type TextWriter_1_1<Output> = Writer<TextEncoding_1_1, Output>;
 #[allow(dead_code)]
 pub type BinaryWriter_1_1<Output> = Writer<BinaryEncoding_1_1, Output>;
 
-#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
 impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Constructs a writer for the requested encoding using the provided configuration.
     pub fn new(config: impl Into<WriteConfig<E>>, output: Output) -> IonResult<Self> {
@@ -277,15 +275,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(self.output)
     }
 
-    #[cfg(feature = "experimental-reader-writer")]
     #[inline]
     pub fn symbol_table(&self) -> &SymbolTable {
-        &self.symbols
-    }
-
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    #[inline]
-    pub(crate) fn symbol_table(&self) -> &SymbolTable {
         &self.symbols
     }
 
@@ -433,21 +424,13 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
         }
     }
 
-    #[cfg(feature = "experimental-reader-writer")]
     #[inline]
     pub fn symbol_table(&self) -> &SymbolTable {
-        self.symbols
-    }
-
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    #[inline]
-    pub(crate) fn symbol_table(&self) -> &SymbolTable {
         self.symbols
     }
 }
 
 // Generally useful methods, but currently only called in unit tests.
-#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
 impl ApplicationValueWriter<'_, BinaryValueWriter_1_1<'_, '_>> {
     pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
         self.value_writer_config = self
@@ -752,7 +735,6 @@ impl<'value, V: ValueWriter> ApplicationStructWriter<'value, V> {
     }
 
     // Generally useful, but currently only called in unit tests.
-    #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
     pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
         self.value_writer_config = self
             .value_writer_config
@@ -1053,7 +1035,6 @@ impl<S: SequenceWriter> ElementWriter for S {
     }
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::value_writer::AnnotatableWriter;

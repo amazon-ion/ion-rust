@@ -357,11 +357,7 @@ macro_rules! v1_1_tooling_apis {
     };
 }
 
-#[cfg(feature = "experimental-reader-writer")]
 v1_x_reader_writer!(pub);
-
-#[cfg(not(feature = "experimental-reader-writer"))]
-v1_x_reader_writer!(pub(crate));
 
 #[cfg(feature = "experimental-tooling-apis")]
 v1_x_tooling_apis!(pub);
@@ -376,16 +372,11 @@ pub mod v1_0 {
     #[cfg(not(feature = "experimental-tooling-apis"))]
     v1_0_tooling_apis!(pub(crate));
 
-    #[cfg(feature = "experimental-reader-writer")]
     v1_0_reader_writer!(pub);
-
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    v1_0_reader_writer!(pub(crate));
 
     pub use crate::lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text};
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
 pub mod v1_1 {
     pub use crate::constants::v1_1::constants;
     pub use crate::constants::v1_1::system_symbols;
@@ -396,26 +387,7 @@ pub mod v1_1 {
     #[cfg(not(feature = "experimental-tooling-apis"))]
     v1_1_tooling_apis!(pub(crate));
 
-    #[cfg(feature = "experimental-reader-writer")]
     v1_1_reader_writer!(pub);
-
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    v1_1_reader_writer!(pub(crate));
-}
-
-#[cfg(not(feature = "experimental-ion-1-1"))]
-pub(crate) mod v1_1 {
-    #[cfg(feature = "experimental-tooling-apis")]
-    v1_1_tooling_apis!(pub);
-
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    v1_1_tooling_apis!(pub(crate));
-
-    #[cfg(feature = "experimental-reader-writer")]
-    v1_1_reader_writer!(pub);
-
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    v1_1_reader_writer!(pub(crate));
 }
 
 pub use lazy::reader::IonResultIterExt;

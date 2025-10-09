@@ -41,7 +41,6 @@ use std::sync::Arc;
 /// long as the reader remains on the same top-level value.
 /// ```
 ///# use ion_rs::IonResult;
-///# #[cfg(feature="experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
@@ -73,8 +72,6 @@ use std::sync::Arc;
 ///
 ///# Ok(())
 ///# }
-///# #[cfg(not(feature = "experimental-reader-writer"))]
-///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 #[cfg_attr(feature = "experimental-tooling-apis", visibility::make(pub))]
 pub(crate) struct SystemReader<Encoding: Decoder, Input: IonInput> {
@@ -998,7 +995,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn detect_encoding_directive_text() -> IonResult<()> {
         let text = r#"
@@ -1014,7 +1010,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn detect_encoding_directive_binary() -> IonResult<()> {
         use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
@@ -1081,7 +1076,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn read_encoding_directive_new_active_module() -> IonResult<()> {
         let ion = r#"
