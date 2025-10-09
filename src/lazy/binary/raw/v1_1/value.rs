@@ -115,6 +115,10 @@ pub enum BinaryValueEncoding {
     UInt16,
     UInt32,
     UInt64,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -369,7 +373,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         }
     }
 
-    pub(crate) fn for_fixed_uint(input: BinaryBuffer<'top>, encoding: BinaryValueEncoding) -> Self {
+    pub(crate) fn for_fixed_int_type(input: BinaryBuffer<'top>, encoding: BinaryValueEncoding) -> Self {
         let encoded_value = EncodedBinaryValue {
             encoding,
             header: Header {
