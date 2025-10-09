@@ -117,7 +117,6 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
     }
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
 #[cfg(test)]
 mod tests {
     use crate::lazy::any_encoding::IonVersion;

@@ -16,7 +16,6 @@ pub trait Annotatable {
     ///
     /// ```
     ///# use ion_rs::IonResult;
-    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     /// use ion_rs::{Annotatable, Element, IonData, Writer, v1_0::Text};
     ///
@@ -31,10 +30,7 @@ pub trait Annotatable {
     /// assert!(IonData::eq(&expected, &actual));
     ///# Ok(())
     ///# }
-    ///# #[cfg(not(feature = "experimental-reader-writer"))]
-    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
-    #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
     fn annotated_with<'a, A: 'a>(&'a self, annotations: A) -> Annotated<'a, Self, A>
     where
         &'a A: AnnotationSeq<'a>;

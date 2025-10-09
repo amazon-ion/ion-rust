@@ -1,5 +1,3 @@
-#![cfg(feature = "experimental-ion-1-1")]
-#![cfg(feature = "experimental-reader-writer")]
 /// TODO: When the Ion 1.1 binary reader is complete, update this module to include binary tests
 mod ion_tests;
 

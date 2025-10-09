@@ -511,7 +511,7 @@ pub trait SequenceWriter: MakeValueWriter {
     }
 }
 
-#[cfg(all(test, feature = "experimental-reader-writer"))]
+#[cfg(test)]
 mod tests {
     use crate::symbol_ref::AsSymbolRef;
     use crate::{ion_seq, v1_0, Element, IntoAnnotatedElement, SequenceWriter, Writer};

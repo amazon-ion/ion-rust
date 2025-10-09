@@ -1,5 +1,4 @@
 // Copyright Amazon.com, Inc. or its affiliates.
-#![cfg(feature = "experimental-reader-writer")]
 #![allow(dead_code)]
 
 use std::fs::read;

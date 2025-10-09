@@ -22,30 +22,21 @@ rust-version = "1.82"
 
 [features]
 default = []
-experimental-ion-hash = ["digest", "experimental-reader-writer"]
+experimental-ion-hash = ["digest"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability and may also have non-standard
-# Ion behavior (e.g., draft Ion 1.1 capabilities).
+# Ion behavior.
 experimental = [
-    "experimental-reader-writer",
     "experimental-tooling-apis",
     "experimental-serde",
-    "experimental-ion-1-1",
 ]
-
-# Feature for indicating explicit opt-in to Ion 1.1
-experimental-ion-1-1 = ["experimental-reader-writer"]
-
-# Access to the streaming Reader and Writer types.
-# These APIs are functional and well-tested, but are not yet stable.
-experimental-reader-writer = []
 
 # Access to low-level encoding information. These APIs are not near stabilization.
 experimental-tooling-apis = []
 
 # Experimental serde API to serialize and deserialize Ion data into Rust objects using serde crate
-experimental-serde = ["experimental-reader-writer", "dep:serde_with", "dep:serde"]
+experimental-serde = ["dep:serde_with", "dep:serde"]
 
 bigdecimal = ["dep:bigdecimal"]
 

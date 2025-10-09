@@ -322,7 +322,6 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
     }
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
 #[cfg(test)]
 mod tests {
     use crate::{

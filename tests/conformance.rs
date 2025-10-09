@@ -1,5 +1,3 @@
-#![cfg(feature = "experimental-ion-1-1")]
-
 use std::collections::HashMap;
 
 use ion_rs::serde::to_string;
@@ -7,7 +5,6 @@ use serde::Serialize;
 
 use crate::conformance_dsl::prelude::*;
 
-#[cfg(feature = "experimental-reader-writer")]
 mod conformance_dsl;
 
 #[derive(PartialEq, Serialize)]
@@ -122,7 +119,6 @@ impl TestReporter for IonReporter {
     }
 }
 
-#[cfg(feature = "experimental-reader-writer")]
 pub fn main() {
     let options = std::env::args()
         .skip(1)
@@ -189,9 +185,4 @@ pub fn main() {
         }
     }
     reporter.finalize();
-}
-
-#[cfg(not(feature = "experimental-reader-writer"))]
-pub fn main() {
-    println!("Needs feature experimental-reader-writer");
 }

@@ -917,7 +917,7 @@ impl MacroTable {
     }
 }
 
-#[cfg(all(test, feature = "experimental-ion-1-1"))]
+#[cfg(test)]
 mod tests {
     use crate::lazy::expanded::template::TemplateMacroRef;
     use crate::{

@@ -136,7 +136,6 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     fn stream_version_after_marker(&self) -> IonResult<IonVersion> {
         match self.major_minor() {
             (1, 0) => Ok(IonVersion::v1_0),
-            #[cfg(feature = "experimental-ion-1-1")]
             (1, 1) => Ok(IonVersion::v1_1),
             (major, minor) => {
                 IonResult::decoding_error(format!("Ion version {major}.{minor} is not supported"))

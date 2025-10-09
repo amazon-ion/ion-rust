@@ -1,5 +1,3 @@
-#![cfg(feature = "experimental-reader-writer")]
-
 use crate::good_round_trip;
 use crate::ion_tests::{
     bad, equivs, non_equivs, ElementApi, SkipList, ELEMENT_EQUIVS_SKIP_LIST,
