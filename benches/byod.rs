@@ -40,9 +40,9 @@ mod benchmark {
 
 #[cfg(feature = "experimental")]
 mod benchmark {
+    use criterion::{BenchmarkId, Criterion};
+    use ion_rs::{v1_1::BinaryWriter, Element, *};
     use std::{env, fs, hint::black_box};
-    use criterion::{Criterion, BenchmarkId};
-    use ion_rs::{v1_1::BinaryWriter, *, Element};
 
     pub fn bench_byod_full(c: &mut Criterion) {
         let Some(file) = env::var("ION_BENCH").ok() else {
@@ -56,15 +56,12 @@ mod benchmark {
         read_group.measurement_time(std::time::Duration::from_secs(30));
 
         // Read the provided data as-is with an encoding-agnostic reader.
-        read_group.bench_with_input(
-            BenchmarkId::new("full-read", &file),
-            &data,
-            |b, data| b.iter(|| {
-                let reader = Reader::new(AnyEncoding, data)
-                    .expect("Unable to create reader");
+        read_group.bench_with_input(BenchmarkId::new("full-read", &file), &data, |b, data| {
+            b.iter(|| {
+                let reader = Reader::new(AnyEncoding, data).expect("Unable to create reader");
                 full_read(reader);
             })
-        );
+        });
 
         // Convert the provided data into an ion 1.0 stream, and then measure the performance of
         // reading the stream-equivalent data using a 1.0 reader.
@@ -75,11 +72,10 @@ mod benchmark {
             |b, data| {
                 // Benchmark Read of known 1.0 data.
                 b.iter(|| {
-                    let reader = Reader::new(AnyEncoding, data)
-                        .expect("Unable to create reader");
+                    let reader = Reader::new(AnyEncoding, data).expect("Unable to create reader");
                     full_read(reader);
                 });
-            }
+            },
         );
         drop(one_oh_data);
 
@@ -91,11 +87,10 @@ mod benchmark {
             &delimited_data,
             |b, data| {
                 b.iter(|| {
-                    let reader = Reader::new(AnyEncoding, data)
-                        .expect("unable to create reader");
+                    let reader = Reader::new(AnyEncoding, data).expect("unable to create reader");
                     full_read(reader);
                 });
-            }
+            },
         );
         drop(delimited_data);
 
@@ -107,11 +102,10 @@ mod benchmark {
             &prefixed_data,
             |b, data| {
                 b.iter(|| {
-                    let reader = Reader::new(AnyEncoding, data)
-                        .expect("unable to create reader");
+                    let reader = Reader::new(AnyEncoding, data).expect("unable to create reader");
                     full_read(reader);
                 });
-            }
+            },
         );
         drop(prefixed_data);
 
@@ -123,11 +117,10 @@ mod benchmark {
             &inlined_data,
             |b, data| {
                 b.iter(|| {
-                    let reader = Reader::new(AnyEncoding, data)
-                        .expect("unable to create reader");
+                    let reader = Reader::new(AnyEncoding, data).expect("unable to create reader");
                     full_read(reader);
                 });
-            }
+            },
         );
         drop(inlined_data);
 
@@ -139,11 +132,10 @@ mod benchmark {
             &referenced_data,
             |b, data| {
                 b.iter(|| {
-                    let reader = Reader::new(AnyEncoding, data)
-                        .expect("unable to create reader");
+                    let reader = Reader::new(AnyEncoding, data).expect("unable to create reader");
                     full_read(reader);
                 });
-            }
+            },
         );
         drop(referenced_data);
 
@@ -162,14 +154,13 @@ mod benchmark {
                 let elems = Element::read_all(data).expect("unable to read elements");
                 b.iter(|| {
                     let buffer = Vec::<u8>::with_capacity(size);
-                    let mut writer = BinaryWriter::new(v1_1::Binary, buffer).expect("unable to create writer");
+                    let mut writer =
+                        BinaryWriter::new(v1_1::Binary, buffer).expect("unable to create writer");
                     for elem in &elems {
-                        writer
-                            .write(elem)
-                            .expect("unable to write value");
+                        writer.write(elem).expect("unable to write value");
                     }
                 });
-            }
+            },
         );
 
         // Read the original data using the Element API, and re-write it to an ion 1.1 stream using
@@ -182,7 +173,8 @@ mod benchmark {
                 let elems = Element::read_all(data).expect("unable to read elements");
                 b.iter(|| {
                     let buffer = Vec::<u8>::with_capacity(size);
-                    let mut writer = BinaryWriter::new(v1_1::Binary, buffer).expect("unable to create writer");
+                    let mut writer =
+                        BinaryWriter::new(v1_1::Binary, buffer).expect("unable to create writer");
                     for elem in &elems {
                         writer
                             .value_writer()
@@ -191,7 +183,7 @@ mod benchmark {
                             .expect("unable to write value");
                     }
                 });
-            }
+            },
         );
 
         // Read the original data using the Element API, and re-write it to an ion 1.1 stream using
@@ -204,7 +196,8 @@ mod benchmark {
                 let elems = Element::read_all(data).expect("unable to read elements");
                 b.iter(|| {
                     let buffer = Vec::<u8>::with_capacity(size);
-                    let mut writer = BinaryWriter::new(v1_1::Binary, buffer).expect("unable to create writer");
+                    let mut writer =
+                        BinaryWriter::new(v1_1::Binary, buffer).expect("unable to create writer");
                     for elem in &elems {
                         writer
                             .value_writer()
@@ -213,7 +206,7 @@ mod benchmark {
                             .expect("unable to write value");
                     }
                 });
-            }
+            },
         );
 
         // Read the original data using the Element API, and re-write it to an ion 1.1 stream using
@@ -226,7 +219,8 @@ mod benchmark {
                 let elems = Element::read_all(data).expect("unable to read elements");
                 b.iter(|| {
                     let buffer = Vec::<u8>::with_capacity(size);
-                    let mut writer = Writer::new(v1_1::Binary, buffer).expect("unable to create writer");
+                    let mut writer =
+                        Writer::new(v1_1::Binary, buffer).expect("unable to create writer");
                     for elem in &elems {
                         writer
                             .value_writer()
@@ -235,7 +229,7 @@ mod benchmark {
                             .expect("unable to write value");
                     }
                 });
-            }
+            },
         );
 
         // Read the original data using the Element API, and re-write it to an ion 1.0 stream using
@@ -248,15 +242,14 @@ mod benchmark {
                 let elems = Element::read_all(data).expect("unable to read elements");
                 b.iter(|| {
                     let buffer = Vec::<u8>::with_capacity(size);
-                    let mut writer = Writer::new(v1_0::Binary, buffer).expect("unable to create writer");
+                    let mut writer =
+                        Writer::new(v1_0::Binary, buffer).expect("unable to create writer");
                     for elem in &elems {
-                        writer
-                            .write(elem)
-                            .expect("unable to write value");
+                        writer.write(elem).expect("unable to write value");
                     }
                     let _ = writer.close();
                 });
-            }
+            },
         );
 
         write_group.finish();
@@ -274,9 +267,7 @@ mod benchmark {
                 .write(elem)
                 .expect("unable to write value");
         }
-        writer
-            .close()
-            .expect("unable to close writer")
+        writer.close().expect("unable to close writer")
     }
 
     fn rewrite_delimited_containers(data: &Vec<u8>) -> Vec<u8> {
@@ -291,9 +282,7 @@ mod benchmark {
                 .write(elem)
                 .expect("unable to write value");
         }
-        writer
-            .close()
-            .expect("unable to close writer")
+        writer.close().expect("unable to close writer")
     }
 
     fn rewrite_inline_symbols(data: &Vec<u8>) -> Vec<u8> {
@@ -310,9 +299,7 @@ mod benchmark {
                 .write(elem)
                 .expect("unable to write value");
         }
-        writer
-            .close()
-            .expect("unable to close writer")
+        writer.close().expect("unable to close writer")
     }
 
     fn rewrite_referenced_symbols(data: &Vec<u8>) -> Vec<u8> {
@@ -329,9 +316,7 @@ mod benchmark {
                 .write(elem)
                 .expect("unable to write value");
         }
-        writer
-            .close()
-            .expect("unable to close writer")
+        writer.close().expect("unable to close writer")
     }
 
     fn rewrite_inline_annotations(data: &Vec<u8>) -> Vec<u8> {
@@ -346,9 +331,7 @@ mod benchmark {
                 .write(elem)
                 .expect("unable to write value");
         }
-        writer
-            .close()
-            .expect("unable to close writer")
+        writer.close().expect("unable to close writer")
     }
 
     fn rewrite_as_1_0(data: &Vec<u8>) -> Vec<u8> {
@@ -357,7 +340,9 @@ mod benchmark {
         let elems = Element::read_all(data).expect("unable to read elements");
         // Write data as 1.0
         let buffer = Vec::<u8>::with_capacity(size);
-        elems.encode_to(buffer, v1_0::Binary).expect("unable to re-encode elements")
+        elems
+            .encode_to(buffer, v1_0::Binary)
+            .expect("unable to re-encode elements")
     }
 
     fn rewrite_as_1_1(data: &Vec<u8>) -> Vec<u8> {
@@ -366,7 +351,9 @@ mod benchmark {
         let elems = Element::read_all(data).expect("unable to read elements");
         // Write data as 1.1
         let buffer = Vec::<u8>::with_capacity(size);
-        elems.encode_to(buffer, v1_1::Binary).expect("unable to re-encode elements")
+        elems
+            .encode_to(buffer, v1_1::Binary)
+            .expect("unable to re-encode elements")
     }
 
     #[inline]

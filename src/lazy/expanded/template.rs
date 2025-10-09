@@ -1,18 +1,23 @@
-use crate::lazy::binary::raw::v1_1::{value::BinaryValueEncoding, binary_buffer::ArgGroupingBitmap};
+use crate::lazy::binary::raw::v1_1::{
+    binary_buffer::ArgGroupingBitmap, value::BinaryValueEncoding,
+};
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{
     AnnotateExpansion, ConditionalExpansion, DeltaExpansion, ExprGroupExpansion, FlattenExpansion,
-    MakeDecimalExpansion, MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr,
-    MacroExprArgsIterator, MakeFieldExpansion, MakeStructExpansion, MakeTextExpansion, MakeTimestampExpansion,
-    RepeatExpansion, SumExpansion, TemplateExpansion, ValueExpr,
+    MacroEvaluator, MacroExpansion, MacroExpansionKind, MacroExpr, MacroExprArgsIterator,
+    MakeDecimalExpansion, MakeFieldExpansion, MakeStructExpansion, MakeTextExpansion,
+    MakeTimestampExpansion, RepeatExpansion, SumExpansion, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroDef, MacroKind, MacroRef};
 use crate::lazy::expanded::r#struct::FieldExpr;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue, TemplateVariableReference};
 use crate::result::IonFailure;
-use crate::{try_or_some_err, Bytes, Decimal, Int, IonError, IonResult, IonType, LazyExpandedFieldName, Str, Symbol, SymbolRef, Timestamp, Value};
+use crate::{
+    try_or_some_err, Bytes, Decimal, Int, IonError, IonResult, IonType, LazyExpandedFieldName, Str,
+    Symbol, SymbolRef, Timestamp, Value,
+};
 use bumpalo::collections::Vec as BumpVec;
 use compact_str::CompactString;
 use rustc_hash::FxHashMap;
@@ -235,8 +240,9 @@ impl TryFrom<&ParameterEncoding> for BinaryValueEncoding {
 
     fn try_from(value: &ParameterEncoding) -> Result<Self, Self::Error> {
         match value {
-            ParameterEncoding::MacroShaped(_) =>
-                Err(IonError::illegal_operation("attempt to convert macro-shape parameter encoding to binary value encoding")),
+            ParameterEncoding::MacroShaped(_) => Err(IonError::illegal_operation(
+                "attempt to convert macro-shape parameter encoding to binary value encoding",
+            )),
             ParameterEncoding::FlexUInt => Ok(BinaryValueEncoding::FlexUInt),
             ParameterEncoding::Tagged => Ok(BinaryValueEncoding::Tagged),
             ParameterEncoding::UInt8 => Ok(BinaryValueEncoding::UInt8),
@@ -338,14 +344,17 @@ impl MacroSignature {
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct SignatureIterator<'a> {
     index: usize,
-    macro_def: MacroRef<'a>
+    macro_def: MacroRef<'a>,
 }
 
 impl<'a> SignatureIterator<'a> {
     pub fn new(macro_def: MacroRef<'a>) -> Self {
-        Self { index: 0, macro_def }
+        Self {
+            index: 0,
+            macro_def,
+        }
     }
-    
+
     pub fn parent_macro(&self) -> MacroRef<'_> {
         self.macro_def
     }
@@ -355,9 +364,7 @@ impl<'a> SignatureIterator<'a> {
     }
 
     pub fn current_parameter(&self) -> Option<&'a Parameter> {
-        self.signature()
-            .parameters()
-            .get(self.index)
+        self.signature().parameters().get(self.index)
     }
 
     pub fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
@@ -662,8 +669,7 @@ impl<'top, D: Decoder> Iterator for TemplateSequenceIterator<'top, D> {
                     // If the macro is guaranteed to expand to exactly one value, we can evaluate it
                     // in place.
                     let new_expansion = try_or_some_err!(invocation.expand());
-                    if invocation.is_singleton()
-                    {
+                    if invocation.is_singleton() {
                         Some(new_expansion.expand_singleton())
                     } else {
                         // Otherwise, add it to the evaluator's stack and return to the top of the loop.
@@ -1273,7 +1279,11 @@ impl<'top, D: Decoder> TemplateExprGroup<'top, D> {
 
 impl<D: Decoder> Debug for TemplateExprGroup<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "(.. /*expr group for param={}*/", self.parameter().name())?;
+        write!(
+            f,
+            "(.. /*expr group for param={}*/",
+            self.parameter().name()
+        )?;
         for expr in self.arg_expressions() {
             write!(f, "\n {expr:?}")?;
         }
@@ -1435,12 +1445,8 @@ impl<'top, D: Decoder> TemplateMacroInvocation<'top, D> {
                 self.environment,
                 arguments,
             )),
-            MacroKind::Repeat => {
-                MacroExpansionKind::Repeat(RepeatExpansion::new(arguments))
-            }
-            MacroKind::Sum => {
-                MacroExpansionKind::Sum(SumExpansion::new(arguments))
-            }
+            MacroKind::Repeat => MacroExpansionKind::Repeat(RepeatExpansion::new(arguments)),
+            MacroKind::Sum => MacroExpansionKind::Sum(SumExpansion::new(arguments)),
         };
         Ok(MacroExpansion::new(
             self.context(),

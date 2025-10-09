@@ -34,12 +34,14 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
 use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
 use crate::result::IonFailure;
-use crate::{
-    Decimal, ExpandedValueRef, ExpandedValueSource, Int, IonError, IonResult,
-    LazyExpandedField, LazyExpandedFieldName, LazyExpandedStruct, LazyStruct,
-    LazyValue, Span, SymbolRef, ValueRef
+use crate::types::{
+    HasDay, HasFractionalSeconds, HasHour, HasMinute, HasMonth, HasOffset, HasSeconds, HasYear,
+    Timestamp, TimestampBuilder,
 };
-use crate::types::{HasDay, HasFractionalSeconds, HasHour, HasMinute, HasMonth, HasOffset, HasSeconds, HasYear, Timestamp, TimestampBuilder};
+use crate::{
+    Decimal, ExpandedValueRef, ExpandedValueSource, Int, IonError, IonResult, LazyExpandedField,
+    LazyExpandedFieldName, LazyExpandedStruct, LazyStruct, LazyValue, Span, SymbolRef, ValueRef,
+};
 
 pub trait IsExhaustedIterator<'top, D: Decoder>:
     Copy + Clone + Debug + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
@@ -590,11 +592,15 @@ impl<'top, D: Decoder> MacroExpansion<'top, D> {
         match &mut self.kind {
             Template(template_expansion) => template_expansion.next(context, environment),
             ExprGroup(expr_group_expansion) => expr_group_expansion.next(context, environment),
-            MakeDecimal(make_decimal_expansion) => make_decimal_expansion.next(context, environment),
+            MakeDecimal(make_decimal_expansion) => {
+                make_decimal_expansion.next(context, environment)
+            }
             MakeString(expansion) | MakeSymbol(expansion) => expansion.make_text_value(context),
             MakeField(make_field_expansion) => make_field_expansion.next(context, environment),
             MakeStruct(make_struct_expansion) => make_struct_expansion.next(context, environment),
-            MakeTimestamp(make_timestamp_expansion) => make_timestamp_expansion.next(context, environment),
+            MakeTimestamp(make_timestamp_expansion) => {
+                make_timestamp_expansion.next(context, environment)
+            }
             Annotate(annotate_expansion) => annotate_expansion.next(context, environment),
             Flatten(flatten_expansion) => flatten_expansion.next(),
             Conditional(cardinality_test_expansion) => cardinality_test_expansion.next(environment),
@@ -1196,24 +1202,20 @@ macro_rules! sysmacro_arg_info {
 // functionality to expand e-exp and validate integer types. Can be expanded for more types as
 // needed.
 struct SystemMacroArgument<'top, A: AsRef<str>, D: Decoder>(A, ValueExpr<'top, D>);
-impl <'top, A: AsRef<str>, D: Decoder> SystemMacroArgument<'top, A, D> {
+impl<'top, A: AsRef<str>, D: Decoder> SystemMacroArgument<'top, A, D> {
     /// Expands the current [`ValueExpr`] for the argument and verifies that it expands to 0 or 1
     /// value. Returns the value as a ValueRef.
     fn try_get_valueref(&self, env: Environment<'top, D>) -> IonResult<Option<ValueRef<'top, D>>> {
-        let argument_name= self.0.as_ref();
+        let argument_name = self.0.as_ref();
 
         let arg = match self.1 {
-            ValueExpr::ValueLiteral(value_literal) => {
-                Some(value_literal.read_resolved()?)
-            }
+            ValueExpr::ValueLiteral(value_literal) => Some(value_literal.read_resolved()?),
             ValueExpr::MacroInvocation(invocation) => {
                 let mut evaluator = MacroEvaluator::new_with_environment(env);
                 evaluator.push(invocation.expand()?);
                 let int_arg = match evaluator.next()? {
                     None => None,
-                    Some(value) => {
-                        Some(value.read_resolved()?)
-                    }
+                    Some(value) => Some(value.read_resolved()?),
                 };
 
                 if !evaluator.is_empty() && evaluator.next()?.is_some() {
@@ -1228,13 +1230,12 @@ impl <'top, A: AsRef<str>, D: Decoder> SystemMacroArgument<'top, A, D> {
     /// Given a [`ValueExpr`], this function will expand it into its underlying value; An
     /// error is return if the value does not expand to exactly one Int.
     fn get_integer(&self, env: Environment<'top, D>) -> IonResult<Int> {
-        let argument_name= self.0.as_ref();
+        let argument_name = self.0.as_ref();
         let value_ref = self.try_get_valueref(env)?;
         value_ref
             .ok_or_else(|| IonError::decoding_error(format!("expected integer value for '{argument_name}' parameter but the provided argument contained no value.")))?
             .expect_int()
     }
-
 }
 
 // ===== Implementation of the `make_decimal` macro ===
@@ -1259,13 +1260,28 @@ impl<'top, D: Decoder> MakeDecimalExpansion<'top, D> {
         }
         // Arguments should be: (coefficient exponent)
         //   Both coefficient and exponent should evaluate to a single integer value.
-        let coeff_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments; found 0 arguments"))?;
-        let coefficient = SystemMacroArgument("Coefficient", coeff_expr?).get_integer(environment).map_err(error_context)?;
+        let coeff_expr = self.arguments.next().ok_or(IonError::decoding_error(
+            "`make_decimal` takes 2 integer arguments; found 0 arguments",
+        ))?;
+        let coefficient = SystemMacroArgument("Coefficient", coeff_expr?)
+            .get_integer(environment)
+            .map_err(error_context)?;
 
-        let expo_expr = self.arguments.next().ok_or(IonError::decoding_error("`make_decimal` takes 2 integer arguments; found only 1 argument"))?;
-        let exponent = SystemMacroArgument("Exponent", expo_expr?).get_integer(environment).map_err(error_context)?;
+        let expo_expr = self.arguments.next().ok_or(IonError::decoding_error(
+            "`make_decimal` takes 2 integer arguments; found only 1 argument",
+        ))?;
+        let exponent = SystemMacroArgument("Exponent", expo_expr?)
+            .get_integer(environment)
+            .map_err(error_context)?;
 
-        let decimal = Decimal::new(coefficient, exponent.as_i64().ok_or_else(|| IonError::decoding_error("Exponent does not fit within the range supported by this implementation."))?);
+        let decimal = Decimal::new(
+            coefficient,
+            exponent.as_i64().ok_or_else(|| {
+                IonError::decoding_error(
+                    "Exponent does not fit within the range supported by this implementation.",
+                )
+            })?,
+        );
 
         let value_ref = context
             .allocator()
@@ -1273,7 +1289,7 @@ impl<'top, D: Decoder> MakeDecimalExpansion<'top, D> {
         let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
 
         Ok(MacroExpansionStep::FinalStep(Some(
-            ValueExpr::ValueLiteral(lazy_expanded_value)
+            ValueExpr::ValueLiteral(lazy_expanded_value),
         )))
     }
 }
@@ -1299,8 +1315,11 @@ enum TimestampBuilderWrapper {
 
 sysmacro_arg_info! { enum MakeTimestampArgs { Month = 0, Day = 1, Hour = 2, Minute = 3, Second = 4, Offset = 5, } }
 impl TimestampBuilderWrapper {
-
-    fn process<'top, D: Decoder>(&mut self, env: Environment<'top, D>, arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>) -> IonResult<()> {
+    fn process<'top, D: Decoder>(
+        &mut self,
+        env: Environment<'top, D>,
+        arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>,
+    ) -> IonResult<()> {
         use TimestampBuilderWrapper::*;
         match self {
             WithYear(_) => self.process_with_year(env, arg),
@@ -1336,7 +1355,9 @@ impl TimestampBuilderWrapper {
             WithSecond(builder) => builder.build(),
             WithFractionalSeconds(builder) => builder.build(),
             WithOffset(builder) => builder.build(),
-            _ => IonResult::decoding_error("attempt to build timestamp while in unconstructed state"),
+            _ => {
+                IonResult::decoding_error("attempt to build timestamp while in unconstructed state")
+            }
         }
     }
 
@@ -1348,7 +1369,11 @@ impl TimestampBuilderWrapper {
     }
 
     /// Process the next provided argument after we've added the year to the timestamp.
-    fn process_with_year<'top, D: Decoder>(&mut self, env: Environment<'top, D>, arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>) -> IonResult<()> {
+    fn process_with_year<'top, D: Decoder>(
+        &mut self,
+        env: Environment<'top, D>,
+        arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>,
+    ) -> IonResult<()> {
         // We have a year, only option for a value is the month.
         let parameter = arg.0.as_ref();
 
@@ -1359,15 +1384,20 @@ impl TimestampBuilderWrapper {
 
         // We have a value, if it is anything other than Month it is invalid.
         if arg.0 != MakeTimestampArgs::Month {
-            return IonResult::decoding_error(format!("value provided for '{parameter}', but no month specified."));
+            return IonResult::decoding_error(format!(
+                "value provided for '{parameter}', but no month specified."
+            ));
         }
 
-        let month_i64= value_ref
-            .expect_int()?
-            .as_u32()
-            .ok_or_else(|| IonError::decoding_error("value provided for 'Month' does not fit within a 32bit unsigned integer"))?;
+        let month_i64 = value_ref.expect_int()?.as_u32().ok_or_else(|| {
+            IonError::decoding_error(
+                "value provided for 'Month' does not fit within a 32bit unsigned integer",
+            )
+        })?;
 
-        let TimestampBuilderWrapper::WithYear(builder) = self.take() else { unreachable!() };
+        let TimestampBuilderWrapper::WithYear(builder) = self.take() else {
+            unreachable!()
+        };
         let new_builder = builder.with_month(month_i64);
         *self = new_builder.into();
 
@@ -1375,18 +1405,24 @@ impl TimestampBuilderWrapper {
     }
 
     /// Process the next provided argument, after we have added the month to the timestamp.
-    fn process_with_month<'top, D: Decoder>(&mut self, env: Environment<'top, D>, arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>) -> IonResult<()> {
+    fn process_with_month<'top, D: Decoder>(
+        &mut self,
+        env: Environment<'top, D>,
+        arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>,
+    ) -> IonResult<()> {
         // If we have a new value, it has to be a day, nothing else is valid.
         let parameter = arg.0.as_ref();
 
         // Check to see if we actually have a value.
         let Some(value_ref) = arg.try_get_valueref(env)? else {
-            return Ok(())
+            return Ok(());
         };
 
         // We have a value, if it is anything other than Day then it is invalid.
         if arg.0 != MakeTimestampArgs::Day {
-            return IonResult::decoding_error(format!("value provided for '{parameter}', but no day specified."));
+            return IonResult::decoding_error(format!(
+                "value provided for '{parameter}', but no day specified."
+            ));
         }
 
         let day= value_ref
@@ -1394,7 +1430,9 @@ impl TimestampBuilderWrapper {
             .as_u32()
             .ok_or_else(|| IonError::decoding_error("value provided for 'Day' parameter cannot be represented as a unsigned 32bit value."))?;
 
-        let TimestampBuilderWrapper::WithMonth(builder) = self.take() else { unreachable!() };
+        let TimestampBuilderWrapper::WithMonth(builder) = self.take() else {
+            unreachable!()
+        };
         let new_builder = builder.with_day(day);
         *self = new_builder.into();
 
@@ -1402,26 +1440,35 @@ impl TimestampBuilderWrapper {
     }
 
     /// Process the next provided argument, after we have added the day to the timestamp.
-    fn process_with_day<'top, D: Decoder>(&mut self, env: Environment<'top, D>, arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>) -> IonResult<()> {
+    fn process_with_day<'top, D: Decoder>(
+        &mut self,
+        env: Environment<'top, D>,
+        arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>,
+    ) -> IonResult<()> {
         // We have a day, and a new value.. the only valid option is hour.
         let parameter = arg.0.as_ref();
 
         // Check to see if we actually have a value.
         let Some(value_ref) = arg.try_get_valueref(env)? else {
-            return Ok(())
+            return Ok(());
         };
 
         // We have a value, if it is anything other than Hour then it is invalid.
         if arg.0 != MakeTimestampArgs::Hour {
-            return IonResult::decoding_error(format!("value provided for '{parameter}', but no hour specified."));
+            return IonResult::decoding_error(format!(
+                "value provided for '{parameter}', but no hour specified."
+            ));
         }
 
-        let hour = value_ref
-            .expect_int()?
-            .as_u32()
-            .ok_or_else(|| IonError::decoding_error("value provided for 'Hour' cannot be represented as an unsigned 32bit value"))?;
+        let hour = value_ref.expect_int()?.as_u32().ok_or_else(|| {
+            IonError::decoding_error(
+                "value provided for 'Hour' cannot be represented as an unsigned 32bit value",
+            )
+        })?;
 
-        let TimestampBuilderWrapper::WithDay(builder) = self.take() else { unreachable!() };
+        let TimestampBuilderWrapper::WithDay(builder) = self.take() else {
+            unreachable!()
+        };
         let new_builder = builder.with_hour(hour);
         *self = new_builder.into();
 
@@ -1429,7 +1476,11 @@ impl TimestampBuilderWrapper {
     }
 
     /// Process the next provided argument after we have added the hour to the timestamp.
-    fn process_with_hour<'top, D: Decoder>(&mut self, env: Environment<'top, D>, arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>) -> IonResult<()> {
+    fn process_with_hour<'top, D: Decoder>(
+        &mut self,
+        env: Environment<'top, D>,
+        arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>,
+    ) -> IonResult<()> {
         // We have an hour, the only valid argument is Minute.
         let parameter_name = arg.0.as_ref();
 
@@ -1439,15 +1490,20 @@ impl TimestampBuilderWrapper {
         };
 
         if arg.0 != MakeTimestampArgs::Minute {
-            return IonResult::decoding_error(format!("value provided for '{parameter_name}', but no minute specified."));
+            return IonResult::decoding_error(format!(
+                "value provided for '{parameter_name}', but no minute specified."
+            ));
         }
 
-        let minute = value_ref
-            .expect_int()?
-            .as_u32()
-            .ok_or_else(|| IonError::decoding_error("value provided for 'Minute' cannot be represented as an unsigned 32bit value"))?;
+        let minute = value_ref.expect_int()?.as_u32().ok_or_else(|| {
+            IonError::decoding_error(
+                "value provided for 'Minute' cannot be represented as an unsigned 32bit value",
+            )
+        })?;
 
-        let TimestampBuilderWrapper::WithHour(builder) = self.take() else { unreachable!() };
+        let TimestampBuilderWrapper::WithHour(builder) = self.take() else {
+            unreachable!()
+        };
         let new_builder = builder.with_minute(minute);
         *self = new_builder.into();
 
@@ -1455,7 +1511,11 @@ impl TimestampBuilderWrapper {
     }
 
     /// Process the next provided argument after we have added the minute to the timestamp.
-    fn process_with_minute<'top, D: Decoder>(&mut self, env: Environment<'top, D>, arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>) -> IonResult<()> {
+    fn process_with_minute<'top, D: Decoder>(
+        &mut self,
+        env: Environment<'top, D>,
+        arg: &SystemMacroArgument<'top, MakeTimestampArgs, D>,
+    ) -> IonResult<()> {
         // We have a minute, we have 2 options for args now: Seconds, and Offset.
         let parameter_name = arg.0.as_ref();
 
@@ -1469,7 +1529,9 @@ impl TimestampBuilderWrapper {
         } else if arg.0 == MakeTimestampArgs::Offset {
             self.process_offset(value_ref)
         } else {
-            IonResult::decoding_error(format!("value provided for '{parameter_name}', but no value for 'second' specified."))
+            IonResult::decoding_error(format!(
+                "value provided for '{parameter_name}', but no value for 'second' specified."
+            ))
         }
     }
 
@@ -1523,10 +1585,11 @@ impl TimestampBuilderWrapper {
 
     /// Process the provided ValueRef as the offset parameter for the timestamp.
     fn process_offset<'top, D: Decoder>(&mut self, value: ValueRef<'top, D>) -> IonResult<()> {
-        let offset = value
-            .expect_int()?
-            .as_i64()
-            .ok_or_else(|| IonError::decoding_error("value provided for 'Offset' is not representable by a 64bit integer"))?;
+        let offset = value.expect_int()?.as_i64().ok_or_else(|| {
+            IonError::decoding_error(
+                "value provided for 'Offset' is not representable by a 64bit integer",
+            )
+        })?;
 
         let new_builder = match self.take() {
             Self::WithMinute(builder) => builder.with_offset(offset as i32),
@@ -1557,15 +1620,12 @@ impl_froms_timestampbuilders!(
     HasSeconds => WithSecond, HasFractionalSeconds => WithFractionalSeconds, HasOffset =>  WithOffset
 );
 
-
-
 #[derive(Copy, Clone, Debug)]
 pub struct MakeTimestampExpansion<'top, D: Decoder> {
     arguments: MacroExprArgsIterator<'top, D>,
 }
 
 impl<'top, D: Decoder> MakeTimestampExpansion<'top, D> {
-
     pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
         Self { arguments }
     }
@@ -1586,9 +1646,9 @@ impl<'top, D: Decoder> MakeTimestampExpansion<'top, D> {
         // Year is required, so we have to ensure that it is available. Our arguments iterator will
         // always have an item for each defined parameter, even if it is not present at the callsite.
         // But we still check here, JIC that ever changes.
-        let year_expr = self.arguments
-            .next()
-            .ok_or(IonError::decoding_error("`make_timestamp` takes 1 to 7 arguments; found 0 arguments"))?;
+        let year_expr = self.arguments.next().ok_or(IonError::decoding_error(
+            "`make_timestamp` takes 1 to 7 arguments; found 0 arguments",
+        ))?;
         let year = SystemMacroArgument("year", year_expr?)
             .get_integer(environment)
             .map_err(error_context)?;
@@ -1602,7 +1662,7 @@ impl<'top, D: Decoder> MakeTimestampExpansion<'top, D> {
         // Now that we know that Year is provided, we can evaluate all of the arguments.
         // TimestampBuilderWrapper handles the tracking of state, and which arguments need to be
         // present and which are optional.
-        let args= [
+        let args = [
             SystemMacroArgument(MakeTimestampArgs::Month, self.arguments.next().unwrap()?),
             SystemMacroArgument(MakeTimestampArgs::Day, self.arguments.next().unwrap()?),
             SystemMacroArgument(MakeTimestampArgs::Hour, self.arguments.next().unwrap()?),
@@ -1612,8 +1672,7 @@ impl<'top, D: Decoder> MakeTimestampExpansion<'top, D> {
         ];
 
         let mut builder = TimestampBuilderWrapper::WithYear(Timestamp::with_year(year_i64 as u32));
-        args
-            .iter()
+        args.iter()
             .try_for_each(|arg| builder.process(environment, arg))
             // .try_fold(TimestampBuilderWrapper::WithYear(Timestamp::with_year(year_i64 as u32)), |builder, arg| {
             //     builder.process(environment, arg)
@@ -1628,7 +1687,7 @@ impl<'top, D: Decoder> MakeTimestampExpansion<'top, D> {
         let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
 
         Ok(MacroExpansionStep::FinalStep(Some(
-            ValueExpr::ValueLiteral(lazy_expanded_value)
+            ValueExpr::ValueLiteral(lazy_expanded_value),
         )))
     }
 }
@@ -1807,38 +1866,31 @@ pub struct SumExpansion<'top, D: Decoder> {
     arguments: MacroExprArgsIterator<'top, D>,
 }
 
-impl <'top, D: Decoder> SumExpansion<'top, D> {
-    pub fn new(
-        arguments: MacroExprArgsIterator<'top, D>,
-    ) -> Self {
-
-        Self {
-            arguments,
-        }
+impl<'top, D: Decoder> SumExpansion<'top, D> {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
+        Self { arguments }
     }
 
     /// Given a [`ValueExpr`], this function will expand it into its underlying value; An
     /// error is returned if the value does not expand to exactly one Int.
     fn get_integer(&self, env: Environment<'top, D>, value: ValueExpr<'top, D>) -> IonResult<Int> {
         match value {
-            ValueExpr::ValueLiteral(value_literal) => {
-                value_literal
-                    .read_resolved()?
-                    .expect_int()
-            }
+            ValueExpr::ValueLiteral(value_literal) => value_literal.read_resolved()?.expect_int(),
             ValueExpr::MacroInvocation(invocation) => {
                 let mut evaluator = MacroEvaluator::new_with_environment(env);
                 evaluator.push(invocation.expand()?);
                 let int_arg = match evaluator.next()? {
-                    None => IonResult::decoding_error("`sum` takes two integers as arguments; empty value found"),
-                    Some(value) => value
-                        .read_resolved()?
-                        .expect_int(),
+                    None => IonResult::decoding_error(
+                        "`sum` takes two integers as arguments; empty value found",
+                    ),
+                    Some(value) => value.read_resolved()?.expect_int(),
                 };
 
                 // Ensure that we don't have any other values in the argument's stream.
                 if !evaluator.is_empty() && evaluator.next()?.is_some() {
-                    return IonResult::decoding_error("`sum` takes two integers as arguments; multiple values found");
+                    return IonResult::decoding_error(
+                        "`sum` takes two integers as arguments; multiple values found",
+                    );
                 }
 
                 int_arg
@@ -1849,7 +1901,7 @@ impl <'top, D: Decoder> SumExpansion<'top, D> {
     fn next(
         &mut self,
         context: EncodingContextRef<'top>,
-        env: Environment<'top, D>
+        env: Environment<'top, D>,
     ) -> IonResult<MacroExpansionStep<'top, D>> {
         let mut sum = Int::new(0);
         // Walk each of our arguments..
@@ -1859,13 +1911,11 @@ impl <'top, D: Decoder> SumExpansion<'top, D> {
             sum = sum + i;
         }
 
-        let value_ref = context
-            .allocator()
-            .alloc_with(|| ValueRef::Int(sum));
+        let value_ref = context.allocator().alloc_with(|| ValueRef::Int(sum));
         let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
 
         Ok(MacroExpansionStep::FinalStep(Some(
-                ValueExpr::ValueLiteral(lazy_expanded_value)
+            ValueExpr::ValueLiteral(lazy_expanded_value),
         )))
     }
 }
@@ -1879,9 +1929,7 @@ pub struct RepeatExpansion<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> RepeatExpansion<'top, D> {
-    pub fn new(
-        arguments: MacroExprArgsIterator<'top, D>,
-    ) -> Self {
+    pub fn new(arguments: MacroExprArgsIterator<'top, D>) -> Self {
         Self {
             arguments,
             repeat_iterations: None,
@@ -1891,15 +1939,19 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
 
     // Extracts the first argument from `arguments` and verifies that it is a single integer value
     // >= 0 that can be used as the repeat count. Any other value will return an error.
-    fn get_number_to_repeat(&mut self, arguments: &mut MacroExprArgsIterator<'top, D>, environment: Environment<'top, D>) -> IonResult<usize> {
-        let count_expr = arguments
-            .next()
-            .unwrap_or(IonResult::decoding_error("`repeat` takes 2 or more parameters"))?;
+    fn get_number_to_repeat(
+        &mut self,
+        arguments: &mut MacroExprArgsIterator<'top, D>,
+        environment: Environment<'top, D>,
+    ) -> IonResult<usize> {
+        let count_expr = arguments.next().unwrap_or(IonResult::decoding_error(
+            "`repeat` takes 2 or more parameters",
+        ))?;
 
         let repeat_count = match count_expr {
-            ValueExpr::ValueLiteral(value_literal) => value_literal
-                .read_resolved()?
-                .expect_int()?,
+            ValueExpr::ValueLiteral(value_literal) => {
+                value_literal.read_resolved()?.expect_int()?
+            }
 
             ValueExpr::MacroInvocation(invocation) => {
                 let mut evaluator = MacroEvaluator::new_with_environment(environment);
@@ -1938,7 +1990,7 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
         if self.repeat_iterations.is_none() {
             let mut arguments = self.arguments;
             self.repeat_iterations = Some(self.get_number_to_repeat(&mut arguments, environment)?);
-            self.content= match arguments.next() {
+            self.content = match arguments.next() {
                 None => None,
                 Some(Err(e)) => return Err(e),
                 Some(Ok(expr)) => Some(expr),
@@ -1947,7 +1999,7 @@ impl<'top, D: Decoder> RepeatExpansion<'top, D> {
 
         // Check if we've reached our desired number of iterations, or if we have empty content.
         if Some(0) == self.repeat_iterations || self.content.is_none() {
-            return Ok(MacroExpansionStep::FinalStep(None)) // End early.
+            return Ok(MacroExpansionStep::FinalStep(None)); // End early.
         }
 
         if let Some(ref mut repeat_iterations) = self.repeat_iterations {
@@ -2102,7 +2154,10 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         }
     }
 
-    pub fn next(&mut self, context: EncodingContextRef<'top>) -> IonResult<MacroExpansionStep<'top, D>> {
+    pub fn next(
+        &mut self,
+        context: EncodingContextRef<'top>,
+    ) -> IonResult<MacroExpansionStep<'top, D>> {
         // If we haven't evaluated any of the deltas yet, we need to grab our expression group and
         // load it into the evaluator.
         if self.current_base.is_none() {
@@ -2136,8 +2191,7 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
             let value_ref = context
                 .allocator()
                 .alloc_with(|| ValueRef::Int(self.current_base.unwrap()));
-            let lazy_expanded_value =
-                LazyExpandedValue::from_constructed(context, &[], value_ref);
+            let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
 
             Ok(MacroExpansionStep::Step(ValueExpr::ValueLiteral(
                 lazy_expanded_value,
@@ -3174,12 +3228,9 @@ mod tests {
 
     #[test]
     fn uint8_parameters() -> IonResult<()> {
-        let template_definition =
-            "(macro int_pair (uint8::x uint8::y) (.values (%x) (%y)))";
+        let template_definition = "(macro int_pair (uint8::x uint8::y) (.values (%x) (%y)))";
         let macro_id = MacroTable::FIRST_USER_MACRO_ID as u8;
-        let tests: &[(&[u8], (u64, u64))] = &[
-            (&[macro_id, 0x00, 0x00], (0, 0)),
-        ];
+        let tests: &[(&[u8], (u64, u64))] = &[(&[macro_id, 0x00, 0x00], (0, 0))];
 
         for (stream, (num1, num2)) in tests.iter().copied() {
             let mut reader = Reader::new(v1_1::Binary, stream)?;
@@ -3761,14 +3812,14 @@ mod tests {
     #[test]
     fn make_decimal_eexp() -> IonResult<()> {
         stream_eq(
-        r#"
+            r#"
         (:make_decimal 1 1)
         (:make_decimal -2 2)
         (:make_decimal (:values 3) 3)
         (:make_decimal (:values 4) (:values 4))
         (:make_decimal 199 -2)
         "#,
-        r#"
+            r#"
         1d1
         -2d2
         3d3
@@ -3827,7 +3878,7 @@ mod tests {
     #[test]
     fn make_timestamp_eexp() -> IonResult<()> {
         stream_eq(
-          r#"
+            r#"
             (:make_timestamp 2025)
             (:make_timestamp 2025 5)
             (:make_timestamp 2025 5 2)
@@ -3840,7 +3891,7 @@ mod tests {
             (:make_timestamp 2025 5 2 1 3 5d1)
             (:make_timestamp 2025 5 2 1 3 5 8)
           "#,
-          r#"
+            r#"
             2025T
             2025-05T
             2025-05-02T
@@ -3856,6 +3907,7 @@ mod tests {
         )
     }
 
+    #[rustfmt::skip]
     #[rstest]
     #[case("(:make_timestamp)",                                    "no year specified")]
     #[case("(:make_timestamp 2025 (:none) 2)",                     "month empty, day provided")]
@@ -3888,7 +3940,6 @@ mod tests {
         actual_reader
             .read_all_elements()
             .expect_err("Unexpected success");
-
 
         // Test non-integer in second parameter
         let source = "(:sum 1 foo)";
@@ -4000,7 +4051,7 @@ mod tests {
         let source = "(:repeat foo a)";
 
         let mut actual_reader = Reader::new(v1_1::Text, source)?;
-        let result= actual_reader.read_all_elements();
+        let result = actual_reader.read_all_elements();
 
         if let Err(IonError::Decoding(_)) = result {
             Ok(())
@@ -4008,7 +4059,6 @@ mod tests {
             panic!("unexpected success");
         }
     }
-
 
     #[test]
     fn e_expressions_inside_a_list() -> IonResult<()> {

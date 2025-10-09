@@ -473,10 +473,7 @@ impl ApplicationValueWriter<'_, BinaryValueWriter_1_1<'_, '_>> {
         self
     }
 
-    pub fn with_field_name_encoding(
-        mut self,
-        field_name_encoding: FieldNameEncoding,
-    ) -> Self {
+    pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
         self.value_writer_config = self
             .value_writer_config
             .with_field_name_encoding(field_name_encoding);
@@ -1034,7 +1031,8 @@ impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        let _param = self.expect_next_parameter()
+        let _param = self
+            .expect_next_parameter()
             .and_then(|p| p.expect_variadic())?;
         // TODO: Pass `Parameter` to group writer so it can do its own validation
         self.raw_eexp_writer.expr_group_writer()
@@ -1452,6 +1450,7 @@ mod tests {
         #[test]
         fn tagless_uint8_encoding() -> IonResult<()> {
             let macro_source = "(macro foo (uint8::x) (%x))";
+            #[rustfmt::skip]
             let expected: &[u8] = &[
                 0xE0, 0x01, 0x01, 0xEA,                       // IVM
                 0xE7, 0xF9, 0x24, 0x69, 0x6F, 0x6E,           // $ion::
@@ -1518,8 +1517,12 @@ mod tests {
         #[case::uint16("(macro foo (uint16::x) (%x))", 5, "5")]
         #[case::uint32("(macro foo (uint32::x) (%x))", 5, "5")]
         #[case::uint64("(macro foo (uint64::x) (%x))", 5, "5")]
-        fn tagless_uint_encoding(#[case] macro_source: &str, #[case] input: i64, #[case] expected: &str) -> IonResult<()> {
-            use crate::{Int, Element};
+        fn tagless_uint_encoding(
+            #[case] macro_source: &str,
+            #[case] input: i64,
+            #[case] expected: &str,
+        ) -> IonResult<()> {
+            use crate::{Element, Int};
 
             // write_int
 
@@ -1556,7 +1559,10 @@ mod tests {
         #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
         #[case::uint32("(macro foo (uint32::x) (%x))", 5u32)]
         #[case::uint64("(macro foo (uint64::x) (%x))", 5u64)]
-        fn tagless_uint_encoding_write_int_fails<T: PrimInt + Unsigned>(#[case] macro_source: &str, #[case] input: T) -> IonResult<()> {
+        fn tagless_uint_encoding_write_int_fails<T: PrimInt + Unsigned>(
+            #[case] macro_source: &str,
+            #[case] input: T,
+        ) -> IonResult<()> {
             let max_int = T::max_value();
             let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
             let neg_input = -num_traits::cast::cast::<_, i128>(input).unwrap();
@@ -1581,7 +1587,10 @@ mod tests {
         #[case::uint8("(macro foo (uint8::x) (%x))", 5u8)]
         #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
         #[case::uint32("(macro foo (uint32::x) (%x))", 5u32)]
-        fn tagless_uint_encoding_write_i64_fails<T: PrimInt + Unsigned>(#[case] macro_source: &str, #[case] input: T) -> IonResult<()> {
+        fn tagless_uint_encoding_write_i64_fails<T: PrimInt + Unsigned>(
+            #[case] macro_source: &str,
+            #[case] input: T,
+        ) -> IonResult<()> {
             let max_int = T::max_value();
             let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
             let neg_input = -num_traits::cast::cast::<_, i128>(input).unwrap();

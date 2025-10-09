@@ -8,11 +8,11 @@ use crate::element::iterators::SymbolsIterator;
 use crate::lazy::decoder::{Decoder, RawValueExpr};
 use crate::lazy::expanded::compiler::{ExpansionAnalysis, ExpansionSingleton};
 use crate::lazy::expanded::macro_evaluator::{
-    AnnotateExpansion, ConditionalExpansion, DeltaExpansion, EExpressionArgGroup, ExprGroupExpansion,
-    FlattenExpansion, IsExhaustedIterator, MacroExpansion, MacroExpansionKind, MacroExpr,
-    MacroExprArgsIterator, MakeDecimalExpansion, MakeFieldExpansion, MakeStructExpansion,
-    MakeTextExpansion, MakeTimestampExpansion, RawEExpression, RepeatExpansion, SumExpansion, TemplateExpansion,
-    ValueExpr,
+    AnnotateExpansion, ConditionalExpansion, DeltaExpansion, EExpressionArgGroup,
+    ExprGroupExpansion, FlattenExpansion, IsExhaustedIterator, MacroExpansion, MacroExpansionKind,
+    MacroExpr, MacroExprArgsIterator, MakeDecimalExpansion, MakeFieldExpansion,
+    MakeStructExpansion, MakeTextExpansion, MakeTimestampExpansion, RawEExpression,
+    RepeatExpansion, SumExpansion, TemplateExpansion, ValueExpr,
 };
 use crate::lazy::expanded::macro_table::{MacroKind, MacroRef};
 use crate::lazy::expanded::template::TemplateMacroRef;
@@ -162,14 +162,10 @@ impl<'top, D: Decoder> EExpression<'top, D> {
             MacroKind::Delta => MacroExpansionKind::Delta(DeltaExpansion::new(
                 self.context(),
                 environment,
-                arguments
+                arguments,
             )),
-            MacroKind::Repeat => {
-                MacroExpansionKind::Repeat(RepeatExpansion::new(arguments))
-            }
-            MacroKind::Sum => {
-                MacroExpansionKind::Sum(SumExpansion::new(arguments))
-            }
+            MacroKind::Repeat => MacroExpansionKind::Repeat(RepeatExpansion::new(arguments)),
+            MacroKind::Sum => MacroExpansionKind::Sum(SumExpansion::new(arguments)),
         };
         Ok(MacroExpansion::new(
             self.context(),
