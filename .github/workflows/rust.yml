@@ -68,71 +68,53 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install llvm -y
       - name: Git Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Rust Toolchain
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          profile: minimal
           toolchain: stable
           components: rustfmt, clippy
+          rustflags: "" # Default: '-D warnings', we do not want that for now.
           override: true
       - name: Cargo Test (default/no features)
         if: matrix.features == 'default'
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose --workspace
+        run: cargo test --verbose --workspace
       - name: Cargo Test (all features)
         if: matrix.features == 'all'
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose --workspace --all-features
+        run: cargo test --verbose --workspace --all-features
       - name: Cargo Test (specific feature)
         if: matrix.features != 'default' && matrix.features != 'all'
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose --workspace --features "${{ matrix.features }}"
+        run: cargo test --verbose --workspace --features "${{ matrix.features }}"
       - name: Rustfmt Check
         # We really only need to run this once--ubuntu/all features mode is as good as any
-        if: matrix.os == 'ubuntu-latest' && matrix.features == 'all'
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --verbose -- --check
-      # `clippy-check` will run `cargo clippy` on new pull requests. Due to a limitation in GitHub
+        if: matrix.os == 'ubuntu' && matrix.features == 'all'
+        uses: actions-rust-lang/rustfmt@v1
+
+      # `rs-clippy-check` will run `cargo clippy` on new pull requests. Due to a limitation in GitHub
       # permissions, the behavior of the Action is different depending on the source of the PR. If the
       # PR comes from the ion-rust project itself, any suggestions will be added to the PR as comments.
       # If the PR comes from a fork, any suggestions will be added to the Action's STDOUT for review.
       # For details, see: https://github.com/actions-rs/clippy-check/issues/2
-      - name: Install Clippy
+
         # The clippy check depends on setup steps defined above, but we don't want it to run
         # for every OS because it posts its comments to the PR. These `if` checks limit clippy to
         # only running on the Linux test. (The choice of OS was arbitrary.)
-        if: matrix.os == 'ubuntu' && matrix.features == 'all'
-        run: rustup component add clippy
       - name: Dump Clippy Version
         if: matrix.os == 'ubuntu' && matrix.features == 'all'
         run: cargo clippy -- --version
       - name: Run Clippy 
         if: matrix.os == 'ubuntu' && matrix.features == 'all'
-        uses: actions-rs/clippy-check@v1
+        uses: clechasseur/rs-clippy-check@v5
         with:
-          # Adding comments to the PR requires the GITHUB_TOKEN secret.
-          token: ${{ secrets.GITHUB_TOKEN }}
           # We are opinionated here and fail the build if anything is complained about.
           # We can always explicitly allow clippy things we disagree with or if this gets too annoying, get rid of it.
           args: --workspace --all-features --tests -- -Dwarnings
       - name: Rustdoc on Everything
         # We really only need to run this once--ubuntu/all features mode is as good as any
         if: matrix.os == 'ubuntu' && matrix.features == 'all'
-        uses: actions-rs/cargo@v1
-        with:
-          command: doc
-          args: --document-private-items --all-features
+        run: cargo doc --document-private-items --all-features
   confirm-build:
     # This job is just a "join" on all parallel strategies for the `build` job so that we can require it in our branch protection rules.
     needs: build
