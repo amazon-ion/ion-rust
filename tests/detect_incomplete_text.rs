@@ -1,5 +1,3 @@
-#![cfg(feature = "experimental-reader-writer")]
-
 use crate::ion_tests::{DataStraw, ELEMENT_GLOBAL_SKIP_LIST};
 use ion_rs::{
     AnyEncoding, Element, ElementReader, IonData, IonError, IonResult, IonStream, Reader,
@@ -32,7 +30,6 @@ static CANONICAL_FILE_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
 static SKIP_LIST_1_0: LazyLock<HashSet<String>> =
     LazyLock::new(|| CANONICAL_FILE_NAMES.iter().cloned().collect());
 
-#[cfg(feature = "experimental-ion-1-1")]
 static SKIP_LIST_1_1: LazyLock<HashSet<String>> = LazyLock::new(|| {
     CANONICAL_FILE_NAMES
         .iter()
@@ -45,7 +42,6 @@ fn detect_incomplete_input_1_0(file_name: &str) {
     incomplete_text_detection_test(&SKIP_LIST_1_0, file_name).unwrap()
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
 #[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
 fn detect_incomplete_input_1_1(file_name: &str) {
     incomplete_text_detection_test(&SKIP_LIST_1_1, file_name).unwrap()

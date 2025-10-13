@@ -1904,13 +1904,6 @@ mod tests {
 
         expect_int(&mut reader, IonEncoding::Text_1_0, 2)?;
 
-        if cfg!(not(feature = "experimental-ion-1-1")) {
-            reader
-                .next()
-                .expect_err("Ion 1.1 IVM should return an error.");
-            return Ok(());
-        }
-
         // This IVM changes the encoding from 1.0 text to 1.1 text
         expect_version_change(&mut reader, IonEncoding::Text_1_0, IonEncoding::Text_1_1)?;
 
@@ -1955,13 +1948,6 @@ mod tests {
         )?;
 
         expect_int(&mut reader, IonEncoding::Binary_1_0, 2)?;
-
-        if cfg!(not(feature = "experimental-ion-1-1")) {
-            reader
-                .next()
-                .expect_err("Ion 1.1 IVM should return an error.");
-            return Ok(());
-        }
 
         // This IVM changes the encoding from 1.0 binary to 1.1 binary
         expect_version_change(

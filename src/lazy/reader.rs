@@ -25,7 +25,6 @@ use crate::{try_or_some_err, IonError, IonResult, MacroTable, SymbolTable};
 /// re-read as long as the reader remains on the same top-level value.
 /// ```
 ///# use ion_rs::IonResult;
-///# #[cfg(feature = "experimental-reader-writer")]
 ///# fn main() -> IonResult<()> {
 ///
 /// // Construct an Element and serialize it as binary Ion.
@@ -57,8 +56,6 @@ use crate::{try_or_some_err, IonError, IonResult, MacroTable, SymbolTable};
 ///
 ///# Ok(())
 ///# }
-///# #[cfg(not(feature = "experimental-reader-writer"))]
-///# fn main() -> IonResult<()> { Ok(()) }
 /// ```
 pub struct Reader<Encoding: Decoder, Input: IonInput> {
     system_reader: SystemReader<Encoding, Input>,
@@ -395,7 +392,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "experimental-ion-1-1"))]
+#[cfg(test)]
 mod tests_1_1 {
     use crate::lazy::text::raw::v1_1::reader::MacroAddress;
     use crate::{v1_1, IonResult, MacroTable, Reader};

@@ -1769,7 +1769,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
     #[test]
     fn dependent_macros() -> IonResult<()> {
         use crate::{AnyEncoding, Element, ElementReader, Reader};

@@ -1,4 +1,3 @@
-#![cfg(feature = "experimental-ion-1-1")]
 #![allow(dead_code)]
 
 mod clause;

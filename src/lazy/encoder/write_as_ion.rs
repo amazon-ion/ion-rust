@@ -43,7 +43,6 @@ pub trait WriteAsIon {
     /// encoded bytes. If the requested encoding is text of any version, returns a `String` instead.
     /// ```
     ///# use ion_rs::IonResult;
-    ///# #[cfg(feature = "experimental-reader-writer")]
     ///# fn main() -> IonResult<()> {
     ///# use ion_rs::*;
     ///
@@ -53,8 +52,6 @@ pub trait WriteAsIon {
     /// assert_eq!(element.as_string().unwrap(), "foo bar baz");
     ///# Ok(())
     ///# }
-    ///# #[cfg(not(feature = "experimental-reader-writer"))]
-    ///# fn main() -> IonResult<()> { Ok(()) }
     /// ```
     fn encode_as<E: Encoding, C: Into<WriteConfig<E>>>(&self, config: C) -> IonResult<E::Output>
     where
