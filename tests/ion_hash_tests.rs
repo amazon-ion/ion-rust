@@ -226,9 +226,7 @@ fn test_case(
     if expected_string != actual_string {
         Err(IonHashTestError::TestFailed {
             test_case_name,
-            message: Some(format!(
-                "expected: {expected_string}\nwas: {actual_string}",
-            )),
+            message: Some(format!("expected: {expected_string}\nwas: {actual_string}",)),
         })
     } else {
         Ok(())

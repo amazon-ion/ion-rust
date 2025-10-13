@@ -1,7 +1,9 @@
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 
-use crate::lazy::encoder::binary::v1_1::value_writer::{BinaryEExpParameterValueWriter_1_1, BinaryValueWriter_1_1};
+use crate::lazy::encoder::binary::v1_1::value_writer::{
+    BinaryEExpParameterValueWriter_1_1, BinaryValueWriter_1_1,
+};
 use crate::lazy::encoder::binary::v1_1::{flex_sym::FlexSym, flex_uint::FlexUInt};
 use crate::lazy::encoder::value_writer::internal::{
     EExpWriterInternal, FieldEncoder, MakeValueWriter,
@@ -520,7 +522,9 @@ impl<'top> EExpWriter for BinaryEExpWriter_1_1<'_, 'top> {
     }
 
     fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        let param = self.signature_iter.expect_next_parameter()
+        let param = self
+            .signature_iter
+            .expect_next_parameter()
             .and_then(|p| p.expect_variadic())?;
 
         let writer = BinaryExprGroupWriter::new(
