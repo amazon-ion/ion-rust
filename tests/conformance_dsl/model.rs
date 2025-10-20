@@ -46,7 +46,9 @@ impl TryFrom<&Element> for SymbolToken {
 
     fn try_from(other: &Element) -> InnerResult<Self> {
         match other.ion_type() {
-            IonType::Symbol => Ok(SymbolToken::Text(other.as_symbol().unwrap().text().unwrap_or("").to_string())),
+            IonType::Symbol => Ok(SymbolToken::Text(
+                other.as_symbol().unwrap().text().unwrap_or("").to_string(),
+            )),
             IonType::String => Ok(SymbolToken::Text(other.as_string().unwrap().to_owned())),
             IonType::Int => Ok(SymbolToken::Address(other.as_usize().unwrap())),
             IonType::SExp => {
@@ -307,14 +309,9 @@ impl TryFrom<&Sequence> for ModelValue {
                 let value = elems
                     .get(1)
                     .ok_or(ConformanceErrorKind::ExpectedModelValue)
-                    .and_then(ModelValue::try_from)
-                    ;
-                let annots: Result<Vec<SymbolToken>, _> = elems
-                    .iter()
-                    .skip(2)
-                    .map(SymbolToken::try_from)
-                    .collect()
-                    ;
+                    .and_then(ModelValue::try_from);
+                let annots: Result<Vec<SymbolToken>, _> =
+                    elems.iter().skip(2).map(SymbolToken::try_from).collect();
                 Ok(ModelValue::Annot(Box::new(value?), annots?))
             }
             _ => unreachable!(),
@@ -446,7 +443,7 @@ pub(crate) fn compare_values<T: ion_rs::Decoder>(
             let other_annots = other_annots?;
 
             if other_annots.len() != annots.len() {
-                return Ok(false)
+                return Ok(false);
             }
 
             let annots_match = other_annots
@@ -454,11 +451,11 @@ pub(crate) fn compare_values<T: ion_rs::Decoder>(
                 .zip(annots.iter())
                 .fold(true, |acc, (a, e)| acc && (a == &e.as_symbol_ref()));
             if !annots_match {
-                return Ok(false)
+                return Ok(false);
             }
 
             if !compare_values(ctx, value, other)? {
-                return Ok(false)
+                return Ok(false);
             }
 
             Ok(true)
@@ -743,17 +740,38 @@ mod tests {
             annots: &'static [&'static str],
         }
         let tests: &[TestCase] = &[
-            TestCase{ source: "(annot true a)", value: ModelValue::Bool(true), annots: &["a"] },
-            TestCase{ source: "(annot false a b c)", value: ModelValue::Bool(false), annots: &["a", "b", "c"] },
-            TestCase{ source: "(annot (Bool true) a b c)", value: ModelValue::Bool(true), annots: &["a", "b", "c"] },
-            TestCase{ source: "(annot (Int 5) a)", value: ModelValue::Int(5.into()), annots: &["a"] },
+            TestCase {
+                source: "(annot true a)",
+                value: ModelValue::Bool(true),
+                annots: &["a"],
+            },
+            TestCase {
+                source: "(annot false a b c)",
+                value: ModelValue::Bool(false),
+                annots: &["a", "b", "c"],
+            },
+            TestCase {
+                source: "(annot (Bool true) a b c)",
+                value: ModelValue::Bool(true),
+                annots: &["a", "b", "c"],
+            },
+            TestCase {
+                source: "(annot (Int 5) a)",
+                value: ModelValue::Int(5.into()),
+                annots: &["a"],
+            },
         ];
 
         for test in tests {
             println!("Testing: {}", test.source);
             let element = Element::read_one(test.source).expect("unable to read ion clause");
-            let model_value = ModelValue::try_from(&element).expect("unable to convert elements to model value");
-            let expected_annots: Vec<SymbolToken> = test.annots.iter().map(|a| SymbolToken::Text(a.to_string())).collect();
+            let model_value =
+                ModelValue::try_from(&element).expect("unable to convert elements to model value");
+            let expected_annots: Vec<SymbolToken> = test
+                .annots
+                .iter()
+                .map(|a| SymbolToken::Text(a.to_string()))
+                .collect();
             if let ModelValue::Annot(value, annots) = model_value {
                 assert_eq!(Box::leak(value), &test.value);
                 assert_eq!(annots, expected_annots);

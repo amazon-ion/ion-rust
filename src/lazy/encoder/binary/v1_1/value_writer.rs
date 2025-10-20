@@ -1011,7 +1011,7 @@ impl<'value, 'top> BinaryEExpParameterValueWriter_1_1<'value, 'top> {
         macros: &'a MacroTable,
         parameter: Option<&'a Parameter>,
     ) -> BinaryEExpParameterValueWriter_1_1<'a, 'b> {
-        BinaryEExpParameterValueWriter_1_1{
+        BinaryEExpParameterValueWriter_1_1 {
             allocator,
             buffer,
             value_writer_config,
@@ -1041,8 +1041,8 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
     // parameter if the parameter is tagless.
 
     fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()> {
-        use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
+        use crate::IonError;
 
         // TODO: Support tagless types.
         let _param = self
@@ -1061,9 +1061,9 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
     }
 
     fn write_i64(self, value: i64) -> IonResult<()> {
+        use crate::lazy::expanded::template::ParameterEncoding as PE;
         use crate::IonError;
         use crate::UInt;
-        use crate::lazy::expanded::template::ParameterEncoding as PE;
 
         #[inline(never)]
         fn error_context(name: &str, err: impl std::error::Error) -> IonError {
@@ -1101,9 +1101,9 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
                 );
                 value_writer.write_i64(value)
             }
-            encoding => IonResult::encoding_error(
-                format!("value does not satisfy encoding type {encoding}")
-            ),
+            encoding => IonResult::encoding_error(format!(
+                "value does not satisfy encoding type {encoding}"
+            )),
         };
 
         result.map_err(|err| error_context(param.name(), err))
@@ -1111,8 +1111,8 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
 
     fn write_int(self, value: &Int) -> IonResult<()> {
         use crate::lazy::expanded::template::ParameterEncoding as PE;
-        use crate::UInt;
         use crate::IonError;
+        use crate::UInt;
 
         #[inline(never)]
         fn error_context(name: &str, err: impl std::error::Error) -> IonError {
@@ -1150,17 +1150,17 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
                 );
                 value_writer.write_int(value)
             }
-            encoding => IonResult::encoding_error(
-                format!("value does not satisfy encoding type {encoding}")
-            ),
+            encoding => IonResult::encoding_error(format!(
+                "value does not satisfy encoding type {encoding}"
+            )),
         };
 
         result.map_err(|err| error_context(param.name(), err))
     }
 
     fn write_f32(self, value: f32) -> IonResult<()> {
-        use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
+        use crate::IonError;
 
         // TODO: Support tagless types.
         let _param = self
@@ -1179,8 +1179,8 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
     }
 
     fn write_f64(self, value: f64) -> IonResult<()> {
-        use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
+        use crate::IonError;
 
         // TODO: Support tagless types.
         let _param = self
@@ -1199,8 +1199,8 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
-        use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
+        use crate::IonError;
 
         let _param = self
             .parameter
@@ -1219,8 +1219,8 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
     }
 
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
-        use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
+        use crate::IonError;
 
         let _param = self
             .parameter
@@ -1239,8 +1239,8 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
     }
 
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
-        use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
+        use crate::IonError;
 
         let _param = self
             .parameter
@@ -1259,11 +1259,11 @@ impl<'value, 'top> ValueWriter for BinaryEExpParameterValueWriter_1_1<'value, 't
     }
 
     fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
-        where
-            Self: 'a
+    where
+        Self: 'a,
     {
-        use crate::IonError;
         use crate::lazy::expanded::template::ParameterEncoding;
+        use crate::IonError;
 
         let _param = self
             .parameter
@@ -1296,11 +1296,11 @@ impl<'top> AnnotatableWriter for BinaryEExpParameterValueWriter_1_1<'_, 'top> {
         Self: 'a,
     {
         Ok(BinaryAnnotatedValueWriter_1_1::new(
-                self.allocator,
-                self.buffer,
-                annotations.into_annotations_vec(),
-                self.value_writer_config,
-                self.macros,
+            self.allocator,
+            self.buffer,
+            annotations.into_annotations_vec(),
+            self.value_writer_config,
+            self.macros,
         ))
     }
 }
@@ -3265,9 +3265,7 @@ mod tests {
         encoding_test(
             |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
                 let mut args = writer.eexp_writer(7)?; // sum
-                args
-                    .write_i64(5)?
-                    .write_i64(6)?;
+                args.write_i64(5)?.write_i64(6)?;
                 args.close()
             },
             &[
@@ -3283,11 +3281,8 @@ mod tests {
     fn write_system_macro_invocation() -> IonResult<()> {
         encoding_test(
             |writer: &mut LazyRawBinaryWriter_1_1<&mut Vec<u8>>| {
-                let mut args =
-                    writer.eexp_writer(MacroIdRef::SystemAddress(system_macros::SUM))?;
-                args
-                    .write_i64(5)?
-                    .write_i64(6)?;
+                let mut args = writer.eexp_writer(MacroIdRef::SystemAddress(system_macros::SUM))?;
+                args.write_i64(5)?.write_i64(6)?;
                 args.close()
             },
             &[

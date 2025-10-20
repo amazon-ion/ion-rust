@@ -56,6 +56,7 @@ num-traits = "0.2"
 arrayvec = "0.7"
 smallvec = { version = "1.9.0", features = ["const_generics"] }
 bumpalo = { version = "3.15.3", features = ["collections", "std"] }
+generic-array = "=0.14.7" # 0.14.8 introduces a deprecation warning that fails our CI/CD checks. Revisit in #1009
 digest = { version = "0.9", optional = true }
 ice_code = "0.1.4"
 rustc-hash = "2.0.0"
