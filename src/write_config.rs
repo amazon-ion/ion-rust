@@ -57,12 +57,6 @@ impl<E: Encoding> WriteConfig<E> {
     pub fn build_raw_writer<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
         E::Writer::build(self, output)
     }
-
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn build_raw_writer<W: io::Write>(self, output: W) -> IonResult<E::Writer<W>> {
-        E::Writer::build(self, output)
-    }
-
 }
 
 impl WriteConfig<TextEncoding_1_0> {
