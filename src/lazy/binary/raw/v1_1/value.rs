@@ -903,21 +903,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
                 let symbol_id = self.read_symbol_id()?;
                 Ok(RawSymbolRef::SymbolId(symbol_id))
             }
-            OpcodeType::SystemSymbolAddress => {
-                // In order to minimize the changes needed to introduce a second address space
-                // for symbols in Ion 1.1, system symbol IDs are resolved eagerly and returned
-                // as `Text`.
-                // Read the next byte after the opcode as a 1-byte FixedUInt address.
-                let symbol_address = self.read_system_symbol_address()?;
-                let text = SYSTEM_SYMBOLS_1_1
-                    .text_for_address(symbol_address)
-                    .ok_or_else(|| {
-                        IonError::decoding_error(format!(
-                            "found invalid system symbol address {symbol_address}"
-                        ))
-                    })?;
-                Ok(RawSymbolRef::Text(text))
-            }
             other => unreachable!("invalid Opcode type found for symbol: {:?}", other),
         }
     }

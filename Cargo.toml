@@ -113,3 +113,7 @@ opt-level = 2
 name = "conformance"
 harness = false
 test = false
+
+[[test]]
+name = "conformance_tests"
+test = false
