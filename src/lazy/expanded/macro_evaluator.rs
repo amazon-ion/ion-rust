@@ -2342,6 +2342,7 @@ mod tests {
         assert_eq_expected(&actual, expected)
     }
 
+    #[allow(dead_code)] // TODO: Revisit
     fn bin_stream_eq(input: &[u8], expected: &str) -> IonResult<()> {
         let mut actual_reader = Reader::new(v1_1::Binary, input)?;
         let actual = actual_reader.read_all_elements()?;

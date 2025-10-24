@@ -15,7 +15,6 @@ use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
-use crate::symbol_table::SYSTEM_SYMBOLS_1_1;
 use crate::types::SymbolAddress;
 use crate::v1_1::FlexUInt;
 use crate::{
@@ -882,6 +881,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read_symbol`]. Reads the next byte as a `FixedUInt`
     /// and returns it as a symbol address.
+    #[allow(dead_code)] // TODO: Revisit
     fn read_system_symbol_address(&self) -> IonResult<SymbolAddress> {
         let fixed_uint = self.value_body_buffer().read_fixed_uint(1)?;
         fixed_uint.0.value().expect_usize()

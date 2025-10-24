@@ -1039,8 +1039,8 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_0, v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
-        RawSymbolRef, SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
+        v1_0, v1_1, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
+        RawSymbolRef, SequenceWriter, StructWriter, SystemReader, ValueWriter, Writer,
     };
     use std::io::BufWriter;
 
@@ -1330,11 +1330,5 @@ mod tests {
         // Make sure that this caused the encoded bytes to reach the `Vec<u8>`.
         assert!(writer.output().get_ref().len() > len_before_flush);
         Ok(())
-    }
-
-    mod eexp_parameter_validation {
-        use super::*;
-        use num_traits::{PrimInt, Unsigned};
-        use rstest::*;
     }
 }

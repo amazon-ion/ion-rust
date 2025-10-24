@@ -1308,9 +1308,7 @@ impl<'top> AnnotatableWriter for BinaryEExpParameterValueWriter_1_1<'_, 'top> {
 #[cfg(test)]
 mod tests {
     use num_traits::FloatConst;
-    use rstest::rstest;
 
-    use crate::ion_data::IonEq;
     use crate::lazy::encoder::annotate::{Annotatable, Annotated};
     use crate::lazy::encoder::annotation_seq::AnnotationSeq;
     use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
@@ -1321,8 +1319,7 @@ mod tests {
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::types::float::{FloatRepr, SmallestFloatRepr};
     use crate::{
-        v1_1, Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
-        Writer,
+        Decimal, Element, Int, IonResult, IonType, Null, RawSymbolRef, SymbolId, Timestamp,
     };
 
     fn encoding_test(
