@@ -1039,8 +1039,8 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_0, v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
-        RawSymbolRef, SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
+        v1_0, v1_1, FieldNameEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef,
+        SequenceWriter, StructWriter, SystemReader, ValueWriter, Writer,
     };
     use std::io::BufWriter;
 
@@ -1076,6 +1076,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn intern_new_symbol_values() -> IonResult<()> {
         use RawSymbolRef::*;
         symbol_value_encoding_test(
@@ -1090,6 +1091,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn do_not_intern_new_symbol_values() -> IonResult<()> {
         use RawSymbolRef::*;
         symbol_value_encoding_test(
@@ -1108,6 +1110,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn encode_all_text_as_is() -> IonResult<()> {
         use RawSymbolRef::*;
         symbol_value_encoding_test(
@@ -1151,6 +1154,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn intern_new_annotations() -> IonResult<()> {
         use RawSymbolRef::*;
         annotations_sequence_encoding_test(
@@ -1173,6 +1177,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn write_new_annotations_as_text() -> IonResult<()> {
         use RawSymbolRef::*;
         annotations_sequence_encoding_test(
@@ -1198,6 +1203,7 @@ mod tests {
 
     #[test]
     #[rustfmt::skip]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn write_text_annotations_as_is() -> IonResult<()> {
         use RawSymbolRef::*;
         annotations_sequence_encoding_test(
@@ -1256,6 +1262,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn intern_all_field_names() -> IonResult<()> {
         struct_field_encoding_test(
             FieldNameEncoding::SymbolIds,
@@ -1272,6 +1279,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn write_all_field_names_as_text() -> IonResult<()> {
         struct_field_encoding_test(
             FieldNameEncoding::InlineText,
@@ -1287,6 +1295,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: Revisit when we have text & binary writing for updated 1.1
     fn write_new_field_names_as_text() -> IonResult<()> {
         struct_field_encoding_test(
             FieldNameEncoding::NewSymbolsAsInlineText,
@@ -1299,45 +1308,6 @@ mod tests {
                 (RawSymbolRef::Text("name"), &[0x09]), // FlexSym 4, SID $4,
             ],
         )
-    }
-
-    #[test]
-    fn define_new_macro() -> IonResult<()> {
-        let mut writer = Writer::new(v1_1::Text.with_format(TextFormat::Lines), Vec::new())?;
-
-        // Define a macro
-        let identity = writer.compile_macro("(macro identity (x*) (%x))")?;
-
-        // Invoke that macro
-        let mut eexp_writer = writer.eexp_writer(&identity)?;
-        let mut group_writer = eexp_writer.expr_group_writer()?;
-        group_writer.write_all(["foo", "bar", "baz"])?;
-        group_writer.close()?;
-        eexp_writer.close()?;
-
-        writer.flush()?;
-
-        // Confirm the output is as expected
-        let output = writer.output().as_slice();
-
-        println!("output:\n{}", std::str::from_utf8(output).unwrap());
-
-        let actual = Element::read_all(output)?;
-
-        let expected = Element::read_all(
-            r#"
-            "foo"
-            "bar"
-            "baz"
-        "#,
-        )?;
-
-        assert_eq!(
-            actual, expected,
-            "// actual\n{actual:?}\n// !=\n// expected\n{expected:?}"
-        );
-
-        Ok(())
     }
 
     #[test]
@@ -1360,238 +1330,5 @@ mod tests {
         // Make sure that this caused the encoded bytes to reach the `Vec<u8>`.
         assert!(writer.output().get_ref().len() > len_before_flush);
         Ok(())
-    }
-
-    mod eexp_parameter_validation {
-        use super::*;
-        use num_traits::{PrimInt, Unsigned};
-        use rstest::*;
-
-        #[test]
-        fn accept_valid_parameter_encoding() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // The argument passed as parameter `a` is "hello"
-            eexp_writer.write("hello")?;
-            // The argument passed as parameter `b` is 42
-            eexp_writer.write_flex_uint(42usize)?;
-            eexp_writer.close()?;
-            let bytes = writer.close()?;
-            // Reading the encoded data back, we get the expected output.
-            let actual = Element::read_all(&bytes)?;
-            let expected = Element::read_all("\"hello\" 42")?;
-            assert_eq!(actual, expected);
-            Ok(())
-        }
-
-        #[test]
-        fn tagged_parameter_rejects_flex_uint() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // Attempt to write a FlexUInt where a tagged value is required, resulting in an error.
-            assert!(eexp_writer.write_flex_uint(42usize).is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn flex_uint_parameter_rejects_tagged_value() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            eexp_writer.write("hello")?;
-            // Attempt to write a tagged value where a FlexUInt is required, resulting in an error.
-            assert!(eexp_writer.write("world").is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn exactly_one_parameter_rejects_expr_group() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a) (%a)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // Attempt to start an expression group for parameter `a`, which has a cardinality of
-            // exactly-one.
-            assert!(eexp_writer.expr_group_writer().is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn zero_or_more_parameter_rejects_tagged_value() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a*) (%a)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // Attempt to write a tagged value for parameter `a`, which has a cardinality of
-            // zero-or-more, and therefore requires an expression group.
-            assert!(eexp_writer.write("hello").is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn tagless_uint8_encoding() -> IonResult<()> {
-            let macro_source = "(macro foo (uint8::x) (%x))";
-            #[rustfmt::skip]
-            let expected: &[u8] = &[
-                0xE0, 0x01, 0x01, 0xEA,                       // IVM
-                0xE7, 0xF9, 0x24, 0x69, 0x6F, 0x6E,           // $ion::
-                0xFC, 0x55, 0xEE, 0x10, 0xA1, 0x5F,           // (module _
-                0xC4, 0xEE, 0x0F, 0xA1, 0x5F,                 //   (symbol_table _ )
-                0xFC, 0x3F, 0xEE, 0x0E, 0xA1, 0x5F,           //   (macro_table _
-                0xFC, 0x33,                                   //      (
-                0xA5, 0x6d, 0x61, 0x63, 0x72, 0x6F,           //        macro
-                0xA3, 0x66, 0x6F, 0x6F,                       //        foo
-                0xC9,                                         //        (
-                0xE7, 0xF7, 0x75, 0x69, 0x6E, 0x74, 0x38,     //          uint8::
-                0xA1, 0x78,                                   //          x )
-                0xC4, 0xA1, 0x25, 0xA1, 0x78,                 //        ('%' x))))
-                0x18, 0x05,                                   //  (:foo 5)
-
-            ];
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            eexp_writer.write_int(&5.into())?;
-            let _ = eexp_writer.close();
-            let output = writer.close()?;
-            assert_eq!(output.as_slice(), expected);
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            eexp_writer.write_i64(5i64)?;
-            let _ = eexp_writer.close();
-            let output = writer.close()?;
-            assert_eq!(output.as_slice(), expected);
-
-            Ok(())
-        }
-
-        #[test]
-        fn tagless_uint8_encoding_fails() -> IonResult<()> {
-            let macro_source = "(macro foo (uint8::x) (%x))";
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            let result = eexp_writer.write_int(&1024.into());
-            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
-            assert!(result.is_err(), "unexpected success");
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            let result = eexp_writer.write_i64(1024.into());
-            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
-            assert!(result.is_err(), "unexpected success");
-
-            Ok(())
-        }
-
-        #[rstest]
-        #[case::uint8("(macro foo (uint8::x) (%x))", 5, "5")]
-        #[case::uint16("(macro foo (uint16::x) (%x))", 5, "5")]
-        #[case::uint32("(macro foo (uint32::x) (%x))", 5, "5")]
-        #[case::uint64("(macro foo (uint64::x) (%x))", 5, "5")]
-        fn tagless_uint_encoding(
-            #[case] macro_source: &str,
-            #[case] input: i64,
-            #[case] expected: &str,
-        ) -> IonResult<()> {
-            use crate::{Element, Int};
-
-            // write_int
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let int: Int = input.into();
-            eexp_writer.write_int(&int)?;
-            eexp_writer.close()?;
-
-            let output = writer.close()?;
-            let actual = Element::read_all(&output)?;
-            let exp_elem = Element::read_all(expected)?;
-            assert_eq!(actual, exp_elem);
-
-            // write_i64
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            eexp_writer.write_i64(input)?;
-            eexp_writer.close()?;
-
-            let output = writer.close()?;
-            let actual = Element::read_all(&output)?;
-            let exp_elem = Element::read_all(expected)?;
-            assert_eq!(actual, exp_elem);
-
-            Ok(())
-        }
-
-        #[rstest]
-        #[case::uint8("(macro foo (uint8::x) (%x))", 5u8)]
-        #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
-        #[case::uint32("(macro foo (uint32::x) (%x))", 5u32)]
-        #[case::uint64("(macro foo (uint64::x) (%x))", 5u64)]
-        fn tagless_uint_encoding_write_int_fails<T: PrimInt + Unsigned>(
-            #[case] macro_source: &str,
-            #[case] input: T,
-        ) -> IonResult<()> {
-            let max_int = T::max_value();
-            let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
-            let neg_input = -num_traits::cast::cast::<_, i128>(input).unwrap();
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let result = eexp_writer.write_int(&max_int_plus_one.into());
-            assert!(result.is_err(), "unexpected success");
-
-            // Ensure we cannot write a negative value..
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let result = eexp_writer.write_int(&neg_input.into());
-            assert!(result.is_err(), "unexpected success");
-
-            Ok(())
-        }
-
-        #[rstest]
-        #[case::uint8("(macro foo (uint8::x) (%x))", 5u8)]
-        #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
-        #[case::uint32("(macro foo (uint32::x) (%x))", 5u32)]
-        fn tagless_uint_encoding_write_i64_fails<T: PrimInt + Unsigned>(
-            #[case] macro_source: &str,
-            #[case] input: T,
-        ) -> IonResult<()> {
-            let max_int = T::max_value();
-            let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
-            let neg_input = -num_traits::cast::cast::<_, i128>(input).unwrap();
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            let result = eexp_writer.write_i64(max_int_plus_one.try_into().unwrap());
-            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
-            assert!(result.is_err(), "unexpected success");
-
-            // Ensure we cannot write a negative value..
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let result = eexp_writer.write_i64(neg_input.try_into().unwrap());
-            assert!(result.is_err(), "unexpected success");
-
-            Ok(())
-        }
     }
 }

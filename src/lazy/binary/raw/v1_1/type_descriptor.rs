@@ -63,6 +63,7 @@ impl Opcode {
     /// opcode + length code combination is illegal, an error will be returned.
     pub const fn from_byte(byte: u8) -> Opcode {
         let (high_nibble, low_nibble) = (byte >> 4, byte & 0x0F);
+        use super::Directive;
         use crate::lazy::binary::raw::v1_1::type_code::OpcodeKind;
         use LengthType::*;
         use OpcodeType::*;
@@ -73,9 +74,22 @@ impl Opcode {
         const TYPED_NULL_LENGTH: u8 = 1;
 
         let (opcode_type, length_type, kind) = match (high_nibble, low_nibble) {
-            (0x0..=0x3, _) => (EExpressionWith6BitAddress, Unknown, OpcodeKind::EExp),
-            (0x4, _) => (EExpressionWith12BitAddress, Unknown, OpcodeKind::EExp),
-            (0x5, _) => (EExpressionWith20BitAddress, Unknown, OpcodeKind::EExp),
+            (0x0..=0x3, _) => (EExpWith1ByteAddress, InOpcode(1), OpcodeKind::EExp),
+            (0x4, 0x0..=0x7) => (EExpWith1ByteAddress, InOpcode(1), OpcodeKind::EExp),
+            (0x4, 0x8..=0xF) => (EExpWithExtendedAddress, Unknown, OpcodeKind::EExp),
+            (0x5, 0x0..=0x7) => (SymbolAddress, Unknown, OpcodeKind::Value(IonType::Symbol)),
+            (0x5, 0x8) => (AnnotationSymAddress, Unknown, OpcodeKind::Annotations),
+            (0x5, 0x9) => (AnnotationInlineText, Unknown, OpcodeKind::Annotations),
+            (0x5, 0xB) => (
+                TaglessElementList,
+                Unknown,
+                OpcodeKind::Value(IonType::List),
+            ),
+            (0x5, 0xA) => (
+                TaglessElementSExp,
+                Unknown,
+                OpcodeKind::Value(IonType::SExp),
+            ),
             (0x6, length @ 0x0..=0x8) => {
                 (Integer, InOpcode(length), OpcodeKind::Value(IonType::Int))
             }
@@ -96,6 +110,16 @@ impl Opcode {
                 InOpcode(ION_1_1_TIMESTAMP_SHORT_SIZE[low_nibble as usize]),
                 OpcodeKind::Value(IonType::Timestamp),
             ),
+            (0x8, 0xE) => (
+                NullNull,
+                InOpcode(UNTYPED_NULL_LENGTH),
+                OpcodeKind::Value(IonType::Null),
+            ),
+            (0x8, 0xF) => (
+                TypedNull,
+                InOpcode(TYPED_NULL_LENGTH),
+                OpcodeKind::Value(IonType::Null),
+            ),
             (0x9, length) => (String, InOpcode(length), OpcodeKind::Value(IonType::String)),
             (0xA, length) => (
                 InlineSymbol,
@@ -106,67 +130,74 @@ impl Opcode {
             (0xC, length) => (SExp, InOpcode(length), OpcodeKind::Value(IonType::SExp)),
             (0xD, length) => (Struct, InOpcode(length), OpcodeKind::Value(IonType::Struct)),
             (0xE, 0x0) => (IonVersionMarker, InOpcode(IVM_LENGTH), OpcodeKind::Control),
-            (0xE, length @ 0x1..=0x3) => (
-                SymbolAddress,
-                InOpcode(length),
-                OpcodeKind::Value(IonType::Symbol),
+            // TODO: Revisit directive representation
+            (0xE, directive @ 0..=8) => (
+                Directive,
+                Unknown,
+                OpcodeKind::Directive(match directive {
+                    1 => Directive::SetSymbols,
+                    2 => Directive::AddSymbols,
+                    3 => Directive::SetMacros,
+                    4 => Directive::AddMacros,
+                    5 => Directive::Use,
+                    6 => Directive::Module,
+                    7 => Directive::Import,
+                    8 => Directive::Encoding,
+                    _ => Directive::Invalid,
+                }),
             ),
-            // Annotations sequences are self-delimiting, so their length is Unknown
-            (0xE, 0x4..=0x6) => (AnnotationSymAddress, Unknown, OpcodeKind::Annotations),
-            (0xE, 0x7..=0x9) => (AnnotationFlexSym, Unknown, OpcodeKind::Annotations),
-            (0xE, 0xA) => (
-                NullNull,
-                InOpcode(UNTYPED_NULL_LENGTH),
-                OpcodeKind::Value(IonType::Null),
-            ),
-            (0xE, 0xB) => (
-                TypedNull,
-                InOpcode(TYPED_NULL_LENGTH),
-                OpcodeKind::Value(IonType::Null),
-            ),
+            (0xE, 0x9) => (TemplatePlaceholder, InOpcode(0), OpcodeKind::Control),
+            (0xE, 0xA) => (TemplatePlaceholderWithDefault, Unknown, OpcodeKind::Control),
+            (0xE, 0xB) => (TemplatePlaceholderTagless, InOpcode(1), OpcodeKind::Control),
             (0xE, 0xC) => (Nop, InOpcode(0), OpcodeKind::Control),
             (0xE, 0xD) => (Nop, FlexUIntFollows, OpcodeKind::Control),
-            (0xE, 0xE) => (
-                SystemSymbolAddress,
-                InOpcode(1),
-                OpcodeKind::Value(IonType::Symbol),
+            (0xE, 0xE) => (StructSwitchMode, InOpcode(0), OpcodeKind::Control),
+            (0xE, 0xF) => (DelimitedContainerClose, InOpcode(0), OpcodeKind::Control),
+            (0xF, 0x0) => (ListDelimited, Unknown, OpcodeKind::Value(IonType::List)),
+            (0xF, 0x1) => (SExpDelimited, Unknown, OpcodeKind::Value(IonType::SExp)),
+            (0xF, 0x2) => (
+                StructDelimitedSID,
+                Unknown,
+                OpcodeKind::Value(IonType::Struct),
             ),
-            (0xE, 0xF) => (SystemEExpression, Unknown, OpcodeKind::EExp),
-            (0xF, 0x0) => (DelimitedContainerClose, InOpcode(0), OpcodeKind::Control),
-            (0xF, 0x1) => (ListDelimited, Unknown, OpcodeKind::Value(IonType::List)),
-            (0xF, 0x2) => (SExpDelimited, Unknown, OpcodeKind::Value(IonType::SExp)),
-            (0xF, 0x3) => (StructDelimited, Unknown, OpcodeKind::Value(IonType::Struct)),
-            (0xF, 0x5) => (
+            (0xF, 0x3) => (
+                StructDelimitedFlexSym,
+                Unknown,
+                OpcodeKind::Value(IonType::Struct),
+            ),
+            (0xF, 0x4) => (
                 EExpressionWithLengthPrefix,
                 FlexUIntFollows,
                 OpcodeKind::EExp,
             ),
-            (0xF, 0x6) => (
+            (0xF, 0x5) => (
                 LargeInteger,
                 FlexUIntFollows,
                 OpcodeKind::Value(IonType::Int),
             ),
-            (0xF, 0x7) => (
+            (0xF, 0x6) => (
                 Decimal,
                 FlexUIntFollows,
                 OpcodeKind::Value(IonType::Decimal),
             ),
-            (0xF, 0x8) => (
+            (0xF, 0x7) => (
                 TimestampLong,
                 FlexUIntFollows,
                 OpcodeKind::Value(IonType::Timestamp),
             ),
-            (0xF, 0x9) => (String, FlexUIntFollows, OpcodeKind::Value(IonType::String)), // 0xFF indicates >15 byte string.
-            (0xF, 0xA) => (
+            (0xF, 0x8) => (String, FlexUIntFollows, OpcodeKind::Value(IonType::String)), // 0xFF indicates >15 byte string.
+            (0xF, 0x9) => (
                 InlineSymbol,
                 FlexUIntFollows,
                 OpcodeKind::Value(IonType::Symbol),
             ),
-            (0xF, 0xB) => (List, FlexUIntFollows, OpcodeKind::Value(IonType::List)),
-            (0xF, 0xC) => (SExp, FlexUIntFollows, OpcodeKind::Value(IonType::SExp)),
-            (0xF, 0xD) => (Struct, FlexUIntFollows, OpcodeKind::Value(IonType::Struct)),
+            (0xF, 0xA) => (List, FlexUIntFollows, OpcodeKind::Value(IonType::List)),
+            (0xF, 0xB) => (SExp, FlexUIntFollows, OpcodeKind::Value(IonType::SExp)),
+            // TODO: Long structs are in 2 types, SID and FlexSym starting modes.
+            (0xF, 0xC) => (Struct, FlexUIntFollows, OpcodeKind::Value(IonType::Struct)),
             (0xF, 0xE) => (Blob, FlexUIntFollows, OpcodeKind::Value(IonType::Blob)),
             (0xF, 0xF) => (Clob, FlexUIntFollows, OpcodeKind::Value(IonType::Clob)),
+
             _ => (Invalid, Unknown, OpcodeKind::Control),
         };
         Opcode {
