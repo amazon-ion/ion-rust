@@ -24,9 +24,7 @@ use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
-use crate::lazy::text::raw::v1_1::reader::{
-    MacroIdLike, MacroIdRef, ModuleKind, QualifiedAddress,
-};
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef, ModuleKind, QualifiedAddress};
 use crate::result::IonFailure;
 use crate::{v1_1, IonError, IonResult, ValueExpr};
 
@@ -882,7 +880,10 @@ impl<'a> BinaryBuffer<'a> {
         use OpcodeType::*;
         let (macro_id, input_after_address) = match opcode.opcode_type {
             // Single byte eexp invocation
-            EExpWith1ByteAddress => (MacroIdRef::LocalAddress(opcode.byte as usize), self.consume(1)),
+            EExpWith1ByteAddress => (
+                MacroIdRef::LocalAddress(opcode.byte as usize),
+                self.consume(1),
+            ),
             // Length-prefixed is a special case.
             EExpressionWithLengthPrefix => return self.read_eexp_with_length_prefix(opcode),
             _ => unreachable!("read_e_expression called with invalid opcode"),

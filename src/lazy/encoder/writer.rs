@@ -1039,8 +1039,8 @@ mod tests {
     use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{
-        v1_0, v1_1, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
-        RawSymbolRef, SequenceWriter, StructWriter, SystemReader, ValueWriter, Writer,
+        v1_0, v1_1, FieldNameEncoding, HasSpan, IonResult, LazyRawValue, RawSymbolRef,
+        SequenceWriter, StructWriter, SystemReader, ValueWriter, Writer,
     };
     use std::io::BufWriter;
 
