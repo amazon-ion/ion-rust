@@ -292,12 +292,6 @@ mod tests {
 
             // // Symbol ID: 65,793
             // 0x50, 0x00, 0x00, 0x00,
-
-            // // System symbols
-            // 0xEE, 0x0A, // encoding
-            // 0xEE, 0x0E, // macro_table
-            // 0xEE, 0x21, // empty text
-            // 0xEE, 0x38, // make_field
         ];
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
@@ -806,18 +800,18 @@ mod tests {
     fn nulls() -> IonResult<()> {
         #[rustfmt::skip]
         let data: Vec<([u8; 2], IonType)> = vec![
-            ([0x8F, 0x00], IonType::Bool),      // null.bool
-            ([0x8F, 0x01], IonType::Int),       // null.int
-            ([0x8F, 0x02], IonType::Float),     // null.float
-            ([0x8F, 0x03], IonType::Decimal),   // null.decimal
-            ([0x8F, 0x04], IonType::Timestamp), // null.timestamp
-            ([0x8F, 0x05], IonType::String),    // null.string
-            ([0x8F, 0x06], IonType::Symbol),    // null.symbol
-            ([0x8F, 0x07], IonType::Blob),      // null.blob
-            ([0x8F, 0x08], IonType::Clob),      // null.clob
-            ([0x8F, 0x09], IonType::List),      // null.list
-            ([0x8F, 0x0A], IonType::SExp),      // null.sexp
-            ([0x8F, 0x0B], IonType::Struct),    // null.struct
+            ([0x8F, 0x01], IonType::Bool),      // null.bool
+            ([0x8F, 0x02], IonType::Int),       // null.int
+            ([0x8F, 0x03], IonType::Float),     // null.float
+            ([0x8F, 0x04], IonType::Decimal),   // null.decimal
+            ([0x8F, 0x05], IonType::Timestamp), // null.timestamp
+            ([0x8F, 0x06], IonType::String),    // null.string
+            ([0x8F, 0x07], IonType::Symbol),    // null.symbol
+            ([0x8F, 0x08], IonType::Blob),      // null.blob
+            ([0x8F, 0x09], IonType::Clob),      // null.clob
+            ([0x8F, 0x0A], IonType::List),      // null.list
+            ([0x8F, 0x0B], IonType::SExp),      // null.sexp
+            ([0x8F, 0x0C], IonType::Struct),    // null.struct
         ];
 
         for (data, expected_type) in data {

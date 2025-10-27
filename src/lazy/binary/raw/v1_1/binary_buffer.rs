@@ -1221,7 +1221,7 @@ mod tests {
     }
 
     #[rstest]
-    #[ignore]
+    #[ignore] // TODO: Revisit all of these ignored tests once Annotation handling is updated.
     #[case::single_address(AnnotationsEncoding::SymbolAddress, &[0xE4, 0x07], 1, 1, &[
         RawSymbolRef::SymbolId(3)
     ])]
