@@ -15,7 +15,6 @@ use crate::lazy::decoder::{HasRange, HasSpan, RawVersionMarker};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
-use crate::symbol_table::SYSTEM_SYMBOLS_1_1;
 use crate::types::SymbolAddress;
 use crate::v1_1::FlexUInt;
 use crate::{
@@ -142,8 +141,8 @@ impl<'top> HasRange for &'top LazyRawBinaryValue_1_1<'top> {
 impl<'top> LazyRawValue<'top, BinaryEncoding_1_1> for &'top LazyRawBinaryValue_1_1<'top> {
     fn ion_type(&self) -> IonType {
         if self.encoded_value.header.type_code() == OpcodeType::TypedNull {
-            let body = self.value_body();
-            ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
+            let null_type = self.value_body()[0] as usize;
+            ION_1_1_TYPED_NULL_TYPES[null_type - 1]
         } else {
             self.encoded_value.ion_type()
         }
@@ -435,8 +434,8 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     fn read_null(&self) -> IonResult<IonType> {
         let ion_type = if self.encoded_value.header.type_code() == OpcodeType::TypedNull {
-            let body = self.value_body();
-            ION_1_1_TYPED_NULL_TYPES[body[0] as usize]
+            let null_type = self.value_body()[0] as usize;
+            ION_1_1_TYPED_NULL_TYPES[null_type - 1]
         } else {
             self.encoded_value.ion_type()
         };
@@ -882,6 +881,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read_symbol`]. Reads the next byte as a `FixedUInt`
     /// and returns it as a symbol address.
+    #[allow(dead_code)] // TODO: Revisit
     fn read_system_symbol_address(&self) -> IonResult<SymbolAddress> {
         let fixed_uint = self.value_body_buffer().read_fixed_uint(1)?;
         fixed_uint.0.value().expect_usize()
@@ -902,21 +902,6 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
             OpcodeType::SymbolAddress => {
                 let symbol_id = self.read_symbol_id()?;
                 Ok(RawSymbolRef::SymbolId(symbol_id))
-            }
-            OpcodeType::SystemSymbolAddress => {
-                // In order to minimize the changes needed to introduce a second address space
-                // for symbols in Ion 1.1, system symbol IDs are resolved eagerly and returned
-                // as `Text`.
-                // Read the next byte after the opcode as a 1-byte FixedUInt address.
-                let symbol_address = self.read_system_symbol_address()?;
-                let text = SYSTEM_SYMBOLS_1_1
-                    .text_for_address(symbol_address)
-                    .ok_or_else(|| {
-                        IonError::decoding_error(format!(
-                            "found invalid system symbol address {symbol_address}"
-                        ))
-                    })?;
-                Ok(RawSymbolRef::Text(text))
             }
             other => unreachable!("invalid Opcode type found for symbol: {:?}", other),
         }

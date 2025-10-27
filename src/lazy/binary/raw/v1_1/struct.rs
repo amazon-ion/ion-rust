@@ -168,7 +168,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             source: input,
             mode: match opcode_type {
                 OpcodeType::Struct => StructMode::SymbolAddress,
-                OpcodeType::StructDelimited => StructMode::FlexSym,
+                OpcodeType::StructDelimitedFlexSym => StructMode::FlexSym,
                 _ => unreachable!("Unexpected opcode for structure"),
             },
             field_expr_cache,
@@ -319,56 +319,5 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
             self.mode = mode;
             field_expr
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        v1_1, AnyEncoding, Element, ElementReader, IonResult, Reader, SequenceWriter, StructWriter,
-        ValueWriter, Writer,
-    };
-
-    #[test]
-    fn field_value_eexp() -> IonResult<()> {
-        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-
-        let greet =
-            writer.compile_macro(r#"(macro greet (name) (.make_string "hello, " (%name)))"#)?;
-        let mut struct_writer = writer.struct_writer()?;
-
-        let field_writer = struct_writer.field_writer("Waldo");
-        let mut eexp_writer = field_writer.eexp_writer(&greet)?;
-        eexp_writer.write("Waldo")?;
-        eexp_writer.close()?;
-
-        let field_writer = struct_writer.field_writer("Winnifred");
-        let mut eexp_writer = field_writer.eexp_writer(&greet)?;
-        eexp_writer.write("Winnifred")?;
-        eexp_writer.close()?;
-
-        let field_writer = struct_writer.field_writer("Winston");
-        let mut eexp_writer = field_writer.eexp_writer(&greet)?;
-        eexp_writer.write("Winston")?;
-        eexp_writer.close()?;
-
-        struct_writer.close()?;
-
-        let bytes = writer.close()?;
-
-        let mut reader = Reader::new(AnyEncoding, bytes)?;
-        assert_eq!(
-            reader.read_one_element()?,
-            Element::read_one(
-                r#"
-                    {
-                        Waldo    : "hello, Waldo",
-                        Winnifred: "hello, Winnifred",
-                        Winston  : "hello, Winston",
-                    }
-                "#
-            )?
-        );
-        Ok(())
     }
 }

@@ -2342,6 +2342,7 @@ mod tests {
         assert_eq_expected(&actual, expected)
     }
 
+    #[allow(dead_code)] // TODO: Revisit
     fn bin_stream_eq(input: &[u8], expected: &str) -> IonResult<()> {
         let mut actual_reader = Reader::new(v1_1::Binary, input)?;
         let actual = actual_reader.read_all_elements()?;
@@ -2375,53 +2376,6 @@ mod tests {
         assert!(matches!(expected_reader.next(), Ok(None)));
 
         Ok(())
-    }
-
-    #[test]
-    fn read_system_eexp() -> IonResult<()> {
-        bin_stream_eq(
-            &[
-                0xEF, // System macro, address follows as 1-byte FixedUInt
-                0x09, // make_string
-                0x02, // Argument group
-                0x11, // FlexUInt 8: 8-byte group
-                0x93, // Opcode: 3-byte string follows
-                0x66, 0x6F, 0x6F, // "foo"
-                0x93, // Opcode: 3-byte string follows
-                0x62, 0x61, 0x72, // "bar"
-            ],
-            r#""foobar""#,
-        )
-    }
-
-    #[test]
-    fn read_system_eexp_with_delimited_tagged_arg_group() -> IonResult<()> {
-        // Empty delimited argument group
-        bin_stream_eq(
-            &[
-                0xEF, // System macro, address follows as 1-byte FixedUInt
-                0x09, // make_string
-                0x02, // Argument group
-                0x01, // FlexUInt 0: delimited group
-                0xF0, // Delimited END
-            ],
-            r#" "" // <-- empty string "#,
-        )?;
-        // Populated delimited argument group
-        bin_stream_eq(
-            &[
-                0xEF, // System macro, address follows as 1-byte FixedUInt
-                0x09, // make_string
-                0x02, // Argument group
-                0x01, // FlexUInt 0: delimited group
-                0x93, // Opcode: 3-byte string follows
-                0x66, 0x6F, 0x6F, // "foo"
-                0x93, // Opcode: 3-byte string follows
-                0x62, 0x61, 0x72, // "bar"
-                0xF0, // Delimited END
-            ],
-            r#" "foobar" "#,
-        )
     }
 
     #[test]

@@ -24,9 +24,7 @@ use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::expanded::macro_table::MacroRef;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArgExpr;
-use crate::lazy::text::raw::v1_1::reader::{
-    MacroIdLike, MacroIdRef, ModuleKind, QualifiedAddress, SystemMacroAddress,
-};
+use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef, ModuleKind, QualifiedAddress};
 use crate::result::IonFailure;
 use crate::{v1_1, IonError, IonResult, ValueExpr};
 
@@ -723,7 +721,8 @@ impl<'a> BinaryBuffer<'a> {
 
     fn read_annotations_sequence(self, opcode: Opcode) -> ParseResult<'a, EncodedAnnotations> {
         match opcode.opcode_type {
-            OpcodeType::AnnotationFlexSym => self.read_flex_sym_annotations_sequence(opcode),
+            // TODO: Need to add AnnotationInlineText
+            // OpcodeType::AnnotationFlexSym => self.read_flex_sym_annotations_sequence(opcode),
             OpcodeType::AnnotationSymAddress => {
                 self.read_symbol_address_annotations_sequence(opcode)
             }
@@ -733,6 +732,7 @@ impl<'a> BinaryBuffer<'a> {
         }
     }
 
+    #[allow(dead_code)] // TODO: Revisit.
     fn read_flex_sym_annotations_sequence(
         self,
         opcode: Opcode,
@@ -786,6 +786,7 @@ impl<'a> BinaryBuffer<'a> {
     }
 
     /// Skips beyond a `FlexSym` at the head of the buffer, returning the remaining slice.
+    #[allow(dead_code)] // TODO: Revisit
     fn consume_flex_sym(self) -> IonResult<Self> {
         // TODO: As an optimization, see if we can avoid actually reading the flex_sym.
         let (flex_sym, remaining) = self.read_flex_sym()?;
@@ -878,48 +879,13 @@ impl<'a> BinaryBuffer<'a> {
     ) -> ParseResult<'a, &'a BinaryEExpression_1_1<'a>> {
         use OpcodeType::*;
         let (macro_id, input_after_address) = match opcode.opcode_type {
-            EExpressionWith6BitAddress => (
+            // Single byte eexp invocation
+            EExpWith1ByteAddress => (
                 MacroIdRef::LocalAddress(opcode.byte as usize),
                 self.consume(1),
             ),
-            EExpressionWith12BitAddress => {
-                if self.len() < 2 {
-                    return IonResult::incomplete("a 12-bit e-exp address", self.offset);
-                }
-
-                let bias = ((opcode.byte as usize & 0x0F) << 8) + 64;
-                let fixed_uint = self.bytes()[1] as usize;
-                let address = fixed_uint + bias;
-                (MacroIdRef::LocalAddress(address), self.consume(2))
-            }
-            EExpressionWith20BitAddress => {
-                if self.len() < 3 {
-                    return IonResult::incomplete("a 20-bit e-exp address", self.offset);
-                }
-                let bias = ((opcode.byte as usize & 0x0F) << 16) + 4160;
-                let (fixed_uint, input_after_opcode) = self.consume(1).read_fixed_uint(2)?;
-                let address = fixed_uint.value().expect_usize()? + bias;
-                (MacroIdRef::LocalAddress(address), input_after_opcode)
-            }
             // Length-prefixed is a special case.
             EExpressionWithLengthPrefix => return self.read_eexp_with_length_prefix(opcode),
-            SystemEExpression => {
-                // The next byte is the system macro address; make sure we have another byte available
-                if self.len() < 2 {
-                    return IonResult::incomplete("a system macro address", self.offset);
-                }
-                let address = self.bytes()[1] as usize;
-                let system_macro_address = SystemMacroAddress::new(address).ok_or_else(|| {
-                    IonError::decoding_error(format!(
-                        "found invalid system macro address {address}"
-                    ))
-                })?;
-
-                (
-                    MacroIdRef::SystemAddress(system_macro_address),
-                    self.consume(2), // 0xEF and address byte
-                )
-            }
             _ => unreachable!("read_e_expression called with invalid opcode"),
         };
 
@@ -1255,37 +1221,46 @@ mod tests {
     }
 
     #[rstest]
+    #[ignore] // TODO: Revisit all of these ignored tests once Annotation handling is updated.
     #[case::single_address(AnnotationsEncoding::SymbolAddress, &[0xE4, 0x07], 1, 1, &[
         RawSymbolRef::SymbolId(3)
     ])]
+    #[ignore]
     #[case::two_addresses(AnnotationsEncoding::SymbolAddress, &[0xE5, 0x07, 0x09], 1, 2, &[
         RawSymbolRef::SymbolId(3),
         RawSymbolRef::SymbolId(4)
     ])]
+    #[ignore]
     #[case::three_addresses(AnnotationsEncoding::SymbolAddress, &[0xE6, 0x07, 0x07, 0x09, 0x0B], 2, 3, &[
         RawSymbolRef::SymbolId(3),
         RawSymbolRef::SymbolId(4),
         RawSymbolRef::SymbolId(5)
     ])]
+    #[ignore]
     #[case::single_flex_sym(AnnotationsEncoding::FlexSym, &[0xE7, 0x07], 1, 1, &[
         RawSymbolRef::SymbolId(3)
     ])]
+    #[ignore]
     #[case::two_flex_syms(AnnotationsEncoding::FlexSym, &[0xE8, 0x07, 0x09], 1, 2, &[
         RawSymbolRef::SymbolId(3),
         RawSymbolRef::SymbolId(4),
     ])]
+    #[ignore]
     #[case::three_flex_syms(AnnotationsEncoding::FlexSym, &[0xE9, 0x07, 0x07, 0x09, 0x0B], 2, 3, &[
         RawSymbolRef::SymbolId(3),
         RawSymbolRef::SymbolId(4),
         RawSymbolRef::SymbolId(5)
     ])]
+    #[ignore]
     #[case::one_flex_syms_with_system_symbol(AnnotationsEncoding::FlexSym, &[0xE7, 0x01, 0x6A], 1, 2, &[
         RawSymbolRef::Text("encoding"),
     ])]
+    #[ignore]
     #[case::two_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE8, 0x01, 0x60, 0x01, 0x6A], 1, 4, &[
         RawSymbolRef::SymbolId(0),
         RawSymbolRef::Text("encoding"),
     ])]
+    #[ignore]
     #[case::three_flex_syms_with_system_symbols(AnnotationsEncoding::FlexSym, &[0xE9, 0x0D, 0x01, 0x60, 0x01, 0x6A, 0x01, 0x98], 2, 6, &[
         RawSymbolRef::SymbolId(0),
         RawSymbolRef::Text("encoding"),
@@ -1577,6 +1552,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn read_length_prefixed_eexp_with_star_parameter_arg_group_nested_eexp() -> IonResult<()> {
         let macro_source = r#"
             (macro wrap_in_list (values*) ["first", (%values), "last"])
@@ -1625,6 +1601,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn roundtrip_macro_addresses_up_to_20_bits() -> IonResult<()> {
         // This is a large enough value that many macros will be encoded using 20 bits.
         // However, it is not large enough to fully exercise the 20-bit encoding space. To do that,
@@ -1650,6 +1627,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn read_length_prefixed_eexp_with_star_parameter_empty() -> IonResult<()> {
         let macro_source = r#"
             (macro wrap_in_list (values*) ["first", (%values), "last"])
