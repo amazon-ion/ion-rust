@@ -267,7 +267,6 @@ mod tests {
 
     #[test]
     fn symbols() -> IonResult<()> {
-        // TODO: Revisit after symbol encoding changes.
         #[rustfmt::skip]
         let data: Vec<u8> = vec![
             // IVM
@@ -283,15 +282,6 @@ mod tests {
             // Symbol: 'variable length encoding'
             0xF9, 0x31, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20, 0x6C, 0x65, 0x6E,
             0x67, 0x74, 0x68, 0x20, 0x65, 0x6E, 0x63, 0x6f, 0x64, 0x69, 0x6E, 0x67,
-
-            // Symbol ID: 1
-            // 0x51, 0x01,
-
-            // // Symbol ID: 257
-            // 0x52, 0x01, 0x00,
-
-            // // Symbol ID: 65,793
-            // 0x50, 0x00, 0x00, 0x00,
         ];
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
@@ -302,13 +292,6 @@ mod tests {
             RawSymbolRef::Text(""),
             RawSymbolRef::Text("fourteen bytes"),
             RawSymbolRef::Text("variable length encoding"),
-            // RawSymbolRef::SymbolId(1),
-            // RawSymbolRef::SymbolId(257),
-            // RawSymbolRef::SymbolId(65_793),
-            // RawSymbolRef::Text("encoding"),
-            // RawSymbolRef::Text("macro_table"),
-            // RawSymbolRef::Text(""),
-            // RawSymbolRef::Text("make_field"),
         ];
 
         for expected_symbol in expected_symbols {
@@ -493,6 +476,7 @@ mod tests {
     #[case("2023-10-15T05:04:03.123+01:00",       &[0x8A, 0x35, 0x7D, 0x85, 0xE0, 0x0D, 0x7B, 0x00])]
     #[case("2023-10-15T05:04:03.000123+01:00",    &[0x8B, 0x35, 0x7D, 0x85, 0xE0, 0x0D, 0x7B, 0x00, 0x00])]
     #[case("2023-10-15T05:04:03.000000123+01:00", &[0x8C, 0x35, 0x7D, 0x85, 0xE0, 0x0D, 0x7B, 0x00, 0x00, 0x00])]
+    #[case("2023T",                               &[0x80, 0x35])]
     fn timestamps_short(#[case] expected_txt: &str, #[case] ion_data: &[u8]) -> IonResult<()> {
         use crate::lazy::decoder::{LazyRawReader, LazyRawValue};
         use crate::lazy::text::raw::v1_1::reader::LazyRawTextReader_1_1;
@@ -672,6 +656,12 @@ mod tests {
                 &[IonType::String],
             ),
 
+            // [1, 2, 3]
+            (
+                &[0xB6, 0x61, 0x01, 0x61, 0x02, 0x61, 0x03],
+                &[IonType::Int, IonType::Int, IonType::Int],
+            ),
+
             // [null.null, '', "hello"]
             (
                 &[0xB8, 0x8E, 0xA0, 0x95, 0x68, 0x65, 0x6C, 0x6c, 0x6F],
@@ -692,7 +682,7 @@ mod tests {
             // ["variable length list"]
             (
                 &[
-                    0xFA, 0x2D, 0x99, 0x29, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65,
+                    0xFA, 0x2D, 0xF8, 0x29, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65,
                     0x20, 0x6C, 0x65, 0x6E, 0x67, 0x74, 0x68, 0x20, 0x6C, 0x69, 0x73, 0x74,
                 ],
                 &[IonType::String]
@@ -707,8 +697,14 @@ mod tests {
             // [1] (delimited)
             (&[0xF0, 0x61, 0x01, 0xEF], &[IonType::Int]),
 
+            // [1, 2, 3] (delimited)
+            (&[0xF0, 0x61, 0x01, 0x61, 0x02, 0x61, 0x03, 0xEF], &[IonType::Int, IonType::Int, IonType::Int]),
+
             // [ 1 [null.null] 3 ] (delimited)
             (&[0xF0, 0x61, 0x01, 0xF0, 0x8E, 0xEF, 0x61, 0x03, 0xEF], &[IonType::Int, IonType::List, IonType::Int]),
+
+            // [1, [2], 3] (delimited)
+            (&[0xF0, 0x61, 0x01, 0xF0, 0x61, 0x02, 0xEF, 0x61, 0x03, 0xEF], &[IonType::Int, IonType::List, IonType::Int]),
 
             // [<nop>]
             (&[0xF0, 0xEC, 0xEF], &[]),
@@ -771,6 +767,9 @@ mod tests {
 
             // ( 1 ) (delimited)
             (&[0xF1, 0x61, 0x01, 0xEF], &[IonType::Int]),
+
+            // (1 2 3) (delimited)
+            (&[0xF1, 0x61, 0x01, 0x61, 0x02, 0x61, 0x03, 0xEF], &[IonType::Int, IonType::Int, IonType::Int]),
 
             // ( 1 ( 2 ) 3 ) (delimited)
             (&[0xF1, 0x61, 0x01, 0xF1, 0x61, 0x02, 0xEF, 0x61, 0x03, 0xEF], &[IonType::Int, IonType::SExp, IonType::Int]),

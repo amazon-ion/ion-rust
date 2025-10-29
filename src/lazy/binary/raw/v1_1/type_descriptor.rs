@@ -195,6 +195,7 @@ impl Opcode {
             (0xF, 0xB) => (SExp, FlexUIntFollows, OpcodeKind::Value(IonType::SExp)),
             // TODO: Long structs are in 2 types, SID and FlexSym starting modes.
             (0xF, 0xC) => (Struct, FlexUIntFollows, OpcodeKind::Value(IonType::Struct)),
+            (0xF, 0xD) => (Struct, FlexUIntFollows, OpcodeKind::Value(IonType::Struct)),
             (0xF, 0xE) => (Blob, FlexUIntFollows, OpcodeKind::Value(IonType::Blob)),
             (0xF, 0xF) => (Clob, FlexUIntFollows, OpcodeKind::Value(IonType::Clob)),
 
