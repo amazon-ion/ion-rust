@@ -4,9 +4,8 @@ use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 
 use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
-use crate::lazy::binary::raw::v1_1::ION_1_1_OPCODES;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
-use crate::raw_symbol_ref::{AsRawSymbolRef, SystemSymbol_1_1};
+use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::IonResult;
 use crate::RawSymbolRef;
 
@@ -74,7 +73,7 @@ impl<'top> FlexSym<'top> {
         let value = FlexInt::read(input, offset)?;
         let sym_value = value.value();
         let (flex_sym_value, size_in_bytes) = match sym_value.cmp(&0) {
-            Ordering::Greater => (
+            Ordering::Greater | Ordering::Equal => (
                 FlexSymValue::SymbolRef(RawSymbolRef::SymbolId(sym_value as usize)),
                 value.size_in_bytes(),
             ),
@@ -91,29 +90,6 @@ impl<'top> FlexSym<'top> {
                     })?;
                 let symbol_ref = RawSymbolRef::Text(text);
                 (FlexSymValue::SymbolRef(symbol_ref), flex_int_len + len)
-            }
-            Ordering::Equal => {
-                // Get the first byte following the leading FlexInt
-                let flex_int_len = value.size_in_bytes();
-                if input.len() <= flex_int_len {
-                    return IonResult::incomplete("reading a FlexSym", offset);
-                }
-                let byte = input[flex_int_len];
-                let flex_sym_value = match byte {
-                    0x60 => FlexSymValue::SymbolRef(RawSymbolRef::SymbolId(0)), // $0, unknown text
-                    0x61..0xE0 => FlexSymValue::SymbolRef(RawSymbolRef::SystemSymbol_1_1(
-                        // ^^^ We just range checked this address in the `match` arm,
-                        // so we can use the `new_unchecked` constructor safely.
-                        SystemSymbol_1_1::new_unchecked((byte as usize) - 0x60),
-                    )),
-                    0xF0 => FlexSymValue::Opcode(ION_1_1_OPCODES[byte as usize]),
-                    other => {
-                        // This branch covers both e-expression encodings (not yet implemented)
-                        // and detection of illegal escape codes.
-                        todo!("FlexSym escape with byte {other:#X?}")
-                    }
-                };
-                (flex_sym_value, flex_int_len + 1)
             }
         };
 
