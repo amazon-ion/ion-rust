@@ -282,6 +282,15 @@ mod tests {
             // Symbol: 'variable length encoding'
             0xF9, 0x31, 0x76, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6C, 0x65, 0x20, 0x6C, 0x65, 0x6E,
             0x67, 0x74, 0x68, 0x20, 0x65, 0x6E, 0x63, 0x6f, 0x64, 0x69, 0x6E, 0x67,
+
+            // Symbol ID: 1 (opcode 0x51, FlexUInt 0)
+            0x51, 0x01,
+
+            // Symbol ID: 257 (opcode 0x51, FlexUInt 32)
+            0x51, 0x41,
+
+            // Symbol ID: 1000 (opcode 0x50, FlexUInt 125)
+            0x50, 0xFB, 0x01,
         ];
         let empty_context = EncodingContext::empty();
         let context = empty_context.get_ref();
@@ -292,6 +301,9 @@ mod tests {
             RawSymbolRef::Text(""),
             RawSymbolRef::Text("fourteen bytes"),
             RawSymbolRef::Text("variable length encoding"),
+            RawSymbolRef::SymbolId(1),
+            RawSymbolRef::SymbolId(257),
+            RawSymbolRef::SymbolId(1000),
         ];
 
         for expected_symbol in expected_symbols {
