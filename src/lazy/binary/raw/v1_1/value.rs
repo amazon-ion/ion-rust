@@ -869,8 +869,7 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         // symbolId = (flexUInt << 3) | (opcode & 0b111)
         let opcode_byte = self.encoded_value.header.byte();
         let lsb = (opcode_byte & 0b111) as usize;
-        let input_after_opcode = self.input.consume(1);
-        let (flex_uint, _) = input_after_opcode.read_flex_uint()?;
+        let (flex_uint, _) = self.value_body_buffer().read_flex_uint()?;
         let msb = (flex_uint.value() as usize) << 3;
         let symbol_id = msb | lsb;
         Ok(symbol_id)
