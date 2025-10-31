@@ -633,6 +633,12 @@ impl<'a> BinaryBuffer<'a> {
                 let total_length = after.offset() - self.offset();
                 let value_body_length = total_length - 1; // Total length - sizeof(opcode)
                 (total_length, 0, value_body_length, contents)
+            } else if opcode.opcode_type == OpcodeType::SymbolAddress {
+                let input_after_opcode = input.consume(1);
+                let (flex_uint, _) = input_after_opcode.read_flex_uint()?;
+                let flex_uint_size = flex_uint.size_in_bytes();
+                let total_length = 1 + flex_uint_size; // opcode + FlexUInt
+                (total_length, 0, flex_uint_size, DelimitedContents::None)
             } else {
                 let length = match header.length_type() {
                     LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),

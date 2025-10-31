@@ -866,17 +866,13 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
 
     /// Helper method called by [`Self::read_symbol`]. Reads the current value as a symbol ID.
     fn read_symbol_id(&'top self) -> IonResult<SymbolId> {
-        const BIASES: [usize; 3] = [0, 256, 65792];
-        let length_code = self.encoded_value.header.low_nibble();
-        if (1..=3).contains(&length_code) {
-            let (id, _) = self
-                .value_body_buffer()
-                .read_fixed_uint(length_code.into())?;
-            let id = usize::try_from(id.value())?;
-            Ok(id + BIASES[(length_code - 1) as usize])
-        } else {
-            unreachable!("invalid length code for symbol ID");
-        }
+        // symbolId = (flexUInt << 3) | (opcode & 0b111)
+        let opcode_byte = self.encoded_value.header.byte();
+        let lsb = (opcode_byte & 0b111) as usize;
+        let (flex_uint, _) = self.value_body_buffer().read_flex_uint()?;
+        let msb = (flex_uint.value() as usize) << 3;
+        let symbol_id = msb | lsb;
+        Ok(symbol_id)
     }
 
     /// Helper method called by [`Self::read_symbol`]. Reads the next byte as a `FixedUInt`
