@@ -638,8 +638,8 @@ impl<'a> BinaryBuffer<'a> {
                 let (flex_uint, _) = input_after_opcode.read_flex_uint()?;
                 let flex_uint_size = flex_uint.size_in_bytes();
                 let total_length = 1 + flex_uint_size; // opcode + FlexUInt
-                (total_length, 0, flex_uint_size, DelimitedContents::None) }
-            else {
+                (total_length, 0, flex_uint_size, DelimitedContents::None)
+            } else {
                 let length = match header.length_type() {
                     LengthType::InOpcode(n) => FlexUInt::new(0, n as u64),
                     LengthType::Unknown => FlexUInt::new(0, 0), // Delimited value, we do not know the size.
