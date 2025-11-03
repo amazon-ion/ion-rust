@@ -180,7 +180,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// struct field names. If no field is available, None is returned, otherwise the symbol and an
     /// [`BinaryBuffer`] positioned after the field name is returned.
     ///
-    /// The opcode variant of the FlexSym is not currently implemented.
+    /// Check for delimited container end opcode before trying to read FlexSym
     fn peek_field_flexsym(
         buffer: BinaryBuffer<'top>,
     ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, BinaryBuffer<'top>)>> {
@@ -190,7 +190,6 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             return Ok(None);
         }
 
-        // Check for delimited container end opcode (0xEF) before trying to read FlexSym
         if let Some(0xEF) = buffer.peek_next_byte() {
             return Ok(None);
         }
