@@ -190,12 +190,13 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             return Ok(None);
         }
 
+        // Check for delimited container end opcode (0xEF) before trying to read FlexSym
+        if let Some(0xEF) = buffer.peek_next_byte() {
+            return Ok(None);
+        }
+
         let (flex_sym, after) = buffer.read_flex_sym()?;
-        let (sym, after) = match flex_sym.value() {
-            FlexSymValue::SymbolRef(sym_ref) => (sym_ref, after),
-            FlexSymValue::Opcode(o) if o.is_delimited_end() => return Ok(None),
-            _ => unreachable!(),
-        };
+        let FlexSymValue::SymbolRef(sym) = flex_sym.value();
 
         let matched_field_id = buffer.slice(0, flex_sym.size_in_bytes());
         let field_name = LazyRawBinaryFieldName_1_1::new(sym, matched_field_id);

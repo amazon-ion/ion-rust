@@ -535,12 +535,14 @@ impl<'a> BinaryBuffer<'a> {
             return Ok((None, *self));
         }
 
+        // Check for delimited container end opcode (0xEF) before trying to read FlexSym
+        if let Some(0xEF) = self.peek_next_byte() {
+            let after = self.consume(1);
+            return Ok((None, after));
+        }
+
         let (flex_sym, after) = self.read_flex_sym()?;
-        let (sym, after) = match flex_sym.value() {
-            FlexSymValue::SymbolRef(sym_ref) => (sym_ref, after),
-            FlexSymValue::Opcode(o) if o.is_delimited_end() => return Ok((None, after)),
-            _ => unreachable!(),
-        };
+        let FlexSymValue::SymbolRef(sym) = flex_sym.value();
 
         let matched_field_id = self.slice(0, after.offset() - self.offset());
         let field_name = LazyRawBinaryFieldName_1_1::new(sym, matched_field_id);
@@ -795,11 +797,8 @@ impl<'a> BinaryBuffer<'a> {
     #[allow(dead_code)] // TODO: Revisit
     fn consume_flex_sym(self) -> IonResult<Self> {
         // TODO: As an optimization, see if we can avoid actually reading the flex_sym.
-        let (flex_sym, remaining) = self.read_flex_sym()?;
-        if let FlexSymValue::Opcode(opcode) = flex_sym.value() {
-            todo!("FlexSym escapes in annotation sequences; opcode: {opcode:?}");
-        }
-
+        let (_flex_sym, remaining) = self.read_flex_sym()?;
+        // FlexSym now only contains symbol references, no opcodes
         Ok(remaining)
     }
 

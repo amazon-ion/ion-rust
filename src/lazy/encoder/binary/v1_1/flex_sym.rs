@@ -3,7 +3,6 @@ use core::cmp::Ordering;
 use bumpalo::collections::Vec as BumpVec;
 use ice_code::ice as cold_path;
 
-use crate::lazy::binary::raw::v1_1::type_descriptor::Opcode;
 use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::IonResult;
@@ -12,7 +11,6 @@ use crate::RawSymbolRef;
 #[derive(Debug, Clone, Copy)]
 pub enum FlexSymValue<'top> {
     SymbolRef(RawSymbolRef<'top>),
-    Opcode(Opcode),
 }
 
 /// An Ion 1.1 encoding primitive that can compactly represent a symbol ID or inline text.
