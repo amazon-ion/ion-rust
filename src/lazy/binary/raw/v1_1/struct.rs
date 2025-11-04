@@ -179,8 +179,6 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// Helper function called by [`Self::peek_field`] in order to parse a FlexSym encoded
     /// struct field names. If no field is available, None is returned, otherwise the symbol and an
     /// [`BinaryBuffer`] positioned after the field name is returned.
-    ///
-    /// The opcode variant of the FlexSym is not currently implemented.
     fn peek_field_flexsym(
         buffer: BinaryBuffer<'top>,
     ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, BinaryBuffer<'top>)>> {
@@ -191,11 +189,7 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         }
 
         let (flex_sym, after) = buffer.read_flex_sym()?;
-        let (sym, after) = match flex_sym.value() {
-            FlexSymValue::SymbolRef(sym_ref) => (sym_ref, after),
-            FlexSymValue::Opcode(o) if o.is_delimited_end() => return Ok(None),
-            _ => unreachable!(),
-        };
+        let FlexSymValue::SymbolRef(sym) = flex_sym.value();
 
         let matched_field_id = buffer.slice(0, flex_sym.size_in_bytes());
         let field_name = LazyRawBinaryFieldName_1_1::new(sym, matched_field_id);
@@ -237,7 +231,10 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         BinaryBuffer<'top>,
     )> {
         let opcode = buffer.expect_opcode()?;
-        if opcode.is_nop() {
+
+        if opcode.is_delimited_end() {
+            Ok((None, buffer.consume(1)))
+        } else if opcode.is_nop() {
             let after_nops = buffer.consume_nop_padding(opcode)?.1;
             Ok((None, after_nops))
         } else {

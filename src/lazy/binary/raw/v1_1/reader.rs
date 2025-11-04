@@ -985,14 +985,13 @@ mod tests {
                     ("bar".into(), IonType::Int),
                 ],
             ),
+            (
+                // {} - delimited
+                &[ 0xF3, 0x01, 0xEF ],
+                &[],
+            ),
 
             // TODO: Revisit after struct mode changes.
-            //
-            // (
-            //     // {} - delimited
-            //     &[ 0xF3, 0x01, 0xEF ],
-            //     &[],
-            // ),
             // (
             //     // { "foo": 1, $11: 2 }  - delimited
             //     &[ 0xF3, 0xFB, 0x66, 0x6F, 0x6F, 0x61, 0x01, 0x17, 0xE1, 0x02, 0x01, 0xEF],

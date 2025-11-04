@@ -515,7 +515,10 @@ impl<'a> BinaryBuffer<'a> {
         &self,
     ) -> IonResult<(Option<LazyRawValueExpr<'a, v1_1::Binary>>, BinaryBuffer<'a>)> {
         let opcode = self.expect_opcode()?;
-        if opcode.is_nop() {
+
+        if opcode.is_delimited_end() {
+            Ok((None, *self))
+        } else if opcode.is_nop() {
             let after_nops = self.consume_nop_padding(opcode)?.1;
             if after_nops.is_empty() {
                 // Non-NOP field wasn't found, nothing remaining.
@@ -536,11 +539,7 @@ impl<'a> BinaryBuffer<'a> {
         }
 
         let (flex_sym, after) = self.read_flex_sym()?;
-        let (sym, after) = match flex_sym.value() {
-            FlexSymValue::SymbolRef(sym_ref) => (sym_ref, after),
-            FlexSymValue::Opcode(o) if o.is_delimited_end() => return Ok((None, after)),
-            _ => unreachable!(),
-        };
+        let FlexSymValue::SymbolRef(sym) = flex_sym.value();
 
         let matched_field_id = self.slice(0, after.offset() - self.offset());
         let field_name = LazyRawBinaryFieldName_1_1::new(sym, matched_field_id);
@@ -565,6 +564,10 @@ impl<'a> BinaryBuffer<'a> {
 
             let (field, after_value) = match after_name.peek_delimited_struct_value()? {
                 (None, after) => {
+                    // Check if this is the throwaway field name + container end pattern
+                    if after.peek_opcode().map_or(false, |opcode| opcode.is_delimited_end()) {
+                        return Ok((None, after.consume(1)));
+                    }
                     if after.is_empty() {
                         return IonResult::incomplete("a struct field value", after.offset());
                     }
@@ -795,11 +798,8 @@ impl<'a> BinaryBuffer<'a> {
     #[allow(dead_code)] // TODO: Revisit
     fn consume_flex_sym(self) -> IonResult<Self> {
         // TODO: As an optimization, see if we can avoid actually reading the flex_sym.
-        let (flex_sym, remaining) = self.read_flex_sym()?;
-        if let FlexSymValue::Opcode(opcode) = flex_sym.value() {
-            todo!("FlexSym escapes in annotation sequences; opcode: {opcode:?}");
-        }
-
+        let (_flex_sym, remaining) = self.read_flex_sym()?;
+        // FlexSym now only contains symbol references, no opcodes
         Ok(remaining)
     }
 

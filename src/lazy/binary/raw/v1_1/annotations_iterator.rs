@@ -40,12 +40,7 @@ impl<'a> Iterator for RawBinaryAnnotationsIterator_1_1<'a> {
                     Ok((flex_sym, remaining_input)) => (flex_sym, remaining_input),
                     Err(error) => return Some(Err(error)),
                 };
-                let raw_symbol = match flex_sym.value() {
-                    FlexSymValue::SymbolRef(raw_symbol) => raw_symbol,
-                    FlexSymValue::Opcode(_opcode) => {
-                        todo!("FlexSym escapes in annotation sequences")
-                    }
-                };
+                let FlexSymValue::SymbolRef(raw_symbol) = flex_sym.value();
                 (raw_symbol, remaining_input)
             }
         };
