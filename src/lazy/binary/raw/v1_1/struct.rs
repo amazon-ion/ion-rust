@@ -179,8 +179,6 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
     /// Helper function called by [`Self::peek_field`] in order to parse a FlexSym encoded
     /// struct field names. If no field is available, None is returned, otherwise the symbol and an
     /// [`BinaryBuffer`] positioned after the field name is returned.
-    ///
-    /// Check for delimited container end opcode before trying to read FlexSym
     fn peek_field_flexsym(
         buffer: BinaryBuffer<'top>,
     ) -> IonResult<Option<(LazyRawBinaryFieldName_1_1<'top>, BinaryBuffer<'top>)>> {
