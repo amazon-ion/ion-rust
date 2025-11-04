@@ -516,12 +516,9 @@ impl<'a> BinaryBuffer<'a> {
     ) -> IonResult<(Option<LazyRawValueExpr<'a, v1_1::Binary>>, BinaryBuffer<'a>)> {
         let opcode = self.expect_opcode()?;
 
-        // Handling delimited container end opcode for structs
         if opcode.is_delimited_end() {
-            return Ok((None, *self));
-        }
-
-        if opcode.is_nop() {
+            Ok((None, self.consume(1)))
+        } else if opcode.is_nop() {
             let after_nops = self.consume_nop_padding(opcode)?.1;
             if after_nops.is_empty() {
                 // Non-NOP field wasn't found, nothing remaining.

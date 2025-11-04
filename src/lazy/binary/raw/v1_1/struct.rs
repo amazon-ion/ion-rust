@@ -235,10 +235,8 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
         let opcode = buffer.expect_opcode()?;
 
         if opcode.is_delimited_end() {
-            return Ok((None, buffer));
-        }
-
-        if opcode.is_nop() {
+            Ok((None, buffer.consume(1)))
+        } else if opcode.is_nop() {
             let after_nops = buffer.consume_nop_padding(opcode)?.1;
             Ok((None, after_nops))
         } else {
