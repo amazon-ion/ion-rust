@@ -517,7 +517,7 @@ impl<'a> BinaryBuffer<'a> {
         let opcode = self.expect_opcode()?;
 
         if opcode.is_delimited_end() {
-            Ok((None, self.consume(1)))
+            Ok((None, *self))
         } else if opcode.is_nop() {
             let after_nops = self.consume_nop_padding(opcode)?.1;
             if after_nops.is_empty() {
@@ -564,6 +564,13 @@ impl<'a> BinaryBuffer<'a> {
 
             let (field, after_value) = match after_name.peek_delimited_struct_value()? {
                 (None, after) => {
+                    // Check if this is the throwaway field name + container end pattern
+                    if let Some(opcode) = after.peek_opcode() {
+                        if opcode.is_delimited_end() {
+                            // Throwaway field name followed by container end - consume 0xEF and end
+                            return Ok((None, after.consume(1)));
+                        }
+                    }
                     if after.is_empty() {
                         return IonResult::incomplete("a struct field value", after.offset());
                     }
