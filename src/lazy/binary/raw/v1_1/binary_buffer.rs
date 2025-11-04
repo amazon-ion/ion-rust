@@ -565,9 +565,7 @@ impl<'a> BinaryBuffer<'a> {
             let (field, after_value) = match after_name.peek_delimited_struct_value()? {
                 (None, after) => {
                     // Check if this is the throwaway field name + container end pattern
-                    if let Some(opcode) = after.peek_opcode()
-                        && opcode.is_delimited_end()
-                    {
+                    if after.peek_opcode().map_or(false, |opcode| opcode.is_delimited_end()) {
                         return Ok((None, after.consume(1)));
                     }
                     if after.is_empty() {
