@@ -541,12 +541,6 @@ impl<'a> BinaryBuffer<'a> {
             return Ok((None, *self));
         }
 
-        // Check for delimited container end opcode (0xEF) before trying to read FlexSym
-        if let Some(0xEF) = self.peek_next_byte() {
-            let after = self.consume(1);
-            return Ok((None, after));
-        }
-
         let (flex_sym, after) = self.read_flex_sym()?;
         let FlexSymValue::SymbolRef(sym) = flex_sym.value();
 

@@ -190,10 +190,6 @@ impl<'top> RawBinaryStructIterator_1_1<'top> {
             return Ok(None);
         }
 
-        if let Some(0xEF) = buffer.peek_next_byte() {
-            return Ok(None);
-        }
-
         let (flex_sym, after) = buffer.read_flex_sym()?;
         let FlexSymValue::SymbolRef(sym) = flex_sym.value();
 
