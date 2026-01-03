@@ -188,28 +188,44 @@ impl MatchedInt {
         // Note: This UTF-8 validation step should be unnecessary as the parser only recognizes
         //       ASCII integer characters. If this shows up in profiling, we could consider skipping it.
         let text = sanitized.as_utf8(matched_input.offset())?;
-        let int: Int = match i128::from_str_radix(text, self.radix()) {
-            Ok(i) => i.into(),
+        // Parse as u128 to handle the full range including i128::MIN, whose magnitude
+        // exceeds i128::MAX by one.
+        let magnitude = match u128::from_str_radix(text, self.radix()) {
+            Ok(m) => m,
             Err(parse_int_error) => {
                 debug_assert!(
-                    // `from_str_radix` can fail for a variety of reasons, but our rules for matching an
-                    // int rule out most of them (empty str, invalid digit, etc). The only ones that should
-                    // happen are overflow and underflow. In those cases, we fall back to using `BigInt`.
-                    parse_int_error.kind() == &IntErrorKind::NegOverflow
-                        || parse_int_error.kind() == &IntErrorKind::PosOverflow
+                    // `from_str_radix` can fail for a variety of reasons, but our rules for
+                    // matching an int rule out most of them (empty str, invalid digit, etc).
+                    // The only one that should happen for u128 is overflow.
+                    parse_int_error.kind() == &IntErrorKind::PosOverflow
                 );
                 return cold_path!(IonResult::decoding_error(format!(
-                    "encountered an int whose value was exceeded the supported range: '{}'",
+                    "encountered an int whose value exceeded the supported range: '{}'",
                     std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
                 )));
             }
         };
 
-        if self.is_negative {
-            Ok(-int)
+        const I128_MIN_MAGNITUDE: u128 = i128::MIN.unsigned_abs();
+        let int: Int = if self.is_negative {
+            if magnitude > I128_MIN_MAGNITUDE {
+                return cold_path!(IonResult::decoding_error(format!(
+                    "encountered an int whose value exceeded the supported range: '{}'",
+                    std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
+                )));
+            }
+            (magnitude.wrapping_neg() as i128).into()
         } else {
-            Ok(int)
-        }
+            if magnitude > i128::MAX as u128 {
+                return cold_path!(IonResult::decoding_error(format!(
+                    "encountered an int whose value exceeded the supported range: '{}'",
+                    std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
+                )));
+            }
+            (magnitude as i128).into()
+        };
+
+        Ok(int)
     }
 }
 
@@ -1247,6 +1263,21 @@ mod tests {
             (
                 "-1234567890_1234567890_1234567890",
                 Int::from(-1234567890_1234567890_1234567890i128),
+            ),
+            // i32 boundary values
+            ("2147483647", Int::from(i32::MAX)),
+            ("-2147483648", Int::from(i32::MIN)),
+            // i64 boundary values
+            ("9223372036854775807", Int::from(i64::MAX)),
+            ("-9223372036854775808", Int::from(i64::MIN)),
+            // i128 boundary values
+            (
+                "170141183460469231731687303715884105727",
+                Int::from(i128::MAX),
+            ),
+            (
+                "-170141183460469231731687303715884105728",
+                Int::from(i128::MIN),
             ),
         ];
 
