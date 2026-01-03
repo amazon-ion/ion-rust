@@ -1288,6 +1288,29 @@ mod tests {
     }
 
     #[test]
+    fn read_ints_overflow() {
+        fn expect_overflow(data: &str) {
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
+            let matched = peek(TextBuffer::match_int).parse_next(&mut buffer).unwrap();
+            let result = matched.read(buffer);
+            assert!(result.is_err(), "Expected overflow error for '{data}'");
+        }
+
+        let tests = [
+            // i128::MAX + 1 (positive overflow)
+            "170141183460469231731687303715884105728",
+            // i128::MIN - 1 (negative overflow)
+            "-170141183460469231731687303715884105729",
+        ];
+
+        for input in tests {
+            expect_overflow(input);
+        }
+    }
+
+    #[test]
     fn read_timestamps() -> IonResult<()> {
         fn expect_timestamp(data: &str, expected: Timestamp) {
             let encoding_context = EncodingContext::empty();
