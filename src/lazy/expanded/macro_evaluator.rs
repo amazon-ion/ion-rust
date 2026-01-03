@@ -672,9 +672,10 @@ impl<'top, D: Decoder> MacroExpansionStep<'top, D> {
 }
 
 /// The internal bookkeeping representation used by a [`MacroEvaluator`].
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum EvaluatorState<'top, D: Decoder> {
     /// The evaluator is empty; it does not currently have any expansions in progress.
+    #[default]
     Empty,
     /// The evaluator has a single expansion in progress. It does not own any bump-allocated
     /// resources.
@@ -682,12 +683,6 @@ pub enum EvaluatorState<'top, D: Decoder> {
     /// The evaluator has several expansions in progress. It holds a bump-allocated `MacroStack`
     /// that it pushes to and pops from.
     Stacked(StackedMacroEvaluator<'top, D>),
-}
-
-impl<D: Decoder> Default for EvaluatorState<'_, D> {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 /// A general-purpose macro evaluator that waits to allocate resources until it is clear that they
