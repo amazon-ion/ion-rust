@@ -127,6 +127,11 @@ impl AnnotatableWriter for Never {
     }
 }
 
+// The `delegate_value_writer_to_self!()` macro generates code that wraps method calls in
+// `IonResult::Ok(...)`. Since `Never` is uninhabited, the compiler correctly identifies this
+// as unreachable code. We suppress the warning because this impl exists only to satisfy
+// trait bounds—it can never actually be called.
+#[allow(unreachable_code)]
 impl ValueWriter for Never {
     type ListWriter = Never;
     type SExpWriter = Never;
