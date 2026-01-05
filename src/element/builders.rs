@@ -383,7 +383,7 @@ use crate::{List, SExp};
 mod tests {
     use crate::element::builders::{SequenceBuilder, StructBuilder};
     use crate::element::Element;
-    use crate::{ion_list, ion_sexp, ion_struct, Symbol};
+    use crate::Symbol;
 
     #[test]
     fn make_seq_with_macro() {
