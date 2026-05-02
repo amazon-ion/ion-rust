@@ -111,10 +111,10 @@ impl TryFrom<&Element> for ModelValue {
         let model_value = match element.value() {
             Null(ion_type) => ModelValue::Null(*ion_type),
             Bool(b) => ModelValue::Bool(*b),
-            Int(i) => ModelValue::Int(*i),
+            Int(i) => ModelValue::Int(i.clone()),
             Float(f) => ModelValue::Float(*f),
-            Decimal(d) => ModelValue::Decimal(*d),
-            Timestamp(t) => ModelValue::Timestamp(*t),
+            Decimal(d) => ModelValue::Decimal(d.clone()),
+            Timestamp(t) => ModelValue::Timestamp(t.clone()),
             Symbol(s) => ModelValue::Symbol(SymbolToken::from_symbol(s)),
             String(s) => ModelValue::String(s.clone().into()),
             Clob(c) => ModelValue::Clob(c.as_ref().to_vec()),
@@ -137,10 +137,10 @@ impl TryFrom<&ModelValue> for Element {
         let element = match model_value {
             ModelValue::Null(ion_type) => (*ion_type).into(),
             ModelValue::Bool(b) => (*b).into(),
-            ModelValue::Int(i) => (*i).into(),
+            ModelValue::Int(i) => i.clone().into(),
             ModelValue::Float(f) => (*f).into(),
-            ModelValue::Decimal(d) => (*d).into(),
-            ModelValue::Timestamp(t) => (*t).into(),
+            ModelValue::Decimal(d) => d.clone().into(),
+            ModelValue::Timestamp(t) => t.clone().into(),
             ModelValue::String(s) => s.to_owned().into(),
             // TODO: Logic is needed to identify escaped symbols and resolve them.
             ModelValue::Symbol(s) => s.as_symbol_ref().to_owned().into(),
@@ -209,7 +209,7 @@ impl TryFrom<&Sequence> for ModelValue {
                     .get(1)
                     .and_then(|e| e.as_int())
                     .ok_or(ConformanceErrorKind::ExpectedModelValue)?;
-                Ok(ModelValue::Int(*value))
+                Ok(ModelValue::Int(value.clone()))
             }
             "Float" => {
                 let value_str = elems
@@ -326,11 +326,11 @@ impl PartialEq<Element> for ModelValue {
             ModelValue::Bool(val) => other.as_bool() == Some(*val),
             ModelValue::Int(val) => other.as_int() == Some(val),
             ModelValue::Float(val) => other.as_float() == Some(*val),
-            ModelValue::Decimal(dec) => other.as_decimal() == Some(*dec),
+            ModelValue::Decimal(dec) => other.as_decimal() == Some(dec.clone()),
             ModelValue::String(val) => other.as_string() == Some(val),
             ModelValue::Blob(data) => other.as_blob() == Some(data.as_slice()),
             ModelValue::Clob(data) => other.as_clob() == Some(data.as_slice()),
-            ModelValue::Timestamp(ts) => other.as_timestamp() == Some(*ts),
+            ModelValue::Timestamp(ts) => other.as_timestamp() == Some(ts.clone()),
             // SAFETY: EQ of Symbols, Lists, Structs, and SExps are handled
             // via comparison to LazyValues after moving to using a Reader instead of Element
             // API. These should join them but haven't yet.

@@ -225,7 +225,7 @@ mod tests {
 
         for (value, expected_encoding) in test_cases {
             let mut buffer = Vec::new();
-            FixedUInt::write(&mut buffer, value)?;
+            FixedUInt::write(&mut buffer, value.clone())?;
             let encoding = buffer.as_slice();
             assert_eq!(encoding, expected_encoding, "actual encoding {encoding:x?} was != expected encoding {expected_encoding:x?} for value {value}");
         }

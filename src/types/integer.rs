@@ -10,7 +10,7 @@ use std::mem;
 use std::ops::{Add, Neg, Sub};
 
 /// Represents an unsigned integer of any size.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UInt {
     pub(crate) data: u128,
 }
@@ -145,19 +145,19 @@ impl TryFrom<&Int> for UInt {
     type Error = IonError;
 
     fn try_from(value: &Int) -> Result<Self, Self::Error> {
-        (*value).try_into()
+        value.clone().try_into()
     }
 }
 
 impl From<&UInt> for UInt {
     fn from(value: &UInt) -> Self {
-        *value
+        value.clone()
     }
 }
 
 impl From<&Int> for Int {
     fn from(value: &Int) -> Self {
-        *value
+        value.clone()
     }
 }
 
@@ -194,7 +194,7 @@ macro_rules! impl_small_unsigned_int_try_from_uint {
 
 impl_small_unsigned_int_try_from_uint!(u8, u16, u32, u64, u128, usize);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// A signed integer of arbitrary size.
 /// ```
 /// # use ion_rs::IonResult;

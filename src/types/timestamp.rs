@@ -38,7 +38,7 @@ pub enum TimestampPrecision {
 /// NaiveDateTime component and the Mantissa will indicate the number of digits from that value
 /// that should be used. If the precision is 10 or more digits, the Mantissa will store the value
 /// itself as a Decimal with the correct precision.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mantissa {
     /// The number of digits of precision in the Timestamp's fractional seconds. For example, a
     /// value of `3` would indicate millisecond precision. A value of `6` would indicate
@@ -129,7 +129,7 @@ fn datetime_at_offset(utc_datetime: &NaiveDateTime, seconds_east: i32) -> DateTi
 /// Represents a point in time to a specified degree of precision. Unlike `chrono`'s [NaiveDateTime]
 /// and [DateTime], a `Timestamp` has variable precision ranging from a year to fractional seconds
 /// of an arbitrary unit.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Timestamp {
     pub(crate) date_time: NaiveDateTime,
     pub(crate) offset: Option<FixedOffset>,
@@ -196,7 +196,7 @@ impl Timestamp {
                 Some(Decimal::new(coefficient, exponent))
             }
             // This timestamp already stores its fractional seconds as a Decimal; return a clone.
-            Some(Arbitrary(decimal)) => Some(*decimal),
+            Some(Arbitrary(decimal)) => Some(decimal.clone()),
             // This Timestamp's precision is too low to have a fractional seconds field.
             None => None,
         }
@@ -393,14 +393,14 @@ impl Timestamp {
     pub(crate) fn format<W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
         let (offset_minutes, datetime) = if let Some(minutes) = self.offset {
             // Create a datetime with the appropriate offset that we can use for formatting.
-            let datetime: DateTime<FixedOffset> = (*self).try_into()?;
+            let datetime: DateTime<FixedOffset> = self.clone().try_into()?;
             // Convert the offset to minutes --v
             (Some(minutes.local_minus_utc() / 60), datetime)
         } else {
             // Our timestamp has an unknown offset. Per the spec, this means it makes no
             // assertions about *where* it was recorded, but its fields are still in UTC.
             // Create a UTC datetime that we can use for formatting.
-            let datetime: NaiveDateTime = (*self).try_into()?;
+            let datetime: NaiveDateTime = self.clone().try_into()?;
             let datetime: DateTime<FixedOffset> = datetime_at_offset(&datetime, 0);
             (None, datetime)
         };

@@ -640,7 +640,7 @@ impl Element {
 
     pub fn as_decimal(&self) -> Option<Decimal> {
         match &self.value {
-            Value::Decimal(d) => Some(*d),
+            Value::Decimal(d) => Some(d.clone()),
             _ => None,
         }
     }
@@ -658,7 +658,7 @@ impl Element {
 
     pub fn as_timestamp(&self) -> Option<Timestamp> {
         match &self.value {
-            Value::Timestamp(t) => Some(*t),
+            Value::Timestamp(t) => Some(t.clone()),
             _ => None,
         }
     }
@@ -1887,7 +1887,7 @@ mod value_tests {
         I: TryInto<Int, Error = E>,
     {
         let int: Int = source_int.try_into().unwrap();
-        let element: Element = int.into();
+        let element: Element = int.clone().into();
         assert_eq!(element.expect_i64(), int.expect_i64())
     }
 

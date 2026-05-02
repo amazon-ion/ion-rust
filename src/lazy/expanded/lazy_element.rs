@@ -274,7 +274,7 @@ mod tests {
         let mut reader = Reader::new(AnyEncoding, r#"1 2 3 4 5 6 7 8 9 10"#)?;
         let evens: IonResult<Vec<i64>> = reader
             .try_filter(|element| Ok(element.ion_type() == IonType::Int))
-            .try_map(|element| element.read()?.expect_i64())
+            .try_map(|element| element.read()?.clone().expect_i64())
             .try_filter(|i| Ok(i % 2 == 0))
             .collect();
         drop(reader);
@@ -306,7 +306,7 @@ mod tests {
         let mut reader = Reader::new(AnyEncoding, log)?;
         let problem_requests = reader
             .try_filter_map(|element| {
-                let event = element.read()?.expect_struct()?;
+                let event = element.read()?.clone().expect_struct()?;
                 let status = event.get_expected("status")?.expect_i64()?;
                 let elapsed = event.get_expected("elapsedMs")?.expect_i64()?;
                 if status != 200 || elapsed > 1000 {

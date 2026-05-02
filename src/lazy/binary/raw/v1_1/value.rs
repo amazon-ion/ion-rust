@@ -486,7 +486,11 @@ impl<'top> LazyRawBinaryValue_1_1<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         debug_assert!(!self.is_null());
         let body_bytes = self.value_body();
-        Ok(*FixedInt::read(body_bytes, body_bytes.len(), self.input.offset())?.value())
+        Ok(
+            FixedInt::read(body_bytes, body_bytes.len(), self.input.offset())?
+                .value()
+                .clone(),
+        )
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a float.
