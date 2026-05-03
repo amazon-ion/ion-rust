@@ -18,6 +18,7 @@ mod string;
 mod r#struct;
 pub(crate) mod symbol;
 mod timestamp;
+mod int_data;
 
 pub use crate::types::bytes::Bytes;
 pub use decimal::Decimal;
