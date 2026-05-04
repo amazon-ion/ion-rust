@@ -204,7 +204,7 @@ mod tests {
         );
         assert_eq!(
             reader.next()?.expect_value()?.read()?.expect_int()?,
-            (-944).into()
+            (-944i64).into()
         );
 
         assert_eq!(

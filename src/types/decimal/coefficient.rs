@@ -111,8 +111,8 @@ impl Coefficient {
         self.magnitude().is_zero()
     }
 
-    /// If the value can be represented as an `i128`, return it as such.
-    /// If the coefficient is negative zero or outside the range of an `i128`, returns `None`.
+    /// Returns the coefficient as an `Int`.
+    /// If the coefficient is negative zero, returns `None`.
     pub(crate) fn as_int(&self) -> Option<Int> {
         if self.is_negative_zero() {
             // Returning an unsigned zero would be lossy.
@@ -132,7 +132,7 @@ macro_rules! impl_coefficient_from_unsigned_int_types {
         }
     )*)
 }
-impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, usize);
+impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, usize, UInt);
 
 // This macro makes it possible to turn signed integers into a Coefficient using `.into()`.
 macro_rules! impl_coefficient_from_signed_int_types {
@@ -286,7 +286,7 @@ mod coefficient_tests {
         assert_eq!(Int::try_from(Coefficient::new(5)), Ok(Int::from(5)));
         assert_eq!(Int::try_from(Coefficient::new(-5)), Ok(Int::from(-5)));
 
-        let enormous_int = Int::try_from(12345678901234567890123456789u128).unwrap();
+        let enormous_int = Int::from(12345678901234567890123456789u128);
         assert_eq!(
             Int::try_from(Coefficient::new(enormous_int.clone())),
             Ok(enormous_int.clone())

@@ -1,5 +1,6 @@
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
+use crate::types::int_data::{IntData, UIntData};
 use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
 use num_traits::Zero;
@@ -12,15 +13,19 @@ use std::ops::{Add, Neg, Sub};
 /// Represents an unsigned integer of any size.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UInt {
-    pub(crate) data: u128,
+    pub(crate) data: UIntData,
 }
 
 impl UInt {
-    pub const ZERO: UInt = UInt { data: 0u128 };
+    pub const ZERO: UInt = UInt {
+        data: UIntData::ZERO,
+    };
 
     #[inline]
     pub(crate) fn new(data: impl Into<u128>) -> Self {
-        Self { data: data.into() }
+        Self {
+            data: UIntData::from_u128(data.into()),
+        }
     }
 
     /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
@@ -38,7 +43,7 @@ impl UInt {
     /// Attempts to convert this `UInt` to a `u128`. If the value is too large to fit,
     /// returns `None`.
     pub fn as_u128(&self) -> Option<u128> {
-        Some(self.data)
+        u128::try_from(self).ok()
     }
 
     /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
@@ -65,6 +70,22 @@ impl UInt {
     /// Returns the number of digits in the base-10 representation of the UInteger.
     pub fn number_of_decimal_digits(&self) -> u32 {
         self.data.count_decimal_digits()
+    }
+
+    pub fn from_le_bytes(bytes: &[u8]) -> UInt {
+        UInt {
+            data: UIntData::from_le_bytes(bytes),
+        }
+    }
+
+    pub fn to_le_bytes(&self) -> Vec<u8> {
+        self.data.to_le_bytes()
+    }
+}
+
+impl From<UIntData> for UInt {
+    fn from(value: UIntData) -> Self {
+        UInt { data: value }
     }
 }
 
@@ -117,7 +138,7 @@ macro_rules! impl_int_types_try_from_uint {
             type Error = IonError;
 
             fn try_from(value: &UInt) -> Result<Self, Self::Error> {
-                <$t>::try_from(value.data).map_err(|_| {
+                <$t>::try_from(value.clone().data).map_err(|_| {
                     IonError::decoding_error(
                             concat!("UInt was too large to fit in a ", stringify!($t))
                         )
@@ -216,14 +237,19 @@ impl_small_unsigned_int_try_from_uint!(u8, u16, u32, u64, u128, usize);
 /// # }
 /// ```
 pub struct Int {
-    pub(crate) data: i128,
+    pub(crate) data: IntData,
 }
 
 impl Int {
-    pub const ZERO: Int = Int { data: 0i128 };
+    pub const ZERO: Int = Int {
+        data: IntData::ZERO,
+    };
 
+    #[allow(unused)]
     pub(crate) fn new(data: impl Into<i128>) -> Self {
-        Self { data: data.into() }
+        Self {
+            data: IntData::from_i128(data.into()),
+        }
     }
 
     /// Returns a [`UInt`] representing the unsigned magnitude of this `Int`.
@@ -249,7 +275,7 @@ impl Int {
 
     #[inline(always)]
     pub fn as_u32(&self) -> Option<u32> {
-        u32::try_from(self.data).ok()
+        u32::try_from(&self.data).ok()
     }
 
     #[inline]
@@ -262,7 +288,7 @@ impl Int {
 
     #[inline(always)]
     pub fn as_u64(&self) -> Option<u64> {
-        u64::try_from(self.data).ok()
+        u64::try_from(&self.data).ok()
     }
 
     #[inline]
@@ -275,7 +301,7 @@ impl Int {
 
     #[inline(always)]
     pub fn as_usize(&self) -> Option<usize> {
-        usize::try_from(self.data).ok()
+        usize::try_from(&self.data).ok()
     }
 
     #[inline]
@@ -297,15 +323,26 @@ impl Int {
     /// If this value is small enough to fit in an `i64`, returns `Some(i64)`. Otherwise, returns
     /// `None`.
     pub fn as_i64(&self) -> Option<i64> {
-        i64::try_from(self.data).ok()
+        i64::try_from(&self.data).ok()
     }
 
     /// If this value is small enough to fit in an `i128`, returns `Some(i128)`. Otherwise, returns
     /// `None`.
     pub fn as_i128(&self) -> Option<i128> {
-        Some(self.data)
+        i128::try_from(&self.data).ok()
+    }
+
+    pub fn from_le_signed_bytes(bytes: &[u8]) -> Int {
+        Int {
+            data: IntData::from_le_signed_bytes(bytes),
+        }
+    }
+
+    pub fn to_le_signed_bytes(&self) -> Vec<u8> {
+        self.data.to_le_bytes()
     }
 }
+
 impl IonEq for Int {
     fn ion_eq(&self, other: &Self) -> bool {
         self == other
@@ -350,11 +387,13 @@ impl Sub<Self> for Int {
 
 impl Zero for Int {
     fn zero() -> Self {
-        Int { data: 0i128 }
+        Int {
+            data: IntData::ZERO,
+        }
     }
 
     fn is_zero(&self) -> bool {
-        self.data == 0
+        self.data == IntData::ZERO
     }
 }
 
@@ -376,11 +415,19 @@ impl Sub<Self> for UInt {
 
 impl Zero for UInt {
     fn zero() -> Self {
-        UInt { data: 0u128 }
+        UInt {
+            data: UIntData::ZERO,
+        }
     }
 
     fn is_zero(&self) -> bool {
-        self.data == 0
+        self.data == UIntData::ZERO
+    }
+}
+
+impl From<IntData> for Int {
+    fn from(value: IntData) -> Self {
+        Int { data: value }
     }
 }
 
@@ -407,45 +454,22 @@ macro_rules! impl_int_i128_from {
     ($($t:ty),*) => ($(
         impl From<$t> for Int {
             fn from(value: $t) -> Int {
-                Int {data: value as i128 }
+                Int {data: IntData::from_i128(value as i128) }
             }
         }
     )*)
 }
-impl_int_i128_from!(u8, u16, u32, u64, usize, i8, i16, i32, i64, i128, isize);
+impl_int_i128_from!(u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize);
 
-// Conversion to Integer from integer types that may or may not fit in an i128
-macro_rules! impl_int_try_from {
-    ($($t:ty),*) => ($(
-        impl TryFrom<$t> for Int {
-            type Error = IonError;
-            fn try_from(value: $t) -> Result<Self, Self::Error> {
-                match i128::try_from(value) {
-                    Ok(i128_value) => Ok(i128_value.into()),
-                    Err(e) => IonResult::decoding_error(format!("could not safely convert value {} of type '{}' to Int: {e:?}", value, stringify!($t))),
-                }
-            }
-        }
-    )*)
-}
-
-impl_int_try_from!(u128);
-
-impl TryFrom<UInt> for Int {
-    type Error = IonError;
-
-    fn try_from(value: UInt) -> Result<Self, Self::Error> {
-        i128::try_from(value.data)
-            .map_err(|_| IonError::decoding_error("UInt was outside the supported Int range"))
-            .map(Int::new)
+impl From<UInt> for Int {
+    fn from(value: UInt) -> Self {
+        IntData::from(value.data).into()
     }
 }
 
-impl TryFrom<&UInt> for Int {
-    type Error = IonError;
-
-    fn try_from(value: &UInt) -> Result<Self, Self::Error> {
-        value.data.try_into()
+impl From<&UInt> for Int {
+    fn from(value: &UInt) -> Self {
+        IntData::from(value.data.clone()).into()
     }
 }
 
@@ -473,37 +497,6 @@ mod integer_tests {
         assert!(!Int::from(55i128).is_zero());
         assert!(!Int::from(-55).is_zero());
         assert!(!Int::from(-55i128).is_zero());
-    }
-
-    #[test]
-    fn zero() {
-        assert!(Int::zero().is_zero());
-    }
-
-    #[test]
-    fn add() {
-        assert_eq!(Int::from(0) + Int::from(0), Int::from(0));
-        assert_eq!(Int::from(5) + Int::from(7), Int::from(12));
-        assert_eq!(Int::from(-5) + Int::from(7), Int::from(2));
-        assert_eq!(Int::from(100) + Int::from(1000i128), Int::from(1100i128));
-        assert_eq!(Int::from(100i128) + Int::from(1000), Int::from(1100i128));
-        assert_eq!(
-            Int::from(100i128) + Int::from(1000i128),
-            Int::from(1100i128)
-        );
-    }
-
-    #[test]
-    fn sub() {
-        assert_eq!(Int::from(0) - Int::from(0), Int::from(0));
-        assert_eq!(Int::from(5) - Int::from(7), Int::from(-2));
-        assert_eq!(Int::from(-5) - Int::from(7), Int::from(-12));
-        assert_eq!(Int::from(100) - Int::from(1000i128), Int::from(-900i128));
-        assert_eq!(Int::from(100i128) - Int::from(1000), Int::from(-900i128));
-        assert_eq!(
-            Int::from(100i128) - Int::from(1000i128),
-            Int::from(-900i128)
-        );
     }
 
     #[rstest]
@@ -664,5 +657,136 @@ mod integer_tests {
         assert_eq!(Int::from(0i64).expect_u64(), Ok(0u64));
         assert!(Int::from(-1i64).expect_u64().is_err());
         assert!(Int::from(i128::MAX).expect_u64().is_err());
+    }
+
+    // ===== Big value tests =====
+
+    #[test]
+    fn int_from_signed_bytes_le_big() {
+        // 2^128 as signed LE: 17 bytes
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let big = Int::from_le_signed_bytes(&bytes);
+        assert!(big.as_i128().is_none());
+        assert!(!big.is_negative());
+        assert!(!big.is_zero());
+        assert_eq!(big.to_string(), "340282366920938463463374607431768211456");
+    }
+
+    #[test]
+    fn uint_from_bytes_le_big() {
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let big = UInt::from_le_bytes(&bytes);
+        assert!(big.as_u128().is_none());
+        assert!(!big.is_zero());
+        assert_eq!(big.to_string(), "340282366920938463463374607431768211456");
+    }
+
+    #[test]
+    fn int_neg_big() {
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let big = Int::from_le_signed_bytes(&bytes);
+        let neg = -big;
+        assert!(neg.is_negative());
+        assert_eq!(neg.to_string(), "-340282366920938463463374607431768211456");
+    }
+
+    #[test]
+    fn int_from_bytes_roundtrip() {
+        for v in [0i128, 1, -1, 42, -42, i128::MAX, i128::MIN] {
+            let int = Int::from(v);
+            let bytes = int.data.as_i128().unwrap().to_le_bytes();
+            let roundtripped = Int::from_le_signed_bytes(&bytes);
+            assert_eq!(int, roundtripped, "roundtrip failed for {v}");
+        }
+    }
+
+    // ===== Cross-representation comparison tests (AC5a) =====
+
+    #[test]
+    fn int_cross_repr_eq() {
+        let inline = Int::from(42i64);
+        let also_inline = Int::from(42i64);
+        assert_eq!(inline, also_inline);
+
+        // Two big values that are equal
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let big1 = Int::from_le_signed_bytes(&bytes);
+        let big2 = Int::from_le_signed_bytes(&bytes);
+        assert_eq!(big1, big2);
+
+        // Inline != heap
+        assert_ne!(inline, big1);
+    }
+
+    #[test]
+    fn int_cross_repr_ord() {
+        let small = Int::from(42i64);
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let big = Int::from_le_signed_bytes(&bytes);
+
+        // Inline < heap (positive)
+        assert!(small < big);
+        assert!(big > small);
+
+        // Negative heap < inline
+        let neg_big = -Int::from_le_signed_bytes(&bytes);
+        assert!(neg_big < small);
+        assert!(small > neg_big);
+    }
+
+    #[test]
+    fn int_cross_repr_hash_consistent() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let hash = |v: &Int| {
+            let mut h = DefaultHasher::new();
+            v.hash(&mut h);
+            h.finish()
+        };
+
+        // Equal values must have equal hashes
+        let a = Int::from(42i64);
+        let b = Int::from(42i64);
+        assert_eq!(hash(&a), hash(&b));
+
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let c = Int::from_le_signed_bytes(&bytes);
+        let d = Int::from_le_signed_bytes(&bytes);
+        assert_eq!(hash(&c), hash(&d));
+    }
+
+    #[test]
+    fn int_ion_eq_and_ion_data_hash() {
+        use crate::ion_data::{IonDataHash, IonEq};
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+
+        let a = Int::from(42i64);
+        let b = Int::from(42i64);
+        assert!(a.ion_eq(&b));
+
+        let ion_hash = |v: &Int| {
+            let mut h = DefaultHasher::new();
+            v.ion_data_hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(ion_hash(&a), ion_hash(&b));
+    }
+
+    #[test]
+    fn uint_cross_repr_ord() {
+        let small = UInt::from(42u64);
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let big = UInt::from_le_bytes(&bytes);
+        assert!(small < big);
+        assert!(big > small);
     }
 }

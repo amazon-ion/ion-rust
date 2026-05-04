@@ -5,13 +5,11 @@ use crate::types::{CountDecimalDigits, Decimal};
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
-use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
-use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default, Hash)]
@@ -220,22 +218,18 @@ impl Timestamp {
             // This timestamp stores its fractional seconds as a Decimal. Down-convert it to a u32
             // representing the number of nanoseconds.
             Some(Arbitrary(decimal)) => {
-                const NANOSECONDS_EXPONENT: i64 = -9;
-                const NANOSECONDS_PER_SECOND: u128 = 1_000_000_000;
-                let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
-                let magnitude = match &decimal.coefficient().magnitude().data {
-                    m if *m >= NANOSECONDS_PER_SECOND => {
-                        // The coefficient is more precise than nanoseconds. We need to truncate a
-                        // copy of it.
-                        m.div(10f64.powi(exponent_delta.abs() as i32) as u128)
-                            .to_u32()
-                            .expect("failed to convert coefficient magnitude to u32 nanos")
-                    }
-                    m => *m as u32,
+                // nanoseconds = coefficient * 10^(exponent + 9)
+                let nano_exp = decimal.exponent + 9;
+                let mag = decimal.coefficient().magnitude();
+                let nanos: u128 = if nano_exp >= 0 {
+                    let factor = 10u128.saturating_pow(nano_exp as u32);
+                    mag.as_u128().unwrap_or(0).saturating_mul(factor)
+                } else {
+                    let divisor = 10u128.saturating_pow(nano_exp.unsigned_abs() as u32);
+                    let divided = mag.data.clone() / divisor;
+                    divided.as_u128().unwrap_or(0)
                 };
-                // Adjust for the exponent
-                let nanoseconds = (magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32;
-                Some(nanoseconds)
+                Some(nanos as u32)
             }
             // This Timestamp's precision is too low to have a fractional seconds field.
             None => None,
@@ -1276,13 +1270,15 @@ mod timestamp_tests {
     use super::*;
     use crate::ion_data::IonEq;
     use crate::result::IonResult;
+    use crate::types::int_data::IntData;
     use crate::types::Mantissa;
-    use crate::{Decimal, Timestamp, TimestampPrecision};
+    use crate::{Decimal, Int, Timestamp, TimestampPrecision};
     use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
     use rstest::*;
     use std::cmp::Ordering;
     use std::convert::TryInto;
     use std::io::Write;
+    use std::ops::Mul;
     use std::str::FromStr;
 
     #[test]
@@ -1872,6 +1868,23 @@ mod timestamp_tests {
             .with_offset(-5 * 60)
             .build()?;
         assert_eq!(timestamp_3.nanoseconds(), 0);
+
+        // Big fractional coefficient
+        let big_coefficient = Int::from(IntData::from_i128(i128::MAX).mul(4.into()));
+        let timestamp_4 = Timestamp::with_ymd(2023, 1, 1)
+            .with_hour_and_minute(0, 0)
+            .with_second(0)
+            .with_fractional_seconds(Decimal::new(big_coefficient, -39))
+            .build()?;
+        assert_eq!(timestamp_4.nanoseconds(), 680564733);
+
+        // Exponent delta > 38: result should be 0
+        let timestamp_5 = Timestamp::with_ymd(2023, 1, 1)
+            .with_hour_and_minute(0, 0)
+            .with_second(0)
+            .with_fractional_seconds(Decimal::new(1i64, -50))
+            .build()?;
+        assert_eq!(timestamp_5.nanoseconds(), 0);
 
         Ok(())
     }

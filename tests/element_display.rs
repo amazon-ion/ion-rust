@@ -25,15 +25,6 @@ const TO_STRING_SKIP_LIST: &[&str] = &[
     // These files are encoded in utf16 and utf32; the reader currently assumes utf8.
     "ion-tests/iontestdata/good/utf16.ion",
     "ion-tests/iontestdata/good/utf32.ion",
-    // Test files that include Int values outside the range supported by i128
-    "ion-tests/iontestdata/good/intBigSize16.10n",
-    "ion-tests/iontestdata/good/intBigSize256.ion",
-    "ion-tests/iontestdata/good/intBigSize256.10n",
-    "ion-tests/iontestdata/good/intBigSize512.ion",
-    "ion-tests/iontestdata/good/intBigSize1201.10n",
-    "ion-tests/iontestdata/good/equivs/bigInts.ion",
-    "ion-tests/iontestdata/good/equivs/intsLargePositive3.10n",
-    "ion-tests/iontestdata/good/equivs/intsLargeNegative3.10n",
 ];
 
 #[test_resources("ion-tests/iontestdata/good/**/*.ion")]

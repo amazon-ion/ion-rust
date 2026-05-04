@@ -9,6 +9,7 @@ pub type SymbolAddress = usize;
 mod bytes;
 pub mod decimal;
 pub(crate) mod float;
+pub(crate) mod int_data;
 pub(crate) mod integer;
 mod list;
 mod lob;
@@ -18,7 +19,6 @@ mod string;
 mod r#struct;
 pub(crate) mod symbol;
 mod timestamp;
-mod int_data;
 
 pub use crate::types::bytes::Bytes;
 pub use decimal::Decimal;

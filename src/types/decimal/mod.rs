@@ -6,7 +6,8 @@ use std::ops::Sub;
 use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
-use crate::{Int, IonResult, UInt};
+use crate::{Int, IonResult};
+use num_bigint::BigUint;
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
@@ -157,7 +158,7 @@ impl Decimal {
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
         let coefficient = self.coefficient();
-        coefficient.sign() == Sign::Negative && coefficient.magnitude().data > 0
+        coefficient.sign() == Sign::Negative && !coefficient.magnitude().is_zero()
     }
 
     /// Semantically identical to `self >= Decimal::new(1, 0)`, but much cheaper to compute.
@@ -241,9 +242,19 @@ impl Decimal {
         // d1 has the larger exponent (3). We need to scale its coefficient up to d2's 10^2 scale.
         // We do this by multiplying it times 10^exponent_delta, which is 1 in this case.
         // This lets us compare 80 and 80, determining that the decimals are equal.
-        let mut scaled_coefficient: u128 = d1.coefficient().magnitude().data;
-        scaled_coefficient *= 10u128.pow(exponent_delta as u32);
-        UInt::from(scaled_coefficient).cmp(&d2.coefficient().magnitude())
+        let d1_mag = d1.coefficient().magnitude();
+        let d2_mag = d2.coefficient().magnitude();
+        // Fast path: both fit in u128
+        if let (Some(m1), Some(m2)) = (d1_mag.as_u128(), d2_mag.as_u128()) {
+            if let Some(scaled) = m1.checked_mul(10u128.pow(exponent_delta as u32)) {
+                return scaled.cmp(&m2);
+            }
+        }
+        // Slow path: use BigUint for arbitrary-precision scaling and comparison
+        let d1_big = d1_mag.data.as_biguint();
+        let scaled = d1_big.as_ref() * BigUint::from(10u32).pow(exponent_delta as u32);
+        let other = d2_mag.data.as_biguint();
+        scaled.cmp(&other)
     }
 
     /// Returns the integer part of `self`. This means that non-integer numbers are always
@@ -995,5 +1006,54 @@ mod decimal_tests {
     #[case(Decimal::new(105, -1), Decimal::new(5, -1))]
     fn decimal_fract(#[case] value: Decimal, #[case] expected: Decimal) {
         assert_eq!(value.fract(), expected);
+    }
+
+    #[test]
+    fn decimal_cmp_arbitrary_precision() {
+        use crate::ion_data::IonDataHash;
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+
+        // A value that exceeds i128: 2^128 + 42
+        let mut bytes = vec![0u8; 18];
+        bytes[0] = 42;
+        bytes[16] = 1;
+        let big_value = Int::from_le_signed_bytes(&bytes);
+
+        let mut bytes2 = vec![0u8; 18];
+        bytes2[16] = 2;
+        let bigger_value = Int::from_le_signed_bytes(&bytes2);
+
+        let d1 = Decimal::new(Coefficient::new(big_value.clone()), 0i64);
+        let d2 = Decimal::new(Coefficient::new(big_value), 0i64);
+        let small = Decimal::new(1i64, 0i64);
+        let zero = Decimal::new(0i64, 0i64);
+
+        // Equality
+        assert_eq!(d1, d2);
+
+        // Ordering: big > small
+        assert_eq!(d1.cmp(&small), Ordering::Greater);
+        assert_eq!(small.cmp(&d1), Ordering::Less);
+
+        // Ordering: big > zero
+        assert_eq!(d1.cmp(&zero), Ordering::Greater);
+
+        // is_zero
+        assert!(!d1.is_zero());
+        assert!(zero.is_zero());
+
+        // Hash consistency
+        let hash = |d: &Decimal| {
+            let mut h = DefaultHasher::new();
+            d.ion_data_hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hash(&d1), hash(&d2));
+
+        // Different big magnitudes
+        let d3 = Decimal::new(Coefficient::new(bigger_value), 0i64);
+        assert_eq!(d1.cmp(&d3), Ordering::Less);
+        assert_eq!(d3.cmp(&d1), Ordering::Greater);
     }
 }

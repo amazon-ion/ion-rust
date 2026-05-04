@@ -21,6 +21,7 @@ use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::result::IonFailure;
+use crate::types::int_data::UIntData;
 use crate::types::SymbolId;
 use crate::{
     Decimal, Decoder, Int, IonEncoding, IonError, IonResult, IonType, RawSymbolRef, Timestamp,
@@ -567,7 +568,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
         let uint_bytes = self.value_body();
-        let magnitude: Int = DecodedUInt::uint_from_slice(uint_bytes)?.try_into()?;
+        let magnitude: Int = DecodedUInt::uint_from_slice(uint_bytes).into();
 
         use crate::binary::type_code::IonTypeCode::*;
         use num_traits::Zero;
@@ -734,7 +735,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         }
         // We've already confirmed that the uint fits in a `usize`, so we can `unwrap()` the result
         // of this method and then cast its output to a `usize`.
-        let magnitude = DecodedUInt::uint_from_slice_unchecked(uint_bytes);
+        let magnitude = UIntData::from_be_bytes(uint_bytes).as_u128().unwrap();
         Ok(magnitude as usize)
     }
 

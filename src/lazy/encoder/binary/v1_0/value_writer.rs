@@ -133,9 +133,8 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     }
 
     pub fn write_int(mut self, value: &Int) -> IonResult<()> {
-        let magnitude: u128 = value.unsigned_abs().data;
-        let encoded = uint::encode(magnitude);
-        let bytes_to_write = encoded.as_bytes();
+        let magnitude = value.unsigned_abs().data;
+        let bytes_to_write = magnitude.to_be_bytes();
 
         let encoded_length = bytes_to_write.len();
         let mut type_descriptor: u8 = if value.is_negative() { 0x30 } else { 0x20 };
@@ -148,7 +147,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
             self.push_byte(type_descriptor);
             VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
         }
-        self.push_bytes(bytes_to_write);
+        self.push_bytes(&bytes_to_write);
 
         Ok(())
     }

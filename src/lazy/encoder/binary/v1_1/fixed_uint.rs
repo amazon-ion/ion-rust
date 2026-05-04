@@ -50,13 +50,9 @@ impl FixedUInt {
 
     #[inline]
     pub(crate) fn write<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<usize> {
-        let value = value.into().data;
-        let encoded_bytes = value.to_le_bytes();
-        let leading_zeros = value.leading_zeros();
-        let num_encoded_bytes = (16 - (leading_zeros as usize / 8)).max(1);
-
-        output.write_all(&encoded_bytes[..num_encoded_bytes])?;
-        Ok(num_encoded_bytes)
+        let le_bytes = value.into().data.to_le_bytes();
+        output.write_all(&le_bytes)?;
+        Ok(le_bytes.len())
     }
 
     pub fn value(&self) -> &UInt {
@@ -73,7 +69,7 @@ impl FixedUInt {
         value: impl Into<UInt>,
     ) -> IonResult<()> {
         let size_in_bytes = std::mem::size_of::<I>();
-        let value: u128 = value.into().data;
+        let value: u128 = value.into().data.expect_u128()?;
         let encoded_bytes = value.to_le_bytes();
         let max_value: u128 = num_traits::cast::cast(I::max_value()).ok_or(
             IonError::encoding_error("Unable to represent bounds for value as 128bit value"),
@@ -95,7 +91,7 @@ impl TryFrom<FixedUInt> for Coefficient {
 
     fn try_from(other: FixedUInt) -> Result<Self, Self::Error> {
         use crate::types::integer::Int;
-        let as_int: Int = other.value.try_into()?;
+        let as_int: Int = other.value.into();
         Ok(as_int.into())
     }
 }
