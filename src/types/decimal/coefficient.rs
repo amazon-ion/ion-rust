@@ -132,7 +132,7 @@ macro_rules! impl_coefficient_from_unsigned_int_types {
         }
     )*)
 }
-impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, usize, UInt);
+impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, u128, usize, UInt);
 
 // This macro makes it possible to turn signed integers into a Coefficient using `.into()`.
 macro_rules! impl_coefficient_from_signed_int_types {

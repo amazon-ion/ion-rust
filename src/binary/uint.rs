@@ -1,5 +1,4 @@
 use crate::result::IonResult;
-use crate::types::int_data::UIntData;
 use crate::{Int, UInt};
 use std::io::Write;
 
@@ -32,7 +31,7 @@ impl DecodedUInt {
             2 => u16::from_le_bytes([uint_bytes[1], uint_bytes[0]]).into(),
             3 => u32::from_le_bytes([uint_bytes[2], uint_bytes[1], uint_bytes[0], 0u8]).into(),
             // General-purpose conversion from bytes to UInt.
-            _ => UIntData::from_be_bytes(uint_bytes).into(),
+            _ => UInt::from_be_bytes(uint_bytes),
         }
     }
 

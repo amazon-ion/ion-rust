@@ -167,7 +167,7 @@ impl<'value, 'top> BinaryValueWriter_1_1<'value, 'top> {
             return self.write_i64(small_value);
         }
         cold_path! {{
-            let value: i128 = value.data.expect_i128()?;
+            let value: i128 = value.expect_i128()?;
             // Because we've ruled out numbers small enough to fit in an i64, its encoded length
             // must be greater than 8. Write the opcode for an integer with a FlexUInt length.
             self.push_byte(0xF6);

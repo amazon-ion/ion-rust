@@ -97,7 +97,7 @@ impl FixedInt {
     }
 
     pub fn write(output: &mut impl Write, value: &Int) -> IonResult<usize> {
-        Self::write_i128(output, value.data.expect_i128()?)
+        Self::write_i128(output, value.expect_i128()?)
     }
 
     #[inline]

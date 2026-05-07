@@ -1,8 +1,12 @@
+// pub(crate)
+mod big_small;
+mod int_data;
+
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
-use crate::types::int_data::{IntData, UIntData};
 use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
+pub(crate) use int_data::{IntData, UIntData};
 use num_traits::Zero;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -24,8 +28,18 @@ impl UInt {
     #[inline]
     pub(crate) fn new(data: impl Into<u128>) -> Self {
         Self {
-            data: UIntData::from_u128(data.into()),
+            data: UIntData::from(data.into()),
         }
+    }
+
+    pub(crate) fn from_str_radix(s: &str, radix: u32) -> IonResult<Self> {
+        let data = UIntData::from_str_radix(s, radix)?;
+        Ok(Self { data })
+    }
+
+    pub(crate) fn from_be_bytes(bytes: &[u8]) -> UInt {
+        let data = UIntData::from_be_bytes(bytes);
+        Self { data }
     }
 
     /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
@@ -248,7 +262,7 @@ impl Int {
     #[allow(unused)]
     pub(crate) fn new(data: impl Into<i128>) -> Self {
         Self {
-            data: IntData::from_i128(data.into()),
+            data: IntData::from(data.into()),
         }
     }
 
@@ -425,12 +439,6 @@ impl Zero for UInt {
     }
 }
 
-impl From<IntData> for Int {
-    fn from(value: IntData) -> Self {
-        Int { data: value }
-    }
-}
-
 impl CountDecimalDigits for Int {
     fn count_decimal_digits(self) -> u32 {
         self.data.count_decimal_digits()
@@ -449,21 +457,18 @@ impl Display for UInt {
     }
 }
 
-// Trivial conversion to Int from integers that can safely be converted to an i128
-macro_rules! impl_int_i128_from {
-    ($($t:ty),*) => ($(
-        impl From<$t> for Int {
-            fn from(value: $t) -> Int {
-                Int {data: IntData::from_i128(value as i128) }
-            }
-        }
-    )*)
+impl<T> From<T> for Int
+where
+    T: Into<IntData>,
+{
+    fn from(value: T) -> Self {
+        Self { data: value.into() }
+    }
 }
-impl_int_i128_from!(u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize);
 
-impl From<UInt> for Int {
+impl From<UInt> for IntData {
     fn from(value: UInt) -> Self {
-        IntData::from(value.data).into()
+        value.data.into()
     }
 }
 
@@ -497,6 +502,37 @@ mod integer_tests {
         assert!(!Int::from(55i128).is_zero());
         assert!(!Int::from(-55).is_zero());
         assert!(!Int::from(-55i128).is_zero());
+    }
+
+    #[test]
+    fn zero() {
+        assert!(Int::zero().is_zero());
+    }
+
+    #[test]
+    fn add() {
+        assert_eq!(Int::from(0) + Int::from(0), Int::from(0));
+        assert_eq!(Int::from(5) + Int::from(7), Int::from(12));
+        assert_eq!(Int::from(-5) + Int::from(7), Int::from(2));
+        assert_eq!(Int::from(100) + Int::from(1000i128), Int::from(1100i128));
+        assert_eq!(Int::from(100i128) + Int::from(1000), Int::from(1100i128));
+        assert_eq!(
+            Int::from(100i128) + Int::from(1000i128),
+            Int::from(1100i128)
+        );
+    }
+
+    #[test]
+    fn sub() {
+        assert_eq!(Int::from(0) - Int::from(0), Int::from(0));
+        assert_eq!(Int::from(5) - Int::from(7), Int::from(-2));
+        assert_eq!(Int::from(-5) - Int::from(7), Int::from(-12));
+        assert_eq!(Int::from(100) - Int::from(1000i128), Int::from(-900i128));
+        assert_eq!(Int::from(100i128) - Int::from(1000), Int::from(-900i128));
+        assert_eq!(
+            Int::from(100i128) - Int::from(1000i128),
+            Int::from(-900i128)
+        );
     }
 
     #[rstest]
@@ -697,7 +733,7 @@ mod integer_tests {
     fn int_from_bytes_roundtrip() {
         for v in [0i128, 1, -1, 42, -42, i128::MAX, i128::MIN] {
             let int = Int::from(v);
-            let bytes = int.data.as_i128().unwrap().to_le_bytes();
+            let bytes = int.data.to_le_bytes();
             let roundtripped = Int::from_le_signed_bytes(&bytes);
             assert_eq!(int, roundtripped, "roundtrip failed for {v}");
         }

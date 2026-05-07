@@ -69,7 +69,7 @@ impl FixedUInt {
         value: impl Into<UInt>,
     ) -> IonResult<()> {
         let size_in_bytes = std::mem::size_of::<I>();
-        let value: u128 = value.into().data.expect_u128()?;
+        let value: u128 = u128::try_from(value.into())?;
         let encoded_bytes = value.to_le_bytes();
         let max_value: u128 = num_traits::cast::cast(I::max_value()).ok_or(
             IonError::encoding_error("Unable to represent bounds for value as 128bit value"),

@@ -9,7 +9,6 @@ pub type SymbolAddress = usize;
 mod bytes;
 pub mod decimal;
 pub(crate) mod float;
-pub(crate) mod int_data;
 pub(crate) mod integer;
 mod list;
 mod lob;

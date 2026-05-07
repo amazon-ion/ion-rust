@@ -30,14 +30,14 @@ use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::result::{DecodingError, IonFailure};
-use crate::types::int_data::{IntData, UIntData};
 use crate::{
-    Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp, TimestampPrecision,
+    Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp, TimestampPrecision, UInt,
 };
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
 use num_bigint::BigUint;
+use num_traits::Zero;
 use smallvec::SmallVec;
 use winnow::combinator::alt;
 use winnow::combinator::preceded;
@@ -188,13 +188,13 @@ impl MatchedInt {
         // Note: This UTF-8 validation step should be unnecessary as the parser only recognizes
         //       ASCII integer characters. If this shows up in profiling, we could consider skipping it.
         let text = sanitized.as_utf8(matched_input.offset())?;
-        let magnitude: IntData = UIntData::from_str_radix(text, self.radix())?.into();
+        let magnitude: Int = UInt::from_str_radix(text, self.radix())?.into();
         let signed = if self.is_negative {
             -magnitude
         } else {
             magnitude
         };
-        Ok(signed.into())
+        Ok(signed)
     }
 }
 
@@ -288,7 +288,7 @@ impl MatchedDecimal {
         );
 
         let digits_text = sanitized.as_utf8(digits.offset())?;
-        let magnitude: IntData = UIntData::from_str_radix(digits_text, 10)?.into();
+        let magnitude: Int = UInt::from_str_radix(digits_text, 10)?.into();
         let coefficient = if self.is_negative {
             if magnitude.is_zero() {
                 Coefficient::negative_zero()

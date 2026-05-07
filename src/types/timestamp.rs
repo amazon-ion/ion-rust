@@ -226,8 +226,9 @@ impl Timestamp {
                     mag.as_u128().unwrap_or(0).saturating_mul(factor)
                 } else {
                     let divisor = 10u128.saturating_pow(nano_exp.unsigned_abs() as u32);
-                    let divided = mag.data.clone() / divisor;
-                    divided.as_u128().unwrap_or(0)
+                    let divided = mag.data / divisor;
+                    // Default value can only be reached if the fractional seconds are greater than 1.
+                    u128::try_from(divided).unwrap_or(0)
                 };
                 Some(nanos as u32)
             }
@@ -1270,7 +1271,6 @@ mod timestamp_tests {
     use super::*;
     use crate::ion_data::IonEq;
     use crate::result::IonResult;
-    use crate::types::int_data::IntData;
     use crate::types::Mantissa;
     use crate::{Decimal, Int, Timestamp, TimestampPrecision};
     use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
@@ -1870,7 +1870,7 @@ mod timestamp_tests {
         assert_eq!(timestamp_3.nanoseconds(), 0);
 
         // Big fractional coefficient
-        let big_coefficient = Int::from(IntData::from_i128(i128::MAX).mul(4.into()));
+        let big_coefficient: Int = Int::from(i128::MAX).data.mul(4).into();
         let timestamp_4 = Timestamp::with_ymd(2023, 1, 1)
             .with_hour_and_minute(0, 0)
             .with_second(0)

@@ -149,7 +149,7 @@ impl FlexUInt {
 
     #[inline]
     pub fn write<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<usize> {
-        let value = value.into().data.expect_u128()?;
+        let value = u128::try_from(value.into())?;
         let leading_zeros = value.leading_zeros();
         let num_encoded_bytes = BYTES_NEEDED_CACHE[leading_zeros as usize] as usize;
         if num_encoded_bytes <= Self::MAX_FLEX_UINT_ENCODED_SIZE_IN_BYTES {

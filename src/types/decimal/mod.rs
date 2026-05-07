@@ -6,6 +6,7 @@ use std::ops::Sub;
 use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
+use crate::types::integer::UIntData;
 use crate::{Int, IonResult};
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -251,9 +252,9 @@ impl Decimal {
             }
         }
         // Slow path: use BigUint for arbitrary-precision scaling and comparison
-        let d1_big = d1_mag.data.as_biguint();
-        let scaled = d1_big.as_ref() * BigUint::from(10u32).pow(exponent_delta as u32);
-        let other = d2_mag.data.as_biguint();
+        let d1_big = d1_mag.data;
+        let scaled = d1_big * UIntData::from_big(BigUint::from(10u32).pow(exponent_delta as u32));
+        let other = d2_mag.data;
         scaled.cmp(&other)
     }
 
@@ -265,8 +266,8 @@ impl Decimal {
         } else {
             // Extract the coefficient, we'll lose the sign if it's ZERO, but we add it back at the
             // end.
-            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
-            coeff.data /= 10i128.pow(self.exponent.unsigned_abs() as u32);
+            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
+            coeff = coeff / 10i128.pow(self.exponent.unsigned_abs() as u32);
             Decimal::new(
                 Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
                 0,
@@ -283,8 +284,8 @@ impl Decimal {
                 0,
             )
         } else {
-            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
-            coeff.data %= 10i128.pow(self.exponent.unsigned_abs() as u32);
+            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
+            coeff = coeff % 10i128.pow(self.exponent.unsigned_abs() as u32);
             Decimal::new(
                 Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
                 self.exponent,
@@ -376,17 +377,17 @@ impl Sub for Decimal {
         } else {
             // Scale the larger value up so that both coefficients are the same scaling factor apart
             // and we can do integer arithmetic.
-            let mut lhs_int = self.coefficient().as_int().unwrap_or(Int::ZERO);
-            let mut rhs_int = rhs.coefficient().as_int().unwrap_or(Int::ZERO);
+            let mut lhs_int = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
+            let mut rhs_int = rhs.coefficient().as_int().unwrap_or(Int::ZERO).data;
             let exp = if self.exponent > rhs.exponent {
-                lhs_int.data *= 10i128.pow((self.exponent - rhs.exponent) as u32);
+                lhs_int = lhs_int * 10i128.pow((self.exponent - rhs.exponent) as u32);
                 rhs.exponent
             } else {
-                rhs_int.data *= 10i128.pow((rhs.exponent - self.exponent) as u32);
+                rhs_int = rhs_int * 10i128.pow((rhs.exponent - self.exponent) as u32);
                 self.exponent
             };
             let new_coeff = lhs_int - rhs_int;
-            Decimal::new(new_coeff, exp)
+            Decimal::new(Int::from(new_coeff), exp)
         }
     }
 }
