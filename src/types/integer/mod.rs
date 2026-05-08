@@ -4,9 +4,11 @@ mod int_data;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
+use crate::types::integer::big_small::AsBigOrSmallValue;
 use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
 pub(crate) use int_data::{IntData, UIntData};
+use num_bigint::BigInt;
 use num_traits::Zero;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -354,6 +356,10 @@ impl Int {
 
     pub fn to_le_signed_bytes(&self) -> Vec<u8> {
         self.data.to_le_bytes()
+    }
+
+    pub(crate) fn to_bigint(&self) -> BigInt {
+        self.data.as_big_value().into_owned()
     }
 }
 

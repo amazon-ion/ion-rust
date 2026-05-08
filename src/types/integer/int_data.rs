@@ -6,7 +6,6 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::{Num, Signed, ToPrimitive};
 use std::borrow::Cow;
 use std::ops::Neg;
-
 use BigOrSmall::*;
 
 /// Backing storage for `UInt`. Stores values up to u128 inline; larger values use `BigUint`.
@@ -188,7 +187,31 @@ impl IntData {
     }
 
     pub(crate) fn byte_len(&self) -> usize {
-        self.to_le_bytes().len()
+        match &self.0 {
+            SmallValue(small) => {
+                let sign_bits = if *small < 0 {
+                    small.leading_ones()
+                } else {
+                    small.leading_zeros()
+                };
+                let num_magnitude_bits = (i128::BITS * 8 - sign_bits) as u64;
+                // Calculates ⌈ (num_magnitude_bits + 1) / 8 ⌉
+                (num_magnitude_bits / 8 + 1) as usize
+            }
+            BigValue(big) => cold_path! {{
+                if big.is_positive() {
+                    (big.bits() / 8 + 1) as usize
+                } else {
+                    // BigInt::bits() gives us the number of bits for the unsigned magnitude.
+                    // Converting to 2's complement, can result in an extra bit iff the unsigned
+                    // value is (2^n)-1, so when `n` is one less than a multiple of 8, using
+                    // BigInt::bits() will get us the wrong number of BYTES.
+                    // It is simpler and cheaper to just get the actual signed bytes representation,
+                    // although this does result in allocations.
+                    return big.to_signed_bytes_le().len()
+                }
+            }},
+        }
     }
 
     pub(crate) fn count_decimal_digits(&self) -> u32 {
@@ -217,7 +240,7 @@ impl IntData {
     }
 
     /// Normalizes a BigInt into inline storage if it fits.
-    fn from_big(value: BigInt) -> Self {
+    pub(crate) fn from_big(value: BigInt) -> Self {
         match value.to_i128() {
             Some(i) => i.into(),
             None => Self(BigValue(value)),
@@ -288,14 +311,14 @@ impl From<UIntData> for IntData {
 
 /// Generates `TryFrom<Data> for primitive` impls that extract the inline value and narrow it.
 macro_rules! impl_try_from_data_to_primitive {
-    ($data:ty => $($t:ty),*) => ($(
-        impl std::convert::TryFrom<$data> for $t {
+    ($from_type:ty => $($to_type:ty),*) => ($(
+        impl std::convert::TryFrom<$from_type> for $to_type {
             type Error = IonError;
-            fn try_from(value: $data) -> Result<Self, IonError> {
+            fn try_from(value: $from_type) -> Result<Self, IonError> {
                 value.as_small_value()
-                    .and_then(|v| <$t>::try_from(v).ok())
+                    .and_then(|v| <$to_type>::try_from(v).ok())
                     .ok_or_else(|| IonError::decoding_error(
-                        concat!("{} value exceeds range of ", stringify!($data), stringify!($t))
+                        concat!(stringify!($from_type), " value exceeds range of ", stringify!($to_type))
                     ))
             }
         }
@@ -343,6 +366,7 @@ from_primitive_for_uint_data!(u8, u16, u32, u64, u128, usize);
 mod tests {
     use super::*;
     use rstest::rstest;
+    use std::ops::{Neg, Sub};
 
     #[test]
     fn uint_inline_roundtrip() {
@@ -515,15 +539,47 @@ mod tests {
         assert_eq!(be.len(), 17);
     }
 
-    #[test]
-    fn int_byte_len() {
-        assert_eq!(IntData::from(0).byte_len(), 1);
-        assert_eq!(IntData::from(1).byte_len(), 1);
-        assert_eq!(IntData::from(127).byte_len(), 1);
-        assert_eq!(IntData::from(128).byte_len(), 2);
-        assert_eq!(IntData::from(-1).byte_len(), 1);
-        assert_eq!(IntData::from(-128).byte_len(), 1);
-        assert_eq!(IntData::from(-129).byte_len(), 2);
+    #[rstest]
+    #[case(0, 1)]
+    #[case(1, 1)]
+    #[case(127, 1)]
+    #[case(128, 2)]
+    #[case(256, 2)]
+    #[case(-1, 1)]
+    #[case(-128, 1)]
+    #[case(-129, 2)]
+    #[case::pos_2pow127_sub1(BigInt::from(2).pow(127).sub(1), 16)]
+    #[case::pos_2pow127(BigInt::from(2).pow(127), 17)]
+    #[case::pos_2pow135_sub1(BigInt::from(2).pow(135).sub(1), 17)]
+    #[case::pos_2pow135(BigInt::from(2).pow(135), 18)]
+    #[case::pos_2pow143_sub1(BigInt::from(2).pow(143).sub(1), 18)]
+    #[case::pos_2pow143(BigInt::from(2).pow(143), 19)]
+    #[case::neg_2pow127(BigInt::from(2).pow(127).neg(), 16)]
+    #[case::neg_2pow127_sub1(BigInt::from(2).pow(127).neg().sub(1), 17)]
+    #[case::neg_2pow135(BigInt::from(2).pow(135).neg(), 17)]
+    #[case::neg_2pow135_sub1(BigInt::from(2).pow(135).neg().sub(1), 18)]
+    #[case::neg_2pow143(BigInt::from(2).pow(143).neg(), 18)]
+    #[case::neg_2pow143_sub1(BigInt::from(2).pow(143).neg().sub(1), 19)]
+    #[trace] // <-- Displays all arguments for failed test cases
+    fn int_byte_len(#[case] num: impl Into<BigInt>, #[case] expected_len: usize) {
+        let int_data = IntData::from_big(num.into());
+        let actual_len = int_data.byte_len();
+        let to_le_bytes_len = int_data.to_le_bytes().len();
+        assert_eq!(
+            expected_len, to_le_bytes_len,
+            "Expected Length {} doesn't match to_le_bytes().len() ({})",
+            expected_len, to_le_bytes_len
+        );
+        assert_eq!(
+            actual_len, expected_len,
+            "Length {} doesn't match expected {}",
+            actual_len, expected_len
+        );
+        assert_eq!(
+            actual_len, to_le_bytes_len,
+            "Length {} doesn't match to_le_bytes().len() ({})",
+            actual_len, to_le_bytes_len
+        );
     }
 
     #[test]

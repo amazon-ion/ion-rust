@@ -1,7 +1,7 @@
 //! Types for reporting various modes of success or failure.
 
 use std::borrow::Cow;
-use std::convert::{From, Infallible};
+use std::convert::From;
 use std::fmt::{Debug, Error};
 use std::{fmt, io};
 
@@ -64,12 +64,6 @@ pub enum IonError {
     /// not trivially convertable.
     #[error("{0}")]
     Conversion(#[from] ConversionError),
-}
-
-impl From<Infallible> for IonError {
-    fn from(_: Infallible) -> Self {
-        unreachable!()
-    }
 }
 
 impl From<io::Error> for IonError {

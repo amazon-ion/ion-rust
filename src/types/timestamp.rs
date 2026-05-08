@@ -230,6 +230,9 @@ impl Timestamp {
                     // Default value can only be reached if the fractional seconds are greater than 1.
                     u128::try_from(divided).unwrap_or(0)
                 };
+                // The max number of nanos is 999,999,999 whereas u32::MAX is over 4 billion.
+                // This cast will only truncate if fractional_seconds decimal is >= 1, which is
+                // not allowed.
                 Some(nanos as u32)
             }
             // This Timestamp's precision is too low to have a fractional seconds field.
