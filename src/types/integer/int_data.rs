@@ -564,17 +564,12 @@ mod tests {
     fn int_byte_len(#[case] num: impl Into<BigInt>, #[case] expected_len: usize) {
         let int_data = IntData::from_big(num.into());
         let actual_len = int_data.byte_len();
-        let to_le_bytes_len = int_data.to_le_bytes().len();
-        assert_eq!(
-            expected_len, to_le_bytes_len,
-            "Expected Length {} doesn't match to_le_bytes().len() ({})",
-            expected_len, to_le_bytes_len
-        );
         assert_eq!(
             actual_len, expected_len,
             "Length {} doesn't match expected {}",
             actual_len, expected_len
         );
+        let to_le_bytes_len = int_data.to_le_bytes().len();
         assert_eq!(
             actual_len, to_le_bytes_len,
             "Length {} doesn't match to_le_bytes().len() ({})",
