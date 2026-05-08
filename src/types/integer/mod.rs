@@ -357,6 +357,12 @@ impl Int {
     pub fn to_le_signed_bytes(&self) -> Vec<u8> {
         self.data.to_le_bytes()
     }
+
+    #[cfg(feature = "bigdecimal")]
+    // Only used for bigdecimal conversion.
+    pub(crate) fn to_bigint(&self) -> BigInt {
+        self.data.as_big_value().into_owned()
+    }
 }
 
 impl IonEq for Int {
