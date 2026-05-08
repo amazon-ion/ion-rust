@@ -194,7 +194,7 @@ impl IntData {
                 } else {
                     small.leading_zeros()
                 };
-                let num_magnitude_bits = (i128::BITS - sign_bits) as u64;
+                let num_magnitude_bits = i128::BITS - sign_bits;
                 // Calculates ⌈ (num_magnitude_bits + 1) / 8 ⌉
                 (num_magnitude_bits / 8 + 1) as usize
             }
