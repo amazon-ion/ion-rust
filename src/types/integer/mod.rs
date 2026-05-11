@@ -1,12 +1,11 @@
-// pub(crate)
 mod big_small;
 mod int_data;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
-use crate::types::integer::big_small::AsBigOrSmallValue;
 use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
+use big_small::AsBigOrSmallValue;
 pub(crate) use int_data::{IntData, UIntData};
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -358,7 +357,7 @@ impl Int {
         self.data.to_le_bytes()
     }
 
-    #[cfg(feature = "bigdecimal")]
+    #[cfg_attr(not(feature = "bigdecimal"), allow(dead_code))]
     // Only used for bigdecimal conversion.
     pub(crate) fn to_bigint(&self) -> BigInt {
         self.data.as_big_value().into_owned()
