@@ -2182,10 +2182,10 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         };
 
         if let Some(ref mut current_base) = self.current_base {
-            *current_base = *current_base + delta;
+            *current_base = current_base.clone() + delta;
             let value_ref = context
                 .allocator()
-                .alloc_with(|| ValueRef::Int(self.current_base.unwrap()));
+                .alloc_with(|| ValueRef::Int(self.current_base.clone().unwrap()));
             let lazy_expanded_value = LazyExpandedValue::from_constructed(context, &[], value_ref);
 
             Ok(MacroExpansionStep::Step(ValueExpr::ValueLiteral(

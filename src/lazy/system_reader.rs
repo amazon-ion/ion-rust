@@ -587,7 +587,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                         _ => continue,
                     };
                     let version: usize = match import.get("version")? {
-                        Some(ValueRef::Int(i)) if i > Int::ZERO => usize::try_from(i)
+                        Some(ValueRef::Int(i)) if i > Int::ZERO => usize::try_from(i.clone())
                             .map_err(|_|
                                          IonError::decoding_error(format!("found a symbol table import (name='{name}') with a version number too high to support: {i}")),
                             ),

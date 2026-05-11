@@ -1058,7 +1058,7 @@ impl<'top, Encoding: Decoder> LazyExpandedValue<'top, Encoding> {
             Template(environment, element) => {
                 Ok(ValueRef::from_template(self.context, *environment, element))
             }
-            Constructed(_annotations, value) => Ok(**value),
+            Constructed(_annotations, value) => Ok((*value).clone()),
             SingletonEExp(ref eexp) => self.read_resolved_singleton_eexp(eexp),
         }
     }
@@ -1181,7 +1181,7 @@ impl<'top, Encoding: Decoder> Iterator for ExpandedAnnotationsIterator<'top, Enc
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum ExpandedValueRef<'top, Encoding: Decoder> {
     Null(IonType),
     Bool(bool),
@@ -1393,10 +1393,10 @@ impl<'top, Encoding: Decoder> ExpandedValueRef<'top, Encoding> {
         match element.value() {
             Null(ion_type) => ExpandedValueRef::Null(*ion_type),
             Bool(b) => ExpandedValueRef::Bool(*b),
-            Int(i) => ExpandedValueRef::Int(*i),
+            Int(i) => ExpandedValueRef::Int(i.clone()),
             Float(f) => ExpandedValueRef::Float(*f),
-            Decimal(d) => ExpandedValueRef::Decimal(*d),
-            Timestamp(t) => ExpandedValueRef::Timestamp(*t),
+            Decimal(d) => ExpandedValueRef::Decimal(d.clone()),
+            Timestamp(t) => ExpandedValueRef::Timestamp(t.clone()),
             String(s) => ExpandedValueRef::String(StrRef::from(s.text())),
             Symbol(s) => ExpandedValueRef::Symbol(s.as_raw_symbol_ref()),
             Blob(b) => ExpandedValueRef::Blob(BytesRef::from(b.as_ref())),

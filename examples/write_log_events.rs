@@ -232,7 +232,7 @@ mod example {
             let mut struct_ = writer.struct_writer()?;
             struct_
                 //            v--- Each field name is a symbol ID
-                .write("timestamp", event.timestamp)?
+                .write("timestamp", event.timestamp.clone())?
                 .write("threadId", event.thread_id)?
                 .write("threadName", &event.thread_name)?
                 .write(
@@ -252,7 +252,7 @@ mod example {
 
             // Create an e-expression writer to invoke the macro corresponding to this log statement.
             let mut eexp = writer.eexp_writer(&macros.log_statements[event.statement.index])?;
-            eexp.write(event.timestamp)?
+            eexp.write(event.timestamp.clone())?
                 .write(event.thread_id)?
                 // Wrap the thread name in the `ThreadName` wrapper to change its serialization.
                 .write(ThreadName(&event.thread_name, &macros.thread_name))?

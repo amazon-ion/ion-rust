@@ -6,7 +6,9 @@ use std::ops::Sub;
 use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
-use crate::{Int, IonResult, UInt};
+use crate::types::integer::{IntData, UIntData};
+use crate::{Int, IonResult};
+use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
@@ -38,7 +40,7 @@ pub mod coefficient;
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Decimal {
     // ===== A note on layout =====
     // A `Coefficient` is a `(Sign, Int)` pair. The `Sign` is a one-byte enum that allows the
@@ -110,7 +112,7 @@ impl Decimal {
 
     /// Returns this `Decimal`'s coefficient.
     pub fn coefficient(&self) -> Coefficient {
-        Coefficient::from_sign_and_value(self.coefficient_sign, self.coefficient_value)
+        Coefficient::from_sign_and_value(self.coefficient_sign, self.coefficient_value.clone())
     }
 
     /// Returns this `Decimal`'s exponent.
@@ -157,7 +159,7 @@ impl Decimal {
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
         let coefficient = self.coefficient();
-        coefficient.sign() == Sign::Negative && coefficient.magnitude().data > 0
+        coefficient.sign() == Sign::Negative && !coefficient.magnitude().is_zero()
     }
 
     /// Semantically identical to `self >= Decimal::new(1, 0)`, but much cheaper to compute.
@@ -241,21 +243,35 @@ impl Decimal {
         // d1 has the larger exponent (3). We need to scale its coefficient up to d2's 10^2 scale.
         // We do this by multiplying it times 10^exponent_delta, which is 1 in this case.
         // This lets us compare 80 and 80, determining that the decimals are equal.
-        let mut scaled_coefficient: u128 = d1.coefficient().magnitude().data;
-        scaled_coefficient *= 10u128.pow(exponent_delta as u32);
-        UInt::from(scaled_coefficient).cmp(&d2.coefficient().magnitude())
+        let d1_mag = d1.coefficient().magnitude();
+        let d2_mag = d2.coefficient().magnitude();
+        // Fast path: both fit in u128
+        if let (Some(m1), Some(m2)) = (d1_mag.as_u128(), d2_mag.as_u128()) {
+            if let Some(multiplicand) = 10u128.checked_pow(exponent_delta as u32) {
+                if let Some(scaled) = m1.checked_mul(multiplicand) {
+                    return scaled.cmp(&m2);
+                }
+            }
+        }
+        // Slow path: use BigUint for arbitrary-precision scaling and comparison
+        let d1_big = d1_mag.data;
+        let scaled = d1_big * UIntData::from_big(BigUint::from(10u32).pow(exponent_delta as u32));
+        let other = d2_mag.data;
+        scaled.cmp(&other)
     }
 
     /// Returns the integer part of `self`. This means that non-integer numbers are always
     /// truncated towards zero, maintaining the sign of the original coefficient.
     pub fn trunc(&self) -> Decimal {
         if self.exponent >= 0 {
-            *self
+            self.clone()
         } else {
             // Extract the coefficient, we'll lose the sign if it's ZERO, but we add it back at the
             // end.
-            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
-            coeff.data /= 10i128.pow(self.exponent.unsigned_abs() as u32);
+            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
+            let scaling_factor =
+                IntData::from_big(BigInt::from(10).pow(self.exponent.unsigned_abs() as u32));
+            coeff = coeff / scaling_factor;
             Decimal::new(
                 Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
                 0,
@@ -272,8 +288,10 @@ impl Decimal {
                 0,
             )
         } else {
-            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO);
-            coeff.data %= 10i128.pow(self.exponent.unsigned_abs() as u32);
+            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
+            let scaling_factor =
+                IntData::from_big(BigInt::from(10).pow(self.exponent.unsigned_abs() as u32));
+            coeff = coeff % scaling_factor;
             Decimal::new(
                 Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
                 self.exponent,
@@ -343,7 +361,7 @@ impl Sub for Decimal {
 
     /// Calculate the result of self - rhs.
     ///
-    /// Regarding signed zero: This function will propogate negative zero following
+    /// Regarding signed zero: This function will propagate negative zero following
     /// the rules of IEEE 754 subtraction with signed zero and default rounding.
     /// Specifically:
     ///     +0.0 - +0.0 == 0
@@ -354,7 +372,7 @@ impl Sub for Decimal {
         let lhs_coeff = self.coefficient();
         let rhs_coeff = rhs.coefficient();
 
-        // Handle propogating signed zeros. Only when LHS is negative, and RHS differs, is the
+        // Handle propagating signed zeros. Only when LHS is negative, and RHS differs, is the
         // result negative zero on subtraction.
         if rhs.is_zero() && self.is_zero() {
             if lhs_coeff.is_negative() && !rhs_coeff.is_negative() {
@@ -365,17 +383,21 @@ impl Sub for Decimal {
         } else {
             // Scale the larger value up so that both coefficients are the same scaling factor apart
             // and we can do integer arithmetic.
-            let mut lhs_int = self.coefficient().as_int().unwrap_or(Int::ZERO);
-            let mut rhs_int = rhs.coefficient().as_int().unwrap_or(Int::ZERO);
+            let mut lhs_int = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
+            let mut rhs_int = rhs.coefficient().as_int().unwrap_or(Int::ZERO).data;
+
+            let scaling_factor = IntData::from_big(
+                BigInt::from(10).pow(self.exponent.abs_diff(rhs.exponent) as u32),
+            );
             let exp = if self.exponent > rhs.exponent {
-                lhs_int.data *= 10i128.pow((self.exponent - rhs.exponent) as u32);
+                lhs_int = lhs_int * scaling_factor;
                 rhs.exponent
             } else {
-                rhs_int.data *= 10i128.pow((rhs.exponent - self.exponent) as u32);
+                rhs_int = rhs_int * scaling_factor;
                 self.exponent
             };
             let new_coeff = lhs_int - rhs_int;
-            Decimal::new(new_coeff, exp)
+            Decimal::new(Int::from(new_coeff), exp)
         }
     }
 }
@@ -573,10 +595,8 @@ impl Display for Decimal {
 
 #[cfg(feature = "bigdecimal")]
 mod bigdecimal {
-    use crate::decimal::coefficient::Sign;
     use crate::result::IonFailure;
     use crate::{Decimal, IonError, IonResult};
-    use bigdecimal::num_bigint::BigInt;
     use bigdecimal::BigDecimal;
     use num_traits::ToPrimitive;
 
@@ -589,16 +609,7 @@ mod bigdecimal {
             if self.coefficient().is_negative_zero() {
                 return IonResult::illegal_operation("Cannot convert negative zero to BigDecimal.");
             }
-            let magnitude = self
-                .coefficient()
-                .magnitude()
-                .as_u128()
-                .expect("All Decimal magnitudes are within u128, this is impossible");
-
-            let bigint = match self.coefficient().sign() {
-                Sign::Negative => -BigInt::from(magnitude),
-                Sign::Positive => BigInt::from(magnitude),
-            };
+            let bigint = self.coefficient_value.to_bigint();
             Ok(BigDecimal::new(bigint, self.scale()))
         }
     }
@@ -680,6 +691,20 @@ mod bigdecimal {
         fn try_into_bigdecimal_for_decimal(#[case] input: Decimal, #[case] expected: BigDecimal) {
             let actual: BigDecimal = Decimal::try_into(input).unwrap();
             assert_eq!(actual, expected);
+        }
+
+        #[test]
+        fn convert_large_coefficient_decimal_to_bigdecimal() {
+            use crate::decimal::coefficient::Coefficient;
+            use crate::Int;
+            // 2^128 + 1 is a valid Ion decimal coefficient that exceeds u128::MAX.
+            let mut bytes = vec![1u8];
+            bytes.extend(vec![0u8; 16]);
+            bytes[16] = 1;
+            let big_int = Int::from_le_signed_bytes(&bytes);
+            let d = Decimal::new(Coefficient::new(big_int), 0i64);
+            let result: Result<BigDecimal, _> = d.try_into();
+            assert!(result.is_ok());
         }
     }
 }
@@ -995,5 +1020,87 @@ mod decimal_tests {
     #[case(Decimal::new(105, -1), Decimal::new(5, -1))]
     fn decimal_fract(#[case] value: Decimal, #[case] expected: Decimal) {
         assert_eq!(value.fract(), expected);
+    }
+
+    #[test]
+    fn decimal_cmp_arbitrary_precision() {
+        use crate::ion_data::IonDataHash;
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+
+        // A value that exceeds i128: 2^128 + 42
+        let mut bytes = vec![0u8; 18];
+        bytes[0] = 42;
+        bytes[16] = 1;
+        let big_value = Int::from_le_signed_bytes(&bytes);
+
+        let mut bytes2 = vec![0u8; 18];
+        bytes2[16] = 2;
+        let bigger_value = Int::from_le_signed_bytes(&bytes2);
+
+        let d1 = Decimal::new(Coefficient::new(big_value.clone()), 0i64);
+        let d2 = Decimal::new(Coefficient::new(big_value), 0i64);
+        let small = Decimal::new(1i64, 0i64);
+        let zero = Decimal::new(0i64, 0i64);
+
+        // Equality
+        assert_eq!(d1, d2);
+
+        // Ordering: big > small
+        assert_eq!(d1.cmp(&small), Ordering::Greater);
+        assert_eq!(small.cmp(&d1), Ordering::Less);
+
+        // Ordering: big > zero
+        assert_eq!(d1.cmp(&zero), Ordering::Greater);
+
+        // is_zero
+        assert!(!d1.is_zero());
+        assert!(zero.is_zero());
+
+        // Hash consistency
+        let hash = |d: &Decimal| {
+            let mut h = DefaultHasher::new();
+            d.ion_data_hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hash(&d1), hash(&d2));
+
+        // Different big magnitudes
+        let d3 = Decimal::new(Coefficient::new(bigger_value), 0i64);
+        assert_eq!(d1.cmp(&d3), Ordering::Less);
+        assert_eq!(d3.cmp(&d1), Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_decimals_with_large_exponent_difference() {
+        // 1e40 and 1e0 are both valid Ion decimals. Comparing them requires scaling
+        // one coefficient by 10^40, which exceeds i128::MAX.
+        let d1 = Decimal::new(1i64, 40i64);
+        let d2 = Decimal::new(1i64, 0i64);
+        assert_eq!(d1.cmp(&d2), Ordering::Greater);
+    }
+
+    #[test]
+    fn trunc_decimal_with_large_negative_exponent() {
+        // 1e-40 is a valid Ion decimal. trunc() should return 0.
+        let d = Decimal::new(1i64, -40i64);
+        assert_eq!(d.trunc(), Decimal::new(0i64, 0i64));
+    }
+
+    #[test]
+    fn fract_decimal_with_large_negative_exponent() {
+        // 1e-39 is a valid Ion decimal. fract() should return the value itself
+        // since the integer part is zero.
+        let d = Decimal::new(1i64, -39i64);
+        assert_eq!(d.fract(), Decimal::new(1i64, -39i64));
+    }
+
+    #[test]
+    fn subtract_decimals_with_large_exponent_difference() {
+        // 1e40 - 1e0 is valid Ion decimal arithmetic.
+        let lhs = Decimal::new(1i64, 40i64);
+        let rhs = Decimal::new(1i64, 0i64);
+        let result = lhs - rhs;
+        assert!(result > Decimal::new(0i64, 0i64));
     }
 }

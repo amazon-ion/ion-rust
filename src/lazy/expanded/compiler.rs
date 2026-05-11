@@ -666,10 +666,10 @@ impl TemplateCompiler {
         let value = match lazy_value.read()? {
             ValueRef::Null(ion_type) => TemplateValue::Null(ion_type),
             ValueRef::Bool(b) => TemplateValue::Bool(b),
-            ValueRef::Int(i) => TemplateValue::Int(i),
+            ValueRef::Int(i) => TemplateValue::Int(i.clone()),
             ValueRef::Float(f) => TemplateValue::Float(f),
-            ValueRef::Decimal(d) => TemplateValue::Decimal(d),
-            ValueRef::Timestamp(t) => TemplateValue::Timestamp(t),
+            ValueRef::Decimal(d) => TemplateValue::Decimal(d.clone()),
+            ValueRef::Timestamp(t) => TemplateValue::Timestamp(t.clone()),
             ValueRef::String(s) => TemplateValue::String(s.to_owned()),
             ValueRef::Symbol(s) => TemplateValue::Symbol(s.to_owned()),
             ValueRef::Blob(b) => TemplateValue::Blob(b.to_owned()),

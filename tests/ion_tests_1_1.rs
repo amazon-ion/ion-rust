@@ -32,13 +32,6 @@ impl ElementApi for LazyReaderElementApi {
             // TODO: Remove from skiplist when shared symbol tables are supported
             "ion-tests/iontestdata_1_1/good/localSymbolTableImportZeroMaxId.ion",
             "ion-tests/iontestdata_1_1/good/testfile35.ion",
-            // Ints outside the i128 range
-            "ion-tests/iontestdata_1_1/good/intBigSize16.10n",
-            "ion-tests/iontestdata_1_1/good/intBigSize256.ion",
-            "ion-tests/iontestdata_1_1/good/intBigSize256.10n",
-            "ion-tests/iontestdata_1_1/good/intBigSize512.ion",
-            "ion-tests/iontestdata_1_1/good/intBigSize1201.10n",
-            "ion-tests/iontestdata_1_1/good/equivs/bigInts.ion",
         ]
     }
 

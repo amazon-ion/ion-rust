@@ -567,7 +567,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Int);
         // `value_body()` returns a buffer starting at the body of the value.
         let uint_bytes = self.value_body();
-        let magnitude: Int = DecodedUInt::uint_from_slice(uint_bytes)?.try_into()?;
+        let magnitude: Int = DecodedUInt::uint_from_slice(uint_bytes).into();
 
         use crate::binary::type_code::IonTypeCode::*;
         use num_traits::Zero;
@@ -734,8 +734,10 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         }
         // We've already confirmed that the uint fits in a `usize`, so we can `unwrap()` the result
         // of this method and then cast its output to a `usize`.
-        let magnitude = DecodedUInt::uint_from_slice_unchecked(uint_bytes);
-        Ok(magnitude as usize)
+        let mut buffer = [0u8; size_of::<usize>()];
+        buffer[size_of::<usize>() - uint_bytes.len()..].copy_from_slice(uint_bytes);
+        let magnitude = usize::from_be_bytes(buffer);
+        Ok(magnitude)
     }
 
     /// Helper method called by [`Self::read`]. Reads the current value as a symbol.

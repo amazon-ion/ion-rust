@@ -27,7 +27,7 @@ pub enum Sign {
 ///
 /// While the Ion specification allows this type to be of arbitrary size, this implementation currently
 /// supports coefficients in the integer range supported by `i128`.
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Coefficient {
     /// This field exists solely to preserve the distinction between `0` and `-0`.
     /// It will agree with the sign information in the `magnitude` field in all cases *except*
@@ -81,7 +81,7 @@ impl Coefficient {
 
     /// Returns the number of digits in the base-10 representation of the coefficient
     pub(crate) fn number_of_decimal_digits(&self) -> u32 {
-        self.magnitude.count_decimal_digits()
+        self.magnitude.clone().count_decimal_digits()
     }
 
     /// Constructs a new Coefficient that represents negative zero.
@@ -111,14 +111,14 @@ impl Coefficient {
         self.magnitude().is_zero()
     }
 
-    /// If the value can be represented as an `i128`, return it as such.
-    /// If the coefficient is negative zero or outside the range of an `i128`, returns `None`.
+    /// Returns the coefficient as an `Int`.
+    /// If the coefficient is negative zero, returns `None`.
     pub(crate) fn as_int(&self) -> Option<Int> {
         if self.is_negative_zero() {
             // Returning an unsigned zero would be lossy.
             return None;
         }
-        Some(self.magnitude)
+        Some(self.magnitude.clone())
     }
 }
 
@@ -132,7 +132,7 @@ macro_rules! impl_coefficient_from_unsigned_int_types {
         }
     )*)
 }
-impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, usize);
+impl_coefficient_from_unsigned_int_types!(u8, u16, u32, u64, u128, usize, UInt);
 
 // This macro makes it possible to turn signed integers into a Coefficient using `.into()`.
 macro_rules! impl_coefficient_from_signed_int_types {
@@ -161,7 +161,7 @@ impl TryFrom<&Coefficient> for Int {
     type Error = IonError;
 
     fn try_from(value: &Coefficient) -> Result<Self, Self::Error> {
-        (*value).try_into()
+        value.clone().try_into()
     }
 }
 
@@ -180,7 +180,7 @@ impl TryFrom<&Coefficient> for UInt {
     type Error = IonError;
 
     fn try_from(value: &Coefficient) -> Result<Self, Self::Error> {
-        (*value).try_into()
+        value.clone().try_into()
     }
 }
 
@@ -286,13 +286,13 @@ mod coefficient_tests {
         assert_eq!(Int::try_from(Coefficient::new(5)), Ok(Int::from(5)));
         assert_eq!(Int::try_from(Coefficient::new(-5)), Ok(Int::from(-5)));
 
-        let enormous_int = Int::try_from(12345678901234567890123456789u128).unwrap();
+        let enormous_int = Int::from(12345678901234567890123456789u128);
         assert_eq!(
-            Int::try_from(Coefficient::new(enormous_int)),
-            Ok(enormous_int)
+            Int::try_from(Coefficient::new(enormous_int.clone())),
+            Ok(enormous_int.clone())
         );
         assert_eq!(
-            Int::try_from(Coefficient::new(enormous_int.neg())),
+            Int::try_from(Coefficient::new(enormous_int.clone().neg())),
             Ok(enormous_int.neg())
         );
 

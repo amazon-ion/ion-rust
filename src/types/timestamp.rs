@@ -5,13 +5,11 @@ use crate::types::{CountDecimalDigits, Decimal};
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
-use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
-use std::ops::Div;
 
 /// Indicates the most precise time unit that has been specified in the accompanying [Timestamp].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default, Hash)]
@@ -38,7 +36,7 @@ pub enum TimestampPrecision {
 /// NaiveDateTime component and the Mantissa will indicate the number of digits from that value
 /// that should be used. If the precision is 10 or more digits, the Mantissa will store the value
 /// itself as a Decimal with the correct precision.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mantissa {
     /// The number of digits of precision in the Timestamp's fractional seconds. For example, a
     /// value of `3` would indicate millisecond precision. A value of `6` would indicate
@@ -129,7 +127,7 @@ fn datetime_at_offset(utc_datetime: &NaiveDateTime, seconds_east: i32) -> DateTi
 /// Represents a point in time to a specified degree of precision. Unlike `chrono`'s [NaiveDateTime]
 /// and [DateTime], a `Timestamp` has variable precision ranging from a year to fractional seconds
 /// of an arbitrary unit.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Timestamp {
     pub(crate) date_time: NaiveDateTime,
     pub(crate) offset: Option<FixedOffset>,
@@ -196,7 +194,7 @@ impl Timestamp {
                 Some(Decimal::new(coefficient, exponent))
             }
             // This timestamp already stores its fractional seconds as a Decimal; return a clone.
-            Some(Arbitrary(decimal)) => Some(*decimal),
+            Some(Arbitrary(decimal)) => Some(decimal.clone()),
             // This Timestamp's precision is too low to have a fractional seconds field.
             None => None,
         }
@@ -220,22 +218,22 @@ impl Timestamp {
             // This timestamp stores its fractional seconds as a Decimal. Down-convert it to a u32
             // representing the number of nanoseconds.
             Some(Arbitrary(decimal)) => {
-                const NANOSECONDS_EXPONENT: i64 = -9;
-                const NANOSECONDS_PER_SECOND: u128 = 1_000_000_000;
-                let exponent_delta = decimal.exponent - NANOSECONDS_EXPONENT;
-                let magnitude = match &decimal.coefficient().magnitude().data {
-                    m if *m >= NANOSECONDS_PER_SECOND => {
-                        // The coefficient is more precise than nanoseconds. We need to truncate a
-                        // copy of it.
-                        m.div(10f64.powi(exponent_delta.abs() as i32) as u128)
-                            .to_u32()
-                            .expect("failed to convert coefficient magnitude to u32 nanos")
-                    }
-                    m => *m as u32,
+                // nanoseconds = coefficient * 10^(exponent + 9)
+                let nano_exp = decimal.exponent + 9;
+                let mag = decimal.coefficient().magnitude();
+                let nanos: u128 = if nano_exp >= 0 {
+                    let factor = 10u128.saturating_pow(nano_exp as u32);
+                    mag.as_u128().unwrap_or(0).saturating_mul(factor)
+                } else {
+                    let divisor = 10u128.saturating_pow(nano_exp.unsigned_abs() as u32);
+                    let divided = mag.data / divisor;
+                    // Default value can only be reached if the fractional seconds are greater than 1.
+                    u128::try_from(divided).unwrap_or(0)
                 };
-                // Adjust for the exponent
-                let nanoseconds = (magnitude as f64 * 10f64.powi(exponent_delta as i32)) as u32;
-                Some(nanoseconds)
+                // The max number of nanos is 999,999,999 whereas u32::MAX is over 4 billion.
+                // This cast will only truncate if fractional_seconds decimal is >= 1, which is
+                // not allowed.
+                Some(nanos as u32)
             }
             // This Timestamp's precision is too low to have a fractional seconds field.
             None => None,
@@ -393,14 +391,14 @@ impl Timestamp {
     pub(crate) fn format<W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
         let (offset_minutes, datetime) = if let Some(minutes) = self.offset {
             // Create a datetime with the appropriate offset that we can use for formatting.
-            let datetime: DateTime<FixedOffset> = (*self).try_into()?;
+            let datetime: DateTime<FixedOffset> = self.clone().try_into()?;
             // Convert the offset to minutes --v
             (Some(minutes.local_minus_utc() / 60), datetime)
         } else {
             // Our timestamp has an unknown offset. Per the spec, this means it makes no
             // assertions about *where* it was recorded, but its fields are still in UTC.
             // Create a UTC datetime that we can use for formatting.
-            let datetime: NaiveDateTime = (*self).try_into()?;
+            let datetime: NaiveDateTime = self.clone().try_into()?;
             let datetime: DateTime<FixedOffset> = datetime_at_offset(&datetime, 0);
             (None, datetime)
         };
@@ -1277,12 +1275,13 @@ mod timestamp_tests {
     use crate::ion_data::IonEq;
     use crate::result::IonResult;
     use crate::types::Mantissa;
-    use crate::{Decimal, Timestamp, TimestampPrecision};
+    use crate::{Decimal, Int, Timestamp, TimestampPrecision};
     use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
     use rstest::*;
     use std::cmp::Ordering;
     use std::convert::TryInto;
     use std::io::Write;
+    use std::ops::Mul;
     use std::str::FromStr;
 
     #[test]
@@ -1872,6 +1871,23 @@ mod timestamp_tests {
             .with_offset(-5 * 60)
             .build()?;
         assert_eq!(timestamp_3.nanoseconds(), 0);
+
+        // Big fractional coefficient
+        let big_coefficient: Int = Int::from(i128::MAX).data.mul(4).into();
+        let timestamp_4 = Timestamp::with_ymd(2023, 1, 1)
+            .with_hour_and_minute(0, 0)
+            .with_second(0)
+            .with_fractional_seconds(Decimal::new(big_coefficient, -39))
+            .build()?;
+        assert_eq!(timestamp_4.nanoseconds(), 680564733);
+
+        // Exponent delta > 38: result should be 0
+        let timestamp_5 = Timestamp::with_ymd(2023, 1, 1)
+            .with_hour_and_minute(0, 0)
+            .with_second(0)
+            .with_fractional_seconds(Decimal::new(1i64, -50))
+            .build()?;
+        assert_eq!(timestamp_5.nanoseconds(), 0);
 
         Ok(())
     }

@@ -1,10 +1,9 @@
-use std::mem;
-
 use crate::decimal::coefficient::Coefficient;
 use crate::result::IonResult;
 use crate::Int;
 use num_traits::Zero;
 use std::io::Write;
+
 const INT_NEGATIVE_ZERO: u8 = 0x80;
 
 /// Represents a fixed-length signed integer. See the
@@ -34,36 +33,22 @@ impl DecodedInt {
     /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     pub fn write<W: Write>(sink: &mut W, value: impl Into<Int>) -> IonResult<usize> {
-        let value = value.into().data;
+        let value = value.into();
+        let is_negative = value.is_negative();
         let magnitude = value.unsigned_abs();
-        // Using leading_zeros() to determine how many empty bytes we can ignore.
-        // We subtract one from the number of leading bits to leave space for a sign bit
-        // and divide by 8 to get the number of bytes.
-        let empty_leading_bytes: u32 = match magnitude.leading_zeros() {
-            0 => 0,
-            num_zeros => (num_zeros - 1) >> 3,
-        };
-        let first_occupied_byte = empty_leading_bytes as usize;
-
-        let mut magnitude_bytes: [u8; mem::size_of::<u128>()] = magnitude.to_be_bytes();
-        let bytes_to_write: &mut [u8] = &mut magnitude_bytes[first_occupied_byte..];
-        let mut bytes_written = bytes_to_write.len();
-        if value < 0 {
-            // i128::MIN is the lowest int encoding primitive we support. It's also the only
-            // value in the i128 range that needs the highest bit to represent its magnitude.
-            if value == i128::MIN {
-                // If we're writing i128::MIN, we need to write out an additional prefix byte
-                // that has its sign bit set but no magnitude bits set.
+        let mut be = magnitude.data.to_be_bytes();
+        let high_bit_set = be[0] & 0x80 != 0;
+        if is_negative {
+            if high_bit_set {
                 sink.write_all(&[0b1000_0000])?;
-                bytes_written += 1;
             } else {
-                // Otherwise, just set the highest bit to a one, indicating the value is negative.
-                bytes_to_write[0] |= 0b1000_0000;
+                be[0] |= 0b1000_0000;
             }
+        } else if high_bit_set {
+            sink.write_all(&[0x00])?;
         }
-
-        sink.write_all(bytes_to_write)?;
-        Ok(bytes_written)
+        sink.write_all(&be)?;
+        Ok(be.len() + high_bit_set as usize)
     }
 
     /// Encodes a negative zero as an `Int` and writes it to the provided `sink`.
@@ -190,6 +175,27 @@ mod tests {
             buffer.as_slice(),
             &[0x7fu8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn write_big_int_roundtrip() -> IonResult<()> {
+        // 2^128 exceeds i128
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        let big = Int::from_le_signed_bytes(&bytes);
+
+        let mut buffer: Vec<u8> = vec![];
+        let length = DecodedInt::write(&mut buffer, big.clone())?;
+        assert!(length > 16, "big int should encode to more than 16 bytes");
+        assert!(!buffer.is_empty());
+
+        // Read it back
+        let context =
+            crate::lazy::expanded::EncodingContext::for_ion_version(crate::IonVersion::v1_0);
+        let buf = crate::lazy::binary::binary_buffer::BinaryBuffer::new(context.get_ref(), &buffer);
+        let (decoded, _) = buf.read_int(buffer.len())?;
+        assert_eq!(*decoded.value(), big);
         Ok(())
     }
 }

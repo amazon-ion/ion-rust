@@ -154,7 +154,7 @@ mod binary_decimal_tests {
     #[case::foo(Decimal::new(i128::MIN + 1, i32::MIN))]
     fn roundtrip_decimals_with_extreme_values(#[case] value: Decimal) -> IonResult<()> {
         let mut writer = Writer::new(BinaryEncoding_1_0::default_write_config(), Vec::new())?;
-        writer.write(value)?;
+        writer.write(&value)?;
         let output = writer.close()?;
         let mut reader = Reader::new(AnyEncoding, output)?;
         let after_round_trip = reader.expect_next()?.read()?.expect_decimal()?;

@@ -20,7 +20,7 @@ use std::fmt::{Debug, Formatter};
 /// Unlike a [Value], a `ValueRef` avoids heap allocation whenever possible, choosing to point instead
 /// to existing resources. Numeric values and timestamps are stored within the `ValueRef` itself.
 /// Text values and lobs hold references to either a slice of input data or text in the symbol table.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum ValueRef<'top, D: Decoder> {
     Null(IonType),
     Bool(bool),
@@ -273,10 +273,10 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         match element.value() {
             Null(ion_type) => ValueRef::Null(*ion_type),
             Bool(b) => ValueRef::Bool(*b),
-            Int(i) => ValueRef::Int(*i),
+            Int(i) => ValueRef::Int(i.clone()),
             Float(f) => ValueRef::Float(*f),
-            Decimal(d) => ValueRef::Decimal(*d),
-            Timestamp(t) => ValueRef::Timestamp(*t),
+            Decimal(d) => ValueRef::Decimal(d.clone()),
+            Timestamp(t) => ValueRef::Timestamp(t.clone()),
             String(s) => ValueRef::String(StrRef::from(s.text())),
             Symbol(s) => ValueRef::Symbol(SymbolRef::from(s)),
             Blob(b) => ValueRef::Blob(BytesRef::from(b.as_ref())),
@@ -308,10 +308,10 @@ impl<'top, D: Decoder> ValueRef<'top, D> {
         match self {
             Null(ion_type) => ExpandedValueRef::Null(*ion_type),
             Bool(b) => ExpandedValueRef::Bool(*b),
-            Int(i) => ExpandedValueRef::Int(*i),
+            Int(i) => ExpandedValueRef::Int(i.clone()),
             Float(f) => ExpandedValueRef::Float(*f),
-            Decimal(d) => ExpandedValueRef::Decimal(*d),
-            Timestamp(t) => ExpandedValueRef::Timestamp(*t),
+            Decimal(d) => ExpandedValueRef::Decimal(d.clone()),
+            Timestamp(t) => ExpandedValueRef::Timestamp(t.clone()),
             String(s) => ExpandedValueRef::String(*s),
             Symbol(s) => ExpandedValueRef::Symbol((*s).into()),
             Blob(b) => ExpandedValueRef::Blob(*b),

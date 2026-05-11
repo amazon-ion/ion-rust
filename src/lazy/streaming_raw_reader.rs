@@ -262,7 +262,7 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 }
 
 // This is a separate trait so it can be `dyn`-compatible.
-pub trait IoBufferHandle {
+pub(crate) trait IoBufferHandle {
     /// Creates an inexpensive copy of the I/O buffer with no lifetime.
     fn save_io_buffer(&self) -> IoBuffer;
 
@@ -271,6 +271,7 @@ pub trait IoBufferHandle {
 
 /// An input source--typically an implementation of either `AsRef<[u8]>` or `io::Read`--from which
 /// Ion can be read, paying the cost of buffering and I/O copies only when necessary.
+#[allow(private_bounds)]
 pub trait IonDataSource: IoBufferHandle {
     /// If `true`, the current contents of the buffer may not be the complete stream.
     const IS_STREAMING: bool;

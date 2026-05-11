@@ -15,7 +15,7 @@ use crate::{
 /// or text literal). If it is a symbol ID, a symbol table will be needed to find its associated text.
 ///
 /// For a resolved version of this type, see [crate::lazy::value_ref::ValueRef].
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum RawValueRef<'top, D: Decoder> {
     Null(IonType),
     Bool(bool),

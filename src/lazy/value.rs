@@ -801,6 +801,7 @@ mod tests {
             let contained_values = match lazy_element.ion_type() {
                 IonType::List => lazy_element
                     .read()?
+                    .clone()
                     .expect_list()?
                     .iter()
                     .map(Result::unwrap)
@@ -808,6 +809,7 @@ mod tests {
                     .collect(),
                 IonType::SExp => lazy_element
                     .read()?
+                    .clone()
                     .expect_sexp()?
                     .iter()
                     .map(Result::unwrap)
@@ -815,6 +817,7 @@ mod tests {
                     .collect(),
                 IonType::Struct => lazy_element
                     .read()?
+                    .clone()
                     .expect_struct()?
                     .iter()
                     .map(|f| f.unwrap().value())

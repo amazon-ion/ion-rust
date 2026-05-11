@@ -19,7 +19,6 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
-use std::num::IntErrorKind;
 use std::ops::{Neg, Range};
 use std::str::FromStr;
 
@@ -32,11 +31,12 @@ use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::result::{DecodingError, IonFailure};
 use crate::{
-    Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp, TimestampPrecision,
+    Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, Timestamp, TimestampPrecision, UInt,
 };
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
+use num_bigint::BigUint;
 use num_traits::Zero;
 use smallvec::SmallVec;
 use winnow::combinator::alt;
@@ -188,44 +188,13 @@ impl MatchedInt {
         // Note: This UTF-8 validation step should be unnecessary as the parser only recognizes
         //       ASCII integer characters. If this shows up in profiling, we could consider skipping it.
         let text = sanitized.as_utf8(matched_input.offset())?;
-        // Parse as u128 to handle the full range including i128::MIN, whose magnitude
-        // exceeds i128::MAX by one.
-        let magnitude = match u128::from_str_radix(text, self.radix()) {
-            Ok(m) => m,
-            Err(parse_int_error) => {
-                debug_assert!(
-                    // `from_str_radix` can fail for a variety of reasons, but our rules for
-                    // matching an int rule out most of them (empty str, invalid digit, etc).
-                    // The only one that should happen for u128 is overflow.
-                    parse_int_error.kind() == &IntErrorKind::PosOverflow
-                );
-                return cold_path!(IonResult::decoding_error(format!(
-                    "encountered an int whose value exceeded the supported range: '{}'",
-                    std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
-                )));
-            }
-        };
-
-        const I128_MIN_MAGNITUDE: u128 = i128::MIN.unsigned_abs();
-        let int: Int = if self.is_negative {
-            if magnitude > I128_MIN_MAGNITUDE {
-                return cold_path!(IonResult::decoding_error(format!(
-                    "encountered an int whose value exceeded the supported range: '{}'",
-                    std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
-                )));
-            }
-            (magnitude.wrapping_neg() as i128).into()
+        let magnitude: Int = UInt::from_str_radix(text, self.radix())?.into();
+        let signed = if self.is_negative {
+            -magnitude
         } else {
-            if magnitude > i128::MAX as u128 {
-                return cold_path!(IonResult::decoding_error(format!(
-                    "encountered an int whose value exceeded the supported range: '{}'",
-                    std::str::from_utf8(matched_input.bytes()).unwrap_or("invalid UTF-8")
-                )));
-            }
-            (magnitude as i128).into()
+            magnitude
         };
-
-        Ok(int)
+        Ok(signed)
     }
 }
 
@@ -319,14 +288,7 @@ impl MatchedDecimal {
         );
 
         let digits_text = sanitized.as_utf8(digits.offset())?;
-        let magnitude: Int = i128::from_str(digits_text)
-            .map_err(|e| {
-                IonError::decoding_error(format!(
-                    "decimal magnitude '{digits_text}' was larger than supported size ({e:?}"
-                ))
-            })?
-            .into();
-
+        let magnitude: Int = UInt::from_str_radix(digits_text, 10)?.into();
         let coefficient = if self.is_negative {
             if magnitude.is_zero() {
                 Coefficient::negative_zero()
@@ -1044,9 +1006,14 @@ impl MatchedTimestamp {
             }
             _ => {
                 // For less common precisions, store a Decimal
-                let coefficient = i128::from_str(fractional_text).unwrap();
-                let decimal = Decimal::new(coefficient, -(fractional_text.len() as i64));
-                timestamp.with_fractional_seconds(decimal)
+                cold_path! {{
+                    let big = BigUint::parse_bytes(fractional_text.as_bytes(), 10).unwrap();
+                    let mut le = big.to_bytes_le();
+                    le.push(0);
+                    let coefficient = Int::from_le_signed_bytes(&le);
+                    let decimal = Decimal::new(coefficient, -(fractional_text.len() as i64));
+                    timestamp.with_fractional_seconds(decimal)
+                }}
             }
         };
 
@@ -1288,25 +1255,104 @@ mod tests {
     }
 
     #[test]
-    fn read_ints_overflow() {
-        fn expect_overflow(data: &str) {
+    fn read_ints_arbitrary_precision() {
+        fn expect_big_int(data: &str, expected_decimal_str: &str) {
             let encoding_context = EncodingContext::empty();
             let context = encoding_context.get_ref();
             let mut buffer = TextBuffer::new(context, data.as_bytes());
             let matched = peek(TextBuffer::match_int).parse_next(&mut buffer).unwrap();
-            let result = matched.read(buffer);
-            assert!(result.is_err(), "Expected overflow error for '{data}'");
+            let int = matched.read(buffer).unwrap_or_else(|e| {
+                panic!("Expected parse of '{data}' to succeed, got error: {e:?}")
+            });
+            assert_eq!(
+                int.to_string(),
+                expected_decimal_str,
+                "round-trip mismatch for '{data}': got {int}"
+            );
         }
 
         let tests = [
-            // i128::MAX + 1 (positive overflow)
-            "170141183460469231731687303715884105728",
-            // i128::MIN - 1 (negative overflow)
-            "-170141183460469231731687303715884105729",
+            // i128::MAX + 1
+            (
+                "170141183460469231731687303715884105728",
+                "170141183460469231731687303715884105728",
+            ),
+            // i128::MIN - 1
+            (
+                "-170141183460469231731687303715884105729",
+                "-170141183460469231731687303715884105729",
+            ),
+            // 52-digit positive
+            (
+                "14259999999999999342747969421907328069210052490234375",
+                "14259999999999999342747969421907328069210052490234375",
+            ),
+            // 52-digit negative
+            (
+                "-14259999999999999342747969421907328069210052490234375",
+                "-14259999999999999342747969421907328069210052490234375",
+            ),
+            // Hex literal exceeding i128
+            (
+                "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                "87112285931760246646623899502532662132735",
+            ),
+            // Negative hex literal
+            (
+                "-0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                "-87112285931760246646623899502532662132735",
+            ),
         ];
 
-        for input in tests {
-            expect_overflow(input);
+        for (input, expected_str) in tests {
+            expect_big_int(input, expected_str);
+        }
+    }
+
+    #[test]
+    fn read_decimals_arbitrary_precision() {
+        fn expect_big_decimal(data: &str, expected_display: &str) {
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
+            let matched = peek(TextBuffer::match_decimal)
+                .parse_next(&mut buffer)
+                .unwrap_or_else(|e| panic!("failed to match '{data}': {e:?}"));
+            let decimal = matched
+                .read(buffer)
+                .unwrap_or_else(|e| panic!("failed to read '{data}': {e:?}"));
+            assert_eq!(
+                decimal.to_string(),
+                expected_display,
+                "round-trip mismatch for '{data}'"
+            );
+        }
+
+        let tests = [
+            (
+                "14259999999999999342747969421907328069210052490234375d0",
+                "1.4259999999999999342747969421907328069210052490234375d52",
+            ),
+            (
+                "14259999999999999342747969421907328069210052490234375d-3",
+                "14259999999999999342747969421907328069210052490234.375",
+            ),
+            (
+                "-14259999999999999342747969421907328069210052490234375d0",
+                "-1.4259999999999999342747969421907328069210052490234375d52",
+            ),
+            (
+                "14259999999999999342747969421907328069210052490234375.",
+                "1.4259999999999999342747969421907328069210052490234375d52",
+            ),
+            (
+                "14259999999999999342747969.421907328069210052490234375d27",
+                "1.4259999999999999342747969421907328069210052490234375d52",
+            ),
+        ];
+
+        for (input, expected) in tests {
+            expect_big_decimal(input, expected);
         }
     }
 
@@ -1410,6 +1456,35 @@ mod tests {
         for (input, expected) in tests {
             expect_timestamp(input, expected);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_timestamps_arbitrary_precision() -> IonResult<()> {
+        fn expect_timestamp(data: &str, expected: Timestamp) {
+            let encoding_context = EncodingContext::empty();
+            let context = encoding_context.get_ref();
+            let mut buffer = TextBuffer::new(context, data.as_bytes());
+            let matched = peek(TextBuffer::match_timestamp)
+                .parse_next(&mut buffer)
+                .unwrap();
+            let actual = matched.read(buffer).unwrap();
+            assert_eq!(
+                actual, expected,
+                "Actual didn't match expected for input '{data}'.\n{actual:?}\n!=\n{expected:?}",
+            );
+        }
+
+        expect_timestamp(
+            "2023-08-13T10:30:45.727885129180488904360266563744972327436484050815Z",
+            Timestamp::with_ymd(2023, 8, 13)
+                .with_hour_and_minute(10, 30)
+                .with_second(45)
+                .with_fractional_seconds(Decimal::new(Int::from_le_signed_bytes(&[0x7F; 20]), -48))
+                .with_offset(0)
+                .build()?,
+        );
 
         Ok(())
     }

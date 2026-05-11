@@ -406,15 +406,6 @@ pub const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // NON-EQUIVS
     "ion-tests/iontestdata/good/non-equivs/localSymbolTableWithAnnotations.ion",
     "ion-tests/iontestdata/good/non-equivs/symbolTablesUnknownText.ion",
-    // Integers outside the i128 range
-    "ion-tests/iontestdata/good/intBigSize16.10n",
-    "ion-tests/iontestdata/good/intBigSize256.ion",
-    "ion-tests/iontestdata/good/intBigSize256.10n",
-    "ion-tests/iontestdata/good/intBigSize512.ion",
-    "ion-tests/iontestdata/good/intBigSize1201.10n",
-    "ion-tests/iontestdata/good/equivs/bigInts.ion",
-    "ion-tests/iontestdata/good/equivs/intsLargePositive3.10n",
-    "ion-tests/iontestdata/good/equivs/intsLargeNegative3.10n",
 ];
 
 pub const ELEMENT_ROUND_TRIP_SKIP_LIST: SkipList = &[

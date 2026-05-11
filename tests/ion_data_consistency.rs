@@ -24,16 +24,6 @@ const SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
     "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
     "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
-    // Integers outside the i128 range
-    "ion-tests/iontestdata/good/intBigSize16.10n",
-    "ion-tests/iontestdata/good/intBigSize256.ion",
-    "ion-tests/iontestdata/good/intBigSize256.10n",
-    "ion-tests/iontestdata/good/intBigSize512.ion",
-    "ion-tests/iontestdata/good/intBigSize1201.10n",
-    "ion-tests/iontestdata/good/equivs/bigInts.ion",
-    "ion-tests/iontestdata/good/subfieldVarInt.ion",
-    "ion-tests/iontestdata/good/equivs/intsLargePositive3.10n",
-    "ion-tests/iontestdata/good/equivs/intsLargeNegative3.10n",
 ];
 
 #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]
