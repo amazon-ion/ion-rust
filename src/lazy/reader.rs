@@ -393,6 +393,39 @@ mod tests {
         assert_eq!(reader.read_next_element()?, None);
         Ok(())
     }
+
+    /// Regression test for https://github.com/amazon-ion/ion-rust/issues/1020
+    /// Verifies that the symbol table is reset at each IVM when reading concatenated
+    /// Ion 1.0 binary documents.
+    #[test]
+    fn ivm_resets_symbol_table_in_concatenated_documents() -> IonResult<()> {
+        use crate::v1_0::Binary;
+
+        let mut output = Vec::new();
+        output = Element::read_one("annotation1::{id1: \"one\"}")?.encode_to(output, Binary)?;
+        output = Element::read_one("annotation2::{id2: \"two\"}")?.encode_to(output, Binary)?;
+        output = Element::read_one("annotation3::{id3: \"three\"}")?.encode_to(output, Binary)?;
+
+        let elements: Vec<Element> = Element::read_all(&output)?.into_iter().collect();
+        assert_eq!(elements.len(), 3);
+
+        assert_eq!(elements[0].annotations().first(), Some("annotation1"));
+        let s0 = elements[0].as_struct().unwrap();
+        assert!(s0.get("id1").is_some());
+        assert!(s0.get("id2").is_none());
+
+        assert_eq!(elements[1].annotations().first(), Some("annotation2"));
+        let s1 = elements[1].as_struct().unwrap();
+        assert!(s1.get("id2").is_some());
+        assert!(s1.get("id1").is_none());
+
+        assert_eq!(elements[2].annotations().first(), Some("annotation3"));
+        let s2 = elements[2].as_struct().unwrap();
+        assert!(s2.get("id3").is_some());
+        assert!(s2.get("id1").is_none());
+
+        Ok(())
+    }
 }
 
 #[cfg(all(test, feature = "experimental-ion-1-1"))]
