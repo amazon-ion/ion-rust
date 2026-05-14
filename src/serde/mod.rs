@@ -474,4 +474,119 @@ mod tests {
         assert_eq!(&from_ion::<IpAddr, _>(s).unwrap(), &ip);
         assert_eq!(&from_ion::<IpAddr, _>(binary).unwrap(), &ip);
     }
+
+    /// Regression tests for annotations being correctly written for all value types
+    /// when serialized through newtype variants (which produce annotations in Ion).
+    mod newtype_variant_annotations {
+        use super::*;
+        use std::collections::BTreeMap;
+
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        enum Wrapper {
+            Tag(bool),
+            Num(f32),
+            Big(f64),
+            Items(Vec<u32>),
+            Dict(BTreeMap<String, u32>),
+            Record { x: i32, y: i32 },
+            Price(Decimal),
+            When(Timestamp),
+        }
+
+        #[test]
+        fn newtype_variant_bool() {
+            let val = Wrapper::Tag(true);
+            let ion = to_string(&val).unwrap();
+            assert_eq!(Element::read_first("Tag::true"), Element::read_first(&ion));
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+
+        #[test]
+        fn newtype_variant_f32() {
+            let val = Wrapper::Num(2.5f32);
+            let ion = to_string(&val).unwrap();
+            assert_eq!(Element::read_first("Num::2.5e0"), Element::read_first(&ion));
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+
+        #[test]
+        fn newtype_variant_f64() {
+            let val = Wrapper::Big(1.234f64);
+            let ion = to_string(&val).unwrap();
+            assert_eq!(
+                Element::read_first("Big::1.234e0"),
+                Element::read_first(&ion)
+            );
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+
+        #[test]
+        fn newtype_variant_seq() {
+            let val = Wrapper::Items(vec![1, 2, 3]);
+            let ion = to_string(&val).unwrap();
+            assert_eq!(
+                Element::read_first("Items::[1, 2, 3]"),
+                Element::read_first(&ion)
+            );
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+
+        #[test]
+        fn newtype_variant_map() {
+            let mut map = BTreeMap::new();
+            map.insert("a".to_string(), 1u32);
+            let val = Wrapper::Dict(map);
+            let ion = to_string(&val).unwrap();
+            assert_eq!(
+                Element::read_first("Dict::{a: 1}"),
+                Element::read_first(&ion)
+            );
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+
+        #[test]
+        fn newtype_variant_struct() {
+            let val = Wrapper::Record { x: 10, y: 20 };
+            let ion = to_string(&val).unwrap();
+            assert_eq!(
+                Element::read_first("Record::{x: 10, y: 20}"),
+                Element::read_first(&ion)
+            );
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+
+        #[test]
+        fn newtype_variant_decimal() {
+            let val = Wrapper::Price(Decimal::new(199, -2));
+            let ion = to_string(&val).unwrap();
+            assert_eq!(
+                Element::read_first("Price::1.99"),
+                Element::read_first(&ion)
+            );
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+
+        #[test]
+        fn newtype_variant_timestamp() {
+            let ts = Timestamp::with_ymd(2024, 6, 15)
+                .with_hms(12, 0, 0)
+                .build()
+                .unwrap();
+            let val = Wrapper::When(ts.clone());
+            let ion = to_string(&val).unwrap();
+            assert_eq!(
+                Element::read_first("When::2024-06-15T12:00:00-00:00"),
+                Element::read_first(&ion)
+            );
+            let roundtrip: Wrapper = from_ion(&ion).unwrap();
+            assert_eq!(val, roundtrip);
+        }
+    }
 }

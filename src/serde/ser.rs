@@ -87,12 +87,12 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     type Ok = ();
     type Error = IonError;
 
-    type SerializeSeq = SeqWriter<V>;
+    type SerializeSeq = SeqWriter<V::AnnotatedValueWriter<'a>>;
     type SerializeTuple = SeqWriter<V::AnnotatedValueWriter<'a>>;
     type SerializeTupleStruct = SeqWriter<V::AnnotatedValueWriter<'a>>;
     type SerializeTupleVariant = SeqWriter<V::AnnotatedValueWriter<'a>>;
-    type SerializeMap = MapWriter<V>;
-    type SerializeStruct = MapWriter<V>;
+    type SerializeMap = MapWriter<V::AnnotatedValueWriter<'a>>;
+    type SerializeStruct = MapWriter<V::AnnotatedValueWriter<'a>>;
     type SerializeStructVariant = MapWriter<V::AnnotatedValueWriter<'a>>;
 
     /// Determine whether Serialize implementations should serialize in human-readable form.
@@ -103,7 +103,9 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
 
     /// Serialize a boolean to a bool value
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
-        self.value_writer.write(v)
+        self.value_writer
+            .with_annotations(self.annotations)?
+            .write(v)
     }
 
     /// Serialize all integer types using the `Integer` intermediary type.
@@ -163,7 +165,9 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
-        self.value_writer.write(v)
+        self.value_writer
+            .with_annotations(self.annotations)?
+            .write(v)
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
@@ -253,7 +257,9 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
             // The assert statement above that compares the sizes of the Decimal and value types
             assert_eq!(std::mem::size_of_val(value), std::mem::size_of::<Decimal>());
             let decimal = unsafe { std::mem::transmute_copy::<&T, &Decimal>(&value) };
-            self.value_writer.write_decimal(decimal)
+            self.value_writer
+                .with_annotations(self.annotations)?
+                .write_decimal(decimal)
         } else {
             value.serialize(self)
         }
@@ -275,7 +281,10 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         Ok(SeqWriter {
-            seq_writer: self.value_writer.list_writer()?,
+            seq_writer: self
+                .value_writer
+                .with_annotations(self.annotations)?
+                .list_writer()?,
             is_human_readable: self.is_human_readable,
         })
     }
@@ -328,7 +337,10 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(MapWriter {
-            map_writer: self.value_writer.struct_writer()?,
+            map_writer: self
+                .value_writer
+                .with_annotations(self.annotations)?
+                .struct_writer()?,
             is_human_readable: self.is_human_readable,
         })
     }
@@ -339,7 +351,10 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         _len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         Ok(MapWriter {
-            map_writer: self.value_writer.struct_writer()?,
+            map_writer: self
+                .value_writer
+                .with_annotations(self.annotations)?
+                .struct_writer()?,
             is_human_readable: self.is_human_readable,
         })
     }
