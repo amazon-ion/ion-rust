@@ -37,9 +37,7 @@ use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
 use num_bigint::BigUint;
-use num_traits::Zero;
 use smallvec::SmallVec;
-use std::ops::Neg;
 use winnow::combinator::alt;
 use winnow::combinator::preceded;
 use winnow::stream::{AsChar, Stream};
@@ -191,7 +189,7 @@ impl MatchedInt {
         let text = sanitized.as_utf8(matched_input.offset())?;
         let magnitude: Int = UInt::from_str_radix(text, self.radix())?.into();
         let signed = if self.is_negative {
-            -magnitude
+            magnitude.neg()
         } else {
             magnitude
         };

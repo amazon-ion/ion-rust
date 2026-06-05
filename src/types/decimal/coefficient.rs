@@ -3,8 +3,6 @@
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 
-use num_traits::Zero;
-
 use crate::result::{IonError, IonFailure};
 use crate::types::CountDecimalDigits;
 use crate::IonResult;
@@ -196,8 +194,6 @@ impl Display for Coefficient {
 
 #[cfg(test)]
 mod coefficient_tests {
-    use std::ops::Neg;
-
     use crate::ion_data::IonEq;
     use crate::Int;
     use crate::{Decimal, UInt};

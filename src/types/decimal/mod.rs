@@ -1,7 +1,6 @@
 //! Types related to [`Decimal`], the in-memory representation of an Ion decimal value.
 
 use std::cmp::Ordering;
-use std::ops::Sub;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
@@ -353,52 +352,6 @@ impl PartialOrd for Decimal {
 impl Ord for Decimal {
     fn cmp(&self, other: &Self) -> Ordering {
         Decimal::compare(self, other)
-    }
-}
-
-impl Sub for Decimal {
-    type Output = Self;
-
-    /// Calculate the result of self - rhs.
-    ///
-    /// Regarding signed zero: This function will propagate negative zero following
-    /// the rules of IEEE 754 subtraction with signed zero and default rounding.
-    /// Specifically:
-    ///     +0.0 - +0.0 == 0
-    ///     +0.0 - -0.0 == 0
-    ///     -0.0 - +0.0 == -0
-    ///     -0.0 - -0.0 == 0
-    fn sub(self, rhs: Self) -> Self::Output {
-        let lhs_coeff = self.coefficient();
-        let rhs_coeff = rhs.coefficient();
-
-        // Handle propagating signed zeros. Only when LHS is negative, and RHS differs, is the
-        // result negative zero on subtraction.
-        if rhs.is_zero() && self.is_zero() {
-            if lhs_coeff.is_negative() && !rhs_coeff.is_negative() {
-                Decimal::NEGATIVE_ZERO
-            } else {
-                Decimal::ZERO
-            }
-        } else {
-            // Scale the larger value up so that both coefficients are the same scaling factor apart
-            // and we can do integer arithmetic.
-            let mut lhs_int = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
-            let mut rhs_int = rhs.coefficient().as_int().unwrap_or(Int::ZERO).data;
-
-            let scaling_factor = IntData::from_big(
-                BigInt::from(10).pow(self.exponent.abs_diff(rhs.exponent) as u32),
-            );
-            let exp = if self.exponent > rhs.exponent {
-                lhs_int = lhs_int * scaling_factor;
-                rhs.exponent
-            } else {
-                rhs_int = rhs_int * scaling_factor;
-                self.exponent
-            };
-            let new_coeff = lhs_int - rhs_int;
-            Decimal::new(Int::from(new_coeff), exp)
-        }
     }
 }
 
@@ -977,31 +930,6 @@ mod decimal_tests {
     }
 
     #[rstest]
-    #[case(Decimal::new(1, 0), Decimal::new(1, 0), Decimal::new(0, 0))]
-    #[case(Decimal::new(-1, 0), Decimal::new(1, 0), Decimal::new(-2, 0))]
-    #[case(Decimal::new(1, -5), Decimal::new(1, 0), Decimal::new(-99999, -5))]
-    #[case(Decimal::new(1, 0), Decimal::new(1, 0), Decimal::new(0, 0))]
-    #[case(Decimal::new(-1, 0), Decimal::new(-2, 0), Decimal::new(1, 0))]
-    #[case(Decimal::ZERO, Decimal::ZERO, Decimal::ZERO)]
-    #[case(Decimal::ZERO, Decimal::NEGATIVE_ZERO, Decimal::ZERO)]
-    #[case(Decimal::NEGATIVE_ZERO, Decimal::ZERO, Decimal::NEGATIVE_ZERO)]
-    #[case(Decimal::NEGATIVE_ZERO, Decimal::NEGATIVE_ZERO, Decimal::ZERO)]
-    #[case(Decimal::NEGATIVE_ZERO, Decimal::new(1, 0), Decimal::new(-1, 0))]
-    fn decimal_sub(#[case] lhs: Decimal, #[case] rhs: Decimal, #[case] expected: Decimal) {
-        assert_eq!(lhs - rhs, expected);
-    }
-
-    #[rstest]
-    #[case(Decimal::NEGATIVE_ZERO, Decimal::NEGATIVE_ZERO, Sign::Positive)]
-    #[case(Decimal::NEGATIVE_ZERO, Decimal::ZERO, Sign::Negative)]
-    #[case(Decimal::ZERO, Decimal::ZERO, Sign::Positive)]
-    #[case(Decimal::ZERO, Decimal::NEGATIVE_ZERO, Sign::Positive)]
-    fn decimal_sub_signzero(#[case] lhs: Decimal, #[case] rhs: Decimal, #[case] sign: Sign) {
-        let val = lhs - rhs;
-        assert_eq!(val.coefficient().sign(), sign);
-    }
-
-    #[rstest]
     #[case(Decimal::new(1, 0), Decimal::new(1, 0))]
     #[case(Decimal::new(15, -1), Decimal::new(1, 0))]
     #[case(Decimal::new(105, -1), Decimal::new(10, 0))]
@@ -1093,14 +1021,5 @@ mod decimal_tests {
         // since the integer part is zero.
         let d = Decimal::new(1i64, -39i64);
         assert_eq!(d.fract(), Decimal::new(1i64, -39i64));
-    }
-
-    #[test]
-    fn subtract_decimals_with_large_exponent_difference() {
-        // 1e40 - 1e0 is valid Ion decimal arithmetic.
-        let lhs = Decimal::new(1i64, 40i64);
-        let rhs = Decimal::new(1i64, 0i64);
-        let result = lhs - rhs;
-        assert!(result > Decimal::new(0i64, 0i64));
     }
 }
