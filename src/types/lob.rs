@@ -15,6 +15,9 @@ pub use crate::types::bytes::Bytes;
 /// assert_eq!(&blob, "hello".as_bytes());
 /// assert_eq!(blob.as_slice().len(), 5);
 /// ```
+///
+/// The inner [`Bytes`] is public to match `Value::Blob(Bytes)`, allowing
+/// direct construction and destructuring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blob(pub Bytes);
 
@@ -32,6 +35,9 @@ impl Blob {
 /// assert_eq!(&clob, "hello".as_bytes());
 /// assert_eq!(clob.as_slice().len(), 5);
 /// ```
+///
+/// The inner [`Bytes`] is public to match `Value::Clob(Bytes)`, allowing
+/// direct construction and destructuring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Clob(pub Bytes);
 

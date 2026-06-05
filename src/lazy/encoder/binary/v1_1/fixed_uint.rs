@@ -3,7 +3,7 @@ use std::io::Write;
 use ice_code::ice as cold_path;
 use num_traits::{PrimInt, Unsigned};
 
-use crate::decimal::coefficient::Coefficient;
+use crate::decimal::Coefficient;
 use crate::lazy::encoder::binary::v1_1::fixed_int::{
     MAX_INT_SIZE_IN_BYTES, MAX_UINT_SIZE_IN_BYTES,
 };

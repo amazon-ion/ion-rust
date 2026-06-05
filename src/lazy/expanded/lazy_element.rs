@@ -169,8 +169,7 @@ impl<Encoding: Decoder> TryFrom<&LazyElement<Encoding>> for Element {
 #[cfg(test)]
 mod tests {
     use crate::lazy::expanded::lazy_element::LazyElement;
-    use crate::lazy::reader::IonResultIterExt;
-    use crate::{AnyEncoding, Element, IonResult, IonType, Reader, Sequence};
+    use crate::{AnyEncoding, Element, IonResult, Reader, Sequence};
 
     #[cfg(feature = "experimental-ion-1-1")]
     fn test_data() -> String {
@@ -266,60 +265,6 @@ mod tests {
         drop(reader);
         // The `LazyElement` is still valid/usable.
         assert_eq!(Element::symbol("foo"), Element::try_from(lazy_element)?);
-        Ok(())
-    }
-
-    #[test]
-    fn demonstrate_try_filter_and_try_map() -> IonResult<()> {
-        let mut reader = Reader::new(AnyEncoding, r#"1 2 3 4 5 6 7 8 9 10"#)?;
-        let evens: IonResult<Vec<i64>> = reader
-            .try_filter(|element| Ok(element.ion_type() == IonType::Int))
-            .try_map(|element| element.read()?.clone().expect_i64())
-            .try_filter(|i| Ok(i % 2 == 0))
-            .collect();
-        drop(reader);
-        assert_eq!(vec![2, 4, 6, 8, 10], evens?);
-        Ok(())
-    }
-
-    #[test]
-    #[cfg(feature = "experimental-ion-1-1")]
-    fn demonstrate_try_filter_map_1_1() -> IonResult<()> {
-        let log = r#"
-            $ion_1_1
-            (:add_macros
-                (macro request (requestId server elapsedMs page status)
-                    {
-                        requestId: (%requestId),
-                        server: (%server),
-                        elapsedMs: (%elapsedMs),
-                        page: (%page),
-                        status: (%status),
-                    }))
-            (:request abc100 'server1.example.com' 40 "index.html" 200)
-            (:request def84 'server2.example.com' 3500 "productFoo.html" 200)
-            (:request abc101 'server1.example.com' 31 "index.html" 200)
-            (:request abc102 'server1.example.com' 4000 "productFoo.html" 200)
-            (:request def85 'server2.example.com' 10 "productBar.html" 404)
-        "#;
-
-        let mut reader = Reader::new(AnyEncoding, log)?;
-        let problem_requests = reader
-            .try_filter_map(|element| {
-                let event = element.read()?.clone().expect_struct()?;
-                let status = event.get_expected("status")?.expect_i64()?;
-                let elapsed = event.get_expected("elapsedMs")?.expect_i64()?;
-                if status != 200 || elapsed > 1000 {
-                    Ok(Some(
-                        event.get_expected("requestId")?.expect_text()?.to_owned(),
-                    ))
-                } else {
-                    Ok(None)
-                }
-            })
-            .collect::<IonResult<Vec<String>>>();
-        drop(reader);
-        assert_eq!(problem_requests?, vec!["def84", "abc102", "def85"]);
         Ok(())
     }
 }

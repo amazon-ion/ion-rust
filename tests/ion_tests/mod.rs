@@ -10,9 +10,15 @@ use std::path::MAIN_SEPARATOR_STR as PATH_SEPARATOR;
 use ion_rs::v1_0;
 use ion_rs::Writer;
 use ion_rs::{
-    Element, ElementReader, ElementWriter, Format, IonData, IonError, IonResult, SExp, Sequence,
-    Symbol, Value,
+    Element, ElementReader, ElementWriter, IonData, IonError, IonResult, SExp, Sequence, Symbol,
+    TextFormat, Value,
 };
+
+#[derive(Debug, Copy, Clone)]
+pub enum Format {
+    Text(TextFormat),
+    Binary,
+}
 
 pub mod lazy_element_ion_tests;
 
@@ -65,7 +71,6 @@ pub fn serialize(format: Format, elements: &Sequence) -> IonResult<Vec<u8>> {
             binary_writer.write_elements(elements)?;
             buffer = binary_writer.close()?;
         }
-        _ => unimplemented!("requested format '{:?}' is not supported", format),
     };
     Ok(buffer)
 }

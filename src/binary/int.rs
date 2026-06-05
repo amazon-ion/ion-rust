@@ -1,4 +1,4 @@
-use crate::decimal::coefficient::Coefficient;
+use crate::decimal::Coefficient;
 use crate::result::IonResult;
 use crate::Int;
 use num_traits::Zero;

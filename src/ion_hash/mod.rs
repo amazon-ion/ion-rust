@@ -8,14 +8,14 @@
 //! use ion_rs::ion_hash;
 //!
 //! # // XXX this doc test requires an optional feature--so this makes sure we can still run tests
-//! # #[cfg(feature = "sha2")]
+//! # #[cfg(feature = "experimental-ion-hash")]
 //! # fn main() -> IonResult<()> {
 //!   let elem = Element::read_one(b"\"hello world\"")?;
 //!   let digest = ion_hash::sha256(&elem);
 //!   println!("{:?}", digest);
 //! # Ok(())
 //! # }
-//! # #[cfg(not(feature = "sha2"))]
+//! # #[cfg(not(feature = "experimental-ion-hash"))]
 //! # fn main() {}
 //! ```
 
@@ -29,12 +29,12 @@ mod element_hasher;
 mod representation;
 mod type_qualifier;
 
-#[cfg(feature = "sha2")]
+#[cfg(feature = "experimental-ion-hash")]
 use digest::Output;
-#[cfg(feature = "sha2")]
+#[cfg(feature = "experimental-ion-hash")]
 use sha2::Sha256;
 /// Utility to hash an [`Element`] using SHA-256 as the hash function.
-#[cfg(feature = "sha2")]
+#[cfg(feature = "experimental-ion-hash")]
 pub fn sha256(elem: &Element) -> IonResult<Output<Sha256>> {
     Sha256::hash_element(elem)
 }

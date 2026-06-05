@@ -19,6 +19,9 @@ use std::hash::Hasher;
 /// # }
 /// ```
 /// To build a `List` incrementally, see [SequenceBuilder].
+///
+/// The inner [`Sequence`] is public to match `Value::List(Sequence)`, allowing
+/// direct construction and destructuring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct List(pub Sequence);
 

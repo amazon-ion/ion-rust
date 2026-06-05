@@ -21,7 +21,7 @@
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
 pub use annotations::{Annotations, IntoAnnotations};
-pub use sequence::{OwnedSequenceIterator, Sequence};
+pub use sequence::Sequence;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;

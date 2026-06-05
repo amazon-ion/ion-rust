@@ -55,9 +55,10 @@ impl ElementApi for LazyReaderElementApi {
 // TODO: Update to write as Ion 1.1
 mod good_round_trip {
     use super::*;
-    use ion_rs::Format::Text;
+    use crate::ion_tests::Format;
     use ion_rs::TextFormat;
     use test_generator::test_resources;
+    use Format::Text;
 
     #[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
     fn round_trip(file_name: &str) {

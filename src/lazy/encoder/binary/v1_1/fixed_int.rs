@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::decimal::coefficient::Coefficient;
+use crate::decimal::Coefficient;
 use crate::result::IonFailure;
 use crate::{Int, IonResult};
 

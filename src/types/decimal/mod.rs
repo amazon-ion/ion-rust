@@ -3,7 +3,6 @@
 use std::cmp::Ordering;
 use std::ops::Sub;
 
-use crate::decimal::coefficient::{Coefficient, Sign};
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
 use crate::types::integer::{IntData, UIntData};
@@ -15,7 +14,8 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Neg;
 
-pub mod coefficient;
+pub(crate) mod coefficient;
+pub use coefficient::{Coefficient, Sign};
 
 /// An arbitrary-precision Decimal type with a distinct representation of negative zero (`-0`).
 ///
@@ -26,7 +26,7 @@ pub mod coefficient;
 /// # use ion_rs::IonResult;
 /// # fn main() -> IonResult<()> {
 /// use ion_rs::{Int, Decimal, UInt};
-/// use ion_rs::decimal::coefficient::Sign;
+/// use ion_rs::decimal::Sign;
 /// // Equivalent to: 1225 * 10^-2, or 12.25
 /// let decimal = Decimal::new(1225, -2);
 /// // The coefficient can be viewed as a sign/magnitude pair...
@@ -695,7 +695,7 @@ mod bigdecimal {
 
         #[test]
         fn convert_large_coefficient_decimal_to_bigdecimal() {
-            use crate::decimal::coefficient::Coefficient;
+            use crate::decimal::Coefficient;
             use crate::Int;
             // 2^128 + 1 is a valid Ion decimal coefficient that exceeds u128::MAX.
             let mut bytes = vec![1u8];
@@ -711,7 +711,7 @@ mod bigdecimal {
 
 #[cfg(test)]
 mod decimal_tests {
-    use crate::decimal::coefficient::{Coefficient, Sign};
+    use crate::decimal::{Coefficient, Sign};
     use crate::result::IonResult;
     use crate::{Decimal, Int};
 

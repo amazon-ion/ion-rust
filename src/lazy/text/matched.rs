@@ -19,10 +19,10 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
-use std::ops::{Neg, Range};
+use std::ops::Range;
 use std::str::FromStr;
 
-use crate::decimal::coefficient::Coefficient;
+use crate::decimal::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawFieldExpr, LazyRawValueExpr};
 use crate::lazy::span::Span;
@@ -39,6 +39,7 @@ use ice_code::ice as cold_path;
 use num_bigint::BigUint;
 use num_traits::Zero;
 use smallvec::SmallVec;
+use std::ops::Neg;
 use winnow::combinator::alt;
 use winnow::combinator::preceded;
 use winnow::stream::{AsChar, Stream};
