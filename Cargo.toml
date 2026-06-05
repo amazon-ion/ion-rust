@@ -32,7 +32,11 @@ experimental = [
     "experimental-tooling-apis",
     "experimental-serde",
     "experimental-ion-1-1",
+    "experimental-chrono",
 ]
+
+# Access to public conversions between Timestamp and chrono types (NaiveDateTime, DateTime<FixedOffset>).
+experimental-chrono = []
 
 # Feature for indicating explicit opt-in to Ion 1.1
 experimental-ion-1-1 = ["experimental-reader-writer"]
@@ -45,7 +49,7 @@ experimental-reader-writer = []
 experimental-tooling-apis = []
 
 # Experimental serde API to serialize and deserialize Ion data into Rust objects using serde crate
-experimental-serde = ["experimental-reader-writer", "dep:serde_with", "dep:serde"]
+experimental-serde = ["experimental-reader-writer", "experimental-chrono", "dep:serde_with", "dep:serde"]
 
 bigdecimal = ["dep:bigdecimal"]
 
