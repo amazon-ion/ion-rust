@@ -202,8 +202,11 @@ impl Struct {
             .map(|(name, element)| (name, element))
     }
 
-    fn fields_eq(&self, other: &Self) -> bool {
-        // For each field name in `self`, get the list of indexes that contain a value with that name.
+    fn fields_eq(&self, other: &Self, eq: impl Fn(&Element, &Element) -> bool) -> bool {
+        if self.fields.by_index.len() != self.fields.by_name.len() {
+            return self.fields_with_repeated_names_eq(other, eq);
+        }
+
         for (field_name, field_value_indexes) in &self.fields.by_name {
             let other_value_indexes = match other.fields.get_indexes(field_name) {
                 Some(indexes) => indexes,
@@ -211,24 +214,54 @@ impl Struct {
                 None => return false,
             };
 
-            if field_value_indexes.len() != other_value_indexes.len() {
+            debug_assert_eq!(field_value_indexes.len(), 1);
+            if other_value_indexes.len() != 1 {
                 // The other struct has fields with the same name, but a different number of them.
                 return false;
             }
 
+            // Direct indexing is safe here because we've already guaranteed that len() == 1
+            let self_value = &self.fields.by_index[field_value_indexes[0]].1;
+            let other_value = &other.fields.by_index[other_value_indexes[0]].1;
+            if !eq(self_value, other_value) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Bitvector multiset matching fallback for structs with repeated field names.
+    /// O(p * m^2) where p is the number of unique field names and m is the max repeat count.
+    fn fields_with_repeated_names_eq(
+        &self,
+        other: &Self,
+        eq: impl Fn(&Element, &Element) -> bool,
+    ) -> bool {
+        for (field_name, field_value_indexes) in &self.fields.by_name {
+            let other_value_indexes = match other.fields.get_indexes(field_name) {
+                Some(indexes) => indexes,
+                None => return false,
+            };
+
+            if field_value_indexes.len() != other_value_indexes.len() {
+                return false;
+            }
+
+            let mut matched = vec![false; other_value_indexes.len()];
             for field_value in self.fields.get_values_at_indexes(field_value_indexes) {
-                if other
+                let found = other
                     .fields
                     .get_values_at_indexes(other_value_indexes)
-                    .all(|other_value| !field_value.ion_eq(other_value))
-                {
-                    // Couldn't find an equivalent field in the other struct
-                    return false;
+                    .enumerate()
+                    .find(|(i, other_value)| !matched[*i] && eq(field_value, other_value));
+                match found {
+                    Some((i, _)) => matched[i] = true,
+                    None => return false,
                 }
             }
         }
 
-        // If all of the above conditions hold, the two structs are equal.
         true
     }
 
@@ -308,21 +341,13 @@ where
 
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
-        // check if both fields have same length
-        self.len() == other.len()
-            // we need to test equality in both directions for both fields
-            // A good example for this is annotated vs not annotated values in struct
-            //  { a:4, a:4 } vs. { a:4, a:a::4 } // returns true
-            //  { a:4, a:a::4 } vs. { a:4, a:4 } // returns false
-            && self.fields_eq(other) && other.fields_eq(self)
+        self.len() == other.len() && self.fields_eq(other, |a, b| a == b)
     }
 }
 
-impl Eq for Struct {}
-
 impl IonEq for Struct {
     fn ion_eq(&self, other: &Self) -> bool {
-        self == other
+        self.len() == other.len() && self.fields_eq(other, |a, b| a.ion_eq(b))
     }
 }
 
@@ -373,7 +398,44 @@ impl IonDataHash for Struct {
 #[cfg(test)]
 mod tests {
     use crate::element::Element;
+    use crate::ion_data::IonEq;
     use crate::ion_struct;
+
+    #[test]
+    fn duplicate_field_values_not_equal() {
+        let s1 = ion_struct! { "a": 1, "a": 1, "a": 2 };
+        let s2 = ion_struct! { "a": 1, "a": 2, "a": 2 };
+        assert_ne!(s1, s2);
+        assert!(!s1.ion_eq(&s2));
+    }
+
+    #[test]
+    fn same_multiset_different_order_is_equal() {
+        let s1 = ion_struct! { "a": 1, "a": 2, "b": 3 };
+        let s2 = ion_struct! { "b": 3, "a": 2, "a": 1 };
+        assert_eq!(s1, s2);
+        assert!(s1.ion_eq(&s2));
+    }
+
+    #[test]
+    fn nan_partial_eq_vs_ion_eq() {
+        let s1 = ion_struct! { "x": f64::NAN };
+        let s2 = ion_struct! { "x": f64::NAN };
+        // PartialEq uses standard f64 semantics: NaN != NaN
+        assert_ne!(s1, s2);
+        // IonEq treats NaN as equivalent
+        assert!(s1.ion_eq(&s2));
+    }
+
+    #[test]
+    fn signed_zero_partial_eq_vs_ion_eq() {
+        let s1 = ion_struct! { "x": 0.0f64 };
+        let s2 = ion_struct! { "x": -0.0f64 };
+        // PartialEq uses standard f64 semantics: 0.0 == -0.0
+        assert_eq!(s1, s2);
+        // IonEq distinguishes signed zeros
+        assert!(!s1.ion_eq(&s2));
+    }
 
     #[test]
     fn for_field_in_struct() {

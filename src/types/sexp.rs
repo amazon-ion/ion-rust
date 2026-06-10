@@ -22,7 +22,7 @@ use std::hash::Hasher;
 ///
 /// The inner [`Sequence`] is public to match `Value::SExp(Sequence)`, allowing
 /// direct construction and destructuring.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SExp(pub Sequence);
 
 impl SExp {

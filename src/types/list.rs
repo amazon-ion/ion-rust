@@ -22,7 +22,7 @@ use std::hash::Hasher;
 ///
 /// The inner [`Sequence`] is public to match `Value::List(Sequence)`, allowing
 /// direct construction and destructuring.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct List(pub Sequence);
 
 impl List {

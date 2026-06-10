@@ -1029,8 +1029,6 @@ impl PartialEq for Element {
     }
 }
 
-impl Eq for Element {}
-
 // This implementation allows APIs that require an Into<Element> to accept references to an existing
 // Element.
 impl<'a> From<&'a Element> for Element {
