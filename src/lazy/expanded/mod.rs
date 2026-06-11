@@ -39,6 +39,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 use std::rc::Rc;
 
+use crate::catalog::Catalog;
 use crate::element::iterators::SymbolsIterator;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::bytes_ref::BytesRef;
@@ -65,7 +66,7 @@ use crate::location::SourceLocation;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::{
-    Catalog, Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawStreamItem, RawSymbolRef,
+    Decimal, HasRange, HasSpan, Int, IonResult, IonType, RawStreamItem, RawSymbolRef,
     RawVersionMarker, Span, SymbolRef, SymbolTable, Timestamp, ValueRef,
 };
 

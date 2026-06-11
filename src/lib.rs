@@ -141,13 +141,9 @@ use rstest_reuse;
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
 #[cfg(feature = "experimental-reader-writer")]
 pub use catalog::{Catalog, EmptyCatalog, MapCatalog};
-#[cfg(not(feature = "experimental-reader-writer"))]
-pub(crate) use catalog::{Catalog, EmptyCatalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
 #[cfg(feature = "experimental-reader-writer")]
 pub use element::{element_writer::ElementWriter, reader::ElementReader};
-#[cfg(not(feature = "experimental-reader-writer"))]
-pub(crate) use element::{element_writer::ElementWriter, reader::ElementReader};
 pub use element::{Annotations, Element, IntoAnnotatedElement, IntoAnnotations, Sequence, Value};
 pub use ion_data::IonData;
 pub use lazy::streaming_raw_reader::IonInput;
@@ -157,8 +153,6 @@ pub use location::SourceLocation;
 pub use result::{ConversionOperationError, ConversionOperationResult, IonError, IonResult};
 #[cfg(feature = "experimental-reader-writer")]
 pub use shared_symbol_table::SharedSymbolTable;
-#[cfg(not(feature = "experimental-reader-writer"))]
-pub(crate) use shared_symbol_table::SharedSymbolTable;
 pub use symbol_ref::SymbolRef;
 #[doc(inline)]
 pub use types::{

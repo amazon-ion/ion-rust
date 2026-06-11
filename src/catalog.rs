@@ -16,16 +16,9 @@ pub trait Catalog {
 }
 
 #[derive(Default)]
+#[allow(dead_code)] // Used in some features and in tests without feature flags
 pub struct MapCatalog {
     tables_by_name: HashMap<String, BTreeMap<usize, SharedSymbolTable>>,
-}
-
-impl MapCatalog {
-    pub fn new() -> Self {
-        Self {
-            tables_by_name: HashMap::new(),
-        }
-    }
 }
 
 impl Catalog for MapCatalog {
@@ -50,7 +43,14 @@ impl Catalog for MapCatalog {
     }
 }
 
+#[allow(dead_code)] // Used in some features and in tests without feature flags
 impl MapCatalog {
+    pub fn new() -> Self {
+        Self {
+            tables_by_name: HashMap::new(),
+        }
+    }
+
     /// Adds a Shared Symbol Table with name into the Catalog
     pub fn insert_table(&mut self, table: SharedSymbolTable) {
         match self.tables_by_name.get_mut(table.name()) {

@@ -2326,7 +2326,8 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{v1_1, ElementReader, Int, IonResult, MacroTable, Reader, Sequence};
+    use crate::element::reader::ElementReader;
+    use crate::{v1_1, Int, IonResult, MacroTable, Reader, Sequence};
     use rstest::*;
 
     /// Reads `input` and `expected` and asserts that their output is Ion-equivalent.

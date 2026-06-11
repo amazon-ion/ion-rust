@@ -623,6 +623,7 @@ impl<'top, D: Decoder> TemplateSequenceIterator<'top, D> {
     /// * The next value produced by continuing the evaluation of a macro in progress (when the evaluator is not empty)
     /// * The next macro invocation from the stream (when the evaluator is empty)
     /// * `None` when the stream and evaluator are both exhausted
+    #[cfg(feature = "experimental-tooling-apis")]
     pub fn next_value_expr(&mut self) -> Option<IonResult<ValueExpr<'top, D>>> {
         // If the evaluator's stack is not empty, give it the opportunity to yield a value.
         if let Some(value) = try_or_some_err!(self.evaluator.next()) {

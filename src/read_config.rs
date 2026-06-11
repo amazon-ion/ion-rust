@@ -1,9 +1,9 @@
-use crate::catalog::EmptyCatalog;
+use crate::catalog::{Catalog, EmptyCatalog};
 use crate::lazy::any_encoding::AnyEncoding;
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1,
 };
-use crate::{Catalog, Decoder};
+use crate::Decoder;
 
 /// Provides configuration details for reader construction.
 pub struct ReadConfig<D: Decoder> {

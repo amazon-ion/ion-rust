@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::ops::Range;
 
+use crate::catalog::Catalog;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
 use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
@@ -18,9 +19,8 @@ use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    v1_0, v1_1, Catalog, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName,
-    LazyExpandedValue, LazyRawAnyFieldName, LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr,
-    ValueRef,
+    v1_0, v1_1, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
+    LazyRawAnyFieldName, LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr, ValueRef,
 };
 
 pub trait HasSpan<'top>: HasRange {

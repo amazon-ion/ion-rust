@@ -6,7 +6,6 @@ use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
 use std::cmp::Ordering;
-use std::convert::TryInto;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -1296,10 +1295,9 @@ mod timestamp_tests {
     use crate::result::IonResult;
     use crate::types::Mantissa;
     use crate::{Decimal, Int, Timestamp, TimestampPrecision};
-    use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+    use chrono::NaiveDateTime;
     use rstest::*;
     use std::cmp::Ordering;
-    use std::convert::TryInto;
     use std::io::Write;
     use std::ops::Mul;
     use std::str::FromStr;
