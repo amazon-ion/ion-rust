@@ -1,5 +1,6 @@
 use crate::{Bytes, Decimal, Int, IonType, Sequence, Str, Struct, Symbol, Timestamp};
 
+use std::fmt;
 use std::marker::PhantomData;
 use thiserror::Error;
 
@@ -29,23 +30,35 @@ where
 
 /// Represents a mismatch during conversion between the expected type and the actual value's type;
 /// Holds the original value that was not able to be converted.
-#[derive(Clone, Debug, Error, PartialEq)]
-#[error("Type conversion error; expected a(n) {}, found a(n) {}",
-            ToType::expected_type_name(), .input_value.expected_type_name())]
-pub struct ConversionOperationError<FromType, ToType>
-where
-    FromType: ValueTypeExpectation,
-    ToType: TypeExpectation,
-{
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConversionOperationError<FromType, ToType> {
     input_value: FromType,
     output_type: PhantomData<ToType>,
 }
 
-impl<FromType, ToType> ConversionOperationError<FromType, ToType>
+impl<FromType, ToType> fmt::Display for ConversionOperationError<FromType, ToType>
 where
     FromType: ValueTypeExpectation,
     ToType: TypeExpectation,
 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Type conversion error; expected a(n) {}, found a(n) {}",
+            ToType::expected_type_name(),
+            self.input_value.expected_type_name()
+        )
+    }
+}
+
+impl<FromType, ToType> std::error::Error for ConversionOperationError<FromType, ToType>
+where
+    FromType: ValueTypeExpectation + fmt::Debug,
+    ToType: TypeExpectation + fmt::Debug,
+{
+}
+
+impl<FromType, ToType> ConversionOperationError<FromType, ToType> {
     pub fn new(input_value: FromType) -> Self {
         Self {
             input_value,

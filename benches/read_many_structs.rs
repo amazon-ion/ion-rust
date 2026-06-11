@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main};
-use ion_rs::MacroTable;
 
 #[cfg(not(feature = "experimental"))]
 mod benchmark {
@@ -10,8 +9,12 @@ mod benchmark {
     }
 }
 
+#[cfg(feature = "experimental")]
+use ion_rs::MacroTable;
+
 /// An Ion 1.1 test stream to benchmark. Each instance of this type contains data that was encoded
 /// with different settings; for example, using more or fewer macros, or using length-prefixing.
+#[cfg(feature = "experimental")]
 #[allow(non_camel_case_types)]
 pub struct TestData_1_1 {
     name: String,
@@ -25,6 +28,7 @@ pub struct TestData_1_1 {
 /// makes the stream much more compact, but comes at the expense of evaluation overhead when the
 /// stream is read. If only a subset of the fields are read from each value, this overhead will be
 /// minimal.
+#[cfg(feature = "experimental")]
 fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let template_definition_text: String = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
@@ -84,6 +88,7 @@ fn maximally_compact_1_1_data(num_values: usize) -> TestData_1_1 {
 /// a template that does not use additional macros. This makes the stream compact relative to its
 /// Ion 1.0 equivalent, but not as compact as it is in the "maximally compact" configuration above.
 /// The lighter use of macros means that there is less evaluation overhead at read time.
+#[cfg(feature = "experimental")]
 fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let template_definition_text = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)
@@ -151,6 +156,7 @@ fn moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
 /// length-prefixed. This allows the reader to step over e-expressions without fully parsing them,
 /// making top-level skip-scanning highly efficient at the expense of 1-2 extra bytes per
 /// e-expression.
+#[cfg(feature = "experimental")]
 fn length_prefixed_moderately_compact_1_1_data(num_values: usize) -> TestData_1_1 {
     let template_definition_text = r#"
         (macro event (timestamp thread_id thread_name client_num host_id parameters*)

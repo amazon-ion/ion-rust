@@ -1903,7 +1903,7 @@ impl<'top, D: Decoder> SumExpansion<'top, D> {
         for value in self.arguments {
             let value = value?;
             let i = self.get_integer(env, value)?;
-            sum = sum + i;
+            sum = sum.add(i);
         }
 
         let value_ref = context.allocator().alloc_with(|| ValueRef::Int(sum));
@@ -2182,7 +2182,7 @@ impl<'top, D: Decoder> DeltaExpansion<'top, D> {
         };
 
         if let Some(ref mut current_base) = self.current_base {
-            *current_base = current_base.clone() + delta;
+            *current_base = current_base.clone().add(delta);
             let value_ref = context
                 .allocator()
                 .alloc_with(|| ValueRef::Int(self.current_base.clone().unwrap()));
@@ -2326,7 +2326,8 @@ impl<'top> TemplateExpansion<'top> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{v1_1, ElementReader, Int, IonResult, MacroTable, Reader, Sequence};
+    use crate::element::reader::ElementReader;
+    use crate::{v1_1, Int, IonResult, MacroTable, Reader, Sequence};
     use rstest::*;
 
     /// Reads `input` and `expected` and asserts that their output is Ion-equivalent.

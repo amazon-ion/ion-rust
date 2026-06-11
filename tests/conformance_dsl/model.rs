@@ -1,7 +1,7 @@
 use super::{
     parse_bytes_exp, parse_text_exp, Clause, ClauseType, ConformanceErrorKind, Context, InnerResult,
 };
-use ion_rs::decimal::coefficient::Coefficient;
+use ion_rs::decimal::Coefficient;
 use ion_rs::{v1_0::RawValueRef, Int, LazyRawValue, List, SExp, SymbolId, SymbolRef, Value};
 use ion_rs::{Decimal, Element, IonType, Sequence, Timestamp, ValueRef};
 

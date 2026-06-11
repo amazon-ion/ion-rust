@@ -6,6 +6,7 @@
 use crate::result::IonResult;
 use crate::{Element, Value};
 
+#[allow(unused)] // Used in tests and for multiple feature flags
 /// Serializes [`Element`] instances into some kind of output sink.
 pub trait ElementWriter {
     /// Serializes a single [`Value`] at the current depth of the writer.

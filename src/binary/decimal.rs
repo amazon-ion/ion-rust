@@ -7,7 +7,7 @@ use arrayvec::ArrayVec;
 use crate::binary::int::DecodedInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::decimal::coefficient::Sign;
+use crate::decimal::Sign;
 use crate::ion_data::IonEq;
 use crate::result::{IonFailure, IonResult};
 use crate::{Decimal, Int, IonError};

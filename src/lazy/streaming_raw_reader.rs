@@ -612,9 +612,9 @@ impl<R: Read> IonDataSource for IonStream<R> {
 
 /// Types that can be used as a source of Ion data.
 ///
-/// In general, this trait is implemented by mapping `Self` to either:
-///   * [`IonSlice`], if `Self` is an implementation of `AsRef<[u8]>`
-///   * [`IonStream`], if `Self` is an implementation of `io::Read`
+/// This trait is sealed and cannot be implemented outside of this crate.
+/// It is implemented for common input types including `&[u8]`, `&str`,
+/// `String`, `Vec<u8>`, `File`, `BufReader`, and `StdinLock`.
 pub trait IonInput {
     type DataSource: IonDataSource;
 

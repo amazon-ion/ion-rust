@@ -570,7 +570,6 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let magnitude: Int = DecodedUInt::uint_from_slice(uint_bytes).into();
 
         use crate::binary::type_code::IonTypeCode::*;
-        use num_traits::Zero;
         let value = match (self.encoded_value.header.ion_type_code, magnitude) {
             (PositiveInteger, integer) => integer,
             (NegativeInteger, integer) if integer.is_zero() => {
@@ -578,7 +577,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
                     "found a negative integer (typecode=3) with a value of 0",
                 );
             }
-            (NegativeInteger, integer) => -integer,
+            (NegativeInteger, integer) => integer.neg(),
             _itc => return IonResult::decoding_error("unexpected ion type code"),
         };
         Ok(RawValueRef::Int(value))

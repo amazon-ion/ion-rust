@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use crate::catalog::Catalog;
 use crate::constants::v1_1;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::decoder::Decoder;
@@ -16,8 +17,8 @@ use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    AnyEncoding, Catalog, Int, IonError, IonResult, IonType, LazyField, LazySExp, LazyStruct,
-    Symbol, SymbolTable, ValueRef,
+    AnyEncoding, Int, IonError, IonResult, IonType, LazyField, LazySExp, LazyStruct, Symbol,
+    SymbolTable, ValueRef,
 };
 use std::ops::Deref;
 use std::sync::Arc;
@@ -652,9 +653,7 @@ mod tests {
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::decoder::RawVersionMarker;
     use crate::lazy::system_stream_item::SystemStreamItem;
-    use crate::{
-        v1_0, AnyEncoding, Catalog, IonResult, SequenceWriter, SymbolRef, ValueWriter, Writer,
-    };
+    use crate::{v1_0, AnyEncoding, IonResult, SequenceWriter, SymbolRef, ValueWriter, Writer};
 
     use super::*;
 
@@ -745,8 +744,9 @@ mod tests {
 
     // === Shared Symbol Tables ===
 
+    use crate::catalog::MapCatalog;
     use crate::lazy::encoder::value_writer::AnnotatableWriter;
-    use crate::{MapCatalog, SharedSymbolTable};
+    use crate::shared_symbol_table::SharedSymbolTable;
 
     fn system_reader_with_catalog_for<Input: IonInput>(
         input: Input,

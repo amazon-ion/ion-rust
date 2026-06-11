@@ -367,7 +367,7 @@ impl<'a> BinaryBuffer<'a> {
         magnitude_le.reverse();
         magnitude_le.push(0);
         let value = Int::from_le_signed_bytes(&magnitude_le);
-        let value = if is_negative { -value } else { value };
+        let value = if is_negative { value.neg() } else { value };
 
         Ok((
             DecodedInt::new(value, is_negative, length),

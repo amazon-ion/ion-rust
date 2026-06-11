@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::constants::v1_0::system_symbol_ids;
 use crate::constants::v1_1;
+use crate::element::element_writer::ElementWriter;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
 use crate::lazy::encoder::value_writer::internal::{
@@ -30,9 +31,9 @@ use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    ContextWriter, Decimal, Element, ElementWriter, Int, IonError, IonInput, IonResult, IonType,
-    IonVersion, MacroDef, MacroTable, RawSymbolRef, Symbol, SymbolId, SymbolTable, TemplateMacro,
-    Timestamp, UInt, Value,
+    ContextWriter, Decimal, Element, Int, IonError, IonInput, IonResult, IonType, IonVersion,
+    MacroDef, MacroTable, RawSymbolRef, Symbol, SymbolId, SymbolTable, TemplateMacro, Timestamp,
+    UInt, Value,
 };
 
 /// A thin wrapper around a `SymbolTable` that tracks the number of symbols whose definition has

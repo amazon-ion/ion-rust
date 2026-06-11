@@ -21,7 +21,7 @@
 //! [serde-json-value]: https://docs.serde.rs/serde_json/value/enum.Value.html
 
 pub use annotations::{Annotations, IntoAnnotations};
-pub use sequence::{OwnedSequenceIterator, Sequence};
+pub use sequence::Sequence;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
@@ -1071,7 +1071,8 @@ mod tests {
 
     /// Makes a timestamp from an RFC-3339 string and panics if it can't
     fn make_timestamp<T: AsRef<str>>(text: T) -> Timestamp {
-        DateTime::parse_from_rfc3339(text.as_ref()).unwrap().into()
+        let dt = DateTime::parse_from_rfc3339(text.as_ref()).unwrap();
+        Timestamp::from_fixed_offset_datetime(dt)
     }
 
     struct CaseAnnotations {

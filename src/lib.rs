@@ -139,25 +139,34 @@
 use rstest_reuse;
 
 // Exposed to allow benchmark comparisons between the 1.0 primitives and 1.1 primitives
+#[cfg(feature = "experimental-reader-writer")]
 pub use catalog::{Catalog, EmptyCatalog, MapCatalog};
 pub use element::builders::{SequenceBuilder, StructBuilder};
-pub use element::{
-    element_writer::ElementWriter, reader::ElementReader, Annotations, Element,
-    IntoAnnotatedElement, IntoAnnotations, OwnedSequenceIterator, Sequence, Value,
-};
+#[cfg(feature = "experimental-reader-writer")]
+pub use element::{element_writer::ElementWriter, reader::ElementReader};
+pub use element::{Annotations, Element, IntoAnnotatedElement, IntoAnnotations, Sequence, Value};
 pub use ion_data::IonData;
+pub use lazy::streaming_raw_reader::IonInput;
+pub use location::SourceLocation;
 
 #[doc(inline)]
 pub use result::{ConversionOperationError, ConversionOperationResult, IonError, IonResult};
+#[cfg(feature = "experimental-reader-writer")]
 pub use shared_symbol_table::SharedSymbolTable;
 pub use symbol_ref::SymbolRef;
 #[doc(inline)]
 pub use types::{
     decimal::Decimal, Blob, Bytes, Clob, Int, IonType, List, Null, SExp, Str, Struct, Symbol,
-    SymbolId, Timestamp, TimestampPrecision, UInt,
+    Timestamp, TimestampPrecision, UInt,
 };
-// Allow access to less commonly used types like decimal::coefficient::{Coefficient, Sign}
-pub use types::decimal;
+pub mod decimal {
+    //! Types for working with Ion decimal coefficients.
+    pub use crate::types::decimal::{Coefficient, Sign};
+}
+#[cfg(feature = "experimental-reader-writer")]
+pub use types::SymbolId;
+#[cfg(not(feature = "experimental-reader-writer"))]
+pub(crate) use types::SymbolId;
 
 #[cfg(feature = "experimental-tooling-apis")]
 pub use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
@@ -190,14 +199,25 @@ pub(crate) mod lazy;
 mod location;
 mod write_config;
 
+#[cfg(feature = "experimental-reader-writer")]
 pub use crate::lazy::any_encoding::AnyEncoding;
+#[cfg(not(feature = "experimental-reader-writer"))]
+pub(crate) use crate::lazy::any_encoding::AnyEncoding;
+
+#[cfg(feature = "experimental-tooling-apis")]
 pub use crate::lazy::decoder::{HasRange, HasSpan};
+#[cfg(not(feature = "experimental-tooling-apis"))]
+pub(crate) use crate::lazy::decoder::{HasRange, HasSpan};
+
+#[cfg(feature = "experimental-tooling-apis")]
 pub use crate::lazy::span::Span;
+#[cfg(not(feature = "experimental-tooling-apis"))]
+pub(crate) use crate::lazy::span::Span;
 macro_rules! v1_x_reader_writer {
     ($visibility:vis) => {
        #[allow(unused_imports)]
         $visibility use crate::{
-            lazy::streaming_raw_reader::{IonInput, IonSlice, IonStream},
+            lazy::streaming_raw_reader::{IonSlice, IonStream},
             lazy::decoder::Decoder,
             lazy::encoder::Encoder,
             lazy::encoding::Encoding,
@@ -418,8 +438,6 @@ pub(crate) mod v1_1 {
     v1_1_reader_writer!(pub(crate));
 }
 
-pub use lazy::reader::IonResultIterExt;
-
 /// Whether or not the text spacing is generous/human-friendly or something more compact.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 #[non_exhaustive]
@@ -428,15 +446,6 @@ pub enum TextFormat {
     Lines,
     #[default]
     Pretty,
-}
-
-/// Supported Ion encodings.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum Format {
-    Text(TextFormat),
-    Binary,
-    // TODO: Json(TextKind)
 }
 
 /// Early returns `Some(Err(_))` if the provided expression returns an `Err(_)`.

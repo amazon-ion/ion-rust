@@ -1,13 +1,14 @@
 #![cfg(feature = "experimental-reader-writer")]
 
+use super::Format;
 use crate::good_round_trip;
 use crate::ion_tests::{
     bad, equivs, non_equivs, ElementApi, SkipList, ELEMENT_EQUIVS_SKIP_LIST,
     ELEMENT_GLOBAL_SKIP_LIST, ELEMENT_ROUND_TRIP_SKIP_LIST,
 };
 use ion_rs::Reader;
+use ion_rs::TextFormat;
 use ion_rs::{AnyEncoding, IonResult};
-use ion_rs::{Format, TextFormat};
 use test_generator::test_resources;
 
 struct LazyReaderElementApi;

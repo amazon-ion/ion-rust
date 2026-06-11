@@ -19,10 +19,10 @@
 //! use the previously recorded information to minimize the amount of information that needs to be
 //! re-discovered.
 
-use std::ops::{Neg, Range};
+use std::ops::Range;
 use std::str::FromStr;
 
-use crate::decimal::coefficient::Coefficient;
+use crate::decimal::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::{Decoder, LazyRawFieldExpr, LazyRawValueExpr};
 use crate::lazy::span::Span;
@@ -37,7 +37,6 @@ use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
 use num_bigint::BigUint;
-use num_traits::Zero;
 use smallvec::SmallVec;
 use winnow::combinator::alt;
 use winnow::combinator::preceded;
@@ -190,7 +189,7 @@ impl MatchedInt {
         let text = sanitized.as_utf8(matched_input.offset())?;
         let magnitude: Int = UInt::from_str_radix(text, self.radix())?.into();
         let signed = if self.is_negative {
-            -magnitude
+            magnitude.neg()
         } else {
             magnitude
         };

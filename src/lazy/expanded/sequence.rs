@@ -210,11 +210,13 @@ impl<'top, D: Decoder> Iterator for ExpandedListIterator<'top, D> {
 /// Like an [`ExpandedListIterator`], but will yield macro invocations before also yielding
 /// that macro's expansion.
 #[derive(Debug)]
+#[cfg(feature = "experimental-tooling-apis")]
 pub struct ListValueExprIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     source: ExpandedListIteratorSource<'top, D>,
 }
 
+#[cfg(feature = "experimental-tooling-apis")]
 impl<'top, D: Decoder> Iterator for ListValueExprIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
@@ -232,11 +234,13 @@ impl<'top, D: Decoder> Iterator for ListValueExprIterator<'top, D> {
 /// Like an [`ExpandedSExpIterator`], but will yield macro invocations before also yielding
 /// that macro's expansion.
 #[derive(Debug)]
+#[cfg(feature = "experimental-tooling-apis")]
 pub struct SExpValueExprIterator<'top, D: Decoder> {
     context: EncodingContextRef<'top>,
     source: ExpandedSExpIteratorSource<'top, D>,
 }
 
+#[cfg(feature = "experimental-tooling-apis")]
 impl<'top, D: Decoder> Iterator for SExpValueExprIterator<'top, D> {
     type Item = IonResult<ValueExpr<'top, D>>;
 
@@ -374,6 +378,7 @@ impl<'top, D: Decoder> Iterator for ExpandedSExpIterator<'top, D> {
     }
 }
 
+#[cfg(feature = "experimental-tooling-apis")]
 fn expand_next_sequence_value_expr<'top, D: Decoder>(
     context: EncodingContextRef<'top>,
     evaluator: &mut MacroEvaluator<'top, D>,

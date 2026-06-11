@@ -63,7 +63,7 @@ impl WriteConfig<TextEncoding_1_0> {
 }
 
 impl WriteConfig<TextEncoding_1_1> {
-    pub fn new(text_kind: TextFormat) -> Self {
+    pub(crate) fn new(text_kind: TextFormat) -> Self {
         Self {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
             phantom_data: Default::default(),
@@ -81,7 +81,7 @@ impl WriteConfig<BinaryEncoding_1_0> {
 }
 
 impl WriteConfig<BinaryEncoding_1_1> {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             kind: WriteConfigKind::Binary(BinaryWriteConfig),
             phantom_data: Default::default(),

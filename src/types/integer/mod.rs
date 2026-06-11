@@ -8,12 +8,11 @@ use crate::{IonError, IonResult};
 use big_small::AsBigOrSmallValue;
 pub(crate) use int_data::{IntData, UIntData};
 use num_bigint::BigInt;
-use num_traits::Zero;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem;
-use std::ops::{Add, Neg, Sub};
+use std::ops::{Add, Neg};
 
 /// Represents an unsigned integer of any size.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -95,6 +94,11 @@ impl UInt {
 
     pub fn to_le_bytes(&self) -> Vec<u8> {
         self.data.to_le_bytes()
+    }
+
+    /// Returns `true` if this value is zero.
+    pub fn is_zero(&self) -> bool {
+        self.data == UIntData::ZERO
     }
 }
 
@@ -362,6 +366,22 @@ impl Int {
     pub(crate) fn to_bigint(&self) -> BigInt {
         self.data.as_big_value().into_owned()
     }
+
+    /// Returns `true` if this value is zero.
+    pub fn is_zero(&self) -> bool {
+        self.data == IntData::ZERO
+    }
+
+    /// Returns the negation of this value.
+    #[allow(clippy::should_implement_trait)]
+    pub fn neg(self) -> Self {
+        self.data.neg().into()
+    }
+
+    /// Returns the sum of this value and `rhs`.
+    pub(crate) fn add(self, rhs: Self) -> Self {
+        self.data.add(rhs.data).into()
+    }
 }
 
 impl IonEq for Int {
@@ -379,70 +399,6 @@ impl IonDataOrd for Int {
 impl IonDataHash for Int {
     fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
         self.hash(state)
-    }
-}
-
-impl Neg for Int {
-    type Output = Self;
-
-    fn neg(self) -> Self::Output {
-        self.data.neg().into()
-    }
-}
-
-impl Add<Self> for Int {
-    type Output = Int;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        self.data.add(rhs.data).into()
-    }
-}
-
-impl Sub<Self> for Int {
-    type Output = Int;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.data.sub(rhs.data).into()
-    }
-}
-
-impl Zero for Int {
-    fn zero() -> Self {
-        Int {
-            data: IntData::ZERO,
-        }
-    }
-
-    fn is_zero(&self) -> bool {
-        self.data == IntData::ZERO
-    }
-}
-
-impl Add<Self> for UInt {
-    type Output = UInt;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        self.data.add(rhs.data).into()
-    }
-}
-
-impl Sub<Self> for UInt {
-    type Output = UInt;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.data.sub(rhs.data).into()
-    }
-}
-
-impl Zero for UInt {
-    fn zero() -> Self {
-        UInt {
-            data: UIntData::ZERO,
-        }
-    }
-
-    fn is_zero(&self) -> bool {
-        self.data == UIntData::ZERO
     }
 }
 
@@ -497,7 +453,6 @@ mod integer_tests {
 
     use super::*;
     use crate::types::UInt;
-    use num_traits::Zero;
     use rstest::*;
     use std::cmp::Ordering;
 
@@ -513,33 +468,7 @@ mod integer_tests {
 
     #[test]
     fn zero() {
-        assert!(Int::zero().is_zero());
-    }
-
-    #[test]
-    fn add() {
-        assert_eq!(Int::from(0) + Int::from(0), Int::from(0));
-        assert_eq!(Int::from(5) + Int::from(7), Int::from(12));
-        assert_eq!(Int::from(-5) + Int::from(7), Int::from(2));
-        assert_eq!(Int::from(100) + Int::from(1000i128), Int::from(1100i128));
-        assert_eq!(Int::from(100i128) + Int::from(1000), Int::from(1100i128));
-        assert_eq!(
-            Int::from(100i128) + Int::from(1000i128),
-            Int::from(1100i128)
-        );
-    }
-
-    #[test]
-    fn sub() {
-        assert_eq!(Int::from(0) - Int::from(0), Int::from(0));
-        assert_eq!(Int::from(5) - Int::from(7), Int::from(-2));
-        assert_eq!(Int::from(-5) - Int::from(7), Int::from(-12));
-        assert_eq!(Int::from(100) - Int::from(1000i128), Int::from(-900i128));
-        assert_eq!(Int::from(100i128) - Int::from(1000), Int::from(-900i128));
-        assert_eq!(
-            Int::from(100i128) - Int::from(1000i128),
-            Int::from(-900i128)
-        );
+        assert!(Int::ZERO.is_zero());
     }
 
     #[rstest]
@@ -731,7 +660,7 @@ mod integer_tests {
         let mut bytes = vec![0u8; 17];
         bytes[16] = 1;
         let big = Int::from_le_signed_bytes(&bytes);
-        let neg = -big;
+        let neg = big.neg();
         assert!(neg.is_negative());
         assert_eq!(neg.to_string(), "-340282366920938463463374607431768211456");
     }
@@ -777,7 +706,7 @@ mod integer_tests {
         assert!(big > small);
 
         // Negative heap < inline
-        let neg_big = -Int::from_le_signed_bytes(&bytes);
+        let neg_big = Int::from_le_signed_bytes(&bytes).neg();
         assert!(neg_big < small);
         assert!(small > neg_big);
     }

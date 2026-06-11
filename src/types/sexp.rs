@@ -19,6 +19,9 @@ use std::hash::Hasher;
 /// # }
 /// ```
 /// To build a `SExp` incrementally, see [SequenceBuilder].
+///
+/// The inner [`Sequence`] is public to match `Value::SExp(Sequence)`, allowing
+/// direct construction and destructuring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SExp(pub Sequence);
 

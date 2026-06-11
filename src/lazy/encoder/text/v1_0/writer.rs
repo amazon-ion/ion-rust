@@ -136,8 +136,9 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 
 #[cfg(test)]
 mod tests {
+    use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    use crate::{v1_1, Annotatable, ElementReader, IonData, IonResult, Reader, SequenceWriter};
+    use crate::{v1_1, Annotatable, IonData, IonResult, Reader, SequenceWriter};
 
     #[test]
     fn write_annotated_values() -> IonResult<()> {
