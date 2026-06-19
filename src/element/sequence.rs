@@ -15,7 +15,7 @@ use std::io;
 ///
 /// A `Sequence` is not itself an Ion value type, but can represent a series of Ion values appearing
 /// in a [`List`](crate::List), a [`SExp`](crate::SExp), or at the top level.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub struct Sequence {
     elements: Vec<Element>,
 }
