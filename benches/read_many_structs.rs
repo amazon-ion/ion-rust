@@ -520,7 +520,7 @@ mod benchmark {
         });
         binary_1_1_group.finish();
 
-        let mut text_1_1_group = c.benchmark_group(format!("{} text 1.1", &test_data_1_1.name));
+        let mut text_1_1_group = c.benchmark_group(format!("{} text 1.1", test_data_1_1.name));
         text_1_1_group.bench_function("scan all", |b| {
             b.iter(|| {
                 let mut reader = Reader::new(v1_1::Text, text_1_1_data.as_bytes()).unwrap();

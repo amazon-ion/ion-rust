@@ -185,9 +185,9 @@ pub fn parse_continuation(clause: Clause) -> InnerResult<Continuation> {
                         .and_then(|e| e.as_sequence())
                         .ok_or(ConformanceErrorKind::ExpectedModelValue)?;
                     let clause = Clause::try_from(seq.clone())?;
-                    match continuation::parse_continuation(clause) {
-                        Ok(c) => return Ok(Continuation::Each(branches, Box::new(c))),
-                        Err(e) => return Err(e),
+                    {
+                        let c = continuation::parse_continuation(clause)?;
+                        return Ok(Continuation::Each(branches, Box::new(c)));
                     }
                 }
                 sequence_idx += 1;

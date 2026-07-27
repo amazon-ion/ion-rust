@@ -360,7 +360,7 @@ impl<'top> TextBuffer<'top> {
         }
 
         if let Some(&byte) = self.bytes().first() {
-            if [b'\'', b'$', b'_'].contains(&byte) || byte.is_ascii_alphabetic() {
+            if b"'$_".contains(&byte) || byte.is_ascii_alphabetic() {
                 return full_match_annotations(self);
             }
         };

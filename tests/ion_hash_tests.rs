@@ -319,7 +319,7 @@ mod unknown_symbol_text_tests {
         let unknown_symbol = Element::from(Symbol::unknown_text());
         let digest = IdentityDigest::hash_element(&unknown_symbol).unwrap();
 
-        let expected_string = format!("{:02x?}", &[0x0b, 0x71, 0x0e]);
+        let expected_string = format!("{:02x?}", [0x0b, 0x71, 0x0e]);
         let actual_string = format!("{:02x?}", without_trailing_zeros(&digest[..]));
         assert_eq!(expected_string, actual_string)
     }
@@ -334,7 +334,7 @@ mod unknown_symbol_text_tests {
 
         let expected_string = format!(
             "{:02x?}",
-            &[0x0b, 0xd0, 0x0c, 0x0b, 0x71, 0x0c, 0x0e, 0x0c, 0x0b, 0x20, 0x01, 0x0c, 0x0e, 0x0e]
+            [0x0b, 0xd0, 0x0c, 0x0b, 0x71, 0x0c, 0x0e, 0x0c, 0x0b, 0x20, 0x01, 0x0c, 0x0e, 0x0e]
         );
         let actual_string = format!("{:02x?}", without_trailing_zeros(&digest[..]));
         assert_eq!(expected_string, actual_string)
@@ -348,7 +348,7 @@ mod unknown_symbol_text_tests {
 
         let expected_string = format!(
             "{:02x?}",
-            &[0x0b, 0xe0, 0x0b, 0x71, 0x0e, 0x0b, 0xd0, 0x0e, 0x0e]
+            [0x0b, 0xe0, 0x0b, 0x71, 0x0e, 0x0b, 0xd0, 0x0e, 0x0e]
         );
         let actual_string = format!("{:02x?}", without_trailing_zeros(&digest[..]));
         assert_eq!(expected_string, actual_string)

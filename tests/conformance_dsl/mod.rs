@@ -196,33 +196,31 @@ pub(crate) fn parse_document_like<T: DocumentLike>(clause: &Clause) -> InnerResu
             };
 
             let inner_clause: Clause = seq.clone().try_into().expect("unable to convert to clause");
-            match continuation::parse_continuation(inner_clause) {
-                Ok(c) => {
-                    use continuation::Continuation::*;
-                    continuation = match continuation {
-                        None => c,
-                        Each(..) | Then(..) => Extensions(vec![continuation, c]),
-                        Extensions(ref mut exts) => {
-                            exts.push(c.clone());
-                            continuation
-                        }
-                        _ => {
-                            // We cannot mix continuations and extensions
-                            return Err(ConformanceErrorKind::UnexpectedContinuation);
-                        }
-                    };
-
-                    // If we have a continuation already, we need to extend it to Extensions.
-                    let expect_more =
-                        continuation.is_extension() && (sequence_idx + 1) < clause.body.len();
-                    if !expect_more {
-                        doc_like.set_continuation(continuation);
-                        break;
+            {
+                let c = continuation::parse_continuation(inner_clause)?;
+                use continuation::Continuation::*;
+                continuation = match continuation {
+                    None => c,
+                    Each(..) | Then(..) => Extensions(vec![continuation, c]),
+                    Extensions(ref mut exts) => {
+                        exts.push(c.clone());
+                        continuation
                     }
+                    _ => {
+                        // We cannot mix continuations and extensions
+                        return Err(ConformanceErrorKind::UnexpectedContinuation);
+                    }
+                };
 
-                    sequence_idx += 1;
+                // If we have a continuation already, we need to extend it to Extensions.
+                let expect_more =
+                    continuation.is_extension() && (sequence_idx + 1) < clause.body.len();
+                if !expect_more {
+                    doc_like.set_continuation(continuation);
+                    break;
                 }
-                Err(e) => return Err(e),
+
+                sequence_idx += 1;
             }
         }
     }
