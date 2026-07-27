@@ -110,6 +110,10 @@ name = "byod"
 harness = false
 bench = false
 
+[[bench]]
+name = "text_location_throughput"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1

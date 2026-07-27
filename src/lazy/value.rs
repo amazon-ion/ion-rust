@@ -304,14 +304,25 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_value: LazyValue<'top, D>) -> Result<Self, Self::Error> {
+        // Resolve this value's location before reading it, because reading a container
+        // recursively materializes its children. Doing this first means locations are
+        // requested in ascending offset order, which is what allows the row lookup in
+        // `SourceLocationState::calculate_location_for_span` to be O(1) amortized.
+        //
+        // INVARIANT: this call must stay ahead of `read()`. The ordering is load-bearing for
+        // performance, not correctness: moving it below `read()?`, or inlining it into the
+        // `with_location(location)` calls below, changes no result but makes every container's
+        // lookup arrive after its children's, so each one takes the O(log rows) binary search
+        // fallback instead of the cursor's fast path. `no_fallback_lookups_when_reading_elements`
+        // guards this. The hoist is sound with respect to the `unsafe` read inside `location()`
+        // only because a `SourceLocation` is owned and borrows nothing from the reader's input.
+        let location = lazy_value.location();
         let value: Value = lazy_value.read()?.try_into()?;
         if lazy_value.has_annotations() {
             let annotations: Annotations = lazy_value.annotations().try_into()?;
-            Ok(value
-                .with_annotations(annotations)
-                .with_location(lazy_value.location()))
+            Ok(value.with_annotations(annotations).with_location(location))
         } else {
-            Ok(<Value as Into<Element>>::into(value).with_location(lazy_value.location()))
+            Ok(<Value as Into<Element>>::into(value).with_location(location))
         }
     }
 }
@@ -484,8 +495,10 @@ mod tests {
     use std::io;
     use std::io::{Cursor, Read};
 
+    use crate::element::reader::ElementReader;
     use crate::lazy::binary::test_utilities::to_binary_ion;
     use crate::lazy::expanded::lazy_element::LazyElement;
+    use crate::lazy::streaming_raw_reader::{IoBufferHandle, IonSlice};
     use crate::location::SourceLocation;
     use crate::{
         ion_list, ion_sexp, ion_struct, v1_0, AnyEncoding, Decimal, Decoder, IonResult, IonType,
@@ -789,6 +802,105 @@ mod tests {
             .filter_map(|it| it.row_column())
             .collect();
         assert_eq!(&expected_locations, actual_locations.as_slice());
+        Ok(())
+    }
+
+    /// The locations of `Element`s materialized by `Element::read_all`, unlike those of the
+    /// `LazyElement`s above, are attached by `impl TryFrom<LazyValue> for Element`.
+    #[rstest]
+    #[case::values_in_multiline_struct("{\n  foo:1,\n  bar:2,\n}", [(1, 1), (2, 7), (3, 7)])]
+    #[case::values_in_multiline_lists(
+        "[\n  1,\n  2,\n  3,\n  4\n]",
+        [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3)],
+    )]
+    #[case::deeply_nested_containers(
+        "{\n  foo:{a:1,b:2},\n  bar:[a,b,c],\n  baz:(foo (bar)\n           (quux)),\n}",
+        // {
+        [(1, 1),
+        // foo: {       a:1,     b:2    },
+               (2, 7), (2, 10), (2, 14),
+        // bar: [       a,      b,       c      ],
+               (3, 7), (3, 8), (3, 10), (3, 12),
+        // baz: (       foo     (        bar    )
+               (4, 7), (4, 8), (4, 12), (4, 13),
+        //                      (        quux   ) )
+                               (5, 12), (5, 13),
+        // }
+        ],
+    )]
+    #[case::multiple_top_level_containers(
+        "{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
+        [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12)],
+    )]
+    fn element_locations<const N: usize>(
+        #[case] ion_text: &str,
+        #[case] expected_locations: [(usize, usize); N],
+    ) -> IonResult<()> {
+        let mut actual_locations = vec![];
+        for element in Element::read_all(ion_text)?.elements() {
+            collect_element_locations(element, &mut actual_locations)?;
+        }
+        assert_eq!(
+            expected_locations.map(Some).as_slice(),
+            actual_locations.as_slice()
+        );
+        Ok(())
+    }
+
+    /// Appends the location of `element` and of each of its descendants, in depth-first order.
+    fn collect_element_locations(
+        element: &Element,
+        locations: &mut Vec<Option<(usize, usize)>>,
+    ) -> IonResult<()> {
+        locations.push(element.location().row_column());
+        match element.ion_type() {
+            IonType::Struct => {
+                for (_name, value) in element.expect_struct()? {
+                    collect_element_locations(value, locations)?;
+                }
+            }
+            IonType::List => {
+                for value in element.expect_list()?.elements() {
+                    collect_element_locations(value, locations)?;
+                }
+            }
+            IonType::SExp => {
+                for value in element.expect_sexp()?.elements() {
+                    collect_element_locations(value, locations)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// The ordering in `impl TryFrom<LazyValue> for Element` -- resolving a value's location before
+    /// recursively materializing its children -- is what keeps the row lookup in
+    /// `SourceLocationState::calculate_location_for_span` on its amortized-O(1) fast path. Moving
+    /// the `location()` call after `read()` produces identical `Element`s, so only the number of
+    /// binary-search fallbacks can detect it.
+    #[rstest]
+    #[case::nested_containers(
+        "{\n  foo:{a:1,b:2},\n  bar:[a,b,c],\n  baz:(foo (bar)\n           (quux)),\n}"
+    )]
+    #[case::multiple_top_level_containers(
+        "{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}"
+    )]
+    fn locations_are_requested_in_ascending_order(#[case] ion_text: &str) -> IonResult<()> {
+        // Initializing the location state up front hands back a handle to the same shared state the
+        // reader will use, which is otherwise unreachable once the input has been moved into it.
+        let input = IonSlice::new(ion_text);
+        let location_state = input.source_location_state().clone();
+        let elements: Vec<Element> = Reader::new(AnyEncoding, input)?
+            .into_elements()
+            .collect::<IonResult<_>>()?;
+        assert!(!elements.is_empty());
+        assert_eq!(
+            0,
+            location_state.fallback_lookups(),
+            "locations were requested out of order; is `location()` still called before `read()` \
+             in `impl TryFrom<LazyValue> for Element`?"
+        );
         Ok(())
     }
 

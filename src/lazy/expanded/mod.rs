@@ -280,6 +280,13 @@ impl<'top> EncodingContextRef<'top> {
     }
 
     pub fn location_for_span(&self, span: Option<Span<'_>>) -> Option<SourceLocation> {
+        // SAFETY: `io_buffer_source` is an `UnsafeCell` so that the `StreamingRawReader` can set it
+        //         after each top-level value; it is only ever mutated between `'top` lifetimes, so
+        //         no mutation can be in flight while this reference is live. The reference does not
+        //         escape this function -- the returned `SourceLocation` is owned and borrows nothing
+        //         from the `IoBufferSource` -- so callers cannot hold it across a mutation. That is
+        //         what allows `impl TryFrom<LazyValue> for Element` to hoist its `location()` call
+        //         above `read()`.
         match unsafe { &*self.io_buffer_source.get() } {
             IoBufferSource::IoBuffer(ref buffer) => Some(
                 buffer
