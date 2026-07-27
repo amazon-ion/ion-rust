@@ -1341,7 +1341,7 @@ mod tests {
         let eexp = buffer.read_e_expression(Opcode::from_byte(opcode_byte))?.0;
         let eexp_ref = &*context.allocator.alloc_with(|| eexp);
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(macro_address));
-        println!("{:?}", &eexp);
+        println!("{:?}", eexp);
         assert_eq!(eexp.id(), MacroIdRef::LocalAddress(opcode_byte as usize));
         test_fn(eexp_ref.raw_arguments())
     }

@@ -529,9 +529,9 @@ impl Display for Decimal {
         if self.exponent == 0 && len > WIDE_NUMBER { // e.g. A.BCDEFGd6
             write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
         } else if self.exponent == 0 { // e.g. ABC.
-            write!(f, "{}.", &digits)
+            write!(f, "{}.", digits)
         } else if self.exponent >= 0 { // e.g. ABCd1
-            write!(f, "{}d{}", &digits, self.exponent)
+            write!(f, "{}d{}", digits, self.exponent)
         } else { // exponent < 0, there is a fractional component
             if dot_index > 0 { // e.g. A.BC or AB.C
                 let dot_index = dot_index as usize;
