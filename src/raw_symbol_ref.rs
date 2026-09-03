@@ -115,6 +115,18 @@ impl AsRawSymbolRef for &str {
     }
 }
 
+// This conversion is infallible and therefore intentionally lossy: a `Symbol` that is a
+// placeholder for a symbol ID in an unresolvable shared symbol table import (see
+// `SymbolText::UnknownImport`) is mapped to `$0` (symbol ID 0), discarding the placeholder
+// flag. Raw-level writers legitimately emit `$0`; only the typed transcription layer
+// (`WriteAsIon`/`Element`) refuses to encode placeholders.
+//
+// Reachability on the default-features API: the writer APIs that consume this conversion
+// (`Writer`, `ValueWriter`, `StructWriter`, etc.) are only public with the
+// `experimental-reader-writer` feature, and the default-features encoding entry points
+// (`Element::encode_as`/`encode_to`) go through `WriteAsIon` and refuse placeholders.
+// However, the `Display` impls for `Element`/`Value` (Ion text rendering) also use this
+// conversion and are available on default features; they render placeholders as `$0`.
 impl AsRawSymbolRef for Symbol {
     fn as_raw_symbol_ref(&self) -> RawSymbolRef<'_> {
         match self.text() {
@@ -163,6 +175,15 @@ impl<'a> From<&'a SymbolId> for RawSymbolRef<'a> {
     }
 }
 
+// This conversion is infallible and therefore intentionally lossy: a `SymbolRef` that is a
+// placeholder for a symbol ID in an unresolvable shared symbol table import (see
+// `SymbolText::UnknownImport`) is mapped to `$0` (symbol ID 0), discarding the placeholder
+// flag. Raw-level writers legitimately emit `$0`; only the typed transcription layer
+// (`WriteAsIon`/`Element`) refuses to encode placeholders.
+//
+// Reachability on the default-features API: see the note on `impl AsRawSymbolRef for Symbol`
+// above — the writer APIs consuming this conversion are feature-gated, but the `Display`
+// impls for `Element`/`Value` also use it and render placeholders as `$0`.
 impl<'a> From<SymbolRef<'a>> for RawSymbolRef<'a> {
     fn from(value: SymbolRef<'a>) -> Self {
         match value.text() {

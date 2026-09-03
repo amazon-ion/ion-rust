@@ -697,9 +697,9 @@ impl Element {
             Value::Symbol(sym) => match sym.text {
                 SymbolText::Shared(shared) => Ok((*shared).to_string()),
                 SymbolText::Owned(owned) => Ok(owned),
-                SymbolText::Unknown => {
+                text @ (SymbolText::Unknown | SymbolText::UnknownImport) => {
                     let sym = Self {
-                        value: Value::Symbol(Symbol::unknown_text()),
+                        value: Value::Symbol(Symbol { text }),
                         annotations,
                         location,
                     };

@@ -25,12 +25,27 @@ use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, EExpArgExpr};
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
+use crate::result::IonFailure;
 use crate::v1_0::RawValueRef;
 use crate::{
     Blob, Clob, Decimal, Element, Int, IonResult, IonType, LazyList, LazyRawFieldExpr,
     LazyRawFieldName, LazyRawSequence, LazyRawStruct, LazyRawValue, LazySExp, LazyStruct, Null,
     RawSymbolRef, Symbol, SymbolRef, Timestamp, Value, WriteConfig,
 };
+
+/// Returns an `Err` explaining that the writer refuses to encode a symbol that is a
+/// placeholder for a symbol ID in a shared symbol table import that could not be resolved.
+/// Such a symbol has no text of its own, but unlike a genuine `$0` (whose text is unknown by
+/// construction), encoding it as `$0` would silently and irreversibly discard the fact that
+/// the symbol has text in the (unavailable) shared table.
+fn unknown_import_placeholder_error<T>() -> IonResult<T> {
+    IonResult::encoding_error(
+        "cannot write a symbol that is a placeholder for an unresolvable shared symbol table \
+         import; encoding it would silently replace it with `$0`; to resolve these symbols, \
+         provide a Catalog containing the imported shared symbol table when constructing the \
+         reader",
+    )
+}
 
 /// Defines how a Rust type should be serialized as Ion in terms of the methods available
 /// on [`ValueWriter`].
@@ -82,6 +97,13 @@ impl WriteAsIon for Element {
         if self.annotations().is_empty() {
             self.value().write_as_ion(writer)
         } else {
+            if self
+                .annotations()
+                .iter()
+                .any(Symbol::is_unknown_import_placeholder)
+            {
+                return unknown_import_placeholder_error();
+            }
             self.value()
                 .write_as_ion(writer.with_annotations(self.annotations().as_ref())?)
         }
@@ -136,13 +158,22 @@ impl_write_as_ion_value!(
     Int => write_int,
     Decimal => write_decimal,
     Timestamp => write_timestamp,
-    Symbol => write_symbol,
     &str => write_string,
     String => write_string,
     &[u8] => write_blob,
     Blob => write_blob,
     Clob => write_clob,
 );
+
+impl WriteAsIon for Symbol {
+    #[inline]
+    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        if self.is_unknown_import_placeholder() {
+            return unknown_import_placeholder_error();
+        }
+        writer.write_symbol(self)
+    }
+}
 
 impl WriteAsIon for RawSymbolRef<'_> {
     #[inline]
@@ -154,6 +185,9 @@ impl WriteAsIon for RawSymbolRef<'_> {
 impl WriteAsIon for SymbolRef<'_> {
     #[inline]
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+        if self.is_unknown_import_placeholder() {
+            return unknown_import_placeholder_error();
+        }
         writer.write_symbol(self)
     }
 }
@@ -267,13 +301,22 @@ impl WriteAsIon for Value {
             Float(f) => value_writer.write_f64(*f),
             Decimal(d) => value_writer.write_decimal(d),
             Timestamp(t) => value_writer.write_timestamp(t),
-            Symbol(s) => value_writer.write_symbol(s),
+            // Delegating to `Symbol`'s implementation refuses to write placeholder symbols
+            // that were substituted for an unresolvable shared symbol table import.
+            Symbol(s) => s.write_as_ion(value_writer),
             String(s) => value_writer.write_string(s),
             Clob(c) => value_writer.write_clob(c),
             Blob(b) => value_writer.write_blob(b),
             List(l) => value_writer.write_list(l),
             SExp(s) => value_writer.write_sexp(s),
-            Struct(s) => value_writer.write_struct(s.iter()),
+            Struct(s) => {
+                if s.fields()
+                    .any(|(name, _)| name.is_unknown_import_placeholder())
+                {
+                    return unknown_import_placeholder_error();
+                }
+                value_writer.write_struct(s.iter())
+            }
         }
     }
 }
@@ -283,7 +326,11 @@ impl<D: Decoder> WriteAsIon for LazyValue<'_, D> {
         if self.has_annotations() {
             let mut annotations = AnnotationsVec::new();
             for annotation in self.annotations() {
-                annotations.push(annotation?.into());
+                let annotation = annotation?;
+                if annotation.is_unknown_import_placeholder() {
+                    return unknown_import_placeholder_error();
+                }
+                annotations.push(annotation.into());
             }
             self.read()?
                 .write_as_ion(writer.with_annotations(annotations)?)
@@ -492,7 +539,9 @@ impl<D: Decoder> WriteAsIon for ValueRef<'_, D> {
             Float(f) => value_writer.write_f64(*f),
             Decimal(d) => value_writer.write_decimal(d),
             Timestamp(t) => value_writer.write_timestamp(t),
-            Symbol(s) => value_writer.write_symbol(s),
+            // Delegating to `SymbolRef`'s implementation refuses to write placeholder symbols
+            // that were substituted for an unresolvable shared symbol table import.
+            Symbol(s) => s.write_as_ion(value_writer),
             String(s) => value_writer.write_string(s.text()),
             Clob(c) => value_writer.write_clob(c.data()),
             Blob(b) => value_writer.write_blob(b.data()),
@@ -528,7 +577,11 @@ impl<D: Decoder> WriteAsIon for LazyStruct<'_, D> {
         let mut struct_writer = writer.struct_writer()?;
         for field_result in self {
             let field = field_result?;
-            struct_writer.write(field.name()?, field.value())?;
+            let name = field.name()?;
+            if name.is_unknown_import_placeholder() {
+                return unknown_import_placeholder_error();
+            }
+            struct_writer.write(name, field.value())?;
         }
         struct_writer.close()
     }
@@ -563,5 +616,52 @@ mod tests {
         let encoded: String = element.encode_as(v1_0::Text)?;
         assert_eq!(encoded.trim(), "foo::42");
         Ok(())
+    }
+
+    #[test]
+    fn writing_a_genuine_unknown_text_symbol_is_allowed() -> IonResult<()> {
+        // A symbol with unknown text that did NOT come from an unresolvable shared symbol
+        // table import (i.e. a genuine `$0`) can be encoded as usual.
+        let element: Element = Value::Symbol(Symbol::unknown_text()).into();
+        let encoded: String = element.encode_as(v1_0::Text)?;
+        assert_eq!(encoded.trim(), "$0");
+        Ok(())
+    }
+
+    #[test]
+    fn refuse_to_write_unknown_import_placeholder_as_value() {
+        // A symbol that stands in for a symbol ID in an unresolvable shared symbol table
+        // import has no text, but writing it as `$0` would silently discard the fact that
+        // it has text in the (unavailable) shared table. The writer refuses.
+        let element: Element = Value::Symbol(Symbol::unknown_import_placeholder()).into();
+        let result: IonResult<String> = element.encode_as(v1_0::Text);
+        assert!(
+            matches!(result, Err(crate::IonError::Encoding(_))),
+            "expected an encoding error, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn refuse_to_write_unknown_import_placeholder_as_annotation() {
+        let element: Element =
+            Element::from(42).with_annotations(vec![Symbol::unknown_import_placeholder()]);
+        let result: IonResult<String> = element.encode_as(v1_0::Text);
+        assert!(
+            matches!(result, Err(crate::IonError::Encoding(_))),
+            "expected an encoding error, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn refuse_to_write_unknown_import_placeholder_as_field_name() {
+        let strukt = crate::Struct::builder()
+            .with_field(Symbol::unknown_import_placeholder(), 42)
+            .build();
+        let element: Element = Value::Struct(strukt).into();
+        let result: IonResult<String> = element.encode_as(v1_0::Text);
+        assert!(
+            matches!(result, Err(crate::IonError::Encoding(_))),
+            "expected an encoding error, got: {result:?}"
+        );
     }
 }

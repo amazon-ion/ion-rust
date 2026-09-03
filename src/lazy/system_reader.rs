@@ -23,6 +23,23 @@ use crate::{
 use std::ops::Deref;
 use std::sync::Arc;
 
+/// The maximum number of placeholder (unknown-text) symbols that the reader is willing to
+/// materialize while processing a single symbol table directive's `imports` list.
+///
+/// When a shared symbol table import cannot be resolved, the Ion 1.0 spec requires the reader
+/// to reserve exactly `max_id` symbol IDs for it, padding with unknown-text placeholders as
+/// needed. Because `max_id` is attacker-controlled and each placeholder occupies memory, a
+/// tiny stream could otherwise instruct the reader to allocate an enormous symbol table (for
+/// example, a `max_id` of 2^31 would materialize billions of placeholder symbols). Capping
+/// the number of placeholders bounds that amplification: streams whose unresolvable imports
+/// require more placeholders than this limit produce a decoding error instead.
+///
+/// One million placeholder symbols occupy tens of megabytes--far more than any known
+/// legitimate use of substituted imports requires, but small enough to keep a malicious
+/// stream from exhausting memory. Symbols that are actually present in a matching catalog
+/// entry do not count against this limit.
+pub(crate) const MAX_IMPORT_PLACEHOLDER_SYMBOLS: usize = 1_000_000;
+
 /// A binary reader that only reads each value that it visits upon request (that is: lazily).
 ///
 /// Unlike [`crate::lazy::reader::Reader`], which only exposes values that are part
@@ -570,6 +587,9 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         catalog: &dyn Catalog,
         imports: LazyValue<'_, Encoding>,
     ) -> IonResult<()> {
+        // The number of placeholder symbols materialized for unresolvable imports so far
+        // while processing this symbol table directive's `imports` list.
+        let mut total_placeholders: usize = 0;
         match imports.read()? {
             // Any symbol other than `$ion_symbol_table` is ignored.
             ValueRef::Symbol(symbol_ref) if symbol_ref == "$ion_symbol_table" => {
@@ -597,37 +617,95 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
                         _ => Ok(1),
                     }?;
 
-                    let shared_table = match catalog.get_table_with_version(name.as_ref(), version) {
-                        Some(table) => table,
-                        None => return IonResult::decoding_error(
-                            format!("symbol table import failed, could not find table with name='{name}' and version={version}")
-                        ),
-                    };
-
-                    let max_id = match import.get("max_id")? {
+                    // If the max_id is unspecified, null, negative, or an invalid data type,
+                    // we treat it as undefined.
+                    // See: https://amazon-ion.github.io/ion-docs/docs/symbols.html
+                    let max_id: Option<usize> = match import.get("max_id")? {
                         Some(ValueRef::Int(i)) if i >= Int::ZERO => {
-                            usize::try_from(i).map_err(|_| {
+                            Some(usize::try_from(i).map_err(|_| {
                                 IonError::decoding_error(
                                     "found a `max_id` beyond the range of usize",
                                 )
-                            })?
+                            })?)
                         }
-                        // If the max_id is unspecified, negative, or an invalid data type, we'll import all of the symbols from the requested table.
-                        _ => shared_table.symbols().len(),
+                        _ => None,
                     };
 
-                    let num_symbols_to_import = shared_table.symbols().len().min(max_id);
+                    // Look for an exact match in the catalog. If the requested version is not
+                    // available and `max_id` is defined, fall back to the highest available
+                    // version of the named table; if the catalog has no table with that name,
+                    // substitute a dummy table by padding with `max_id` unknown-text symbols.
+                    // If there is no exact match and `max_id` is undefined, the reader cannot
+                    // know how many symbol IDs the import occupies; this is an error.
+                    let shared_table = match catalog.get_table_with_version(name.as_ref(), version)
+                    {
+                        Some(table) => Some(table),
+                        None if max_id.is_none() => return IonResult::decoding_error(
+                            format!("symbol table import failed, could not find table with name='{name}' and version={version} and no valid max_id was specified")
+                        ),
+                        None => catalog.get_table(name.as_ref()),
+                    };
+
+                    let table_symbols: &[Symbol] =
+                        shared_table.map(|table| table.symbols()).unwrap_or(&[]);
+
+                    // If `max_id` is undefined, import all of the found table's symbols.
+                    // (An exact match is guaranteed to have been found in that case.)
+                    let max_id = max_id.unwrap_or(table_symbols.len());
+
+                    // Import up to `max_id` symbols from the table...
+                    let num_symbols_to_import = table_symbols.len().min(max_id);
 
                     pending_lst
                         .imported_symbols
-                        .extend_from_slice(&shared_table.symbols()[..num_symbols_to_import]);
+                        .extend_from_slice(&table_symbols[..num_symbols_to_import]);
 
-                    if max_id > shared_table.symbols().len() {
+                    // ...and if the table did not have enough symbols (or was not found at all),
+                    // pad the remaining symbol IDs with unknown text.
+                    if max_id > num_symbols_to_import {
                         let num_pending_symbols = pending_lst.imported_symbols().len();
-                        let num_placeholders = max_id - shared_table.symbols().len();
+                        let num_placeholders = max_id - num_symbols_to_import;
+                        // Placeholder symbols are materialized eagerly, so `max_id` values
+                        // (which are attacker-controlled) must be capped to keep a small
+                        // stream from demanding an enormous allocation. See the doc comment
+                        // on `MAX_IMPORT_PLACEHOLDER_SYMBOLS` for details.
+                        total_placeholders = total_placeholders
+                            .checked_add(num_placeholders)
+                            .filter(|&total| total <= MAX_IMPORT_PLACEHOLDER_SYMBOLS)
+                            .ok_or_else(|| {
+                                IonError::decoding_error(format!(
+                                    "symbol table import (name='{name}', max_id={max_id}) requires \
+                                     padding with more placeholder symbols than this implementation \
+                                     is willing to materialize (limit: {MAX_IMPORT_PLACEHOLDER_SYMBOLS})"
+                                ))
+                            })?;
+                        // In practice this addition cannot overflow: `num_placeholders` was
+                        // just capped at `MAX_IMPORT_PLACEHOLDER_SYMBOLS` (above), and
+                        // `num_pending_symbols` is the length of an existing `Vec<Symbol>`,
+                        // which is far smaller than `usize::MAX - MAX_IMPORT_PLACEHOLDER_SYMBOLS`.
+                        // The checked arithmetic is retained purely as defense in depth.
+                        let num_symbols_after_import = num_pending_symbols
+                            .checked_add(num_placeholders)
+                            .ok_or_else(|| {
+                                IonError::decoding_error(
+                                    "internal error: combined symbol table size overflowed usize",
+                                )
+                            })?;
+                        // The cap above bounds the allocation to a modest size; reserve the
+                        // space fallibly anyway so that allocation failure (e.g. under severe
+                        // memory pressure) surfaces as a decoding error instead of aborting
+                        // the process.
+                        pending_lst
+                            .imported_symbols
+                            .try_reserve(num_placeholders)
+                            .map_err(|_| {
+                                IonError::decoding_error(format!(
+                                    "could not allocate space for a symbol table import with max_id {max_id}"
+                                ))
+                            })?;
                         pending_lst.imported_symbols.resize(
-                            num_pending_symbols + num_placeholders,
-                            Symbol::unknown_text(),
+                            num_symbols_after_import,
+                            Symbol::unknown_import_placeholder(),
                         );
                     }
                 }
@@ -908,26 +986,648 @@ mod tests {
     }
 
     #[test]
-    fn non_existent_shared_symbol_table_imports() -> IonResult<()> {
+    fn non_existent_shared_symbol_table_imports_with_max_id() -> IonResult<()> {
         let mut map_catalog = MapCatalog::new();
         map_catalog.insert_table(SharedSymbolTable::new("shared_table_1", 1, ["foo"])?);
         map_catalog.insert_table(SharedSymbolTable::new("shared_table_2", 1, ["bar"])?);
-        // The stream contains a local symbol table that is not an append.
+        // `shared_table_3` and `shared_table_4` do not exist in the catalog, but their imports
+        // declare a `max_id`. Per the spec, the reader substitutes a dummy table containing
+        // `max_id` symbols with unknown text for each of them and continues.
         let mut reader = system_reader_with_catalog_for(
             r#"
                 $ion_symbol_table::{
                     imports: [ { name:"shared_table_3", version: 1, max_id: 3 }, { name:"shared_table_2", version: 1 }, { name:"shared_table_4", version: 1, max_id: 1 } ],
                     symbols: [ "local_symbol" ]
                 }
+                $10 // == $0
+                $11 // == $0
+                $12 // == $0
                 $13 // "bar"
+                $14 // == $0
+                $15 // "local_symbol"
+            "#,
+            map_catalog,
+        );
+        // $10 through $12 are the placeholders for `shared_table_3`.
+        for _ in 0..3 {
+            assert_eq!(
+                reader.expect_next_value()?.read()?.expect_symbol()?,
+                SymbolRef::with_unknown_text()
+            );
+        }
+        // $13 comes from `shared_table_2`, which was found in the catalog.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "bar");
+        // $14 is the placeholder for `shared_table_4`.
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            SymbolRef::with_unknown_text()
+        );
+        // $15 is the first local symbol following the imports.
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resolved_import_with_overstated_max_id_pads_with_placeholders() -> IonResult<()> {
+        use crate::{Element, Value};
+        let mut map_catalog = MapCatalog::new();
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 1, ["foo"])?);
+        // `shared_table` v1 IS in the catalog, but it only defines one symbol while the
+        // import declares `max_id: 3`. Per the spec, the two extra symbol IDs are padded
+        // with unknown-text symbols. Like the padding for an entirely unresolvable import,
+        // these gap SIDs are substitute symbols: a later version of the table could define
+        // their text, so they are placeholders (which the transcription layer refuses to
+        // write), not genuine `$0`s.
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 3 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $10 // "foo"
+                $11 // gap SID (padding placeholder)
+                $13 // "local_symbol"
+            "#,
+            map_catalog,
+        );
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "foo");
+        // Reading the gap SID succeeds; the symbol has unknown text (equivalent to `$0`).
+        let gap_symbol = reader.expect_next_value()?.read()?.expect_symbol()?;
+        assert_eq!(gap_symbol, SymbolRef::with_unknown_text());
+        // ...but transcribing it as an Element refuses with the placeholder error.
+        let element: Element = Value::Symbol(gap_symbol.to_owned()).into();
+        let result: IonResult<String> = element.encode_as(v1_0::Text);
+        let error = result.expect_err("expected the writer to refuse the padding placeholder");
+        assert!(matches!(error, IonError::Encoding(_)));
+        assert!(
+            error.to_string().contains("placeholder"),
+            "unexpected error message: {error}"
+        );
+        // The local symbol that follows the padded gap still resolves correctly.
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "experimental-ion-1-1")]
+    #[test]
+    fn ion_1_1_unresolvable_import_with_max_id_takes_substitution_path() -> IonResult<()> {
+        // An Ion 1.1 stream can still carry a 1.0-style `$ion_symbol_table` local symbol
+        // table; its `imports` list is processed by the same resolution path as in Ion 1.0
+        // (`process_imports` is not version-gated), so an unresolvable import with a
+        // defined `max_id` is substituted with placeholder symbols. In Ion 1.1 the active
+        // table's permanent prefix is only `$0`, so the import occupies $1-$2 and the
+        // local symbol is $3.
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_1_1
+                $ion_symbol_table::{
+                    imports: [ { name:"missing_table", version: 1, max_id: 2 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $1 // gap SID (placeholder)
+                $3 // "local_symbol"
+            "#,
+            map_catalog,
+        );
+        // The gap SID reads successfully as a symbol with unknown text...
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            SymbolRef::with_unknown_text()
+        );
+        // ...and the local symbol that follows the substituted import still resolves.
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn non_existent_shared_symbol_table_import_without_max_id() -> IonResult<()> {
+        let mut map_catalog = MapCatalog::new();
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table_2", 1, ["bar"])?);
+        // `shared_table_3` does not exist in the catalog and its import does not declare a
+        // `max_id`, so the reader cannot know how many symbol IDs the import occupies.
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table_3", version: 1 }, { name:"shared_table_2", version: 1 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $10
             "#,
             map_catalog,
         );
         // We step over the LST...
         assert!(
             matches!(reader.next_item(), Err(IonError::Decoding(_))),
-            "expected a decoding error because shared_table_3 does not exist"
+            "expected a decoding error because shared_table_3 does not exist and its import has no max_id"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn non_existent_shared_symbol_table_import_with_zero_max_id() -> IonResult<()> {
+        let map_catalog = MapCatalog::new();
+        // A `max_id` of 0 means the unresolvable import occupies no symbol IDs at all.
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 0 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $10 // "local_symbol"
+            "#,
+            map_catalog,
+        );
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn non_existent_shared_symbol_table_import_with_invalid_max_id() -> IonResult<()> {
+        // Per the spec, a `max_id` that is null, not an int, or less than zero is treated as
+        // though it were undefined. An undefined `max_id` on an unresolvable import is an error.
+        for max_id in ["null", "null.int", "-2", "max", "2.5"] {
+            let map_catalog = MapCatalog::new();
+            let mut reader = system_reader_with_catalog_for(
+                format!(
+                    r#"
+                        $ion_symbol_table::{{
+                            imports: [ {{ name:"shared_table", version: 1, max_id: {max_id} }} ],
+                            symbols: [ "local_symbol" ]
+                        }}
+                        $10
+                    "#
+                ),
+                map_catalog,
+            );
+            assert!(
+                matches!(reader.next_item(), Err(IonError::Decoding(_))),
+                "expected a decoding error for an unresolvable import with max_id: {max_id}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn shared_symbol_table_imports_with_max_ids_summing_past_usize() -> IonResult<()> {
+        // Each import's `max_id` fits in a usize on its own, but together they describe more
+        // symbol IDs than a usize can represent. The reader must detect this and return a
+        // decoding error rather than silently wrapping (which would truncate the previously
+        // imported symbols and misalign all subsequent SIDs). In practice the placeholder
+        // cap check catches this case: its running total is computed with `checked_add`, so
+        // the sum either overflows (an error) or exceeds `MAX_IMPORT_PLACEHOLDER_SYMBOLS`
+        // (also an error).
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            format!(
+                r#"
+                    $ion_symbol_table::{{
+                        imports: [
+                            {{ name:"shared_table_a", version: 1, max_id: 1 }},
+                            {{ name:"shared_table_b", version: 1, max_id: {} }},
+                        ],
+                        symbols: [ "local_symbol" ]
+                    }}
+                    $10
+                "#,
+                usize::MAX
+            ),
+            map_catalog,
+        );
+        assert!(
+            matches!(reader.next_item(), Err(IonError::Decoding(_))),
+            "expected a decoding error when imports' max_id values sum past usize::MAX"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn shared_symbol_table_import_with_absurd_max_id_fails_cleanly() -> IonResult<()> {
+        // A `max_id` of usize::MAX is representable, but the placeholder symbols it describes
+        // could never be materialized. The placeholder cap (`MAX_IMPORT_PLACEHOLDER_SYMBOLS`)
+        // rejects the import with a decoding error before any allocation is attempted.
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            format!(
+                r#"
+                    $ion_symbol_table::{{
+                        imports: [ {{ name:"shared_table", version: 1, max_id: {} }} ],
+                        symbols: [ "local_symbol" ]
+                    }}
+                    $10
+                "#,
+                usize::MAX
+            ),
+            map_catalog,
+        );
+        assert!(
+            matches!(reader.next_item(), Err(IonError::Decoding(_))),
+            "expected a decoding error for an import with max_id = usize::MAX"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn import_placeholders_exceeding_cap_fail_cleanly() -> IonResult<()> {
+        // A single unresolvable import whose `max_id` requires more placeholder symbols than
+        // `MAX_IMPORT_PLACEHOLDER_SYMBOLS` is rejected with a decoding error that mentions
+        // the cap, before any placeholders are materialized.
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            format!(
+                r#"
+                    $ion_symbol_table::{{
+                        imports: [ {{ name:"shared_table", version: 1, max_id: {} }} ],
+                        symbols: [ "local_symbol" ]
+                    }}
+                    $10
+                "#,
+                MAX_IMPORT_PLACEHOLDER_SYMBOLS + 1
+            ),
+            map_catalog,
+        );
+        let error = reader
+            .next_item()
+            .expect_err("expected a decoding error for an import exceeding the placeholder cap");
+        assert!(matches!(error, IonError::Decoding(_)));
+        assert!(
+            error
+                .to_string()
+                .contains(&MAX_IMPORT_PLACEHOLDER_SYMBOLS.to_string()),
+            "the error message should mention the placeholder cap: {error}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn import_placeholder_cap_applies_across_imports() -> IonResult<()> {
+        // Each import's `max_id` is under the cap on its own, but the total number of
+        // placeholder symbols required by the directive's `imports` list exceeds it.
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            format!(
+                r#"
+                    $ion_symbol_table::{{
+                        imports: [
+                            {{ name:"shared_table_a", version: 1, max_id: {max_id} }},
+                            {{ name:"shared_table_b", version: 1, max_id: {max_id} }},
+                        ]
+                    }}
+                    $10
+                "#,
+                max_id = (MAX_IMPORT_PLACEHOLDER_SYMBOLS / 2) + 1
+            ),
+            map_catalog,
+        );
+        assert!(
+            matches!(reader.next_item(), Err(IonError::Decoding(_))),
+            "expected a decoding error when imports' combined placeholder count exceeds the cap"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refuse_to_transcribe_unknown_import_placeholder_symbols() -> IonResult<()> {
+        // Symbol IDs in the range of an unresolvable import can be read (as symbols with
+        // unknown text), but the writer refuses to transcribe them: encoding them as `$0`
+        // would silently discard the fact that they have text in the (unavailable) shared
+        // table.
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 1 } ]
+                }
+                $10
+            "#,
+            map_catalog,
+        );
+        let value = reader.expect_next_value()?;
+        // Reading the placeholder works; it is equivalent to `$0`.
+        assert_eq!(
+            value.read()?.expect_symbol()?,
+            SymbolRef::with_unknown_text()
+        );
+        // Writing it does not.
+        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+        let result = writer.write(value);
+        assert!(
+            matches!(result, Err(IonError::Encoding(_))),
+            "expected an encoding error when transcribing a placeholder symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refuse_to_transcribe_placeholders_nested_in_containers() -> IonResult<()> {
+        // Placeholder symbols nested inside containers are also refused when the containing
+        // `Element` is transcribed.
+        use crate::element::element_writer::ElementWriter;
+        use crate::element::reader::ElementReader;
+        use crate::lazy::reader::Reader;
+        for document in [
+            "[1, $10, 3]",   // list
+            "(foo $10 bar)", // s-expression
+        ] {
+            let input = format!(
+                r#"
+                    $ion_symbol_table::{{
+                        imports: [ {{ name:"shared_table", version: 1, max_id: 1 }} ]
+                    }}
+                    {document}
+                "#
+            );
+            let mut reader = Reader::new(AnyEncoding.with_catalog(MapCatalog::new()), input)?;
+            let element = reader
+                .read_next_element()?
+                .expect("expected to read an element");
+            let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+            let result = writer.write_element(&element);
+            assert!(
+                matches!(result, Err(IonError::Encoding(_))),
+                "expected an encoding error transcribing {document}, got {result:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn refuse_to_transcribe_placeholder_annotations_lazily() -> IonResult<()> {
+        // Lazy transcription refuses placeholder symbols in annotation position, not just in
+        // value position.
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 1 } ]
+                }
+                $10::5
+            "#,
+            map_catalog,
+        );
+        let value = reader.expect_next_value()?;
+        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+        let result = writer.write(value);
+        assert!(
+            matches!(result, Err(IonError::Encoding(_))),
+            "expected an encoding error when transcribing a placeholder annotation"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refuse_to_transcribe_placeholder_field_names_lazily() -> IonResult<()> {
+        // Lazy transcription refuses placeholder symbols in struct field name position, not
+        // just in value position.
+        let map_catalog = MapCatalog::new();
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 1 } ]
+                }
+                { $10: 5 }
+            "#,
+            map_catalog,
+        );
+        let value = reader.expect_next_value()?;
+        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+        let result = writer.write(value);
+        assert!(
+            matches!(result, Err(IonError::Encoding(_))),
+            "expected an encoding error when transcribing a placeholder field name"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn value_writer_apis_emit_placeholders_as_sid_zero() -> IonResult<()> {
+        // The typed transcription layer (`WriteAsIon`) refuses to encode placeholder symbols
+        // (see the tests above), but the value writer APIs accept symbol tokens through
+        // infallible conversions to `RawSymbolRef`. Those conversions are an intentional lossy
+        // escape hatch: the placeholder flag is discarded and the token is written as `$0`.
+        // This test pins that documented behavior for all three symbol token positions.
+        use crate::lazy::encoder::value_writer::StructWriter;
+        let placeholder = Symbol::unknown_import_placeholder();
+
+        // Value position: both the `Symbol` and `SymbolRef` conversions are lossy.
+        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+        writer.value_writer().write_symbol(&placeholder)?;
+        writer
+            .value_writer()
+            .write_symbol(SymbolRef::from(&placeholder))?;
+        let output = String::from_utf8(writer.close()?).unwrap();
+        assert_eq!(output.split_whitespace().collect::<Vec<_>>(), ["$0", "$0"]);
+
+        // Struct field name position
+        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+        let mut struct_writer = writer.value_writer().struct_writer()?;
+        struct_writer
+            .field_writer(SymbolRef::from(&placeholder))
+            .write_i64(1)?;
+        struct_writer.close()?;
+        let output = String::from_utf8(writer.close()?).unwrap();
+        assert!(
+            output.contains("$0"),
+            "expected a $0 field name in the output: {output}"
+        );
+
+        // Annotation position
+        let mut writer = Writer::new(v1_0::Text, Vec::new())?;
+        writer
+            .value_writer()
+            .with_annotations(vec![SymbolRef::from(&placeholder)])?
+            .write_i64(1)?;
+        let output = String::from_utf8(writer.close()?).unwrap();
+        assert!(
+            output.contains("$0::"),
+            "expected a $0 annotation in the output: {output}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn shared_symbol_table_import_falls_back_to_highest_version() -> IonResult<()> {
+        let mut map_catalog = MapCatalog::new();
+        // The catalog has v2 of `shared_table` but the import requests v1. Because the import
+        // declares a `max_id`, the reader falls back to the highest available version of the
+        // table and sizes its symbol subsequence to exactly `max_id` (truncating here).
+        map_catalog.insert_table(SharedSymbolTable::new(
+            "shared_table",
+            2,
+            ["foo", "bar", "baz"],
+        )?);
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 2 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $10 // "foo"
+                $11 // "bar"
+                $12 // "local_symbol"
+            "#,
+            map_catalog,
+        );
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "foo");
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "bar");
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn shared_symbol_table_version_fallback_pads_to_max_id() -> IonResult<()> {
+        let mut map_catalog = MapCatalog::new();
+        // The catalog has v2 of `shared_table` (with a single symbol) but the import requests
+        // v1 with a max_id of 3. The reader falls back to v2 and pads its symbols with unknown
+        // text to reach exactly `max_id` symbols.
+        map_catalog.insert_table(SharedSymbolTable::new("shared_table", 2, ["foo"])?);
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 3 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $10 // "foo"
+                $11 // == $0
+                $12 // == $0
+                $13 // "local_symbol"
+            "#,
+            map_catalog,
+        );
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "foo");
+        for _ in 0..2 {
+            assert_eq!(
+                reader.expect_next_value()?.read()?.expect_symbol()?,
+                SymbolRef::with_unknown_text()
+            );
+        }
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn lst_append_after_substituted_import() -> IonResult<()> {
+        let map_catalog = MapCatalog::new();
+        // `shared_table` is not in the catalog, so the reader substitutes a dummy table with
+        // two placeholder symbols ($10 and $11). The second LST imports `$ion_symbol_table`,
+        // appending to the current table: the placeholders must keep their positions and the
+        // appended symbol must be assigned the next available symbol ID.
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 2 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $ion_symbol_table::{
+                    imports: $ion_symbol_table,
+                    symbols: [ "appended_symbol" ]
+                }
+                $10 // == $0
+                $11 // == $0
+                $12 // "local_symbol"
+                $13 // "appended_symbol"
+            "#,
+            map_catalog,
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                reader.expect_next_value()?.read()?.expect_symbol()?,
+                SymbolRef::with_unknown_text()
+            );
+        }
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "appended_symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ivm_discards_substituted_import_context() -> IonResult<()> {
+        let map_catalog = MapCatalog::new();
+        // Before the IVM, $10 and $11 are placeholders from the substituted import and $12 is
+        // the local symbol that follows them. The IVM resets the symbol table to the system
+        // symbols; after a fresh LST (with no imports), $10 is the first new local symbol
+        // rather than a placeholder from the discarded import context.
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 2 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                $12 // "local_symbol"
+                $ion_1_0
+                $ion_symbol_table::{
+                    symbols: [ "fresh_symbol" ]
+                }
+                $10 // "fresh_symbol"
+            "#,
+            map_catalog,
+        );
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "local_symbol"
+        );
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "fresh_symbol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn substituted_import_symbols_as_field_name_and_annotation() -> IonResult<()> {
+        let map_catalog = MapCatalog::new();
+        // $10 and $11 are placeholders from the substituted import. Using them as a field
+        // name and as an annotation must parse successfully and surface unknown text.
+        let mut reader = system_reader_with_catalog_for(
+            r#"
+                $ion_symbol_table::{
+                    imports: [ { name:"shared_table", version: 1, max_id: 3 } ],
+                    symbols: [ "local_symbol" ]
+                }
+                { $10: 1 }
+                $11::true
+            "#,
+            map_catalog,
+        );
+        let struct_ = reader.expect_next_value()?.read()?.expect_struct()?;
+        let field = struct_
+            .iter()
+            .next()
+            .expect("the struct should have a field")?;
+        assert_eq!(field.name()?, SymbolRef::with_unknown_text());
+        assert_eq!(field.value().read()?.expect_i64()?, 1);
+
+        let annotated = reader.expect_next_value()?;
+        let annotation = annotated
+            .annotations()
+            .next()
+            .expect("the value should have an annotation")?;
+        assert_eq!(annotation, SymbolRef::with_unknown_text());
+        assert!(annotated.read()?.expect_bool()?);
         Ok(())
     }
 

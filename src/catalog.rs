@@ -9,6 +9,10 @@ pub trait Catalog {
     /// If a table with the given name doesn't exists or if the table name is an empty string
     /// then returns None
     /// If a table with multiple versions exists for the given name then it will return the latest version of table
+    ///
+    /// The reader uses this method to perform the spec-mandated fallback to the greatest
+    /// available version of a table when an import's exact `(name, version)` match is
+    /// unavailable and the import declares a `max_id`.
     fn get_table(&self, name: &str) -> Option<&SharedSymbolTable>;
     /// Returns the Shared Symbol Table with given table name and version
     /// If a table with given name and version doesn't exists then it returns None

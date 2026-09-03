@@ -21,6 +21,17 @@ pub(crate) enum SymbolText {
     Static(&'static str),
     // This Symbol is equivalent to SID zero (`$0`)
     Unknown,
+    // This Symbol is a placeholder for a symbol ID in a shared symbol table import that could
+    // not be resolved. Like `Unknown`, it has no text and is equivalent to `$0` when read
+    // (it compares equal to `Unknown`). The typed transcription layer -- the `WriteAsIon`
+    // implementations for `Element`, `Value`, `Symbol`, `SymbolRef`, and the lazy value types
+    // -- refuses to encode it (whether it appears in value position, as a struct field name,
+    // or as an annotation): emitting it as `$0` would silently and irreversibly discard the
+    // fact that the symbol had text in the (unavailable) shared table. However, the infallible
+    // conversions to `RawSymbolRef` used by the value writer APIs (e.g. `write_symbol`,
+    // `field_writer`, `with_annotations`) are an intentional lossy escape hatch: they map the
+    // placeholder to `$0` (symbol ID 0).
+    UnknownImport,
 }
 
 impl SymbolText {
@@ -29,7 +40,7 @@ impl SymbolText {
             SymbolText::Shared(s) => s.as_ref(),
             SymbolText::Owned(s) => s.as_str(),
             SymbolText::Static(s) => s,
-            SymbolText::Unknown => return None,
+            SymbolText::Unknown | SymbolText::UnknownImport => return None,
         };
         Some(text)
     }
@@ -49,6 +60,7 @@ impl Clone for SymbolText {
             SymbolText::Shared(text) => SymbolText::Shared(Arc::clone(text)),
             SymbolText::Static(text) => SymbolText::Static(text),
             SymbolText::Unknown => SymbolText::Unknown,
+            SymbolText::UnknownImport => SymbolText::UnknownImport,
         }
     }
 }
@@ -109,6 +121,23 @@ impl Symbol {
         Symbol {
             text: SymbolText::Unknown,
         }
+    }
+
+    /// Constructs a `Symbol` that stands in for a symbol ID in a shared symbol table import
+    /// that could not be resolved. Like [`Symbol::unknown_text`], the resulting symbol has no
+    /// text and is equivalent to `$0` when read, but the typed transcription layer
+    /// (`WriteAsIon`/`Element`) refuses to encode it. See [`SymbolText::UnknownImport`] for
+    /// details, including the lossy raw-level escape hatch.
+    pub(crate) fn unknown_import_placeholder() -> Symbol {
+        Symbol {
+            text: SymbolText::UnknownImport,
+        }
+    }
+
+    /// Returns `true` if this symbol is a placeholder for a symbol ID in a shared symbol
+    /// table import that could not be resolved. See [`SymbolText::UnknownImport`].
+    pub(crate) fn is_unknown_import_placeholder(&self) -> bool {
+        matches!(self.text, SymbolText::UnknownImport)
     }
 
     pub fn text(&self) -> Option<&str> {
@@ -262,5 +291,22 @@ mod symbol_tests {
         // Equality testing for a rust str with symbol
         let expected = vec!["bar", "baz", "foo", "quux"];
         assert_eq!(symbols, expected)
+    }
+
+    #[test]
+    fn unknown_import_placeholder_is_equivalent_to_unknown_text() {
+        // A placeholder for an unresolvable shared symbol table import has no text; for the
+        // purposes of equality, ordering, hashing, and Ion data equivalence it is
+        // indistinguishable from a genuine `$0`. (Only the writer treats them differently.)
+        let placeholder = Symbol::unknown_import_placeholder();
+        let unknown = Symbol::unknown_text();
+        assert_eq!(placeholder, unknown);
+        assert!(placeholder.ion_eq(&unknown));
+        assert_eq!(placeholder.cmp(&unknown), Ordering::Equal);
+        assert_eq!(placeholder.text(), None);
+        assert!(placeholder.is_unknown_import_placeholder());
+        assert!(!unknown.is_unknown_import_placeholder());
+        // Cloning preserves the placeholder marker.
+        assert!(placeholder.clone().is_unknown_import_placeholder());
     }
 }

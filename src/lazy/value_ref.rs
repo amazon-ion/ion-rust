@@ -330,6 +330,17 @@ mod tests {
     use crate::{v1_0, Decimal, IonResult, IonType, Reader, SymbolRef, Timestamp};
 
     #[test]
+    fn value_ref_size_regression() {
+        use crate::lazy::any_encoding::AnyEncoding;
+        // `SymbolRef` gained a one-byte flag (padded to 24 bytes; see the size regression
+        // test in `symbol_ref.rs`), but `ValueRef`'s size is dominated by larger variants,
+        // so it remains 96 bytes — the same as before the flag was added. This test guards
+        // against the enum accidentally growing (e.g. if a variant's payload expands past
+        // the current maximum).
+        assert_eq!(std::mem::size_of::<ValueRef<'_, AnyEncoding>>(), 96);
+    }
+
+    #[test]
     fn expect_type() -> IonResult<()> {
         let ion_data = to_binary_ion(
             r#"

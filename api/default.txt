@@ -765,6 +765,12 @@ pub fn ion_rs::SymbolRef<'a>::with_text(&'a str) -> ion_rs::SymbolRef<'a>
 pub fn ion_rs::SymbolRef<'a>::with_unknown_text() -> Self
 impl core::borrow::Borrow<str> for ion_rs::SymbolRef<'_>
 pub fn ion_rs::SymbolRef<'_>::borrow(&self) -> &str
+impl core::cmp::Ord for ion_rs::SymbolRef<'_>
+pub fn ion_rs::SymbolRef<'_>::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for ion_rs::SymbolRef<'_>
+pub fn ion_rs::SymbolRef<'_>::eq(&self, &Self) -> bool
+impl core::cmp::PartialOrd for ion_rs::SymbolRef<'_>
+pub fn ion_rs::SymbolRef<'_>::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
 impl core::convert::From<ion_rs::SymbolRef<'_>> for ion_rs::Value
 pub fn ion_rs::Value::from(ion_rs::SymbolRef<'_>) -> Self
 impl core::fmt::Debug for ion_rs::SymbolRef<'_>
