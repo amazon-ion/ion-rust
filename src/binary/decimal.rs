@@ -51,18 +51,18 @@ where
 
         bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
-        match decimal.coefficient().as_int() {
-            Some(int) if int == Int::ZERO => {
-                // From the spec: "The subfield should not be present (that is, it
-                // has zero length) when the coefficient’s value is (positive)
-                // zero."
-            }
-            Some(int) => {
-                bytes_written += DecodedInt::write(self, int)?;
-            }
-            None => {
+        // Encode the coefficient directly from the decimal's fields, avoiding the two clones that
+        // `decimal.coefficient().as_int()` would incur (one in `coefficient()`, one in `as_int()`).
+        // `coefficient_value` is the signed coefficient; `coefficient_sign` only carries independent
+        // information when the value is zero, distinguishing +0 from -0.
+        if decimal.coefficient_value.is_zero() {
+            if decimal.coefficient_sign == Sign::Negative {
                 bytes_written += DecodedInt::write_negative_zero(self)?;
             }
+            // From the spec: "The subfield should not be present (that is, it has zero length) when
+            // the coefficient's value is (positive) zero."
+        } else {
+            bytes_written += DecodedInt::write(self, &decimal.coefficient_value)?;
         }
 
         Ok(bytes_written)

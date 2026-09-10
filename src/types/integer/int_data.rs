@@ -43,28 +43,36 @@ impl UIntData {
     pub(crate) fn to_le_bytes(&self) -> Vec<u8> {
         match &self.0 {
             SmallValue(value) => {
-                if *value == 0 {
-                    return vec![0];
-                }
+                // Mirror of `small_to_be_bytes`'s trimming rule for little-endian order: `value | 1`
+                // keeps it total, so zero yields `len == 1` (a single `0x00` byte).
                 let bytes = value.to_le_bytes();
-                let len = 16 - (value.leading_zeros() / 8) as usize;
+                let len = size_of::<u128>() - ((value | 1).leading_zeros() / 8) as usize;
                 bytes[..len].to_vec()
             }
             BigValue(big_value) => cold_path! { big_value.to_bytes_le() },
         }
     }
 
+    /// Encodes `mag` as big-endian bytes on the stack, returning the full buffer along with the
+    /// offset at which the minimal encoding begins: leading zero bytes are dropped, and zero encodes
+    /// as a single `0x00` byte. [`Self::to_le_bytes`] mirrors this rule for little-endian order.
+    ///
+    /// The returned offset is always `< 16`, so `&buf[offset..]` is never empty and `buf[offset]`
+    /// is always in bounds. Hot encoders can use this to avoid the heap allocation that
+    /// [`Self::to_be_bytes`] performs.
+    #[inline]
+    pub(crate) fn small_to_be_bytes(mag: u128) -> ([u8; size_of::<u128>()], usize) {
+        // `mag | 1` keeps this derivation total: `0u128.leading_zeros() / 8` is 16, which would be
+        // out of bounds. Setting the low bit cannot move the highest set bit, so every non-zero
+        // magnitude is unaffected, while zero yields 15 -- a single `0x00` byte.
+        let start = ((mag | 1).leading_zeros() / 8) as usize;
+        (mag.to_be_bytes(), start)
+    }
+
     pub(crate) fn to_be_bytes(&self) -> Vec<u8> {
         match &self.0 {
             SmallValue(value) => {
-                if *value == 0 {
-                    return vec![0];
-                }
-                let bytes = value.to_be_bytes();
-                let start = bytes
-                    .iter()
-                    .position(|&b| b != 0)
-                    .unwrap_or(bytes.len() - 1);
+                let (bytes, start) = Self::small_to_be_bytes(*value);
                 bytes[start..].to_vec()
             }
             BigValue(big_value) => cold_path! { big_value.to_bytes_be() },
@@ -179,6 +187,7 @@ impl IntData {
         }
     }
 
+    #[inline]
     pub(crate) fn is_negative(&self) -> bool {
         match &self.0 {
             SmallValue(value) => *value < 0,
@@ -232,6 +241,7 @@ impl IntData {
         }
     }
 
+    #[inline]
     pub(crate) fn unsigned_abs(&self) -> UIntData {
         match &self.0 {
             SmallValue(value) => UIntData(SmallValue(value.unsigned_abs())),
