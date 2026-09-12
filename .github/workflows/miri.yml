@@ -69,7 +69,7 @@ jobs:
       # Module-path test selection, defined once. Each dependent part appends its
       # own module (space-separated; the value word-splits into one filter each),
       # e.g. `overflowing_int coefficient integer annotations`.
-      MIRI_TEST_SELECTION: overflowing_int
+      MIRI_TEST_SELECTION: overflowing_int annotations
 
     steps:
       - name: Git Checkout
