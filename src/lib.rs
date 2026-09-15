@@ -220,6 +220,7 @@ macro_rules! v1_x_reader_writer {
             lazy::streaming_raw_reader::{IonSlice, IonStream},
             lazy::decoder::Decoder,
             lazy::encoder::Encoder,
+            lazy::encoder::Reusable,
             lazy::encoding::Encoding,
             lazy::encoder::annotate::Annotatable,
             lazy::encoder::write_as_ion::WriteAsIon,

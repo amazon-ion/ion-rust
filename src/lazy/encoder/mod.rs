@@ -61,6 +61,100 @@ pub(crate) mod private {
     pub trait Sealed {}
 }
 
+/// Which of a managed writer's two raw sub-writers is being recycled. The system (directive)
+/// writer re-seeds the encoding's construction prologue; the application (data) writer never
+/// does, because emitting a second prologue mid-stream would corrupt the document.
+// `pub` in this `pub(crate)` module: usable throughout the crate, unreachable from any public path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriterRole {
+    /// The sub-writer that emits the stream prologue and encoding directives (symbol tables,
+    /// etc.).
+    System,
+    /// The sub-writer that emits user data.
+    Application,
+}
+
+/// The crate-internal half of [`Reusable`]: the operations a managed writer performs on a
+/// sub-writer it is parking. Kept out of the public API deliberately -- `recycle` DISCARDS whatever
+/// the sub-writer has buffered, so calling it at the wrong moment silently truncates the document
+/// being encoded. Only [`Writer::detach`](crate::lazy::encoder::writer::Writer::detach) may call it.
+// Like `WriterRole` above, this is `pub` in a `pub(crate)` module, so downstream crates can neither
+// implement it nor call its methods.
+pub trait Recycle {
+    /// Returns this writer to its freshly-built state for `role`, discarding any buffered
+    /// (unflushed) content: the output buffer and any internal scratch state are emptied,
+    /// retained memory is released if it has grown past [`IDLE_RETAIN_CAP`], and -- for
+    /// [`WriterRole::System`] only -- the encoding's construction prologue is re-seeded so that the
+    /// next document begins exactly as a fresh writer's would.
+    ///
+    /// Infallible: implementations only ever exist for `Vec<u8>`-backed writers, whose writes
+    /// cannot fail. Nothing is written to any sink here, so bytes the caller wanted emitted must
+    /// have been `flush`ed beforehand.
+    fn recycle(&mut self, role: WriterRole);
+
+    /// Re-applies the encoding-level settings in `config` to this writer in place, i.e. without
+    /// rebuilding it (which would throw away the warm scratch state that makes reuse worthwhile).
+    /// Only the fields a fresh writer would derive from `config` are touched.
+    fn apply_config<E: Encoding>(&mut self, config: &WriteConfig<E>);
+}
+
+/// The upper bound on the memory a parked (idle) writer may retain in any one of its buffers or
+/// scratch arenas. Each of those grows to fit the largest document the writer has encoded; a pooled
+/// writer can live for the rest of the process, so anything that has grown past this cap is dropped
+/// in favor of a small fresh allocation instead of being held indefinitely. The cost is one
+/// reallocation the next time a large document is encoded. (A future refinement could make this
+/// adaptive to avoid thrashing when large documents are frequent.)
+// These caps are encoding-agnostic on purpose: they describe the managed writer's parking policy, so
+// they do not belong to (and must not be borrowed from) any one encoding's writer module.
+pub(crate) const IDLE_RETAIN_CAP: usize = 256 * 1024;
+
+/// The capacity given to the replacement buffer when a retained buffer exceeds [`IDLE_RETAIN_CAP`].
+/// Sized to hold a typical small document -- the workload the reusable-writer API exists for --
+/// without immediately reallocating.
+pub(crate) const IDLE_BUFFER_CAPACITY: usize = 8 * 1024;
+
+/// The upper bound on the number of entries a parked writer's symbol table may retain. Expressed in
+/// entries rather than bytes because that is what the table's storage is sized by; at a few dozen
+/// bytes per entry (one `Symbol` in the by-ID vector plus one map entry), this is the same order of
+/// magnitude as [`IDLE_RETAIN_CAP`].
+pub(crate) const IDLE_SYMBOL_RETAIN_CAP: usize = 1024;
+
+/// Bounds the memory a parked (idle) writer retains in `buffer`. If `buffer` has grown past
+/// [`IDLE_RETAIN_CAP`], it is replaced with a small fresh one rather than held for the (possibly very
+/// long) life of a pooled writer.
+///
+/// The buffer must already be empty, because replacing it discards its contents; each
+/// [`Recycle::recycle`] implementation clears it immediately before calling this, so the assertion
+/// below is a cross-check on them.
+pub(crate) fn cap_retained_buffer(buffer: &mut Vec<u8>) {
+    debug_assert!(
+        buffer.is_empty(),
+        "a retained buffer must be drained before it is capped"
+    );
+    if buffer.capacity() > IDLE_RETAIN_CAP {
+        *buffer = Vec::with_capacity(IDLE_BUFFER_CAPACITY);
+    }
+}
+
+/// A marker for raw writers that a managed [`Writer`](writer::Writer) can park (sink-less) and reuse.
+///
+/// This trait is sealed and carries no callable API of its own -- the methods that make a writer
+/// reusable live on crate-private supertraits, because calling them at the wrong moment would discard
+/// a document mid-encode. It exists to gate the reusable-writer API (`idle`/`attach`/`detach` on
+/// [`Writer`](writer::Writer)) at compile time, and is nameable so that generic code -- a writer pool,
+/// say -- can repeat the bound:
+///
+/// ```text
+/// impl<E: Encoding> MyPool<E> where E::Writer<Vec<u8>>: Reusable { /* ... */ }
+/// ```
+///
+/// Only the Ion 1.0 raw writers implement it, so only `Writer<BinaryEncoding_1_0, _>` and
+/// `Writer<TextEncoding_1_0, _>` can be reused. The Ion 1.1 encodings deliberately opt out: their
+/// writers own a macro table, and recycling one would have to discard the user macros it holds (and
+/// re-seed the 1.1 prologue), which is not implemented; letting a 1.1 writer be reused would silently
+/// produce documents that reference macros the stream never defines.
+pub trait Reusable: private::Sealed + Recycle {}
+
 /// An Ion writer without a symbol table.
 // Because macro invocations require access to the macro's signature, raw writers own their
 // macro table.
