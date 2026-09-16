@@ -4,6 +4,7 @@ use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::Symbol;
+use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
 use rustc_hash::FxHasher;
 use std::cmp::Ordering;
@@ -56,7 +57,7 @@ const fn parse_threshold(text: &str) -> usize {
 
 /// One entry in the lazily built hash lookup index. Stores the cached field-name hash (so probes
 /// don't rehash the stored name) and the index of the corresponding pair in [`Fields::slots`].
-/// Only fields with **known** text are indexed; unknown-text (`$0`) lookups scan `slots` directly.
+/// Every slot is indexed, including unknown-text (`$0`) fields (see [`symbol_name_hash`]).
 #[derive(Debug, Clone, Copy)]
 struct HashIndex {
     hash: u64,
@@ -67,7 +68,7 @@ struct HashIndex {
 /// iterate-only struct never allocates either index, and so `Fields` itself stays pointer-small.
 #[derive(Debug, Clone, Default)]
 struct FieldsAux {
-    /// Hash lookup index over known-text fields, built on the first large-struct `get()`.
+    /// Hash lookup index over all fields, built on the first large-struct `get()`.
     table: OnceLock<Box<HashTable<HashIndex>>>,
     /// Slot indices sorted into canonical Ion field order, built on the first
     /// equality / ordering / hashing operation. Covers **all** slots, including unknown-text ones.
@@ -93,6 +94,24 @@ fn field_name_hash(text: &str) -> u64 {
     hasher.finish()
 }
 
+/// The hash a text-less field name (`$0`, unknown text) is indexed and probed under. `$0` has no
+/// text to feed [`field_name_hash`], so it gets a fixed sentinel. Correctness does not depend on
+/// the value — the `find` predicate disambiguates any collision, exactly as it does for two
+/// known-text names that hash alike — and a known-text field is no likelier to hash here than to
+/// any other fixed value. Every `$0` field shares this one hash, but the index dedups by name (see
+/// [`Fields::table`]), so many `$0` fields cost one entry, not a single overloaded bucket.
+const UNKNOWN_TEXT_HASH: u64 = 0;
+
+/// The hash a field name is indexed and probed under: its `text` hashed with [`field_name_hash`],
+/// or [`UNKNOWN_TEXT_HASH`] when the name has unknown text (`$0`, `text == None`). This is the one
+/// place the index build and every probe agree on the mapping, so they cannot drift.
+fn name_hash(text: Option<&str>) -> u64 {
+    match text {
+        Some(text) => field_name_hash(text),
+        None => UNKNOWN_TEXT_HASH,
+    }
+}
+
 impl Fields {
     fn aux(&self) -> &FieldsAux {
         self.aux
@@ -100,8 +119,14 @@ impl Fields {
             .as_ref()
     }
 
-    /// Returns the hash lookup index, building it on first use. Indexes only known-text fields;
-    /// unknown-text fields are found by [`get_unknown_text`](Self::get_unknown_text) instead.
+    /// Returns the hash lookup index, building it on first use. Indexes the first slot of each
+    /// distinct field name, keyed under [`name_hash`], so both known-text and unknown-text (`$0`)
+    /// fields are probeable.
+    ///
+    /// Only the *first* occurrence of a name is stored: `get()` needs a single match and `get_all()`
+    /// scans `slots` directly, so a later duplicate adds nothing to the index. Skipping duplicates
+    /// also keeps the build linear — indexing every occurrence would pile all N repeats of a name
+    /// (and all `$0` fields, which share one hash) into a single bucket, making the build O(N²).
     fn table(&self) -> &HashTable<HashIndex> {
         self.aux()
             .table
@@ -114,16 +139,18 @@ impl Fields {
                 );
                 let mut table = HashTable::with_capacity(self.slots.len());
                 for (i, (name, _)) in self.slots.iter().enumerate() {
-                    if let Some(text) = name.text() {
-                        let hash = field_name_hash(text);
-                        table.insert_unique(
+                    let hash = name_hash(name.text());
+                    if let Entry::Vacant(vacant) = table.entry(
+                        hash,
+                        |entry: &HashIndex| {
+                            self.slots[entry.slot_index as usize].0.text() == name.text()
+                        },
+                        |entry| entry.hash,
+                    ) {
+                        vacant.insert(HashIndex {
                             hash,
-                            HashIndex {
-                                hash,
-                                slot_index: i as u32,
-                            },
-                            |entry| entry.hash,
-                        );
+                            slot_index: i as u32,
+                        });
                     }
                 }
                 Box::new(table)
@@ -161,39 +188,28 @@ impl Fields {
     /// single struct instance but is otherwise unspecified. Applications that repeat field names
     /// should use [`get_all`](Self::get_all).
     fn get<A: AsSymbolRef>(&self, field_name: A) -> Option<&Element> {
-        match field_name.as_symbol_ref().text() {
-            Some(text) => self.get_by_text(text),
-            None => self.get_unknown_text(),
-        }
+        self.get_matching(field_name.as_symbol_ref().text())
     }
 
-    /// Looks up a known-text field name: a linear scan for small structs, a hash probe for large
-    /// ones. Both return the first match encountered, which is consistent per instance because the
-    /// slice order is fixed and the built-once table's `find` order is stable.
-    fn get_by_text(&self, text: &str) -> Option<&Element> {
+    /// Looks up a field name by its `text` (`None` is the unknown-text `$0` name): a linear scan for
+    /// small structs, a hash probe for large ones. The hash is derived from `text` via [`name_hash`]
+    /// only on the probe path, so a small-struct lookup never hashes. When a name repeats, both
+    /// regimes return the value at its *first* slot — the linear scan finds it first, and the index
+    /// stores only that first slot (see [`table`](Self::table)) — so the two agree regardless of
+    /// struct size. Callers must still treat the choice among duplicates as unspecified.
+    fn get_matching(&self, text: Option<&str>) -> Option<&Element> {
         if self.slots.len() <= LINEAR_SCAN_THRESHOLD {
             self.slots
                 .iter()
-                .find(|(name, _)| name.text() == Some(text))
+                .find(|(name, _)| name.text() == text)
                 .map(|(_, value)| value)
         } else {
-            let hash = field_name_hash(text);
             self.table()
-                .find(hash, |entry| {
-                    self.slots[entry.slot_index as usize].0.text() == Some(text)
+                .find(name_hash(text), |entry| {
+                    self.slots[entry.slot_index as usize].0.text() == text
                 })
                 .map(|entry| &self.slots[entry.slot_index as usize].1)
         }
-    }
-
-    /// Looks up the unknown-text (`$0`) field name. These share a hash with the empty-text field
-    /// name but compare unequal, so they are never indexed; a direct scan for the first text-less
-    /// field is both correct and cheap.
-    fn get_unknown_text(&self) -> Option<&Element> {
-        self.slots
-            .iter()
-            .find(|(name, _)| name.text().is_none())
-            .map(|(_, value)| value)
     }
 
     /// Iterates over all values associated with the given field name.
@@ -538,8 +554,10 @@ mod tests {
     use crate::ion_data::IonEq;
     use crate::{ion_struct, Struct, Symbol};
 
-    // Field count that forces `get()` onto the hash-index path (> LINEAR_SCAN_THRESHOLD).
-    const ABOVE_THRESHOLD: usize = 60;
+    // Field count that forces `get()` onto the hash-index path (> LINEAR_SCAN_THRESHOLD). Derived
+    // from the threshold so a build-time `ION_RS_STRUCT_LINEAR_SCAN_THRESHOLD` override can't
+    // silently drop these cases back onto the linear path and void the hash-index coverage.
+    const ABOVE_THRESHOLD: usize = super::LINEAR_SCAN_THRESHOLD * 4 + 1;
 
     /// Builds a struct with `n` distinct fields named `f0..fn`, plus any `extra` (name, value)
     /// pairs appended after them. Used to exercise both the linear-scan and hash-index regimes.
@@ -620,9 +638,44 @@ mod tests {
     #[rstest::rstest]
     #[case::below(4)]
     #[case::above(ABOVE_THRESHOLD)]
+    fn repeated_unknown_text_fields(#[case] n: usize) {
+        // Multiple $0 fields all key under UNKNOWN_TEXT_HASH, so above the threshold the hash index
+        // holds several entries in one bucket and a probe must walk them. A $0 placed non-terminally
+        // (first here) also guards against the lookup only ever finding a trailing text-less slot.
+        let mut builder = Struct::builder().with_field(Symbol::unknown_text(), Element::int(1));
+        for i in 0..n {
+            builder = builder.with_field(format!("f{i}"), Element::int(i as i64));
+        }
+        let s = builder
+            .with_field(Symbol::unknown_text(), Element::int(2))
+            .with_field(Symbol::owned(""), Element::int(3))
+            .build();
+
+        // get() returns *a* $0 value (which one is unspecified per its contract), never the ""
+        // value — the point is that a text-less probe resolves to a text-less slot.
+        let got = s.get(Symbol::unknown_text());
+        assert!(got == Some(&Element::int(1)) || got == Some(&Element::int(2)));
+        // get_all() yields every $0 value in slot order and excludes the "" field.
+        assert_eq!(
+            s.get_all(Symbol::unknown_text()).collect::<Vec<_>>(),
+            vec![&Element::int(1), &Element::int(2)]
+        );
+        // The "" field and known-text fields remain independently resolvable.
+        assert_eq!(s.get(""), Some(&Element::int(3)));
+        if n > 0 {
+            assert_eq!(s.get("f0"), Some(&Element::int(0)));
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::below(4)]
+    #[case::above(ABOVE_THRESHOLD)]
     fn unknown_text_and_empty_text_do_not_collide(#[case] n: usize) {
-        // Symbol::unknown_text() and Symbol::from("") hash identically but compare unequal. A
-        // hand-written hash/eq that collapsed them would return the wrong value for one.
+        // The unknown-text ($0) name and the empty-text ("") name are distinct field names that
+        // must resolve independently. `name_hash` keys them under different hashes, so above the
+        // threshold each probe walks its own bucket; below it, the linear scan compares full names.
+        // Either way, collapsing the two — or letting one shadow the other in the index — would
+        // return the wrong value, and adding both to the index must not disturb known-text lookups.
         let mut builder = struct_with(n, &[]).clone_builder();
         builder = builder
             .with_field(Symbol::unknown_text(), Element::int(100))
@@ -632,6 +685,12 @@ mod tests {
         assert_eq!(s.get(Symbol::unknown_text()), Some(&Element::int(100)));
         assert_eq!(s.get(Symbol::owned("")), Some(&Element::int(200)));
         assert_eq!(s.get(""), Some(&Element::int(200)));
+        // Known-text fields still resolve with the text-less entries present in the index.
+        if n > 0 {
+            assert_eq!(s.get("f0"), Some(&Element::int(0)));
+            let last = format!("f{}", n - 1);
+            assert_eq!(s.get(last.as_str()), Some(&Element::int((n - 1) as i64)));
+        }
     }
 
     #[rstest::rstest]
