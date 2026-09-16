@@ -175,6 +175,16 @@ impl SymbolTable {
         id
     }
 
+    /// Reserves capacity for at least `additional` more symbols, avoiding repeated
+    /// reallocation and rehashing when the number of incoming symbols is known up front
+    /// (for example, when applying a parsed local symbol table). Only
+    /// `additional_with_text` of those symbols are expected to have known text; symbols
+    /// with unknown text never get an entry in the text-to-ID map.
+    pub(crate) fn reserve(&mut self, additional: usize, additional_with_text: usize) {
+        self.symbols_by_id.reserve(additional);
+        self.ids_by_text.reserve(additional_with_text);
+    }
+
     /// Assigns unknown text to the next available symbol ID. This is used when an Ion reader
     /// encounters null or non-string values in a stream's symbol table.
     pub(crate) fn add_placeholder(&mut self) -> SymbolId {

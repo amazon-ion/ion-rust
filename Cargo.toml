@@ -98,6 +98,10 @@ name = "read_many_structs"
 harness = false
 
 [[bench]]
+name = "large_doc_read"
+harness = false
+
+[[bench]]
 name = "write_many_structs"
 harness = false
 
