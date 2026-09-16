@@ -55,9 +55,12 @@ jobs:
     # A single runner: Miri interprets the abstract machine, so these tests —
     # which have no syscalls, FFI, clock, or `cfg`-conditional code — behave
     # identically across host OSes. The dimensions the layout actually depends on
-    # are pointer width (covered by the wasm32 `cargo check` in `rust.yml`) and
-    # endianness, exercised below by a big-endian target rather than by a second
-    # OS (all GitHub runners are little-endian).
+    # are pointer width and endianness, both exercised below by cross-target Miri
+    # runs (i686 for 32-bit, s390x for big-endian) rather than by a second host OS
+    # (all GitHub runners are 64-bit little-endian). The wasm32 `cargo check` in
+    # `rust.yml` is a separate, compile-time confirmation that the layout
+    # assertions hold at a 32-bit pointer width; it does not exercise the unsafe
+    # reads, and (see that job's comment) does not itself shrink `HeapValue`.
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     permissions:
@@ -85,27 +88,30 @@ jobs:
         run: cargo miri setup
       # The `serde` job above filters by test name and will not select these
       # tests. This job selects by MODULE PATH via `MIRI_TEST_SELECTION` (above),
-      # which fails closed — a new test in a selected module runs with no per-name
-      # registration. Filters go after `--` (Cargo rejects multiple bare filters).
+      # which fails closed for a new test in a selected module (it runs with no
+      # per-name registration). A module *rename*, however, would make the
+      # selection match nothing and libtest would exit 0, so `run-miri.sh` wraps
+      # each invocation and fails when zero tests execute. Filters go after `--`
+      # (Cargo rejects multiple bare filters).
       #
       # `-Zmiri-strict-provenance` is in the flag set from the start: the union
       # reads its tag through a dedicated arm so it never materializes the boxed
       # pointer as an integer, and this flag is what enforces that.
       - name: Test with Miri (native x86-64, 64-bit, little-endian)
-        run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows -Zmiri-strict-provenance" cargo miri test -- $MIRI_TEST_SELECTION
+        run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows -Zmiri-strict-provenance" ./run-miri.sh -- $MIRI_TEST_SELECTION
       # 32-bit pointer width: `Box` is 4 bytes, so `HeapValue`'s layout and
       # trailing padding differ from the 64-bit case, and `u64` aligns to 4 under
       # this ABI. Exercises the unsafe reads against a layout the 64-bit run
       # cannot produce. (The wasm32 `cargo check` covers the 32-bit assertions at
       # compile time; this runs the unsafe under a 32-bit interpreter.)
       - name: Test with Miri (i686, 32-bit, little-endian)
-        run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows -Zmiri-strict-provenance" cargo miri test --target i686-unknown-linux-gnu -- $MIRI_TEST_SELECTION
+        run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows -Zmiri-strict-provenance" ./run-miri.sh --target i686-unknown-linux-gnu -- $MIRI_TEST_SELECTION
       # Big-endian target: the union reconstructs its magnitude from `u64` word
       # values rather than raw bytes, so the layout must be endian-independent.
       # Miri interprets the foreign target directly (no s390x toolchain needed),
       # which is a stronger check than any little-endian second OS.
       - name: Test with Miri (s390x, 64-bit, big-endian)
-        run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows -Zmiri-strict-provenance" cargo miri test --target s390x-unknown-linux-gnu -- $MIRI_TEST_SELECTION
+        run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows -Zmiri-strict-provenance" ./run-miri.sh --target s390x-unknown-linux-gnu -- $MIRI_TEST_SELECTION
 
   confirm-miri:
     # A single "join" over both Miri jobs so branch protection can require one

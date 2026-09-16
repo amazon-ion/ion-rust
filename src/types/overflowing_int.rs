@@ -1,22 +1,25 @@
 //! A compact, immutable sign-magnitude integer used to back the crate's numeric
 //! types.
 //!
-//! [`OverflowingInt`] is a 16-byte, align-8 tagged union. It stores a
-//! sign-magnitude integer inline when the magnitude fits in 126 bits and
-//! heap-allocates a [`BigUint`] beyond that. Align 8 is the point of the type:
-//! an inline `i128` (or a `Box<BigInt>` paired with a sign field) forces align
-//! 16, which pads every enclosing enum.
+//! [`OverflowingInt`] is a 16-byte tagged union, aligned to at most 8. It stores
+//! a sign-magnitude integer inline when the magnitude fits in 126 bits and
+//! heap-allocates a [`BigUint`] beyond that. Avoiding align 16 is the point of
+//! the type: an inline `i128` (or a `Box<BigInt>` paired with a sign field)
+//! forces align 16, which pads every enclosing enum. This type is align 8 on
+//! common targets and align 4 on 32-bit ABIs where `u64` aligns to 4 (e.g.
+//! `i686`); the invariant it upholds is only that it is never align 16.
 //!
 //! # Invariants
 //!
 //! Everything `unsafe` in this module rests on three properties, all enforced by
 //! construction rather than by callers:
 //!
-//! 1. **Tag agreement** — bit 0 of the word at offset 0 always identifies the
+//! 1. **Tag agreement** — bit 63 of the word at offset 0 always identifies the
 //!    active variant (1 = inline, 0 = heap). Both variants keep a
 //!    fully-initialized `u64` at offset 0 that this type controls, so the tag is
 //!    read through the dedicated `tag` arm and never by materializing the `Box`
-//!    as an integer.
+//!    as an integer. The sign shares this word at bit 62 in both variants, so the
+//!    tag and sign reads are identical code on either arm.
 //! 2. **Canonicality** — a magnitude is heap-backed **iff** it does not fit
 //!    inline. Every constructor demotes a value that fits. This is what makes
 //!    comparison, hashing, and the zero test correct without ever promoting a
@@ -52,18 +55,38 @@ use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem::ManuallyDrop;
 
-/// Number of magnitude bits available inline. The inline word pair spends bit 0
-/// on the tag and bit 1 on the sign, leaving 126 bits — two short of an `i128`.
+/// Number of magnitude bits available inline. The offset-0 word spends its top
+/// two bits — bit 63 on the tag and bit 62 on the sign — leaving 126 magnitude
+/// bits across the two words, two short of an `i128`.
 const INLINE_MAGNITUDE_BITS: u32 = 126;
 
 /// How many magnitude bits `words[0]` carries: 64 bits minus the 2 overhead bits
-/// (bit 0 tag, bit 1 sign). `words[1]` carries the remaining 64, so the two words
-/// hold `62 + 64 == 126` magnitude bits. The magnitude is split at this bit.
+/// at the top (bit 63 tag, bit 62 sign). `words[1]` carries the remaining 64, so
+/// the two words hold `62 + 64 == 126` magnitude bits. The magnitude is split at
+/// this bit.
 const INLINE_LOW_MAGNITUDE_BITS: u32 = 62;
 
 // The low/high split must account for exactly the inline capacity, or the
 // encode/decode pair below would silently corrupt magnitudes.
 const _: () = assert!(INLINE_LOW_MAGNITUDE_BITS + 64 == INLINE_MAGNITUDE_BITS);
+
+/// Bit index of the tag within the offset-0 word (1 = inline, 0 = heap). Shared
+/// by both variants; see the module invariants.
+const TAG_BIT: u32 = 63;
+
+/// Bit index of the sign within the offset-0 word (1 = negative). Shared by both
+/// variants, so the sign read is variant-independent.
+const SIGN_BIT: u32 = 62;
+
+// The tag and sign must sit above the low magnitude bits `words[0]` carries, or
+// they would collide with the magnitude and silently corrupt the value.
+const _: () = assert!(SIGN_BIT == INLINE_LOW_MAGNITUDE_BITS && TAG_BIT == SIGN_BIT + 1);
+// The tag must be the most-significant bit. `PartialEq`'s raw-`words` fast path
+// relies on `words[0]` having no bit above the tag (see its SAFETY comment).
+const _: () = assert!(TAG_BIT == u64::BITS - 1);
+
+/// Mask selecting the low magnitude bits carried in `words[0]` (bits `0..=61`).
+const INLINE_LOW_MAGNITUDE_MASK: u64 = (1u64 << INLINE_LOW_MAGNITUDE_BITS) - 1;
 
 /// The exclusive upper bound on an inline magnitude: `2^126`.
 const INLINE_LIMIT: u128 = 1u128 << INLINE_MAGNITUDE_BITS;
@@ -75,16 +98,18 @@ fn sign_bit(sign: Sign) -> u64 {
     u64::from(matches!(sign, Sign::Negative))
 }
 
-/// A 16-byte, align-8 sign-magnitude integer. See the module documentation for
-/// the layout and the invariants this type owns.
+/// A 16-byte sign-magnitude integer, aligned to at most 8. See the module
+/// documentation for the layout and the invariants this type owns.
 #[repr(C)]
 pub(crate) union OverflowingInt {
-    /// The tag word alone. Every tag read goes through this arm, never through
+    /// The tag word alone. Every tag *and* sign read goes through this arm (they
+    /// share bits 63 and 62 of the offset-0 word in both variants), never through
     /// `words` by value — reading `words` while the heap variant is active would
     /// materialize the `Box` as an integer.
     tag: u64,
-    /// Inline variant (tag bit == 1): `words[0]` holds the tag, sign, and the low
-    /// 62 magnitude bits; `words[1]` holds the high 64 magnitude bits.
+    /// Inline variant (tag bit == 1): `words[0]` holds the tag (bit 63), the sign
+    /// (bit 62), and the low 62 magnitude bits (bits `0..=61`); `words[1]` holds
+    /// the high 64 magnitude bits.
     words: [u64; 2],
     /// Heap variant (tag bit == 0).
     heap: ManuallyDrop<HeapValue>,
@@ -95,11 +120,32 @@ pub(crate) union OverflowingInt {
 /// representation, width, and endianness.
 #[repr(C)]
 struct HeapValue {
-    /// Bit 0: always 0 (the heap tag). Bit 63: sign (1 = negative).
+    /// Bit 63: always 0 (the heap tag). Bit 62: sign (1 = negative). Same tag and
+    /// sign placement as the inline word, so both are read by the same code.
     meta: u64,
     /// The magnitude. Always `>= 2^126` by canonicality, and therefore never
     /// zero.
     value: Box<BigUint>,
+}
+
+// `raw0` reads the offset-0 `u64` of whichever variant is active; for the heap
+// variant that soundness rests on `meta` being `HeapValue`'s first field. Pin it
+// so a field reorder fails the build rather than silently reading pointer bytes.
+const _: () = assert!(std::mem::offset_of!(HeapValue, meta) == 0);
+
+impl HeapValue {
+    /// Builds a heap payload with the tag clear (bit 63 == 0) and the sign in
+    /// bit 62 — the same encoding as the inline word. This is the only place that
+    /// *computes* `meta` from a `Sign` (`Clone` copies an already-valid `meta`):
+    /// because the tag and sign are now adjacent, a stray shift here would make a
+    /// heap value read as inline (`is_inline` true), which is UB rather than a
+    /// wrong answer, so the invariant is checked on every construction.
+    #[inline]
+    fn new(sign: Sign, value: Box<BigUint>) -> Self {
+        let meta = sign_bit(sign) << SIGN_BIT;
+        debug_assert_eq!(meta >> TAG_BIT, 0, "heap meta must leave the tag bit clear");
+        HeapValue { meta, value }
+    }
 }
 
 /// A borrowed view of a magnitude, for comparison and byte emission without
@@ -111,12 +157,16 @@ pub(crate) enum Magnitude<'a> {
 
 impl OverflowingInt {
     /// Positive zero.
-    // Inline: tag = 1 (bit 0), sign = positive (bit 1 = 0), magnitude = 0.
-    pub(crate) const ZERO: Self = Self { words: [0b01, 0] };
+    // Inline: tag = 1 (bit 63), sign = positive (bit 62 = 0), magnitude = 0.
+    pub(crate) const ZERO: Self = Self {
+        words: [1 << TAG_BIT, 0],
+    };
 
     /// Negative zero. Meaningful to `Coefficient`; forbidden by `IntData`.
-    // Inline: tag = 1 (bit 0), sign = negative (bit 1 = 1), magnitude = 0.
-    pub(crate) const NEGATIVE_ZERO: Self = Self { words: [0b11, 0] };
+    // Inline: tag = 1 (bit 63), sign = negative (bit 62 = 1), magnitude = 0.
+    pub(crate) const NEGATIVE_ZERO: Self = Self {
+        words: [(1 << TAG_BIT) | (1 << SIGN_BIT), 0],
+    };
 
     // ===== Construction =====
 
@@ -124,11 +174,13 @@ impl OverflowingInt {
     #[inline]
     fn from_inline(sign: Sign, magnitude: u128) -> Self {
         debug_assert!(magnitude < INLINE_LIMIT, "magnitude does not fit inline");
-        let low_mask = (1u128 << INLINE_LOW_MAGNITUDE_BITS) - 1;
-        let low = (magnitude & low_mask) as u64;
-        // bits 2..64 of `words[0]` hold the low magnitude bits; bit 1 the sign,
-        // bit 0 the tag. `words[1]` holds the high magnitude bits.
-        let w0 = (low << 2) | (sign_bit(sign) << 1) | 1;
+        // Mask in the `u128` domain: `magnitude < 2^126` does NOT bound `magnitude
+        // as u64`, so masking after the cast is what keeps magnitude bits 62/63
+        // out of the sign/tag positions. This mask is load-bearing, not redundant.
+        let low = (magnitude & INLINE_LOW_MAGNITUDE_MASK as u128) as u64;
+        // `words[0]`: bits 0..=61 the low magnitude bits, bit 62 the sign, bit 63
+        // the tag. `words[1]` holds the high magnitude bits.
+        let w0 = low | (sign_bit(sign) << SIGN_BIT) | (1 << TAG_BIT);
         let w1 = (magnitude >> INLINE_LOW_MAGNITUDE_BITS) as u64;
         Self { words: [w0, w1] }
     }
@@ -155,13 +207,8 @@ impl OverflowingInt {
             }
         }
         cold_path! {{
-            // bit 0 stays 0 (the heap tag); the sign lives in bit 63.
-            let meta = sign_bit(sign) << 63;
             Self {
-                heap: ManuallyDrop::new(HeapValue {
-                    meta,
-                    value: Box::new(magnitude),
-                }),
+                heap: ManuallyDrop::new(HeapValue::new(sign, Box::new(magnitude))),
             }
         }}
     }
@@ -180,10 +227,7 @@ impl OverflowingInt {
                 // SAFETY: the heap variant is active (tag bit == 0).
                 let heap = unsafe { self.heap_ref() };
                 Self {
-                    heap: ManuallyDrop::new(HeapValue {
-                        meta: sign_bit(sign) << 63,
-                        value: heap.value.clone(),
-                    }),
+                    heap: ManuallyDrop::new(HeapValue::new(sign, heap.value.clone())),
                 }
             }}
         }
@@ -203,7 +247,7 @@ impl OverflowingInt {
 
     #[inline]
     fn is_inline(&self) -> bool {
-        self.raw0() & 1 == 1
+        (self.raw0() >> TAG_BIT) & 1 == 1
     }
 
     /// Reconstructs the inline magnitude from the two words.
@@ -216,7 +260,7 @@ impl OverflowingInt {
     #[inline]
     unsafe fn inline_magnitude(&self) -> u128 {
         let w = unsafe { self.words };
-        ((w[0] >> 2) as u128) | ((w[1] as u128) << INLINE_LOW_MAGNITUDE_BITS)
+        ((w[0] & INLINE_LOW_MAGNITUDE_MASK) as u128) | ((w[1] as u128) << INLINE_LOW_MAGNITUDE_BITS)
     }
 
     /// Borrows the heap payload.
@@ -234,13 +278,10 @@ impl OverflowingInt {
     /// The sign. Positive for either zero unless the value is a `-0` built
     /// through [`Self::NEGATIVE_ZERO`] or [`Self::with_sign`].
     pub(crate) fn sign(&self) -> Sign {
-        let w = self.raw0();
-        // Inline: sign in bit 1. Heap: sign in bit 63 of `meta`.
-        let negative = if w & 1 == 1 {
-            (w >> 1) & 1 == 1
-        } else {
-            cold_path! { (w >> 63) & 1 == 1 }
-        };
+        // The sign is bit 62 of the offset-0 word in both variants, so this reads
+        // it the same way regardless of the tag — no tag-dependent branch, no
+        // `Box` materialized.
+        let negative = (self.raw0() >> SIGN_BIT) & 1 == 1;
         if negative {
             Sign::Negative
         } else {
@@ -553,9 +594,11 @@ impl PartialEq for OverflowingInt {
         // tag bit distinguishes inline from heap, and two heap values with equal
         // bits share the same exclusively-owned allocation), reading `words` while
         // the heap variant is active reads the boxed pointer as an integer and,
-        // where the union has tail padding past the pointer (e.g. a 4-byte `Box`
-        // on i686), reads uninitialized padding bytes — UB, confirmed under Miri.
-        // Two distinct heap allocations of the same number fall through to `cmp`.
+        // wherever `HeapValue` has trailing padding after the pointer (a 4-byte
+        // `Box` under an ABI where `meta`'s `u64` still forces align 8 — i686, and
+        // even wasm32, where the union itself has no tail padding), reads
+        // uninitialized padding bytes — UB, confirmed under Miri. Two distinct heap
+        // allocations of the same number fall through to `cmp`.
         if self.is_inline() && other.is_inline() {
             return unsafe { self.words == other.words };
         }
@@ -729,11 +772,81 @@ mod tests {
     #[case(Sign::Negative)]
     fn inline_heap_boundary(#[case] sign: Sign) {
         // The largest inline magnitude stays inline; the smallest heap one goes
-        // to the heap — an off-by-one in the demotion predicate shows here.
+        // to the heap — an off-by-one in either demotion predicate shows here.
         let largest_inline = OverflowingInt::from_sign_and_big_magnitude(sign, big(126) - 1u8);
         assert!(!is_heap(&largest_inline));
+        // Sign and magnitude must survive at the very top of the inline range,
+        // where the sign bit sits directly above the highest magnitude bit — this
+        // is what makes the `sign` parameter load-bearing rather than inert.
+        assert_eq!(largest_inline.magnitude_as_big(), big(126) - 1u8);
+        assert_eq!(
+            matches!(largest_inline.sign(), Sign::Negative),
+            matches!(sign, Sign::Negative)
+        );
+
         let smallest_heap = OverflowingInt::from_sign_and_big_magnitude(sign, big(126));
         assert!(is_heap(&smallest_heap));
+        assert_eq!(smallest_heap.magnitude_as_big(), big(126));
+        assert_eq!(
+            matches!(smallest_heap.sign(), Sign::Negative),
+            matches!(sign, Sign::Negative)
+        );
+
+        // The `u128` constructor has its own demotion predicate; pin it at the
+        // same point. Exactly `INLINE_LIMIT` (`2^126`) must go to the heap, and
+        // `MAX_INLINE` must stay inline.
+        assert!(is_heap(&OverflowingInt::from_sign_and_magnitude(
+            sign,
+            INLINE_LIMIT
+        )));
+        assert!(!is_heap(&OverflowingInt::from_sign_and_magnitude(
+            sign, MAX_INLINE
+        )));
+    }
+
+    #[rstest]
+    fn inline_round_trip_across_split_boundary(
+        #[values(
+            0,
+            1,
+            1u128 << 61,
+            (1u128 << 62) - 1,
+            1u128 << 62,
+            (1u128 << 62) + 1,
+            1u128 << 100,
+            (1u128 << 125) - 1,
+            MAX_INLINE
+        )]
+        magnitude: u128,
+        #[values(Sign::Positive, Sign::Negative)] sign: Sign,
+    ) {
+        // Directly exercises the encode/decode pair (`from_inline` /
+        // `inline_magnitude`) across the 62/64 word split and, crucially, with a
+        // large magnitude paired with each sign — the sign bit is adjacent to the
+        // top magnitude bit of `words[0]`, so a mask or shift slip would corrupt
+        // one or the other only for magnitudes reaching bit 61.
+        let value = OverflowingInt::from_sign_and_magnitude(sign, magnitude);
+        assert!(!is_heap(&value), "magnitude {magnitude} should be inline");
+        assert_eq!(
+            value.magnitude_as_u128(),
+            Some(magnitude),
+            "magnitude round trip for {magnitude}"
+        );
+        assert_eq!(
+            matches!(value.sign(), Sign::Negative),
+            matches!(sign, Sign::Negative),
+            "sign for magnitude {magnitude}"
+        );
+    }
+
+    #[test]
+    fn heap_value_is_not_zero() {
+        // `is_zero` returns `false` on the heap arm purely by canonicality (a
+        // heap magnitude is always `>= 2^126`); pin that arm, whose tag read moved
+        // in this layout.
+        let heap = OverflowingInt::from_sign_and_big_magnitude(Sign::Positive, big(200));
+        assert!(is_heap(&heap));
+        assert!(!heap.is_zero());
     }
 
     // ===== Value queries =====
@@ -755,6 +868,13 @@ mod tests {
 
         assert_eq!(OverflowingInt::from(i128::MAX).as_i128(), Some(i128::MAX));
         assert_eq!(OverflowingInt::from(i128::MIN).as_i128(), Some(i128::MIN));
+
+        // Inline (non-heap) values also round-trip through the decode, both signs.
+        let pos = OverflowingInt::from(1i128 << 100);
+        let neg = OverflowingInt::from(-(1i128 << 100));
+        assert!(!is_heap(&pos) && !is_heap(&neg));
+        assert_eq!(pos.as_i128(), Some(1i128 << 100));
+        assert_eq!(neg.as_i128(), Some(-(1i128 << 100)));
     }
 
     #[test]
@@ -769,6 +889,10 @@ mod tests {
         // A heap-backed value that fits `u128` still reports `Some`.
         let fits = OverflowingInt::from_sign_and_big_magnitude(Sign::Positive, big(126));
         assert_eq!(fits.as_u128(), Some(1u128 << 126));
+        // A non-zero inline magnitude round-trips through the decode.
+        let inline = OverflowingInt::from((1u128 << 62) - 1);
+        assert!(!is_heap(&inline));
+        assert_eq!(inline.as_u128(), Some((1u128 << 62) - 1));
     }
 
     // ===== Zero across every route =====

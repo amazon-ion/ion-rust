@@ -144,11 +144,13 @@ jobs:
           comm -13 /tmp/public-api-default-sorted.txt /tmp/public-api-bigdecimal-sorted.txt > /tmp/public-api-bigdecimal-delta.txt
           diff -u api/bigdecimal.txt /tmp/public-api-bigdecimal-delta.txt
   wasm:
-    # `cargo check` on a 32-bit pointer width. This is what actually exercises
-    # the pointer-width-dependent layout claims that a `size_of` assertion on a
-    # 64-bit host cannot: on wasm32 the heap payload is smaller, yet the layout
-    # must still hold. wasm32 is the realistic 32-bit target since ion-rs enables
-    # chrono's `wasmbind`.
+    # `cargo check` on a 32-bit pointer width. wasm32 is the realistic 32-bit
+    # target for ion-rs (it enables chrono's `wasmbind`), so this guards that the
+    # crate — and the `OverflowingInt` `size_of`/`align_of` const assertions —
+    # compile there. Note wasm32 does NOT shrink `HeapValue`: `Box` is 4 bytes but
+    # `u64` stays 8-aligned, so `HeapValue` is still 16 bytes with 4 trailing
+    # padding. The smaller (12-byte, align-4) `HeapValue` layout is exercised by
+    # the i686 Miri run in `miri.yml`, where `u64` aligns to 4.
     name: Wasm32 Check
     runs-on: ubuntu-latest
     # We want to run on external PRs, but not on internal ones as push automatically builds
