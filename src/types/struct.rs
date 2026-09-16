@@ -57,7 +57,7 @@ const fn parse_threshold(text: &str) -> usize {
 
 /// One entry in the lazily built hash lookup index. Stores the cached field-name hash (so probes
 /// don't rehash the stored name) and the index of the corresponding pair in [`Fields::slots`].
-/// Every slot is indexed, including unknown-text (`$0`) fields (see [`symbol_name_hash`]).
+/// Every slot is indexed, including unknown-text (`$0`) fields (see [`name_hash`]).
 #[derive(Debug, Clone, Copy)]
 struct HashIndex {
     hash: u64,
