@@ -1,6 +1,6 @@
 use crate::result::IonResult;
+use ice_code::ice as cold_path;
 use std::io::Write;
-use std::mem;
 
 // ion_rust does not currently support reading variable length integers of truly arbitrary size.
 // These type aliases will simplify the process of changing the data types used to represent each
@@ -11,10 +11,34 @@ type VarIntStorage = i64;
 const LOWER_6_BITMASK: u8 = 0b0011_1111;
 const LOWER_7_BITMASK: u8 = 0b0111_1111;
 
-const BITS_PER_BYTE: usize = 8;
-const BITS_PER_U64: usize = mem::size_of::<u64>() * BITS_PER_BYTE;
-
 const VARINT_NEGATIVE_ZERO: u8 = 0xC0;
+
+const END_FLAG: u8 = 0b1000_0000;
+
+/// Builds a big-endian `VarInt` byte-array literal from magnitude `m`, sign bit `s` (`0` or `0x40`),
+/// and the shift amounts of its groups (most-significant first). The leftmost byte holds the sign
+/// plus 6 magnitude bits; the final group is shift `0` and carries the "end" flag, so callers list
+/// only the leading shifts. For a single byte the leftmost and final byte coincide.
+///
+/// It's a macro, not a `fn var_int_bytes<const N>(m, s)`, because expanding to an array *literal*
+/// keeps the encoding as straight-line stores at every optimization level: a `macro_rules!` can't
+/// read a const generic's value to unroll, and LLVM's loop unroller is throttled at `-Os`/`-Oz`
+/// (the wasm norm), so a generic loop body would compile to a real runtime loop there.
+macro_rules! var_int {
+    // Single byte: the leftmost (sign + 6 magnitude bits) and final (end flag) byte are one.
+    ($m:expr, $s:expr) => {
+        [END_FLAG | $s | ($m as u8 & LOWER_6_BITMASK)]
+    };
+    // Leftmost byte carries the sign plus 6 magnitude bits; the rest are 7-bit groups, the final
+    // one (shift 0) carrying the end flag.
+    ($m:expr, $s:expr, $first:literal $(, $mid:literal)*) => {
+        [
+            $s | (($m >> $first) as u8 & LOWER_6_BITMASK),
+            $( ($m >> $mid) as u8 & LOWER_7_BITMASK, )*
+            END_FLAG | ($m as u8 & LOWER_7_BITMASK),
+        ]
+    };
+}
 
 #[derive(Debug)]
 pub struct VarInt {
@@ -24,8 +48,6 @@ pub struct VarInt {
     // of the value separately so we can distinguish between 0 and -0.
     is_negative: bool,
 }
-
-const MAGNITUDE_BITS_IN_FINAL_BYTE: usize = 6;
 
 /// Represents a variable-length signed integer. See the
 /// [VarUInt and VarInt Fields](https://amazon-ion.github.io/ion-docs/docs/binary.html#varuint-and-varint-fields)
@@ -40,66 +62,57 @@ impl VarInt {
     }
 
     /// Writes an `i64` to `sink`, returning the number of bytes written.
+    ///
+    /// A `VarInt` is a big-endian sequence of 7-bit groups, except the leftmost byte holds only 6
+    /// magnitude bits plus a sign bit (bit 6); the high bit of each byte is the "end" flag, set on
+    /// the rightmost byte. So `n` bytes hold `6 + 7*(n - 1)` magnitude bits.
+    ///
+    /// The one- to four-byte values that dominate (decimal exponents, timestamp offsets, small
+    /// coefficients) are handled by an inline if-ladder — sizes are locally stable so the branch
+    /// predicts well, and each arm writes a compile-time-constant-length array (inline stores rather
+    /// than a data-dependent `memcpy`, and no `f64::ceil` size calculation). Five-or-more-byte
+    /// values (magnitudes `>= 2^27`) are rare and delegate to an out-of-line tail that picks the
+    /// size in O(1). Each threshold `1 << (6 + 7 * (n - 1))` is an `n`-byte VarInt's upper bound;
+    /// each arm's array is built by the `var_int!` macro from its leading group shift amounts. The
+    /// five-or-more-byte case is a `cold_path!` fallback (out-of-line, never-inlined).
+    #[inline]
     pub fn write_i64<W: Write>(sink: &mut W, value: i64) -> IonResult<usize> {
-        // An i64 is 8 bytes of data. The VarInt encoding will add one continuation bit per byte
-        // as well as a sign bit, for a total of 9 extra bits. Therefore, the largest encoding
-        // of an i64 will be just over 9 bytes.
-        const VAR_INT_BUFFER_SIZE: usize = 10;
-
-        // Create a buffer to store the encoded value.
-        #[rustfmt::skip]
-        let mut buffer: [u8; VAR_INT_BUFFER_SIZE] = [
-            0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0b1000_0000
-            //            ^-- Set the 'end' flag of the final byte to 1.
-        ];
-
+        const SIGN: u8 = 0b0100_0000;
         // The absolute value of an i64 can be cast losslessly to a u64.
-        let mut magnitude: u64 = value.unsigned_abs();
-
-        // Calculate the number of bytes that the encoded version of our value will occupy.
-        // We ignore any leading zeros in the value to minimize the encoded size.
-        let occupied_bits = BITS_PER_U64 - magnitude.leading_zeros() as usize;
-        // The smallest possible VarInt is a single byte.
-        let mut bytes_required: usize = 1;
-        // We can store up to 6 bits in a one-byte VarInt. If there are more than 6 bits of
-        // magnitude to encode, we'll need to write additional bytes.
-        // Saturating subtraction will return 0 instead of underflowing.
-        let remaining_bits = occupied_bits.saturating_sub(MAGNITUDE_BITS_IN_FINAL_BYTE);
-        // We can encode 7 bits of magnitude in every other byte.
-        bytes_required += f64::ceil(remaining_bits as f64 / 7.0) as usize;
-
-        // TODO: The above calculation could be cached for each number of occupied_bits from 0 to 64
-
-        let mut bytes_remaining = bytes_required;
-        // We're using right shifting to isolate the least significant bits in our magnitude
-        // in each iteration of the loop, so we'll move from right to left in our encoding buffer.
-        // The rightmost byte has already been flagged as the final byte.
-        for buffer_byte in buffer[VAR_INT_BUFFER_SIZE - bytes_required..]
-            .iter_mut()
-            .rev()
-        {
-            bytes_remaining -= 1;
-            if bytes_remaining > 0 {
-                // This isn't the leftmost byte, so we can store 7 magnitude bits.
-                *buffer_byte |= magnitude as u8 & LOWER_7_BITMASK;
-                magnitude >>= 7;
-            } else {
-                // We're in the final byte, so we can only store 6 bits.
-                *buffer_byte |= magnitude as u8 & LOWER_6_BITMASK;
-                // If the value we're encoding is negative, flip the sign bit in the leftmost
-                // encoded byte.
-                if value < 0 {
-                    *buffer_byte |= 0b0100_0000;
-                }
-            }
+        let m: u64 = value.unsigned_abs();
+        // Sign bit lives in the leftmost byte only.
+        let s: u8 = if value < 0 { SIGN } else { 0 };
+        if m < 1 << 6 {
+            sink.write_all(&var_int!(m, s))?;
+            return Ok(1);
         }
-
-        // Write the data from our encoding buffer to the provided sink in as few operations as
-        // possible.
-        let encoded_bytes = &buffer[VAR_INT_BUFFER_SIZE - bytes_required..];
-        sink.write_all(encoded_bytes)?;
-        Ok(encoded_bytes.len())
+        if m < 1 << 13 {
+            sink.write_all(&var_int!(m, s, 7))?;
+            return Ok(2);
+        }
+        if m < 1 << 20 {
+            sink.write_all(&var_int!(m, s, 14, 7))?;
+            return Ok(3);
+        }
+        if m < 1 << 27 {
+            sink.write_all(&var_int!(m, s, 21, 14, 7))?;
+            return Ok(4);
+        }
+        // Five or more bytes (`magnitude >= 2^27`): rare, so `cold_path!` moves this into an
+        // out-of-line, never-inlined function. The byte count is `1 + bits/7` (O(1) via
+        // `leading_zeros`, where `bits` counts magnitude bits). `s` is the leftmost byte's sign bit.
+        cold_path! {{
+            let n = 1 + ((u64::BITS - m.leading_zeros()) / 7) as usize;
+            match n {
+                5 => sink.write_all(&var_int!(m, s, 28, 21, 14, 7))?,
+                6 => sink.write_all(&var_int!(m, s, 35, 28, 21, 14, 7))?,
+                7 => sink.write_all(&var_int!(m, s, 42, 35, 28, 21, 14, 7))?,
+                8 => sink.write_all(&var_int!(m, s, 49, 42, 35, 28, 21, 14, 7))?,
+                9 => sink.write_all(&var_int!(m, s, 56, 49, 42, 35, 28, 21, 14, 7))?,
+                _ => sink.write_all(&var_int!(m, s, 63, 56, 49, 42, 35, 28, 21, 14, 7))?,
+            }
+            Ok(n)
+        }}
     }
 
     /// Encodes a negative zero as an `VarInt` and writes it to the provided `sink`.
@@ -138,7 +151,7 @@ impl VarInt {
 
 #[cfg(test)]
 mod tests {
-    use super::VarInt;
+    use super::{VarInt, END_FLAG, LOWER_6_BITMASK, LOWER_7_BITMASK};
     use crate::result::IonResult;
 
     fn var_int_encoding_test(value: i64, expected_encoding: &[u8]) -> IonResult<()> {
@@ -172,6 +185,80 @@ mod tests {
     fn test_write_var_int_three_byte_values() -> IonResult<()> {
         var_int_encoding_test(400_600, &[0b0001_1000, 0b0011_1001, 0b1101_1000])?;
         var_int_encoding_test(-400_600, &[0b0101_1000, 0b0011_1001, 0b1101_1000])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_var_int_large_values() -> IonResult<()> {
+        // 5-byte: 2^30 sets bit 30, which lands in the leftmost (6-bit) group of a 5-byte VarInt.
+        var_int_encoding_test(1 << 30, &[0x04, 0x00, 0x00, 0x00, 0x80])?;
+        // 10-byte extremes.
+        var_int_encoding_test(
+            i64::MAX,
+            &[0x00, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0xff],
+        )?;
+        var_int_encoding_test(
+            i64::MIN,
+            &[0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
+        )?;
+        Ok(())
+    }
+
+    /// Independent reference encoder: the original reversed big-endian loop (leftmost byte holds 6
+    /// magnitude bits plus the sign, others hold 7, end flag on the rightmost). Used as an oracle to
+    /// byte-check `write_i64` across every arm (`N = 1..=10`) and both signs.
+    fn reference_var_int(value: i64) -> Vec<u8> {
+        const N: usize = 10;
+        let mut buffer = [0u8; N];
+        buffer[N - 1] = END_FLAG; // end flag on the rightmost byte
+        let mut magnitude: u64 = value.unsigned_abs();
+        let occupied_bits = 64 - magnitude.leading_zeros() as usize;
+        // Leftmost byte holds 6 magnitude bits; each additional byte holds 7.
+        let bytes_required = 1 + occupied_bits.saturating_sub(6).div_ceil(7);
+        let mut bytes_remaining = bytes_required;
+        for byte in buffer[N - bytes_required..].iter_mut().rev() {
+            bytes_remaining -= 1;
+            if bytes_remaining > 0 {
+                *byte |= (magnitude as u8) & LOWER_7_BITMASK;
+                magnitude >>= 7;
+            } else {
+                *byte |= (magnitude as u8) & LOWER_6_BITMASK;
+                if value < 0 {
+                    *byte |= 0b0100_0000;
+                }
+            }
+        }
+        buffer[N - bytes_required..].to_vec()
+    }
+
+    #[test]
+    fn test_write_var_int_matches_reference_all_arms() -> IonResult<()> {
+        // Values spanning every byte-count arm, both signs: each power-of-two boundary (and one
+        // below it) and a midpoint within the arm. `1 << 62` is the largest power of two an i64
+        // holds; the extremes exercise the 10-byte arm.
+        let mut values: Vec<i64> = vec![0, i64::MAX, i64::MIN];
+        for b in 0..63u32 {
+            let p = 1i64 << b;
+            for v in [p, -p, p - 1, -(p - 1), p + (p >> 1)] {
+                values.push(v);
+            }
+        }
+        let mut buffer = vec![];
+        for value in values {
+            buffer.clear();
+            let written = VarInt::write_i64(&mut buffer, value)?;
+            let expected = reference_var_int(value);
+            assert_eq!(
+                buffer.as_slice(),
+                expected.as_slice(),
+                "encoding mismatch for value {value}"
+            );
+            assert_eq!(
+                written,
+                expected.len(),
+                "byte count mismatch for value {value}"
+            );
+        }
         Ok(())
     }
 }

@@ -5,7 +5,7 @@ use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
 use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
-use big_small::AsBigOrSmallValue;
+pub(crate) use big_small::AsBigOrSmallValue;
 pub(crate) use int_data::{IntData, UIntData};
 use num_bigint::BigInt;
 use std::cmp::Ordering;
@@ -272,12 +272,14 @@ impl Int {
     }
 
     /// Returns a [`UInt`] representing the unsigned magnitude of this `Int`.
+    #[inline]
     pub fn unsigned_abs(&self) -> UInt {
         self.data.unsigned_abs().into()
     }
 
     /// Returns `true` if this value is less than zero.
     /// If this value is greater than or equal to zero, returns `false`.
+    #[inline]
     pub fn is_negative(&self) -> bool {
         self.data.is_negative()
     }
