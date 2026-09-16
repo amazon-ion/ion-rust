@@ -111,6 +111,23 @@ const _: () = assert!(
     "attoseconds scale must fit in the u64 payload"
 );
 
+/// Powers of ten `10^0..=10^18`, indexed by exponent. Used to scale between a coefficient at a
+/// declared number of fractional digits and the `attoseconds` (`10^-18`) payload. A lookup table
+/// avoids the square-and-multiply loop (and its associated divide-by-zero panic edge) that
+/// `u64::pow` with a runtime exponent compiles to on the timestamp read/write hot paths.
+const POW10: [u64; MAX_FRAC_DIGITS as usize + 1] = {
+    let mut table = [1u64; MAX_FRAC_DIGITS as usize + 1];
+    let mut i = 1;
+    while i < table.len() {
+        table[i] = table[i - 1] * 10;
+        i += 1;
+    }
+    table
+};
+
+/// One full second in attoseconds; `attoseconds` must always be strictly less than this.
+const MAX_ATTOSECONDS: u64 = POW10[MAX_FRAC_DIGITS as usize];
+
 /// The largest year the packed `year` field can represent.
 const MAX_YEAR: u16 = 9999;
 
@@ -448,7 +465,7 @@ impl Timestamp {
             return None;
         }
         // Convert attoseconds to coefficient at the declared precision.
-        let divisor = 10u64.pow(MAX_FRAC_DIGITS as u32 - digits);
+        let divisor = POW10[(MAX_FRAC_DIGITS as u32 - digits) as usize];
         let coefficient = self.attoseconds / divisor;
         Some(Decimal::new(coefficient, -(digits as i64)))
     }
@@ -466,7 +483,7 @@ impl Timestamp {
             return Ok(());
         }
 
-        let divisor = 10u64.pow(MAX_FRAC_DIGITS as u32 - digits);
+        let divisor = POW10[(MAX_FRAC_DIGITS as u32 - digits) as usize];
         let coefficient = self.attoseconds / divisor;
         write!(output, ".{coefficient:0>width$}", width = digits as usize)?;
         Ok(())
@@ -847,7 +864,12 @@ pub struct TimestampBuilder<T> {
     minute: u32,
     second: u32,
     attoseconds: u64,
-    fractional_digits: u8,
+    // Held as `u32` so a precision beyond `MAX_FRAC_DIGITS` is caught by `validate_field_ranges`
+    // before it is narrowed to the `u8` that `Timestamp::from_fields` expects, rather than
+    // silently wrapping into an in-range value. The setters saturate their (wider) inputs into
+    // `0..=MAX_FRAC_DIGITS + 1` so an out-of-range precision reaches validation as the sentinel
+    // `MAX_FRAC_DIGITS + 1` instead of wrapping here.
+    fractional_digits: u32,
 }
 
 impl<T> TimestampBuilder<T> {
@@ -878,12 +900,13 @@ impl<T> TimestampBuilder<T> {
     /// that a value too large for the narrower type is reported as an error instead of
     /// silently wrapping into a different, possibly valid-looking value.
     fn validate_field_ranges(&self) -> IonResult<()> {
-        const MAX_ATTOSECONDS: u64 = 1_000_000_000_000_000_000;
         if self.attoseconds >= MAX_ATTOSECONDS {
-            return IonResult::illegal_operation(format!(
-                "Timestamp fractional seconds out of range (attoseconds={})",
-                self.attoseconds
-            ));
+            // No value is reported: this also fires for the out-of-`[0, 1)` sentinel set by
+            // `with_fractional_seconds`, where `attoseconds` is a placeholder rather than a value
+            // the caller supplied.
+            return IonResult::illegal_operation(
+                "Timestamp fractional seconds are out of range (must be in [0, 1))",
+            );
         }
         if self.year > MAX_YEAR as u32 {
             return IonResult::illegal_operation(format!(
@@ -921,6 +944,12 @@ impl<T> TimestampBuilder<T> {
                 self.second
             ));
         }
+        if self.fractional_digits > MAX_FRAC_DIGITS as u32 {
+            return IonResult::illegal_operation(format!(
+                "fractional seconds precision ({} digits) exceeds maximum ({})",
+                self.fractional_digits, MAX_FRAC_DIGITS
+            ));
+        }
         if let Some(offset_minutes) = self.offset {
             validate_offset_minutes(offset_minutes)?;
         }
@@ -943,7 +972,7 @@ impl<T> TimestampBuilder<T> {
             self.hour as u8,
             self.minute as u8,
             self.second as u8,
-            self.fractional_digits,
+            self.fractional_digits as u8,
             self.attoseconds,
         )
     }
@@ -968,7 +997,7 @@ impl<T> TimestampBuilder<T> {
             self.hour as u8,
             self.minute as u8,
             self.second as u8,
-            self.fractional_digits,
+            self.fractional_digits as u8,
             self.attoseconds,
         )
     }
@@ -1129,13 +1158,31 @@ impl TimestampBuilder<HasSeconds> {
         self.change_state()
     }
 
+    /// Sets the fractional seconds from a nanosecond-scale value with `precision_digits` of
+    /// declared precision.
+    ///
+    /// `nanoseconds` is interpreted at `10^-9` scale (i.e. `0..=999_999_999`). When
+    /// `precision_digits` is fewer than the digits present in `nanoseconds`, the extra
+    /// (less-significant) digits are stripped so the stored value stays consistent with the
+    /// declared precision. For example, `(123_456_789, 3)` stores `0.123`.
+    ///
+    /// A `precision_digits` greater than the supported maximum ([`MAX_FRAC_DIGITS`]) causes
+    /// [`Self::build`] to return an error rather than wrapping.
     pub fn with_nanoseconds_and_precision(
         mut self,
         nanoseconds: u32,
         precision_digits: u32,
     ) -> TimestampBuilder<HasFractionalSeconds> {
-        self.attoseconds = (nanoseconds as u64).saturating_mul(1_000_000_000);
-        self.fractional_digits = precision_digits as u8;
+        // Clamp only for the scale lookup; an out-of-range `precision_digits` is still surfaced as
+        // an error below.
+        let scale_digits = precision_digits.min(MAX_FRAC_DIGITS as u32);
+        let attoseconds = (nanoseconds as u64).saturating_mul(1_000_000_000);
+        let scale = POW10[(MAX_FRAC_DIGITS as u32 - scale_digits) as usize];
+        // Drop any precision finer than `precision_digits` so `attoseconds` stays a multiple of
+        // `10^(18 - precision)` (fractional-seconds invariant 5).
+        self.attoseconds = attoseconds / scale * scale;
+        // Stored verbatim; `build()` rejects a precision greater than the supported maximum.
+        self.fractional_digits = precision_digits;
 
         self.change_state()
     }
@@ -1147,39 +1194,33 @@ impl TimestampBuilder<HasSeconds> {
         if fractional_seconds.is_less_than_zero()
             || fractional_seconds.is_greater_than_or_equal_to_one()
         {
-            // Invalid — store a sentinel that build() will reject.
-            self.fractional_digits = MAX_FRAC_DIGITS + 1;
-            self.attoseconds = 0;
-        } else if fractional_seconds.is_zero() {
-            if fractional_seconds.exponent >= 0 {
-                self.fractional_digits = 0;
-                self.attoseconds = 0;
-            } else {
-                let digits = fractional_seconds
-                    .exponent
-                    .unsigned_abs()
-                    .min(MAX_FRAC_DIGITS as u64) as u8;
-                self.fractional_digits = digits;
-                self.attoseconds = 0;
-            }
+            // Out of the `[0, 1)` range for fractional seconds. Store an out-of-range attoseconds
+            // value so `build()` rejects it as such.
+            self.fractional_digits = 0;
+            self.attoseconds = MAX_ATTOSECONDS;
         } else {
-            let digits = fractional_seconds.exponent.unsigned_abs();
-            let coefficient = fractional_seconds
-                .coefficient()
-                .magnitude()
-                .as_u128()
-                .unwrap_or(0) as u64;
-            // Convert coefficient at `digits` scale to attoseconds (10^-18).
-            // attoseconds = coefficient * 10^(18 - digits)
-            self.fractional_digits = digits.min(MAX_FRAC_DIGITS as u64) as u8;
-            if digits <= MAX_FRAC_DIGITS as u64 {
-                self.attoseconds =
-                    coefficient.saturating_mul(10u64.pow(MAX_FRAC_DIGITS as u32 - digits as u32));
+            // The declared precision is the number of fractional digits, i.e. `-exponent` (0 when
+            // the exponent is non-negative, e.g. a zero written as `0d2`). This also covers a zero
+            // value: its coefficient is 0, so `attoseconds` works out to 0 below.
+            //
+            // `digits` is `u64` (`Decimal::exponent` is `i64`), so it is saturated into the
+            // sentinel range before narrowing to the `u32` field; an over-range precision reaches
+            // `build()` as `MAX_FRAC_DIGITS + 1` and is rejected there, rather than wrapping into a
+            // spuriously in-range value.
+            let digits = fractional_seconds.exponent.min(0).unsigned_abs();
+            self.fractional_digits = digits.min(MAX_FRAC_DIGITS as u64 + 1) as u32;
+            self.attoseconds = if digits <= MAX_FRAC_DIGITS as u64 {
+                // attoseconds = coefficient * 10^(18 - digits)
+                let coefficient = fractional_seconds
+                    .coefficient()
+                    .magnitude()
+                    .as_u128()
+                    .unwrap_or(0) as u64;
+                coefficient.saturating_mul(POW10[MAX_FRAC_DIGITS as usize - digits as usize])
             } else {
-                // Precision exceeds limit — store sentinel for build() to reject.
-                self.fractional_digits = MAX_FRAC_DIGITS + 1;
-                self.attoseconds = 0;
-            }
+                // Precision exceeds the limit; `build()` rejects it via `fractional_digits`.
+                0
+            };
         }
         self.change_state()
     }
@@ -1864,6 +1905,30 @@ mod timestamp_tests {
         Ok(())
     }
 
+    #[rstest]
+    // `precision_digits` finer than or equal to the value keeps it intact...
+    #[case(123_456_789, 9, 123_456_789, "2023-01-01T00:00:00.123456789+00:00")]
+    // ...and a coarser precision strips the less-significant digits so the stored value stays
+    // consistent with the declared precision (fractional-seconds invariant 5).
+    #[case(123_456_789, 3, 123_000_000, "2023-01-01T00:00:00.123+00:00")]
+    #[case(123_456_789, 6, 123_456_000, "2023-01-01T00:00:00.123456+00:00")]
+    #[case(1, 3, 0, "2023-01-01T00:00:00.000+00:00")]
+    fn with_nanoseconds_and_precision_strips_over_precision(
+        #[case] nanoseconds: u32,
+        #[case] precision_digits: u32,
+        #[case] expected_nanoseconds: u32,
+        #[case] expected_text: &str,
+    ) -> IonResult<()> {
+        let timestamp = TimestampBuilder::with_ymd(2023, 1, 1)
+            .with_hms(0, 0, 0)
+            .with_nanoseconds_and_precision(nanoseconds, precision_digits)
+            .with_offset(0)
+            .build()?;
+        assert_eq!(timestamp.nanoseconds(), expected_nanoseconds);
+        assert_eq!(timestamp.to_string(), expected_text);
+        Ok(())
+    }
+
     #[test]
     fn test_timestamp_milliseconds() -> IonResult<()> {
         let timestamp_1 = TimestampBuilder::with_ymd(2021, 4, 6)
@@ -2045,7 +2110,7 @@ mod timestamp_tests {
     #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_offset(-5 * 60).build().unwrap(), Ordering::Less)]
     #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(0).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), Ordering::Equal)]
     #[case::timestamp_with_unknown_offset(TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).with_nanoseconds(449000005).build().unwrap(), TimestampBuilder::with_ymd(2021, 4, 6).with_hms(10, 15, 0).build().unwrap(), Ordering::Greater)]
-    #[case::timestamp_with_second_precison_and_year_precision(TimestampBuilder::with_ymd(2001, 1, 1).build().unwrap(), TimestampBuilder::with_ymd(2001, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(00000000000000000000i128, -20)).build().unwrap(), Ordering::Equal)]
+    #[case::timestamp_with_second_precison_and_year_precision(TimestampBuilder::with_ymd(2001, 1, 1).build().unwrap(), TimestampBuilder::with_ymd(2001, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(0i128, -18)).build().unwrap(), Ordering::Equal)]
     fn timestamp_ordering_tests(
         #[case] this: Timestamp,
         #[case] other: Timestamp,
@@ -2132,8 +2197,21 @@ mod timestamp_tests {
     #[case::millis_too_large(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_milliseconds(1000).build())]
     #[case::micros_too_large(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_microseconds(1_000_000).build())]
     #[case::nanos_too_large(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_nanoseconds(1_000_000_000).build())]
-    // `digits - 9` would be a 21-digit multiplier, overflowing before `from_fields` sees it.
     #[case::frac_precision_too_large(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_nanoseconds_and_precision(1, 30).build())]
+    // Precisions that narrow to an in-range `u8` (`256 as u8 == 0`, `274 as u8 == 18`) must still
+    // be rejected, i.e. the wider `fractional_digits` field must not let them wrap.
+    #[case::frac_precision_wraps_to_zero(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_nanoseconds_and_precision(1, 256).build())]
+    #[case::frac_precision_wraps_to_in_range(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_nanoseconds_and_precision(1, 274).build())]
+    // A `Decimal` exponent whose magnitude wraps to an in-range value when narrowed (`2^32 + 3`
+    // narrows to `3`) must be rejected, for both a non-zero and a zero coefficient.
+    #[case::frac_exponent_wraps_nonzero(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(1i128, -4_294_967_299i64)).build())]
+    #[case::frac_exponent_wraps_zero(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(0i128, -4_294_967_299i64)).build())]
+    // A zero value with >18 declared digits is rejected too, for consistency with the non-zero
+    // path (rather than silently truncating its precision to 18).
+    #[case::frac_zero_over_precision(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(0i128, -19i64)).build())]
+    // A fractional value outside `[0, 1)` must be rejected.
+    #[case::frac_seconds_ge_one(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(15i128, -1i64)).build())]
+    #[case::frac_seconds_negative(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(-5i128, -1i64)).build())]
     fn test_out_of_range_fields_are_rejected(#[case] result: IonResult<Timestamp>) {
         assert!(
             result.is_err(),
@@ -2418,6 +2496,21 @@ mod chrono_interop {
     use crate::IonError;
     use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 
+    /// Converts a chrono subsecond value (`Timelike::nanosecond`) into `attoseconds`.
+    ///
+    /// chrono encodes a leap second as `second() == 59` with `nanosecond()` in
+    /// `1_000_000_000..2_000_000_000`. Ion `Timestamp` has no leap-second representation, so a
+    /// leap-second value is folded into the final second: the extra second is dropped and the
+    /// fractional part is kept (e.g. `23:59:60.5` becomes `23:59:59.5`).
+    fn nanoseconds_to_attoseconds(nanosecond: u32) -> u64 {
+        let folded = if nanosecond >= 1_000_000_000 {
+            nanosecond - 1_000_000_000
+        } else {
+            nanosecond
+        };
+        folded as u64 * 1_000_000_000
+    }
+
     impl Timestamp {
         /// Converts a [`NaiveDateTime`] or [`DateTime<FixedOffset>`] to a Timestamp with the specified
         /// precision. If the precision is [`TimestampPrecision::Second`], nanosecond precision (the maximum
@@ -2476,7 +2569,7 @@ mod chrono_interop {
         }
 
         fn from_naive_datetime(date_time: NaiveDateTime) -> Self {
-            let attoseconds = (date_time.nanosecond() as u64) * 1_000_000_000;
+            let attoseconds = nanoseconds_to_attoseconds(date_time.nanosecond());
             // Pack directly from the fields, bypassing `from_fields` validation. chrono permits
             // years outside Ion's 1..=9999 range (e.g. year 0), which `from_fields` would reject;
             // we accept them silently here so this conversion behaves consistently with
@@ -2503,7 +2596,7 @@ mod chrono_interop {
             let offset_seconds = fixed_offset_date_time.offset().local_minus_utc();
             let offset_minutes = (offset_seconds / 60) as i16;
             let local = fixed_offset_date_time.naive_local();
-            let attoseconds = (local.nanosecond() as u64) * 1_000_000_000;
+            let attoseconds = nanoseconds_to_attoseconds(local.nanosecond());
             // Pack directly from local fields — chrono guarantees validity of the
             // DateTime, and local year may exceed 9999 (e.g., UTC year 9999 Dec 31
             // with negative offset). We bypass from_fields validation to avoid panic.
@@ -2605,6 +2698,26 @@ mod chrono_interop {
         fn offset_east(seconds_east: i32) -> FixedOffset {
             FixedOffset::east_opt(seconds_east)
                 .expect("seconds_east was outside the supported range")
+        }
+
+        /// chrono encodes a leap second as `23:59:60` (`second() == 59`, `nanosecond() >= 1e9`).
+        /// Ion has no leap-second representation, so the conversion folds it into the final second.
+        #[test]
+        fn leap_second_is_folded_into_prior_second() {
+            let leap = NaiveDate::from_ymd_opt(2016, 12, 31)
+                .unwrap()
+                .and_hms_nano_opt(23, 59, 59, 1_500_000_000)
+                .unwrap();
+            let timestamp = Timestamp::from(leap);
+            assert_eq!(timestamp.second(), 59);
+            // The `.5` of the leap second is retained, attributed to second 59.
+            assert_eq!(timestamp.nanoseconds(), 500_000_000);
+
+            // Same folding through the `DateTime<FixedOffset>` conversion.
+            let leap_fixed = offset_east(0).from_utc_datetime(&leap);
+            let from_fixed = Timestamp::from(leap_fixed);
+            assert_eq!(from_fixed.second(), 59);
+            assert_eq!(from_fixed.nanoseconds(), 500_000_000);
         }
 
         /// chrono permits years outside Ion's `1..=9999` range. Both `From` conversions accept
