@@ -114,6 +114,10 @@ bench = false
 name = "text_location_throughput"
 harness = false
 
+[[bench]]
+name = "small_doc_read"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1

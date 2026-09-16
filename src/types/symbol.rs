@@ -252,6 +252,36 @@ mod symbol_tests {
     }
 
     #[test]
+    fn static_shared_and_owned_text_are_interchangeable() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::collections::HashMap;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_of(symbol: &Symbol) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            symbol.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Symbols with the same text are equal and hash identically regardless of whether
+        // their text is static, shared, or owned.
+        let static_symbol = Symbol::static_text("name");
+        let shared_symbol = Symbol::shared(Arc::from("name"));
+        let owned_symbol = Symbol::owned("name");
+        assert_eq!(static_symbol, shared_symbol);
+        assert_eq!(static_symbol, owned_symbol);
+        assert_eq!(hash_of(&static_symbol), hash_of(&shared_symbol));
+        assert_eq!(hash_of(&static_symbol), hash_of(&owned_symbol));
+
+        // A map keyed on a static-text symbol can be queried with the equivalent
+        // shared- or owned-text symbol and vice versa.
+        let mut map: HashMap<Symbol, usize> = HashMap::new();
+        map.insert(static_symbol, 1);
+        assert_eq!(map.get(&shared_symbol), Some(&1));
+        assert_eq!(map.get(&owned_symbol), Some(&1));
+    }
+
+    #[test]
     fn partial_eq_str() {
         let symbols = vec![
             Symbol::shared(Arc::from("bar")),

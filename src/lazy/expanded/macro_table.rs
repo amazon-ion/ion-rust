@@ -888,10 +888,15 @@ impl MacroTable {
         Ok(())
     }
 
-    pub(crate) fn reset_to_system_macros(&mut self) {
+    /// Resets the macro table to the initial state for the given Ion version: empty for
+    /// Ion 1.0 (which has no e-expressions and so cannot reference the macro table), or the
+    /// system macro table for Ion 1.1. This mirrors [`MacroTable::with_system_macros`].
+    pub(crate) fn reset_to_system_macros(&mut self, ion_version: IonVersion) {
         self.macros_by_name.clear();
         self.macros_by_address.clear();
-        self.append_all_macros_from(&ION_1_1_SYSTEM_MACROS).unwrap()
+        if ion_version == IonVersion::v1_1 {
+            self.append_all_macros_from(&ION_1_1_SYSTEM_MACROS).unwrap()
+        }
     }
 
     pub(crate) fn macros_tail(&self, num_tail_macros: usize) -> &[Arc<MacroDef>] {

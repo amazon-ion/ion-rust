@@ -463,8 +463,11 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         macro_table: &mut MacroTable,
     ) {
         if let Some(new_version) = pending_changes.switch_to_version.take() {
+            // An IVM that re-declares the stream's current version still resets the local
+            // symbol table. `reset_to_version` internally takes a cheaper prefix-only path
+            // when the version is unchanged (Ion 1.0).
             symbol_table.reset_to_version(new_version);
-            macro_table.reset_to_system_macros();
+            macro_table.reset_to_system_macros(new_version);
             pending_changes.has_changes = false;
             pending_changes.is_lst_append = false;
             // If we're switching to a new version, the last stream item was a version marker

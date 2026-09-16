@@ -742,6 +742,41 @@ mod tests {
         Ok(())
     }
 
+    /// A user symbol whose text duplicates a system symbol's (e.g. `"name"`) shadows the
+    /// system entry in the text -> SID map. When a later LST *replaces* (rather than appends
+    /// to) the table -- with no intervening IVM -- the reset must restore the shadowed
+    /// system mapping.
+    #[test]
+    fn lst_replacement_restores_shadowed_system_mappings() -> IonResult<()> {
+        let mut reader = SystemReader::new(
+            AnyEncoding,
+            r#"
+                $ion_symbol_table::{ symbols: ["name"] }
+                $10 // user-space copy of "name"
+                // This LST does not import `$ion_symbol_table`, so it replaces the previous
+                // table rather than appending to it. There is no IVM between the tables.
+                $ion_symbol_table::{ symbols: ["other"] }
+                $10 // "other"
+            "#,
+        );
+        // Step over the first LST; advancing to the value applies it.
+        let _symtab = reader.next_item()?.expect_symbol_table()?;
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "name");
+        // The user-space copy of "name" ($10) shadows system SID 4 in the text -> SID map.
+        assert_eq!(reader.symbol_table().sid_for("name"), Some(10));
+
+        // Advance past the second (replacement) LST to the value that follows it.
+        let _symtab = reader.next_item()?.expect_symbol_table()?;
+        assert_eq!(
+            reader.expect_next_value()?.read()?.expect_symbol()?,
+            "other"
+        );
+        // The replacement reset restored the system mapping for "name".
+        assert_eq!(reader.symbol_table().sid_for("name"), Some(4));
+        assert_eq!(reader.symbol_table().sid_for("other"), Some(10));
+        Ok(())
+    }
+
     // === Shared Symbol Tables ===
 
     use crate::catalog::MapCatalog;
@@ -1147,6 +1182,104 @@ mod tests {
         // Expand the e-expressions to make sure the macro definitions work as expected.
         assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 17);
         assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 12);
+        Ok(())
+    }
+
+    /// An Ion 1.0 IVM mid-stream resets the symbol table via the cheap truncate-to-prefix path.
+    /// If a user symbol's text duplicated a system symbol's text (here: "name"), it shadowed the
+    /// system entry in the text -> SID mapping; the reset must restore that mapping, leaving the
+    /// table indistinguishable from a freshly constructed Ion 1.0 table.
+    #[test]
+    fn ivm_reset_restores_shadowed_system_symbol_mappings() -> IonResult<()> {
+        const DATA: &str = r#"
+            $ion_symbol_table::{
+                symbols: ["name", "version", "imports", "symbols", "max_id", "user_symbol"]
+            }
+            $10 // user-space copy of "name"
+            $ion_1_0
+            0
+        "#;
+        let mut reader = SystemReader::new(AnyEncoding, DATA);
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "name");
+        // While the user symbols are active, the text "name" resolves to the user-space SID.
+        assert_eq!(reader.symbol_table().sid_for("name"), Some(10));
+        // Advancing to the value that follows the IVM applies the pending symbol table reset.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 0);
+
+        let table = reader.symbol_table();
+        let fresh = SymbolTable::new(IonVersion::v1_0);
+        assert_eq!(table.len(), fresh.len());
+        for sid in 0..fresh.len() {
+            assert_eq!(table.text_for(sid), fresh.text_for(sid), "SID: {sid}");
+        }
+        for &text in crate::constants::v1_0::SYSTEM_SYMBOLS {
+            assert_eq!(table.sid_for(text), fresh.sid_for(text), "text: {text}");
+        }
+        assert_eq!(table.sid_for("name"), Some(4));
+        assert_eq!(table.text_for(4), Some("name"));
+        assert_eq!(table.sid_for("user_symbol"), None);
+        Ok(())
+    }
+
+    /// An LST append (`imports: $ion_symbol_table`) extends the active table; a subsequent
+    /// Ion 1.0 IVM must still reset it to the initial system state.
+    #[test]
+    fn ivm_reset_after_lst_append() -> IonResult<()> {
+        const DATA: &str = r#"
+            $ion_symbol_table::{ symbols: ["foo"] }
+            $10 // "foo"
+            $ion_symbol_table::{ imports: $ion_symbol_table, symbols: ["bar"] }
+            $11 // "bar"
+            $ion_1_0
+            0
+        "#;
+        let mut reader = SystemReader::new(AnyEncoding, DATA);
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "foo");
+        assert_eq!(reader.expect_next_value()?.read()?.expect_symbol()?, "bar");
+        // Both the original LST and the appended symbols are active: $0-$9 system + foo + bar.
+        assert_eq!(reader.symbol_table().len(), 12);
+        // Advancing to the value that follows the IVM applies the pending symbol table reset.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 0);
+
+        let table = reader.symbol_table();
+        let fresh = SymbolTable::new(IonVersion::v1_0);
+        assert_eq!(table.len(), fresh.len());
+        for sid in 0..fresh.len() {
+            assert_eq!(table.text_for(sid), fresh.text_for(sid), "SID: {sid}");
+        }
+        assert_eq!(table.sid_for("foo"), None);
+        assert_eq!(table.sid_for("bar"), None);
+        Ok(())
+    }
+
+    /// The macro table must match the initial state for whichever Ion version the most recent
+    /// IVM declared: empty for Ion 1.0, the full system macro table for Ion 1.1 — including
+    /// when the stream switches back and forth between versions.
+    #[cfg(feature = "experimental-ion-1-1")]
+    #[test]
+    fn macro_table_reset_across_version_switches() -> IonResult<()> {
+        const DATA: &str = r#"
+            0
+            $ion_1_1
+            1
+            $ion_1_0
+            2
+            $ion_1_1
+            3
+        "#;
+        let mut reader = SystemReader::new(AnyEncoding, DATA);
+        // An Ion 1.0 stream begins with an empty macro table.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 0);
+        assert_eq!(reader.macro_table().len(), 0);
+        // Switching to Ion 1.1 installs the system macros.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 1);
+        assert_eq!(reader.macro_table().len(), MacroTable::NUM_SYSTEM_MACROS);
+        // Switching back to Ion 1.0 empties the macro table again.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 2);
+        assert_eq!(reader.macro_table().len(), 0);
+        // A later Ion 1.1 IVM repopulates it in full.
+        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 3);
+        assert_eq!(reader.macro_table().len(), MacroTable::NUM_SYSTEM_MACROS);
         Ok(())
     }
 }

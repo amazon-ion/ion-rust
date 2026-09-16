@@ -112,8 +112,6 @@ impl SymbolTable {
 
     /// Adds **all** of the system symbols to the table, not just the permanent prefix symbols.
     pub(crate) fn initialize_with_all_system_symbols(&mut self) {
-        // TODO: Make thread local system symbol tables that are materialized (i.e. using Arc<str>)
-        //       so we can avoid doing new heap allocations each time
         self.add_placeholder(); // $0
 
         let system_symbols = match self.ion_version {
@@ -121,8 +119,10 @@ impl SymbolTable {
             IonVersion::v1_1 => v1_1::SYSTEM_SYMBOLS,
         };
 
+        // The system symbol texts are `&'static str`s, so the symbols can refer to them
+        // directly instead of heap-allocating a copy of each one.
         system_symbols.iter().copied().for_each(|text| {
-            let _sid = self.add_symbol_for_text(text);
+            let _sid = self.add_symbol(Symbol::static_text(text));
         });
     }
 
@@ -135,7 +135,7 @@ impl SymbolTable {
     }
 
     /// Sets the symbol table's contents to the permanent prefix used by the current Ion version.
-    /// In Ion 1.0, this is the system symbol table (`$0`-`$10`). In Ion 1.1, it is only `$0`.
+    /// In Ion 1.0, this is the system symbol table (`$0`-`$9`). In Ion 1.1, it is only `$0`.
     pub(crate) fn reset_to_prefix_only(&mut self) {
         match self.ion_version {
             IonVersion::v1_0 => {
@@ -145,6 +145,17 @@ impl SymbolTable {
                 // Remove any symbol text mappings that point to an address from userspace ($10+)
                 self.ids_by_text
                     .retain(|_symbol, address| *address < Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_0);
+                // If a user symbol's text duplicated a system symbol's text, adding it overwrote
+                // the system symbol's entry in `ids_by_text` with a user-space address--an entry
+                // the `retain` above then removed. Restore any missing system text mappings so
+                // the table is indistinguishable from a freshly initialized one. (This is
+                // allocation-free: the keys are `&'static str`-backed symbols, and `or_insert`
+                // leaves already-present entries untouched.)
+                for (index, &text) in v1_0::SYSTEM_SYMBOLS.iter().enumerate() {
+                    self.ids_by_text
+                        .entry(Symbol::static_text(text))
+                        .or_insert(index + 1); // SID 0 is the unknown-text placeholder `$0`
+                }
             }
             IonVersion::v1_1 => {
                 // Remove all symbols except for $0
@@ -156,7 +167,19 @@ impl SymbolTable {
         };
     }
 
+    /// Resets the symbol table to the 'default' state for `new_version`, as used at the
+    /// beginning of a stream of that version.
+    ///
+    /// When the version is unchanged and is Ion 1.0, this takes a cheaper path: the
+    /// permanent system prefix is identical to the table's initial state, so truncating to
+    /// the prefix (which also restores any system text-to-SID mappings that user symbols
+    /// had shadowed) produces the same table state as a full rebuild at a fraction of the
+    /// cost. See the unit test `reset_paths_equivalent_for_v1_0` below.
     pub(crate) fn reset_to_version(&mut self, new_version: IonVersion) {
+        if new_version == IonVersion::v1_0 && self.ion_version == IonVersion::v1_0 {
+            self.reset_to_prefix_only();
+            return;
+        }
         self.ion_version = new_version;
         self.reset_to_default();
     }
@@ -277,5 +300,59 @@ impl Debug for SymbolTable {
             write!(f, "{}: {:?}, ", address, symbol.text())?;
         }
         write!(f, "}}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The system symbols are stored as `Symbol`s with static text; confirm that they can
+    /// still be resolved in both directions (text -> SID and SID -> text) like any other symbol.
+    #[test]
+    fn system_symbols_resolve_by_text_and_sid() {
+        let mut table = SymbolTable::new(IonVersion::v1_0);
+        assert_eq!(table.len(), 10);
+        for (index, &text) in v1_0::SYSTEM_SYMBOLS.iter().enumerate() {
+            let sid = index + 1; // SID 0 is the unknown-text placeholder `$0`
+            assert_eq!(table.sid_for(text), Some(sid));
+            assert_eq!(table.text_for(sid), Some(text));
+        }
+        // Symbols with heap-allocated text can coexist with the static system symbols.
+        let sid = table.add_symbol_for_text("hello");
+        assert_eq!(table.sid_for("hello"), Some(sid));
+        assert_eq!(table.text_for(sid), Some("hello"));
+    }
+
+    /// `reset_to_prefix_only` must produce exactly the same Ion 1.0 table state as a full
+    /// rebuild, even when user symbols shadowed system symbol texts. A user symbol whose text
+    /// duplicates a system symbol's (e.g. `"name"`) overwrites the system entry in the
+    /// text -> SID map; the reset must restore it.
+    #[test]
+    fn reset_paths_equivalent_for_v1_0() {
+        let mut table = SymbolTable::new(IonVersion::v1_0);
+        // Shadow every system symbol text with a user symbol, and add an ordinary user symbol.
+        for &text in v1_0::SYSTEM_SYMBOLS {
+            table.add_symbol_for_text(text);
+        }
+        table.add_symbol_for_text("user_symbol");
+        // The shadowing user symbols have replaced the system entries in the text -> SID map:
+        // "name" (system SID 4) now resolves to its user-space copy.
+        assert_eq!(table.sid_for("name"), Some(13));
+
+        table.reset_to_prefix_only();
+
+        // The reset table must be indistinguishable from a freshly constructed one.
+        let fresh = SymbolTable::new(IonVersion::v1_0);
+        assert_eq!(table.len(), fresh.len());
+        for sid in 0..fresh.len() {
+            assert_eq!(table.text_for(sid), fresh.text_for(sid), "SID: {sid}");
+        }
+        for &text in v1_0::SYSTEM_SYMBOLS {
+            assert_eq!(table.sid_for(text), fresh.sid_for(text), "text: {text}");
+        }
+        assert_eq!(table.sid_for("name"), Some(4));
+        assert_eq!(table.text_for(4), Some("name"));
+        assert_eq!(table.sid_for("user_symbol"), None);
     }
 }
