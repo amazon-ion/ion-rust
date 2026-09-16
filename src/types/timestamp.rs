@@ -866,9 +866,8 @@ pub struct TimestampBuilder<T> {
     attoseconds: u64,
     // Held as `u32` so a precision beyond `MAX_FRAC_DIGITS` is caught by `validate_field_ranges`
     // before it is narrowed to the `u8` that `Timestamp::from_fields` expects, rather than
-    // silently wrapping into an in-range value. The setters saturate their (wider) inputs into
-    // `0..=MAX_FRAC_DIGITS + 1` so an out-of-range precision reaches validation as the sentinel
-    // `MAX_FRAC_DIGITS + 1` instead of wrapping here.
+    // silently wrapping into an in-range value. A setter whose input is wider than `u32` saturates
+    // at `u32::MAX`, which validation still rejects.
     fractional_digits: u32,
 }
 
@@ -1191,37 +1190,35 @@ impl TimestampBuilder<HasSeconds> {
         mut self,
         fractional_seconds: Decimal,
     ) -> TimestampBuilder<HasFractionalSeconds> {
-        if fractional_seconds.is_less_than_zero()
-            || fractional_seconds.is_greater_than_or_equal_to_one()
-        {
-            // Out of the `[0, 1)` range for fractional seconds. Store an out-of-range attoseconds
-            // value so `build()` rejects it as such.
-            self.fractional_digits = 0;
-            self.attoseconds = MAX_ATTOSECONDS;
+        // The declared precision is the number of fractional digits, i.e. `-exponent` (0 when the
+        // exponent is non-negative, e.g. a zero written as `0d2`). This also covers a zero value:
+        // its coefficient is 0, so `attoseconds` works out to 0 below.
+        //
+        // `digits` is `u64` (`Decimal::exponent` is `i64`), so it saturates at `u32::MAX` when
+        // narrowed to the field; an over-range precision is rejected by `build()` rather than
+        // wrapping into a spuriously in-range value.
+        let digits = fractional_seconds.exponent.min(0).unsigned_abs();
+        self.fractional_digits = u32::try_from(digits).unwrap_or(u32::MAX);
+        self.attoseconds = if digits > MAX_FRAC_DIGITS as u64 {
+            // Precision exceeds the limit; `build()` rejects it via `fractional_digits`.
+            0
+        } else if fractional_seconds.is_less_than_zero() {
+            // A negative fractional second cannot be represented in the unsigned `attoseconds`
+            // field; saturate so the range check in `validate_field_ranges` rejects it.
+            u64::MAX
         } else {
-            // The declared precision is the number of fractional digits, i.e. `-exponent` (0 when
-            // the exponent is non-negative, e.g. a zero written as `0d2`). This also covers a zero
-            // value: its coefficient is 0, so `attoseconds` works out to 0 below.
-            //
-            // `digits` is `u64` (`Decimal::exponent` is `i64`), so it is saturated into the
-            // sentinel range before narrowing to the `u32` field; an over-range precision reaches
-            // `build()` as `MAX_FRAC_DIGITS + 1` and is rejected there, rather than wrapping into a
-            // spuriously in-range value.
-            let digits = fractional_seconds.exponent.min(0).unsigned_abs();
-            self.fractional_digits = digits.min(MAX_FRAC_DIGITS as u64 + 1) as u32;
-            self.attoseconds = if digits <= MAX_FRAC_DIGITS as u64 {
-                // attoseconds = coefficient * 10^(18 - digits)
-                let coefficient = fractional_seconds
-                    .coefficient()
-                    .magnitude()
-                    .as_u128()
-                    .unwrap_or(0) as u64;
-                coefficient.saturating_mul(POW10[MAX_FRAC_DIGITS as usize - digits as usize])
-            } else {
-                // Precision exceeds the limit; `build()` rejects it via `fractional_digits`.
-                0
-            };
-        }
+            // attoseconds = coefficient * 10^(18 - digits). A value `>= 1` produces `attoseconds
+            // >= 10^18`, which `validate_field_ranges` rejects on its own; no separate check for
+            // the upper bound is needed. Widen to `u128` first so the multiply cannot overflow,
+            // then saturate any out-of-range result into the (rejected) range.
+            let coefficient = fractional_seconds
+                .coefficient()
+                .magnitude()
+                .as_u128()
+                .unwrap_or(u128::MAX);
+            let scale = POW10[MAX_FRAC_DIGITS as usize - digits as usize] as u128;
+            u64::try_from(coefficient.saturating_mul(scale)).unwrap_or(u64::MAX)
+        };
         self.change_state()
     }
 
