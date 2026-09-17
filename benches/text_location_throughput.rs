@@ -18,8 +18,6 @@ use criterion::{criterion_group, criterion_main};
 mod benchmark {
     use criterion::{black_box, Criterion, Throughput};
     use ion_rs::Element;
-    use std::path::PathBuf;
-    use std::time::Duration;
 
     /// 5000 integers, joined by `separator`. With `"\n"` this is a 5000-row input; with `" "` it
     /// is a single row of the same integers, so the two differ only in row count.
