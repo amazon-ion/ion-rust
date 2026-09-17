@@ -74,6 +74,7 @@ generic-array = "=0.14.7" # 0.14.8 introduces a deprecation warning that fails o
 digest = { version = "0.9", optional = true }
 ice_code = "0.1.4"
 rustc-hash = "2.0.0"
+hashbrown = "0.15"
 phf = { version = "0.11.2", features = ["macros"] }
 sha2 = { version = "0.9", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -116,6 +117,14 @@ harness = false
 
 [[bench]]
 name = "timestamp"
+harness = false
+
+[[bench]]
+name = "struct_ops"
+harness = false
+
+[[bench]]
+name = "struct_threshold_model"
 harness = false
 
 [profile.release]

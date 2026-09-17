@@ -7,12 +7,19 @@ use thiserror::Error;
 pub type ConversionOperationResult<FromType, ToType> =
     Result<ToType, ConversionOperationError<FromType, ToType>>;
 
-/// Represents a mismatch during conversion between the expected type and the actual value's type.
-#[derive(Clone, Debug, Error, PartialEq)]
-#[error("Type conversion error; expected a(n) {output_type}, found a(n) {input_type}")]
-pub struct ConversionError {
+/// The type names carried by a [`ConversionError`]. Boxed inside `ConversionError` to keep
+/// `IonError` small; these strings are only materialized on the (cold) conversion-error path.
+#[derive(Clone, Debug, PartialEq)]
+struct ConversionTypes {
     input_type: String,
     output_type: String,
+}
+
+/// Represents a mismatch during conversion between the expected type and the actual value's type.
+#[derive(Clone, Debug, Error, PartialEq)]
+#[error("Type conversion error; expected a(n) {}, found a(n) {}", .types.output_type, .types.input_type)]
+pub struct ConversionError {
+    types: Box<ConversionTypes>,
 }
 
 impl<FromType, ToType> From<ConversionOperationError<FromType, ToType>> for ConversionError
@@ -22,8 +29,10 @@ where
 {
     fn from(err: ConversionOperationError<FromType, ToType>) -> Self {
         ConversionError {
-            input_type: err.input_value.expected_type_name(),
-            output_type: ToType::expected_type_name(),
+            types: Box::new(ConversionTypes {
+                input_type: err.input_value.expected_type_name(),
+                output_type: ToType::expected_type_name(),
+            }),
         }
     }
 }

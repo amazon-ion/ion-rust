@@ -175,3 +175,46 @@ impl<T> IonFailure for IonResult<T> {
         Err(IonError::illegal_operation(operation))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{IonError, IonFailure};
+    use crate::position::Position;
+    use std::mem::{align_of, size_of};
+
+    /// `IonError` is returned (inside `IonResult`) from nearly every read/write operation, so its
+    /// size directly inflates the size of `Result<T, IonError>` on hot paths. The largest inline
+    /// variant payloads (`DecodingError`, `IncompleteError`, `ConversionError`) are boxed down to a
+    /// single pointer; the 32-byte bound is currently pinned by the still-inline `Cow<'static, str>`
+    /// payloads of `EncodingError`/`IllegalOperation` (24 bytes + the enum discriminant). This
+    /// guards against a regression that would reintroduce a large inline payload.
+    #[test]
+    fn ion_error_stays_small() {
+        assert!(
+            size_of::<IonError>() <= 32,
+            "size_of::<IonError>() = {} (expected <= 32); a variant likely gained a large inline \
+             payload — box it as done for position/type-name data",
+            size_of::<IonError>()
+        );
+        assert!(
+            align_of::<IonError>() <= 8,
+            "align_of::<IonError>() = {} (expected <= 8)",
+            align_of::<IonError>()
+        );
+    }
+
+    // Boxing moved these errors' fields into private inner structs. These assert that the
+    // user-visible `Display` text is unchanged (guards against, e.g., transposing the two
+    // positional format arguments, which would still compile).
+    #[test]
+    fn display_text_is_stable() {
+        let decoding = IonError::decoding_error("bad input");
+        assert_eq!(decoding.to_string(), "bad input");
+
+        let incomplete = IonError::incomplete("a value", Position::with_offset(42));
+        assert_eq!(
+            incomplete.to_string(),
+            "ran out of input while reading a value at offset 42"
+        );
+    }
+}

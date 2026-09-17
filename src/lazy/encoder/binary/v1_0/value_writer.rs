@@ -3,6 +3,7 @@ use std::mem;
 
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
+use ice_code::ice as cold_path;
 
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
@@ -19,6 +20,7 @@ use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, Annotata
 use crate::lazy::never::Never;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
+use crate::types::integer::{AsBigOrSmallValue, UIntData};
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
@@ -134,21 +136,35 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
 
     pub fn write_int(mut self, value: &Int) -> IonResult<()> {
         let magnitude = value.unsigned_abs().data;
-        let bytes_to_write = magnitude.to_be_bytes();
-
-        let encoded_length = bytes_to_write.len();
-        let mut type_descriptor: u8 = if value.is_negative() { 0x30 } else { 0x20 };
-
-        if encoded_length <= 13 {
-            type_descriptor |= encoded_length as u8;
-            self.push_byte(type_descriptor);
+        let type_descriptor: u8 = if value.is_negative() { 0x30 } else { 0x20 };
+        if let Some(mag) = magnitude.as_small_value() {
+            // Common case: the magnitude is stored inline, so it can be encoded on the stack with
+            // no heap allocation.
+            let (be, start) = UIntData::small_to_be_bytes(mag);
+            self.write_int_header_and_bytes(type_descriptor, &be[start..])
         } else {
-            type_descriptor |= 0xEu8;
-            self.push_byte(type_descriptor);
-            VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)?;
+            // Cold path: a BigUint magnitude, which has to be heap-allocated to be encoded.
+            cold_path! {{
+                let bytes_to_write = magnitude.to_be_bytes();
+                self.write_int_header_and_bytes(type_descriptor, &bytes_to_write)
+            }}
         }
-        self.push_bytes(&bytes_to_write);
+    }
 
+    #[inline]
+    fn write_int_header_and_bytes(&mut self, type_descriptor: u8, bytes: &[u8]) -> IonResult<()> {
+        let encoded_length = bytes.len();
+        if encoded_length <= MAX_INLINE_LENGTH {
+            self.push_byte(type_descriptor | encoded_length as u8);
+        } else {
+            // Cold path: the length does not fit in the type descriptor's `L` field, so it has to
+            // be written as a trailing VarUInt.
+            cold_path! {{
+                self.push_byte(type_descriptor | 0x0E);
+                VarUInt::write_u64(self.encoding_buffer, encoded_length as u64)
+            }}?;
+        }
+        self.push_bytes(bytes);
         Ok(())
     }
 
@@ -449,7 +465,10 @@ mod tests {
     use crate::lazy::encoder::value_writer::{AnnotatableWriter, SequenceWriter};
     use crate::lazy::encoder::write_as_ion::WriteAsSExp;
     use crate::raw_symbol_ref::AsRawSymbolRef;
-    use crate::{Element, IonData, IonResult, RawSymbolRef, SymbolId, Timestamp, ValueWriter};
+    use crate::{
+        Element, Int, IonData, IonResult, RawSymbolRef, SymbolId, Timestamp, UInt, ValueWriter,
+    };
+    use rstest::rstest;
 
     fn writer_test(
         expected: &str,
@@ -465,6 +484,113 @@ mod tests {
             "Actual \n    {actual:?}\nwas not equal to\n    {expected:?}\n"
         );
         Ok(())
+    }
+
+    /// Writes a single value and asserts the exact bytes that follow the Ion 1.0 IVM.
+    fn encoding_test(
+        test: impl FnOnce(&mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>) -> IonResult<()>,
+        expected_encoding: &[u8],
+    ) -> IonResult<()> {
+        let mut buffer = Vec::new();
+        let mut writer = LazyRawBinaryWriter_1_0::new(&mut buffer)?;
+        test(&mut writer)?;
+        writer.flush()?;
+        // Make a byte array that starts with an Ion 1.0 IVM.
+        let mut expected = vec![0xE0, 0x01, 0x00, 0xEA];
+        expected.extend_from_slice(expected_encoding);
+        let expected = expected.as_slice();
+        let actual = buffer.as_slice();
+        assert_eq!(
+            expected, actual,
+            "Actual \n    {actual:x?}\nwas not equal to\n    {expected:x?}\n"
+        );
+        Ok(())
+    }
+
+    /// Returns `2^128`, the smallest magnitude that `Int` cannot store inline. Encoding it takes
+    /// `write_int`'s heap-allocating `BigUint` path.
+    fn two_pow_128() -> Int {
+        let mut bytes = vec![0u8; 17];
+        bytes[16] = 1;
+        Int::from_le_signed_bytes(&bytes)
+    }
+
+    /// Pins the bytes that `BinaryValueWriter_1_0::write_int` emits. `writer_test` only compares
+    /// decoded `Element`s, and the reader accepts zero-padded magnitudes, so nothing else in this
+    /// module would notice if the magnitude stopped being trimmed to its minimal length.
+    #[rstest]
+    // Zero is written as an explicit `0x00` magnitude byte (unlike `write_i64(0)`, which emits a
+    // bare `0x20`).
+    #[case::zero(Int::from(0i64), &[0x21, 0x00])]
+    // The 127/128 boundary: Ion 1.0 stores the sign in the type descriptor, not the magnitude, so
+    // 128 still fits in one magnitude byte.
+    #[case::one_hundred_twenty_seven(Int::from(127i64), &[0x21, 0x7F])]
+    #[case::one_hundred_twenty_eight(Int::from(128i64), &[0x21, 0x80])]
+    #[case::negative_one_hundred_twenty_eight(Int::from(-128i64), &[0x31, 0x80])]
+    // Eight-byte magnitudes.
+    #[case::max_i64(Int::from(i64::MAX), &[0x28, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])]
+    #[case::min_i64(Int::from(i64::MIN), &[0x38, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])]
+    // 2^96 has a 13-byte magnitude: the largest length that fits in the descriptor's `L` field.
+    #[case::thirteen_byte_magnitude(
+        Int::from(1i128 << 96),
+        &[
+            0x2D,
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    // 2^104 has a 14-byte magnitude, one past the boundary, so `L` becomes 14 (0xE) and the real
+    // length follows as a VarUInt.
+    #[case::fourteen_byte_magnitude(
+        Int::from(1i128 << 104),
+        &[
+            0x2E, 0x8E,
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    // Negative 14-byte magnitude: same VarUInt-length header as above, but the negative type
+    // descriptor `0x3E`. Guards the sign nibble on the `L == 0xE` path.
+    #[case::negative_fourteen_byte_magnitude(
+        Int::from(-(1i128 << 104)),
+        &[
+            0x3E, 0x8E,
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    // `u128::MAX` is stored as a `BigInt`, but its magnitude fits in a `u128`, so it still takes
+    // the stack-only path. Sixteen magnitude bytes.
+    #[case::max_u128_magnitude(
+        Int::from(UInt::from(u128::MAX)),
+        &[
+            0x2E, 0x90,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]
+    )]
+    // Just past the seam: a magnitude that exceeds `u128` and takes the cold `BigUint` path.
+    #[case::two_pow_128(
+        two_pow_128(),
+        &[
+            0x2E, 0x91,
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    #[case::negative_two_pow_128(
+        two_pow_128().neg(),
+        &[
+            0x3E, 0x91,
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    fn write_ints(#[case] value: Int, #[case] expected_encoding: &[u8]) -> IonResult<()> {
+        encoding_test(
+            |writer: &mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>| {
+                writer.write(&value)?;
+                Ok(())
+            },
+            expected_encoding,
+        )
     }
 
     #[test]
