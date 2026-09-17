@@ -465,7 +465,11 @@ impl Timestamp {
             return None;
         }
         // Convert attoseconds to coefficient at the declared precision.
-        let divisor = POW10[(MAX_FRAC_DIGITS as u32 - digits) as usize];
+        // A validated `Timestamp` never exceeds `MAX_FRAC_DIGITS`; the assert catches a regression
+        // in construction, and `saturating_sub` keeps the index in `0..=MAX_FRAC_DIGITS` (a valid
+        // `POW10` index) rather than panicking in release builds if one ever did.
+        debug_assert!(digits <= MAX_FRAC_DIGITS as u32);
+        let divisor = POW10[MAX_FRAC_DIGITS.saturating_sub(digits as u8) as usize];
         let coefficient = self.attoseconds / divisor;
         Some(Decimal::new(coefficient, -(digits as i64)))
     }
@@ -483,7 +487,11 @@ impl Timestamp {
             return Ok(());
         }
 
-        let divisor = POW10[(MAX_FRAC_DIGITS as u32 - digits) as usize];
+        // A validated `Timestamp` never exceeds `MAX_FRAC_DIGITS`; the assert catches a regression
+        // in construction, and `saturating_sub` keeps the index in `0..=MAX_FRAC_DIGITS` (a valid
+        // `POW10` index) rather than panicking in release builds if one ever did.
+        debug_assert!(digits <= MAX_FRAC_DIGITS as u32);
+        let divisor = POW10[MAX_FRAC_DIGITS.saturating_sub(digits as u8) as usize];
         let coefficient = self.attoseconds / divisor;
         write!(output, ".{coefficient:0>width$}", width = digits as usize)?;
         Ok(())
@@ -900,9 +908,9 @@ impl<T> TimestampBuilder<T> {
     /// silently wrapping into a different, possibly valid-looking value.
     fn validate_field_ranges(&self) -> IonResult<()> {
         if self.attoseconds >= MAX_ATTOSECONDS {
-            // No value is reported: this also fires for the out-of-`[0, 1)` sentinel set by
-            // `with_fractional_seconds`, where `attoseconds` is a placeholder rather than a value
-            // the caller supplied.
+            // No value is reported: this also fires for a negative fractional value, which
+            // `with_fractional_seconds` stores as the saturated `u64::MAX` rather than a value the
+            // caller supplied.
             return IonResult::illegal_operation(
                 "Timestamp fractional seconds are out of range (must be in [0, 1))",
             );
@@ -1176,7 +1184,7 @@ impl TimestampBuilder<HasSeconds> {
         // an error below.
         let scale_digits = precision_digits.min(MAX_FRAC_DIGITS as u32);
         let attoseconds = (nanoseconds as u64).saturating_mul(1_000_000_000);
-        let scale = POW10[(MAX_FRAC_DIGITS as u32 - scale_digits) as usize];
+        let scale = POW10[MAX_FRAC_DIGITS.saturating_sub(scale_digits as u8) as usize];
         // Drop any precision finer than `precision_digits` so `attoseconds` stays a multiple of
         // `10^(18 - precision)` (fractional-seconds invariant 5).
         self.attoseconds = attoseconds / scale * scale;
@@ -1186,6 +1194,11 @@ impl TimestampBuilder<HasSeconds> {
         self.change_state()
     }
 
+    /// Sets the fractional seconds to `fractional_seconds`, whose scale becomes the declared
+    /// subsecond precision.
+    ///
+    /// A value outside `[0, 1)` (negative, or `>= 1`) or a precision exceeding [`MAX_FRAC_DIGITS`]
+    /// causes [`Self::build`] to return an error.
     pub fn with_fractional_seconds(
         mut self,
         fractional_seconds: Decimal,
@@ -1199,25 +1212,37 @@ impl TimestampBuilder<HasSeconds> {
         // wrapping into a spuriously in-range value.
         let digits = fractional_seconds.exponent.min(0).unsigned_abs();
         self.fractional_digits = u32::try_from(digits).unwrap_or(u32::MAX);
-        self.attoseconds = if digits > MAX_FRAC_DIGITS as u64 {
-            // Precision exceeds the limit; `build()` rejects it via `fractional_digits`.
-            0
-        } else if fractional_seconds.is_less_than_zero() {
+        self.attoseconds = if fractional_seconds.is_less_than_zero() {
             // A negative fractional second cannot be represented in the unsigned `attoseconds`
             // field; saturate so the range check in `validate_field_ranges` rejects it.
             u64::MAX
         } else {
-            // attoseconds = coefficient * 10^(18 - digits). A value `>= 1` produces `attoseconds
-            // >= 10^18`, which `validate_field_ranges` rejects on its own; no separate check for
-            // the upper bound is needed. Widen to `u128` first so the multiply cannot overflow,
-            // then saturate any out-of-range result into the (rejected) range.
+            // Scale the coefficient to the `10^-18` (attosecond) fixed point.
+            //   digits <= 18: multiply by `10^(18 - digits)`; this is the value's exact attosecond
+            //     representation. A value `>= 1` lands `>= 10^18` and is rejected by
+            //     `validate_field_ranges`; a value too large to fit saturates (still rejected).
+            //   digits >  18: the precision already exceeds the maximum and is rejected via
+            //     `fractional_digits`, so the payload is unobservable. Store a best-effort
+            //     truncation (divide off the excess digits); a coefficient wider than `u128` is
+            //     approximated rather than divided exactly, which is acceptable on a rejected path.
             let coefficient = fractional_seconds
                 .coefficient()
                 .magnitude()
                 .as_u128()
                 .unwrap_or(u128::MAX);
-            let scale = POW10[MAX_FRAC_DIGITS as usize - digits as usize] as u128;
-            u64::try_from(coefficient.saturating_mul(scale)).unwrap_or(u64::MAX)
+            let atto = match (MAX_FRAC_DIGITS as u64).checked_sub(digits) {
+                Some(scale_up) => coefficient.saturating_mul(POW10[scale_up as usize] as u128),
+                None => {
+                    let excess = u32::try_from(digits - MAX_FRAC_DIGITS as u64).unwrap_or(u32::MAX);
+                    // `10^excess` overflows `u128` for `excess >= 39`; since that exceeds any
+                    // `u128` coefficient, the truncated value is 0.
+                    match 10u128.checked_pow(excess) {
+                        Some(divisor) => coefficient / divisor,
+                        None => 0,
+                    }
+                }
+            };
+            u64::try_from(atto).unwrap_or(u64::MAX)
         };
         self.change_state()
     }
@@ -2209,6 +2234,10 @@ mod timestamp_tests {
     // A fractional value outside `[0, 1)` must be rejected.
     #[case::frac_seconds_ge_one(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(15i128, -1i64)).build())]
     #[case::frac_seconds_negative(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(-5i128, -1i64)).build())]
+    // Exactly `1.0` at 18 digits: `attoseconds == MAX_ATTOSECONDS`, the boundary of the `>=` check.
+    #[case::frac_seconds_exactly_one(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(1_000_000_000_000_000_000i128, -18i64)).build())]
+    // A `>= 1` value large enough to saturate the `u128`/`u64` scaling must still be rejected.
+    #[case::frac_seconds_ge_one_saturating(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(i128::MAX, -1i64)).build())]
     fn test_out_of_range_fields_are_rejected(#[case] result: IonResult<Timestamp>) {
         assert!(
             result.is_err(),
@@ -2230,6 +2259,9 @@ mod timestamp_tests {
     #[case::max_millis(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_milliseconds(999).build(), "2021-01-01T00:00:00.999-00:00")]
     #[case::max_micros(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_microseconds(999_999).build(), "2021-01-01T00:00:00.999999-00:00")]
     #[case::max_nanos(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_nanoseconds(999_999_999).build(), "2021-01-01T00:00:00.999999999-00:00")]
+    // Largest in-range fractional value at the maximum (18-digit) precision: `attoseconds` is one
+    // below `MAX_ATTOSECONDS`, the accept side of the boundary.
+    #[case::max_frac_18_digits(TimestampBuilder::with_ymd(2021, 1, 1).with_hms(0, 0, 0).with_fractional_seconds(Decimal::new(999_999_999_999_999_999i128, -18i64)).build(), "2021-01-01T00:00:00.999999999999999999-00:00")]
     fn test_max_in_range_fields_are_accepted(
         #[case] result: IonResult<Timestamp>,
         #[case] expected: &str,
