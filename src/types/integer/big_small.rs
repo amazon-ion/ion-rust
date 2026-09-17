@@ -53,6 +53,7 @@ where
     type SmallType = S;
     type BigType = B;
 
+    #[inline]
     fn as_small_value(&self) -> Option<Self::SmallType> {
         match self {
             SmallValue(i) => Some(*i),
@@ -77,6 +78,7 @@ macro_rules! impl_as_big_or_small {
             type SmallType = $small;
             type BigType = $big;
 
+            #[inline]
             fn as_small_value(&self) -> Option<Self::SmallType> {
                 let $val = self;
                 $small_exp
