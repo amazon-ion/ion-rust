@@ -365,7 +365,8 @@ mod repr {
         }
 
         /// The inverse of [`into_boxed_slice`](Self::into_boxed_slice), and the single owning
-        /// constructor the `From`/[`IntoAnnotations`] conversions and `Clone` all route through.
+        /// constructor the `From`/[`IntoAnnotations`](super::IntoAnnotations) conversions and `Clone`
+        /// all route through.
         /// Dispatches on length and reuses the incoming allocation for the compact one- and
         /// two-annotation shapes, so only the 3+ arm allocates (its outer thinning cell). Keeping the
         /// tag-shape choice here means `Clone` need not re-derive it.
