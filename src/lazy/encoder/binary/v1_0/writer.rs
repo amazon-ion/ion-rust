@@ -274,8 +274,10 @@ impl<W: Write> SequenceWriter for LazyRawBinaryWriter_1_0<W> {
     // Uses the default method implementations from SequenceWriter
 }
 
+// Named `move_soundness_tests` (not the usual `tests`) so CI's module-path Miri selection can
+// target it by name -- these verify the writer stays sound when moved (see `MIRI_TEST_SELECTION`).
 #[cfg(test)]
-mod tests {
+mod move_soundness_tests {
     use super::LazyRawBinaryWriter_1_0;
     use crate::lazy::encoder::LazyRawWriter;
     use crate::IonResult;
