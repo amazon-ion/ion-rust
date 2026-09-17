@@ -223,24 +223,6 @@ impl IntData {
         }
     }
 
-    pub(crate) fn count_decimal_digits(&self) -> u32 {
-        match &self.0 {
-            SmallValue(value) => {
-                let abs = value.unsigned_abs();
-                if abs == 0 {
-                    1
-                } else {
-                    abs.ilog10() + 1
-                }
-            }
-            BigValue(big) => cold_path! {{
-                let s = format!("{big}");
-                let s = s.strip_prefix('-').unwrap_or(&s);
-                s.len() as u32
-            }},
-        }
-    }
-
     #[inline]
     pub(crate) fn unsigned_abs(&self) -> UIntData {
         match &self.0 {
@@ -630,31 +612,6 @@ mod tests {
         let big = UIntData::from_str_radix("340282366920938463463374607431768211456", 10).unwrap();
         assert!(matches!(big.0, BigValue(_)));
         assert!(UIntData::from_str_radix("xyz", 10).is_err());
-    }
-
-    #[rstest]
-    #[case::zero(0, 1)]
-    #[case::one(1, 1)]
-    #[case::nine(9, 1)]
-    #[case::ten(10, 2)]
-    #[case::ninety_nine(99, 2)]
-    #[case::hundred(100, 3)]
-    #[case::negative(-1, 1)]
-    #[case::negative_large(-999999, 6)]
-    #[case::i128_max(i128::MAX, 39)]
-    #[case::i128_min(i128::MIN, 39)]
-    fn int_count_decimal_digits(#[case] value: i128, #[case] expected: u32) {
-        assert_eq!(IntData::from(value).count_decimal_digits(), expected);
-    }
-
-    #[test]
-    fn int_count_decimal_digits_big() {
-        // 2^128 = 340282366920938463463374607431768211456 (39 digits)
-        let mut bytes = vec![0u8; 18];
-        bytes[16] = 1;
-        let big = IntData::from_le_signed_bytes(&bytes);
-        assert!(matches!(big.0, BigValue(_)));
-        assert_eq!(big.count_decimal_digits(), 39);
     }
 
     #[test]

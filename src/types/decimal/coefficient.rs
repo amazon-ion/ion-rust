@@ -1,16 +1,17 @@
 //! A representation of a decimal value's coefficient.
 
 use std::convert::TryFrom;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use crate::result::{IonError, IonFailure};
-use crate::types::CountDecimalDigits;
+use crate::types::integer::UIntData;
+use crate::types::overflowing_int::{Magnitude, OverflowingInt};
 use crate::IonResult;
 use crate::{Int, UInt};
 
 /// Indicates whether the `Coefficient`'s magnitude is less than 0 (negative) or not (positive).
 /// When the magnitude is zero, the `Sign` can be used to distinguish between -0 and 0.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Sign {
     Negative = -1,
     Positive = 1,
@@ -18,75 +19,70 @@ pub enum Sign {
 
 /// A signed integer that can be used as the coefficient of a [`Decimal`](crate::Decimal) value.
 ///
-/// Unlike `Int`, this type preserves the distinction between `0` and `-0`. When tested for mathematical
-/// equality using [`PartialEq::eq`], [`Coefficient::ZERO`] and [`Coefficient::NEGATIVE_ZERO`] will be
-/// considered equal. When tested for Ion data equality using [`IonData::eq`](crate::IonData::eq),
-/// they will be considered unequal.
+/// Unlike `Int`, this type preserves the distinction between `0` and `-0`, which Ion requires:
+/// `0d0` and `-0d0` are distinct values. Equality is **structural** — the sign always
+/// participates — so [`Coefficient::ZERO`] and [`Coefficient::NEGATIVE_ZERO`] are **not** equal
+/// under [`PartialEq::eq`]. The numeric equality that treats the two zeros as equal lives on
+/// [`Decimal`](crate::Decimal), through its own `PartialEq`/[`IonEq`](crate::IonData) split.
 ///
-/// While the Ion specification allows this type to be of arbitrary size, this implementation currently
-/// supports coefficients in the integer range supported by `i128`.
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+/// While the Ion specification allows this type to be of arbitrary size, this implementation
+/// stores magnitudes up to 126 bits inline and heap-allocates larger ones.
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Coefficient {
-    /// This field exists solely to preserve the distinction between `0` and `-0`.
-    /// It will agree with the sign information in the `magnitude` field in all cases *except*
-    /// when the coefficient is `-0`.
-    sign: Sign,
-    magnitude: Int,
+    repr: OverflowingInt,
 }
 
 impl Coefficient {
     pub const ZERO: Coefficient = Coefficient {
-        sign: Sign::Positive,
-        magnitude: Int::ZERO,
+        repr: OverflowingInt::ZERO,
     };
 
     pub const NEGATIVE_ZERO: Coefficient = Coefficient {
-        sign: Sign::Negative,
-        magnitude: Int::ZERO,
+        repr: OverflowingInt::NEGATIVE_ZERO,
     };
 
     pub(crate) fn new<I: Into<Int>>(value: I) -> Self {
-        let value: Int = value.into();
-        let sign = if value.is_negative() {
-            Sign::Negative
-        } else {
-            Sign::Positive
-        };
         Coefficient {
-            sign,
-            magnitude: value,
+            repr: int_to_overflowing_int(value.into()),
         }
     }
 
+    /// Builds a coefficient with the given `sign` and the magnitude of `magnitude`, applying the
+    /// sign explicitly. A zero magnitude keeps `sign`, so this is the route that constructs a
+    /// negative zero from a zero result.
     pub(crate) fn from_sign_and_value(sign: Sign, magnitude: impl Into<Int>) -> Self {
-        Self {
-            sign,
-            magnitude: magnitude.into(),
+        Coefficient {
+            repr: int_to_overflowing_int(magnitude.into()).with_sign(sign),
         }
     }
 
     pub fn sign(&self) -> Sign {
-        self.sign
+        self.repr.sign()
     }
 
     pub fn magnitude(&self) -> UInt {
-        self.magnitude.unsigned_abs()
+        match self.repr.magnitude_ref() {
+            Magnitude::Small(magnitude) => UInt::from(magnitude),
+            Magnitude::Big(magnitude) => UInt::from(UIntData::from_big(magnitude.clone())),
+        }
     }
 
+    /// Returns true when the sign is negative. This is a **sign-only** query: it is true for
+    /// negative zero, matching the decArith `is-signed` rule. (It deliberately differs from the
+    /// integer types' same-named predicate, which has no negative zero to report.)
     pub fn is_negative(&self) -> bool {
-        self.sign == Sign::Negative
+        self.repr.sign() == Sign::Negative
     }
 
     /// Returns the number of digits in the base-10 representation of the coefficient
     pub(crate) fn number_of_decimal_digits(&self) -> u32 {
-        self.magnitude.clone().count_decimal_digits()
+        self.magnitude().number_of_decimal_digits()
     }
 
     /// Constructs a new Coefficient that represents negative zero.
     pub(crate) fn negative_zero() -> Self {
         Coefficient {
-            sign: Sign::Negative,
-            magnitude: 0u64.into(),
+            repr: OverflowingInt::NEGATIVE_ZERO,
         }
     }
 
@@ -101,22 +97,39 @@ impl Coefficient {
     }
 
     pub(crate) fn is_zero_with_sign(&self, test_sign: Sign) -> bool {
-        self.sign == test_sign && self.magnitude.is_zero()
+        self.repr.sign() == test_sign && self.repr.is_zero()
     }
 
     /// Returns true if the Coefficient represents a zero of any sign.
     pub fn is_zero(&self) -> bool {
-        self.magnitude().is_zero()
+        self.repr.is_zero()
     }
 
-    /// Returns the coefficient as an `Int`.
-    /// If the coefficient is negative zero, returns `None`.
+    /// Returns the coefficient as an `Int`, or `None` for negative zero.
+    ///
+    /// This is a **lossless** query, not a value query: an `Int` cannot represent negative zero,
+    /// and returning a plain zero would silently drop the sign. The binary writer relies on the
+    /// `None` case to emit the negative-zero coefficient subfield, so this contract is
+    /// load-bearing on the write path.
     pub(crate) fn as_int(&self) -> Option<Int> {
         if self.is_negative_zero() {
-            // Returning an unsigned zero would be lossy.
             return None;
         }
-        Some(self.magnitude.clone())
+        let magnitude = Int::from(&self.magnitude());
+        Some(if self.is_negative() {
+            magnitude.neg()
+        } else {
+            magnitude
+        })
+    }
+}
+
+/// Converts a signed [`Int`] into an [`OverflowingInt`], preserving sign and magnitude. An `Int`
+/// never carries a negative zero, so the sign derived here is unambiguous.
+fn int_to_overflowing_int(value: Int) -> OverflowingInt {
+    match value.as_i128() {
+        Some(value) => OverflowingInt::from(value),
+        None => OverflowingInt::from(value.to_bigint()),
     }
 }
 
@@ -148,10 +161,10 @@ impl TryFrom<Coefficient> for Int {
     type Error = IonError;
 
     fn try_from(value: Coefficient) -> Result<Self, Self::Error> {
-        if value.is_negative_zero() {
-            return IonResult::illegal_operation("cannot convert negative zero Coefficient to Int");
+        match value.as_int() {
+            Some(int) => Ok(int),
+            None => IonResult::illegal_operation("cannot convert negative zero Coefficient to Int"),
         }
-        Ok(value.magnitude)
     }
 }
 
@@ -167,10 +180,11 @@ impl TryFrom<Coefficient> for UInt {
     type Error = IonError;
 
     fn try_from(value: Coefficient) -> Result<Self, Self::Error> {
+        // `is_negative` is true for negative zero, so `-0` is rejected here as well.
         if value.is_negative() {
             return IonResult::illegal_operation("cannot convert a negative Coefficient to a UInt");
         }
-        Ok(value.magnitude.unsigned_abs())
+        Ok(value.magnitude())
     }
 }
 
@@ -184,11 +198,17 @@ impl TryFrom<&Coefficient> for UInt {
 
 impl Display for Coefficient {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.sign {
-            Sign::Positive => {}
-            Sign::Negative => write!(f, "-")?,
-        };
-        write!(f, "{}", self.magnitude)
+        // The magnitude is unsigned, so the sign is written exactly once here.
+        if self.is_negative() {
+            write!(f, "-")?;
+        }
+        write!(f, "{}", self.magnitude())
+    }
+}
+
+impl Debug for Coefficient {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Coefficient({self})")
     }
 }
 

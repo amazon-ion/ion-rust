@@ -152,33 +152,3 @@ impl From<ContainerType> for ParentType {
         }
     }
 }
-
-pub(crate) trait CountDecimalDigits {
-    fn count_decimal_digits(self) -> u32;
-}
-
-macro_rules! impl_count_decimal_digits_unsigned {
-    ($($unsigned_int_type:ty),* $(,)?) => {$(
-        impl CountDecimalDigits for $unsigned_int_type {
-            fn count_decimal_digits(self) -> u32 {
-                if self == 0 {
-                    return 1;
-                }
-                self.ilog10() + 1
-            }
-        }
-    )*};
-}
-
-macro_rules! impl_count_decimal_digits_signed {
-    ($($signed_int_type:ty),* $(,)?) => {$(
-        impl CountDecimalDigits for $signed_int_type {
-            fn count_decimal_digits(self) -> u32 {
-                self.unsigned_abs().count_decimal_digits()
-            }
-        }
-    )*};
-}
-
-impl_count_decimal_digits_unsigned!(u8, u16, u32, u64, u128, usize);
-impl_count_decimal_digits_signed!(i8, i16, i32, i64, i128, isize);

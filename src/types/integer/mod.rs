@@ -3,7 +3,6 @@ mod int_data;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
-use crate::types::CountDecimalDigits;
 use crate::{IonError, IonResult};
 pub(crate) use big_small::AsBigOrSmallValue;
 pub(crate) use int_data::{IntData, UIntData};
@@ -401,18 +400,6 @@ impl IonDataOrd for Int {
 impl IonDataHash for Int {
     fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
         self.hash(state)
-    }
-}
-
-impl CountDecimalDigits for Int {
-    fn count_decimal_digits(self) -> u32 {
-        self.data.count_decimal_digits()
-    }
-}
-
-impl CountDecimalDigits for UInt {
-    fn count_decimal_digits(self) -> u32 {
-        self.data.count_decimal_digits()
     }
 }
 
