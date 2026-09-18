@@ -1,8 +1,7 @@
-use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::template::{
-    MacroSignature, ParameterCardinality, ParameterEncoding, SignatureIterator, TemplateBody,
-    TemplateElement, TemplateMacro, TemplateMacroRef, TemplateValue,
+    MacroSignature, ParameterCardinality, ParameterEncoding, TemplateBody, TemplateElement,
+    TemplateMacro, TemplateMacroRef, TemplateValue,
 };
 use crate::lazy::text::raw::v1_1::reader::{
     MacroAddress, MacroIdRef, ModuleKind, QualifiedAddress, SystemMacroAddress,
@@ -433,10 +432,6 @@ impl<'top> MacroRef<'top> {
         self.def
     }
 
-    pub(crate) fn iter_signature(&self) -> SignatureIterator<'top> {
-        SignatureIterator::new(*self)
-    }
-
     delegate! {
         to self.definition() {
             pub fn name(&self) -> Option<&'top str>;
@@ -512,11 +507,6 @@ pub struct MacroTable {
 /// and heap allocation occurs.
 pub static ION_1_1_SYSTEM_MACROS: LazyLock<MacroTable> =
     LazyLock::new(MacroTable::construct_system_macro_table);
-
-/// A lazily initialized singleton instance of an empty system macro table.
-/// This is useful in places where the APIs require version-agnostic access to the macro table.
-pub static EMPTY_MACRO_TABLE: LazyLock<WriterMacroTable> =
-    LazyLock::new(|| WriterMacroTable::new(MacroTable::empty()));
 
 impl Default for MacroTable {
     fn default() -> Self {
@@ -894,11 +884,6 @@ impl MacroTable {
         self.append_all_macros_from(&ION_1_1_SYSTEM_MACROS).unwrap()
     }
 
-    pub(crate) fn macros_tail(&self, num_tail_macros: usize) -> &[Arc<MacroDef>] {
-        let num_macros = self.macros_by_address.len();
-        &self.macros_by_address[num_macros - num_tail_macros..]
-    }
-
     // This method only exists to support the `ion_tests` feature.
     // See: https://github.com/amazon-ion/ion-rust/issues/967
     pub fn iter(&self) -> impl Iterator<Item = Macro> + '_ {
@@ -922,7 +907,7 @@ impl MacroTable {
 mod tests {
     use crate::lazy::expanded::template::TemplateMacroRef;
     use crate::{
-        v1_1, Element, EncodingContext, IonResult, IonVersion, MacroDef, TemplateCompiler,
+        v1_0, Element, EncodingContext, IonResult, IonVersion, MacroDef, TemplateCompiler,
         WriteAsIon,
     };
     use rstest::rstest;
@@ -937,7 +922,7 @@ mod tests {
         let compiled_macro = MacroDef::from_template_macro(compiled_template.clone());
         let template_ref = TemplateMacroRef::new(&compiled_macro, compiled_template.body());
         // Serialize the template macro to text, then read it back.
-        let encoded_text = template_ref.encode_as(v1_1::Text)?;
+        let encoded_text = template_ref.encode_as(v1_0::Text)?;
         let actual = Element::read_one(&encoded_text)?;
         println!("{encoded_text}");
         // Confirm the round-tripped Element is Ion-equal to the expected one.

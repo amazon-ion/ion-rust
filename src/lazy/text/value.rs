@@ -132,7 +132,9 @@ pub type LazyRawTextValue_1_1<'top> = LazyRawTextValue<'top, TextEncoding_1_1>;
 
 impl<Encoding: TextEncoding> Debug for LazyRawTextValue<'_, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", Encoding::name())?;
+        // The encoding's name, via its `Decoder` impl: `TextEncoding` no longer implies
+        // `Encoding`, whose `name()` this used to call.
+        write!(f, "{}", Encoding::INITIAL_ENCODING_EXPECTED.name())?;
 
         // Try to read the value
         match self.read() {

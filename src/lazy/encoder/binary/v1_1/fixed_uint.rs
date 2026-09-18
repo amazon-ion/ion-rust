@@ -1,7 +1,4 @@
-use std::io::Write;
-
 use ice_code::ice as cold_path;
-use num_traits::{PrimInt, Unsigned};
 
 use crate::decimal::Coefficient;
 use crate::lazy::encoder::binary::v1_1::fixed_int::{
@@ -48,41 +45,12 @@ impl FixedUInt {
         Ok(FixedUInt::new(size_in_bytes, value))
     }
 
-    #[inline]
-    pub(crate) fn write<W: Write>(output: &mut W, value: impl Into<UInt>) -> IonResult<usize> {
-        let le_bytes = value.into().data.to_le_bytes();
-        output.write_all(&le_bytes)?;
-        Ok(le_bytes.len())
-    }
-
     pub fn value(&self) -> &UInt {
         &self.value
     }
 
     pub fn size_in_bytes(&self) -> usize {
         self.size_in_bytes
-    }
-
-    #[inline]
-    pub(crate) fn write_as_uint<I: PrimInt + Unsigned>(
-        output: &mut impl Write,
-        value: impl Into<UInt>,
-    ) -> IonResult<()> {
-        let size_in_bytes = std::mem::size_of::<I>();
-        let value: u128 = u128::try_from(value.into())?;
-        let encoded_bytes = value.to_le_bytes();
-        let max_value: u128 = num_traits::cast::cast(I::max_value()).ok_or(
-            IonError::encoding_error("Unable to represent bounds for value as 128bit value"),
-        )?;
-
-        if !(0..=max_value).contains(&value) {
-            return IonResult::encoding_error(format!(
-                "provided unsigned integer value does not fit within {size_in_bytes} byte(s)"
-            ));
-        }
-
-        output.write_all(&encoded_bytes[..size_in_bytes])?;
-        Ok(())
     }
 }
 
@@ -200,31 +168,6 @@ mod tests {
             actual_value, 0,
             "actual value {actual_value} was != expected value 0 for encoding {encoding:x?}"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn encode_fixed_uint() -> IonResult<()> {
-        // Make two copies of each of our tests. In the first, each u64 is turned into a UInt.
-        let mut test_cases: Vec<_> = FIXED_UINT_TEST_CASES
-            .iter()
-            .cloned()
-            .map(|(value, encoding)| (UInt::from(value), encoding))
-            .collect();
-        // In the second, each u64 is turned into a BigUint and then turned into a UInt, exercising a different
-        // serialization code path.
-        let big_uint_test_cases = FIXED_UINT_TEST_CASES
-            .iter()
-            .cloned()
-            .map(|(value, encoding)| (UInt::from(u128::from(value)), encoding));
-        test_cases.extend(big_uint_test_cases);
-
-        for (value, expected_encoding) in test_cases {
-            let mut buffer = Vec::new();
-            FixedUInt::write(&mut buffer, value.clone())?;
-            let encoding = buffer.as_slice();
-            assert_eq!(encoding, expected_encoding, "actual encoding {encoding:x?} was != expected encoding {expected_encoding:x?} for value {value}");
-        }
         Ok(())
     }
 }

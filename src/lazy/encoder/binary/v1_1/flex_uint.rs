@@ -1,7 +1,5 @@
 use crate::result::IonFailure;
 use crate::{IonResult, UInt};
-use bumpalo::collections::Vec as BumpVec;
-use ice_code::ice as cold_path;
 use std::io::Write;
 
 const BITS_PER_U128: usize = 128;
@@ -122,23 +120,6 @@ impl FlexUInt {
         let big_value = u128::from_le_bytes(buffer).wrapping_shr(num_encoded_bytes as u32);
         let value = big_value as u64;
         Ok(FlexUInt::new(num_encoded_bytes, value))
-    }
-
-    #[inline]
-    pub(crate) fn encode_opcode_and_length(output: &mut BumpVec<'_, u8>, opcode: u8, length: u64) {
-        // In the common case, the length fits in a single FlexUInt byte. We can perform a single
-        // `reserve`/`memcopy` to get both the opcode and the length into the buffer.
-        if length < 127 {
-            let flex_uint_byte = (length << 1) as u8 + 1;
-            return output.extend_from_slice_copy(&[opcode, flex_uint_byte]);
-        }
-
-        // If there's call for it, we could also do this for 2-byte FlexUInts. For now, we fall
-        // back to the general-purpose.
-        cold_path! { encode_opcode_and_length_general_case => {
-            output.push(opcode);
-            let _ = FlexUInt::write(output, length).unwrap();
-        }}
     }
 
     // This is capped at 14 bytes to simplify encoding. FlexUInt values up to 14 bytes (2^112 - 1)

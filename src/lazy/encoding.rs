@@ -136,12 +136,6 @@ impl TextEncoding_1_0 {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct TextEncoding_1_1;
 
-impl TextEncoding_1_1 {
-    pub fn with_format(self, format: TextFormat) -> WriteConfig<Self> {
-        WriteConfig::<Self>::new(format)
-    }
-}
-
 impl Encoding for BinaryEncoding_1_0 {
     type Output = Vec<u8>;
 
@@ -166,30 +160,6 @@ impl Encoding for BinaryEncoding_1_0 {
             .with_annotations_encoding(AnnotationsEncoding::SymbolIds)
             .with_container_encoding(ContainerEncoding::LengthPrefixed)
             .with_symbol_value_encoding(SymbolValueEncoding::SymbolIds)
-    }
-}
-impl Encoding for BinaryEncoding_1_1 {
-    type Output = Vec<u8>;
-
-    fn encoding(&self) -> IonEncoding {
-        IonEncoding::Binary_1_1
-    }
-
-    fn instance() -> Self {
-        BinaryEncoding_1_1
-    }
-
-    fn name() -> &'static str {
-        "binary Ion v1.1"
-    }
-
-    fn default_write_config() -> WriteConfig<Self> {
-        WriteConfig::<Self>::new()
-    }
-
-    fn default_value_writer_config() -> ValueWriterConfig {
-        // By default, use the same settings as binary 1.0
-        BinaryEncoding_1_0::default_value_writer_config()
     }
 }
 impl Encoding for TextEncoding_1_0 {
@@ -217,40 +187,16 @@ impl Encoding for TextEncoding_1_0 {
             .with_symbol_value_encoding(SymbolValueEncoding::InlineText)
     }
 }
-impl Encoding for TextEncoding_1_1 {
-    type Output = String;
-
-    fn encoding(&self) -> IonEncoding {
-        IonEncoding::Text_1_1
-    }
-
-    fn instance() -> Self {
-        TextEncoding_1_1
-    }
-
-    fn name() -> &'static str {
-        "text Ion v1.1"
-    }
-    fn default_write_config() -> WriteConfig<Self> {
-        WriteConfig::<Self>::new(<TextFormat as Default>::default())
-    }
-
-    fn default_value_writer_config() -> ValueWriterConfig {
-        // By default, use the same settings as text 1.0
-        TextEncoding_1_0::default_value_writer_config()
-    }
-}
 
 /// Marker trait for binary encodings of any version.
-pub trait BinaryEncoding: Encoding<Output = Vec<u8>> + Decoder {}
+pub trait BinaryEncoding: Decoder {}
 
 /// Marker trait for text encodings.
 pub trait TextEncoding:
-    Encoding<Output = String>
-    + for<'a> Decoder<
-        AnnotationsIterator<'a> = RawTextAnnotationsIterator<'a>,
-        Value<'a> = LazyRawTextValue<'a, Self>,
-    >
+    for<'a> Decoder<
+    AnnotationsIterator<'a> = RawTextAnnotationsIterator<'a>,
+    Value<'a> = LazyRawTextValue<'a, Self>,
+>
 {
     fn new_value<'a>(
         input: TextBuffer<'a>,
@@ -490,7 +436,7 @@ impl RawValueLiteral for LazyRawAnyValue<'_> {}
 mod tests {
     use rstest::rstest;
 
-    use crate::lazy::encoding::TextEncoding;
+    use crate::lazy::encoding::Encoding;
     use crate::{
         ion_list, ion_seq, ion_sexp, ion_struct, v1_0, IonResult, Sequence, TextFormat, WriteConfig,
     };
@@ -508,7 +454,7 @@ mod tests {
         v1_0::Text.with_format(TextFormat::Lines),
         "{foo: 1, bar: 2, }\n[1, 2, ]\n(1 2 )\n"
     )]
-    fn encode_formatted_text<E: TextEncoding>(
+    fn encode_formatted_text<E: Encoding<Output = String>>(
         #[case] config: impl Into<WriteConfig<E>>,
         #[case] expected: &str,
     ) -> IonResult<()> {

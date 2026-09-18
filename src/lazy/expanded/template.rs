@@ -9,7 +9,7 @@ use crate::lazy::expanded::macro_evaluator::{
     MakeDecimalExpansion, MakeFieldExpansion, MakeStructExpansion, MakeTextExpansion,
     MakeTimestampExpansion, RepeatExpansion, SumExpansion, TemplateExpansion, ValueExpr,
 };
-use crate::lazy::expanded::macro_table::{MacroDef, MacroKind, MacroRef};
+use crate::lazy::expanded::macro_table::{MacroDef, MacroKind};
 use crate::lazy::expanded::r#struct::FieldExpr;
 use crate::lazy::expanded::sequence::Environment;
 use crate::lazy::expanded::{EncodingContextRef, LazyExpandedValue, TemplateVariableReference};
@@ -338,56 +338,6 @@ impl MacroSignature {
         const BITS_PER_VARIADIC_PARAM: usize = 2;
         const BITS_PER_BYTE: usize = 8;
         ((self.num_variadic_params * BITS_PER_VARIADIC_PARAM) + 7) / BITS_PER_BYTE
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct SignatureIterator<'a> {
-    index: usize,
-    macro_def: MacroRef<'a>,
-}
-
-impl<'a> SignatureIterator<'a> {
-    pub fn new(macro_def: MacroRef<'a>) -> Self {
-        Self {
-            index: 0,
-            macro_def,
-        }
-    }
-
-    pub fn parent_macro(&self) -> MacroRef<'_> {
-        self.macro_def
-    }
-
-    pub fn signature(&self) -> &'a MacroSignature {
-        self.macro_def.signature()
-    }
-
-    pub fn current_parameter(&self) -> Option<&'a Parameter> {
-        self.signature().parameters().get(self.index)
-    }
-
-    pub fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
-        self.next()
-            .ok_or_else(
-                #[inline(never)]
-                || {
-                    let macro_name = self.macro_def.name().unwrap_or("<anonymous>");
-                    IonError::encoding_error(format!(
-                        "cannot encode provided argument; macro '{macro_name}' takes no more parameters"
-                    ))
-                },
-            )
-    }
-}
-
-impl<'a> Iterator for SignatureIterator<'a> {
-    type Item = &'a Parameter;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let param = self.current_parameter()?;
-        self.index += 1;
-        Some(param)
     }
 }
 

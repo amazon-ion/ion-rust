@@ -103,8 +103,8 @@ impl LazyRawAnyVersionMarker<'_> {
         match self.encoding {
             Text_1_0(_) => TextEncoding_1_0.encoding(),
             Binary_1_0(_) => BinaryEncoding_1_0.encoding(),
-            Text_1_1(_) => TextEncoding_1_1.encoding(),
-            Binary_1_1(_) => BinaryEncoding_1_1.encoding(),
+            Text_1_1(_) => IonEncoding::Text_1_1,
+            Binary_1_1(_) => IonEncoding::Binary_1_1,
         }
     }
 }
@@ -203,8 +203,8 @@ impl<'top> LazyRawAnyEExpression<'top> {
     pub fn encoding(&self) -> IonEncoding {
         use LazyRawAnyEExpressionKind::*;
         match self.encoding {
-            Text_1_1(_) => TextEncoding_1_1.encoding(),
-            Binary_1_1(_) => BinaryEncoding_1_1.encoding(),
+            Text_1_1(_) => IonEncoding::Text_1_1,
+            Binary_1_1(_) => IonEncoding::Binary_1_1,
         }
     }
 }
@@ -540,8 +540,10 @@ impl IonEncoding {
         match self {
             Text_1_0 => TextEncoding_1_0::name(),
             Binary_1_0 => BinaryEncoding_1_0::name(),
-            Text_1_1 => TextEncoding_1_1::name(),
-            Binary_1_1 => BinaryEncoding_1_1::name(),
+            // TODO(pt005a): remove with Ion 1.1. These no longer implement `Encoding`, whose
+            //               `name()` the other arms delegate to.
+            Text_1_1 => "text Ion v1.1",
+            Binary_1_1 => "binary Ion v1.1",
         }
     }
 
@@ -732,8 +734,8 @@ impl<'top> LazyRawAnyValue<'top> {
         match &self.encoding {
             Text_1_0(_) => TextEncoding_1_0.encoding(),
             Binary_1_0(_) => BinaryEncoding_1_0.encoding(),
-            Text_1_1(_) => TextEncoding_1_1.encoding(),
-            Binary_1_1(_) => BinaryEncoding_1_1.encoding(),
+            Text_1_1(_) => IonEncoding::Text_1_1,
+            Binary_1_1(_) => IonEncoding::Binary_1_1,
         }
     }
 }

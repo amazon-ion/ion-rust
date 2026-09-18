@@ -4,10 +4,7 @@ use std::marker::PhantomData;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::writer::Writer;
-use crate::lazy::encoding::{
-    BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, OutputFromBytes, TextEncoding_1_0,
-    TextEncoding_1_1,
-};
+use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, OutputFromBytes, TextEncoding_1_0};
 use crate::{IonResult, TextFormat};
 
 /// Writer configuration to provide format and Ion version details to writer through encoding
@@ -66,26 +63,8 @@ impl WriteConfig<TextEncoding_1_0> {
     }
 }
 
-impl WriteConfig<TextEncoding_1_1> {
-    pub(crate) fn new(text_kind: TextFormat) -> Self {
-        Self {
-            kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
-            phantom_data: Default::default(),
-        }
-    }
-}
-
 impl WriteConfig<BinaryEncoding_1_0> {
     pub fn new() -> Self {
-        Self {
-            kind: WriteConfigKind::Binary(BinaryWriteConfig),
-            phantom_data: Default::default(),
-        }
-    }
-}
-
-impl WriteConfig<BinaryEncoding_1_1> {
-    pub(crate) fn new() -> Self {
         Self {
             kind: WriteConfigKind::Binary(BinaryWriteConfig),
             phantom_data: Default::default(),
@@ -99,19 +78,7 @@ impl Default for WriteConfig<TextEncoding_1_0> {
     }
 }
 
-impl Default for WriteConfig<TextEncoding_1_1> {
-    fn default() -> Self {
-        Self::new(TextFormat::Compact)
-    }
-}
-
 impl Default for WriteConfig<BinaryEncoding_1_0> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Default for WriteConfig<BinaryEncoding_1_1> {
     fn default() -> Self {
         Self::new()
     }
@@ -131,7 +98,6 @@ pub(crate) struct TextWriteConfig {
 }
 
 /// Binary writer configuration to be used to create a writer
-// TODO: Add appropriate binary configuration if required for 1.1
 #[derive(Clone, Debug)]
 pub(crate) struct BinaryWriteConfig;
 
@@ -141,20 +107,8 @@ impl From<TextEncoding_1_0> for WriteConfig<TextEncoding_1_0> {
     }
 }
 
-impl From<TextEncoding_1_1> for WriteConfig<TextEncoding_1_1> {
-    fn from(_encoding: TextEncoding_1_1) -> Self {
-        WriteConfig::<TextEncoding_1_1>::default()
-    }
-}
-
 impl From<BinaryEncoding_1_0> for WriteConfig<BinaryEncoding_1_0> {
     fn from(_encoding: BinaryEncoding_1_0) -> Self {
         WriteConfig::<BinaryEncoding_1_0>::default()
-    }
-}
-
-impl From<BinaryEncoding_1_1> for WriteConfig<BinaryEncoding_1_1> {
-    fn from(_encoding: BinaryEncoding_1_1) -> Self {
-        WriteConfig::<BinaryEncoding_1_1>::default()
     }
 }

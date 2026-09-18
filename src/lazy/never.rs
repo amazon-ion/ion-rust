@@ -4,23 +4,20 @@ use std::ops::Range;
 
 use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValueExpr};
 use crate::lazy::encoder::annotation_seq::AnnotationSeq;
-use crate::lazy::encoder::value_writer::internal::{
-    EExpWriterInternal, FieldEncoder, MakeValueWriter,
-};
+use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
     delegate_value_writer_to_self, AnnotatableWriter, ValueWriter,
 };
-use crate::lazy::encoder::value_writer::{EExpWriter, SequenceWriter, StructWriter};
+use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::lazy::expanded::e_expression::EExpArgGroup;
 use crate::lazy::expanded::macro_evaluator::{
     EExpressionArgGroup, IsExhaustedIterator, RawEExpression,
 };
-use crate::lazy::expanded::macro_table::MacroRef;
-use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
+use crate::lazy::expanded::template::ParameterEncoding;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::raw::v1_1::arg_group::EExpArg;
-use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef};
+use crate::lazy::text::raw::v1_1::reader::MacroIdRef;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{ContextWriter, Decimal, Int, IonResult, IonType, Timestamp, ValueWriterConfig};
 
@@ -85,31 +82,6 @@ impl MakeValueWriter for Never {
     }
 }
 
-impl EExpWriterInternal for Never {
-    fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
-        unimplemented!("<Never as EExpWriterInternal>::expect_next_parameter")
-    }
-}
-
-impl EExpWriter for Never {
-    type ExprGroupWriter<'group>
-        = Never
-    where
-        Self: 'group;
-
-    fn invoked_macro(&self) -> MacroRef<'_> {
-        unimplemented!("<Never as EExpWriter>::invoked_macro")
-    }
-
-    fn current_parameter(&self) -> Option<&Parameter> {
-        unimplemented!("<Never as EExpWriter>::current_parameter")
-    }
-
-    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        unimplemented!("<Never as EExpWriter>::expr_group_writer")
-    }
-}
-
 impl AnnotatableWriter for Never {
     type AnnotatedValueWriter<'a>
         = Never
@@ -136,7 +108,6 @@ impl ValueWriter for Never {
     type ListWriter = Never;
     type SExpWriter = Never;
     type StructWriter = Never;
-    type EExpWriter = Never;
 
     delegate_value_writer_to_self!();
 }

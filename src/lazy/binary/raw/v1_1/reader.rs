@@ -8,7 +8,7 @@ use crate::lazy::encoding::BinaryEncoding_1_1;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::{Encoding, IonResult};
+use crate::IonResult;
 
 pub struct LazyRawBinaryReader_1_1<'data> {
     input: BinaryBuffer<'data>,
@@ -33,7 +33,7 @@ impl<'data> LazyRawBinaryReader_1_1<'data> {
     }
 
     fn end_of_stream(&self, position: usize) -> LazyRawStreamItem<'data, BinaryEncoding_1_1> {
-        RawStreamItem::EndOfStream(EndPosition::new(BinaryEncoding_1_1.encoding(), position))
+        RawStreamItem::EndOfStream(EndPosition::new(IonEncoding::Binary_1_1, position))
     }
 
     fn read_ivm<'top>(&mut self) -> IonResult<LazyRawStreamItem<'top, BinaryEncoding_1_1>>

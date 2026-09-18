@@ -19,7 +19,7 @@ use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
 use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
-use crate::{v1_1, Encoding, IonError, IonResult, MacroDef, MacroTable};
+use crate::{v1_1, IonError, IonResult, MacroDef, MacroTable};
 use compact_str::CompactString;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -73,7 +73,7 @@ impl<'data> LazyRawReader<'data, TextEncoding_1_1> for LazyRawTextReader_1_1<'da
             )?;
         if self.input.is_empty() {
             return Ok(RawStreamItem::EndOfStream(EndPosition::new(
-                TextEncoding_1_1.encoding(),
+                IonEncoding::Text_1_1,
                 self.input.offset(),
             )));
         }
@@ -205,11 +205,6 @@ pub trait MacroIdLike<'a>: Sized + Copy {
     fn as_macro_id_ref(&self) -> MacroIdRef<'a>;
 
     fn prefer_name(&self) -> MacroIdRef<'a> {
-        // By default, change nothing.
-        self.as_macro_id_ref()
-    }
-
-    fn prefer_address(&self) -> MacroIdRef<'a> {
         // By default, change nothing.
         self.as_macro_id_ref()
     }

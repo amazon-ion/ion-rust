@@ -232,7 +232,7 @@ macro_rules! v1_x_reader_writer {
             lazy::value_ref::ValueRef,
             lazy::r#struct::{LazyStruct, LazyField},
             lazy::sequence::{LazyList, LazySExp},
-            lazy::encoder::value_writer::{AnnotatableWriter, ValueWriter, ContextWriter, StructWriter, SequenceWriter, EExpWriter},
+            lazy::encoder::value_writer::{AnnotatableWriter, ValueWriter, ContextWriter, StructWriter, SequenceWriter},
             lazy::any_encoding::IonEncoding,
             lazy::expanded::compiler::TemplateCompiler,
             lazy::expanded::template::TemplateMacro,
@@ -272,7 +272,6 @@ macro_rules! v1_1_reader_writer {
     ($visibility:vis) => {
         #[allow(unused_imports)]
         $visibility use crate::{
-            lazy::encoder::writer::{BinaryWriter_1_1 as BinaryWriter, TextWriter_1_1 as TextWriter},
             lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
             lazy::expanded::macro_table::Macro
         };
@@ -363,8 +362,6 @@ macro_rules! v1_1_tooling_apis {
         $visibility use crate::{
             lazy::encoder::binary::v1_1::flex_int::FlexInt,
             lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
-            lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1 as RawBinaryWriter,
-            lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1 as RawTextWriter,
             lazy::binary::raw::v1_1::sequence::{
                 LazyRawBinaryList_1_1 as LazyRawBinaryList,
                 LazyRawBinarySExp_1_1 as LazyRawBinarySExp

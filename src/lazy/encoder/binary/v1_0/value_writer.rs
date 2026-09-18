@@ -1,4 +1,3 @@
-use crate::lazy::text::raw::v1_1::reader::MacroIdLike;
 use std::mem;
 
 use bumpalo::collections::Vec as BumpVec;
@@ -17,7 +16,6 @@ use crate::lazy::encoder::binary::v1_0::container_writers::{
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
-use crate::lazy::never::Never;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
 use crate::types::integer::{AsBigOrSmallValue, UIntData};
@@ -295,8 +293,6 @@ impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
 
-    type EExpWriter = Never;
-
     delegate_value_writer_to_self!();
 }
 
@@ -422,9 +418,6 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
 
-    // Ion 1.0
-    type EExpWriter = Never;
-
     annotate_and_delegate_1_0!(
         IonType => write_null,
         bool => write_bool,
@@ -451,9 +444,6 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
         BinaryStructWriter_1_0::new(self.allocator, self.output_buffer)
             .with_annotations(self.annotations)
-    }
-    fn eexp_writer<'a>(self, _macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
-        IonResult::encoding_error("binary Ion 1.0 does not support macros")
     }
 }
 

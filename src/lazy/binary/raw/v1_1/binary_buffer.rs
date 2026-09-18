@@ -1181,7 +1181,7 @@ mod tests {
     // `ElementReader` is only re-exported at the crate root under `experimental-reader-writer`;
     // import it by module path so these tests build with default features too.
     use crate::element::reader::ElementReader;
-    use crate::{AnyEncoding, Element, Reader, SequenceWriter, Writer};
+    use crate::{Element, Reader};
 
     #[rstest]
     #[case::no_args(0, &[0b00u8], &[])]
@@ -1625,31 +1625,6 @@ mod tests {
             actual.ion_eq(&expected),
             "Actual sequence\n{actual:?}\nwas not IonEq to expected sequence\n{expected:?}"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn roundtrip_macro_addresses_up_to_20_bits() -> IonResult<()> {
-        // This is a large enough value that many macros will be encoded using 20 bits.
-        // However, it is not large enough to fully exercise the 20-bit encoding space. To do that,
-        // we would need approximately 1 million macros, which takes too much time to execute in a
-        // debug build.
-        const MAX_TEST_MACRO_ADDRESS: usize = 6_000;
-
-        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-        // Invoke each of the macros we just defined in order.
-        for address in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
-            let macro_n = writer.compile_macro(format!("(macro m{address} () {address})"))?;
-            writer.eexp_writer(&macro_n)?.close()?;
-        }
-        let data = writer.close()?;
-
-        // Read from the resulting stream and confirm that we get each value back in the expected order.
-        let mut reader = Reader::new(AnyEncoding, data)?;
-        for expected in MacroTable::FIRST_USER_MACRO_ID..MAX_TEST_MACRO_ADDRESS {
-            let actual = reader.expect_next()?.read()?.expect_int()?.expect_usize()?;
-            assert_eq!(actual, expected, "actual {actual} != expected {expected}");
-        }
         Ok(())
     }
 

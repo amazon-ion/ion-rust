@@ -5,8 +5,7 @@ use std::ops::Range;
 use crate::catalog::Catalog;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
-use crate::lazy::encoder::write_as_ion::{WriteableEExp, WriteableRawValue};
+use crate::lazy::encoder::write_as_ion::WriteableRawValue;
 use crate::lazy::encoding::{
     BinaryEncoding, BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0,
 };
@@ -19,7 +18,7 @@ use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    v1_0, v1_1, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
+    v1_0, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
     LazyRawAnyFieldName, LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr, ValueRef,
 };
 
@@ -503,30 +502,6 @@ pub trait TranscribeRaw<E: Encoding> {
         Self: 'a;
 }
 
-impl<W: Write> TranscribeRaw<v1_1::Binary> for LazyRawTextWriter_1_1<W> {
-    fn transcribe<'a, R: LazyRawReader<'a, v1_1::Binary>>(
-        &mut self,
-        reader: &mut R,
-    ) -> IonResult<()>
-    where
-        Self: 'a,
-    {
-        transcribe_raw_binary_to_text(reader, self)
-    }
-}
-
-impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_1<W> {
-    fn transcribe<'a, R: LazyRawReader<'a, v1_0::Binary>>(
-        &mut self,
-        reader: &mut R,
-    ) -> IonResult<()>
-    where
-        Self: 'a,
-    {
-        transcribe_raw_binary_to_text(reader, self)
-    }
-}
-
 impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_0<W> {
     fn transcribe<'a, R: LazyRawReader<'a, v1_0::Binary>>(
         &mut self,
@@ -566,8 +541,10 @@ fn transcribe_raw_binary_to_text<
             Value(v) => {
                 writer.write(WriteableRawValue::new(v))?;
             }
-            EExp(e) => {
-                writer.write(WriteableEExp::new(e))?;
+            EExp(_) => {
+                return IonResult::encoding_error(
+                    "cannot transcribe an e-expression: no encoding supports writing them",
+                );
             }
             EndOfStream(_) => {
                 writer.flush()?;

@@ -10,12 +10,10 @@ use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::encoder::{
     cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_RETAIN_CAP,
 };
 use crate::lazy::encoding::Encoding;
-use crate::lazy::expanded::macro_table::EMPTY_MACRO_TABLE;
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref, ptr_to_ref};
 use crate::write_config::{BinaryWriteConfig, WriteConfig, WriteConfigKind};
 use crate::{ContextWriter, IonResult};
@@ -240,14 +238,6 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_0<W> {
     fn write_version_marker(&mut self) -> IonResult<()> {
         self.output.write_all(&IVM_1_0)?;
         Ok(())
-    }
-
-    fn macro_table(&self) -> &WriterMacroTable {
-        &EMPTY_MACRO_TABLE
-    }
-
-    fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
-        None
     }
 }
 

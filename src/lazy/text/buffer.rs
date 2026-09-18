@@ -14,6 +14,7 @@ use winnow::stream::{
 use winnow::token::{one_of, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
+use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{LazyRawValueExpr, RawValueExpr};
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
 use crate::lazy::expanded::EncodingContextRef;
@@ -501,7 +502,7 @@ impl<'top> TextBuffer<'top> {
         let _discarded_whitespace = self.match_optional_comments_and_whitespace()?;
         if self.is_empty() {
             return Ok(RawStreamItem::EndOfStream(EndPosition::new(
-                TextEncoding_1_1.encoding(),
+                IonEncoding::Text_1_1,
                 self.offset(),
             )));
         }
