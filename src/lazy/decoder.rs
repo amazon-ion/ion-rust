@@ -19,7 +19,7 @@ use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
     v1_0, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
-    LazyRawAnyFieldName, LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr, ValueRef,
+    LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr, ValueRef,
 };
 
 pub trait HasSpan<'top>: HasRange {
@@ -649,8 +649,11 @@ pub trait LazyRawStruct<'top, D: Decoder>:
     fn iter(&self) -> Self::Iterator;
 }
 
+// Note: this trait previously required `Into<LazyRawAnyFieldName<'top>>`. That bound was never
+// used generically and `AnyEncoding` no longer has a field name variant for every encoding, so
+// each encoding's `From` impl (where one exists) stands on its own.
 pub trait LazyRawFieldName<'top, D: Decoder<FieldName<'top> = Self>>:
-    Into<LazyRawAnyFieldName<'top>> + HasSpan<'top> + Copy + Debug + Clone
+    HasSpan<'top> + Copy + Debug + Clone
 {
     fn read(&self) -> IonResult<RawSymbolRef<'top>>;
 

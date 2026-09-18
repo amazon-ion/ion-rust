@@ -32,7 +32,9 @@ impl LazyRawStreamItem<'_, AnyEncoding> {
         match self {
             LazyRawStreamItem::<AnyEncoding>::VersionMarker(m) => m.encoding(),
             LazyRawStreamItem::<AnyEncoding>::Value(v) => v.encoding(),
-            LazyRawStreamItem::<AnyEncoding>::EExp(e) => e.encoding(),
+            LazyRawStreamItem::<AnyEncoding>::EExp(_) => {
+                unreachable!("e-expression in Ion 1.0")
+            }
             LazyRawStreamItem::<AnyEncoding>::EndOfStream(eos) => eos.encoding(),
         }
     }

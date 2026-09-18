@@ -1776,7 +1776,8 @@ mod tests {
         // `experimental-reader-writer`; import it by module path so this test builds with
         // default features too.
         use crate::element::reader::ElementReader;
-        use crate::{AnyEncoding, Element, Reader};
+        use crate::lazy::encoding::TextEncoding_1_1;
+        use crate::{Element, Reader};
 
         let ion = r#"
             $ion_1_1
@@ -1790,7 +1791,8 @@ mod tests {
             )
             (:hello_world)
         "#;
-        let mut reader = Reader::new(AnyEncoding, ion)?;
+        // `AnyEncoding` no longer reads Ion 1.1, so this test names the 1.1 text decoder directly.
+        let mut reader = Reader::new(TextEncoding_1_1, ion)?;
         assert_eq!(reader.read_one_element()?, Element::string("hello world"));
         Ok(())
     }

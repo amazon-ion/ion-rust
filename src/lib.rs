@@ -290,8 +290,6 @@ macro_rules! v1_x_tooling_apis {
                 LazyRawAnySExp, LazyRawSExpKind,
                 LazyRawAnyStruct, LazyRawStructKind,
                 LazyRawAnyFieldName, LazyRawFieldNameKind,
-                LazyRawAnyEExpression, LazyRawAnyEExpressionKind,
-                AnyEExpArgGroup, AnyEExpArgGroupKind, AnyEExpArgGroupIterator
             },
             lazy::decoder::{
                 LazyRawSequence,
