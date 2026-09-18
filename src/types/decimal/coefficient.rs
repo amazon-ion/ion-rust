@@ -1,5 +1,6 @@
 //! A representation of a decimal value's coefficient.
 
+use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -121,6 +122,13 @@ impl Coefficient {
         } else {
             magnitude
         })
+    }
+
+    /// Compares this coefficient's magnitude against `other`'s, ignoring sign and without
+    /// allocating. `Decimal`'s equal-exponent comparison routes through this instead of the
+    /// owned, allocating [`Self::magnitude`].
+    pub(crate) fn cmp_magnitude(&self, other: &Coefficient) -> Ordering {
+        self.repr.cmp_magnitude_scaled(0, &other.repr)
     }
 }
 
