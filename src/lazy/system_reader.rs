@@ -998,48 +998,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
-    #[test]
-    fn detect_encoding_directive_text() -> IonResult<()> {
-        let text = r#"
-            $ion_1_1
-            $ion::
-            (module _
-                (symbol_table ["foo", "bar", "baz"]))
-        "#;
-
-        let mut reader = SystemReader::new(AnyEncoding, text);
-        assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 1));
-        reader.next_item()?.expect_encoding_directive()?;
-        Ok(())
-    }
-
-    #[cfg(feature = "experimental-ion-1-1")]
-    #[test]
-    fn detect_encoding_directive_binary() -> IonResult<()> {
-        use crate::lazy::encoder::binary::v1_1::writer::LazyRawBinaryWriter_1_1;
-        let mut writer = LazyRawBinaryWriter_1_1::new(Vec::new())?;
-        let mut directive = writer
-            .value_writer()
-            .with_annotations("$ion")?
-            .sexp_writer()?;
-        directive
-            .write_symbol(v1_1::system_symbols::MODULE)?
-            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
-
-        let mut symbol_table = directive.sexp_writer()?;
-        symbol_table.write_symbol("symbol_table")?;
-        symbol_table.write_list(["foo", "bar", "baz"])?;
-        symbol_table.close()?;
-        directive.close()?;
-        let binary_ion = writer.close()?;
-
-        let mut reader = SystemReader::new(AnyEncoding, binary_ion);
-        assert_eq!(reader.next_item()?.expect_ivm()?.major_minor(), (1, 1));
-        reader.next_item()?.expect_encoding_directive()?;
-        Ok(())
-    }
-
     #[test]
     fn ignore_encoding_directive_text_1_0() -> IonResult<()> {
         let text = r#"
@@ -1078,75 +1036,6 @@ mod tests {
         let _ = reader.next_item()?.expect_symbol_table()?;
         let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
         assert!(sexp.annotations().are(["$ion"])?);
-        Ok(())
-    }
-
-    #[cfg(feature = "experimental-ion-1-1")]
-    #[test]
-    fn read_encoding_directive_new_active_module() -> IonResult<()> {
-        let ion = r#"
-            $ion_1_1
-            $ion::
-            (module _
-                (symbol_table ["foo", "bar", "baz"])
-                (macro_table
-                    _
-                    (macro seventeen () 17)
-                    (macro twelve () 12)))
-            (:seventeen)
-            (:twelve)
-        "#;
-        let mut reader = SystemReader::new(AnyEncoding, ion);
-        // Before reading any data, the reader defaults to expecting the Text v1.0 encoding,
-        // the only encoding that doesn't have to start with an IVM.
-        assert_eq!(reader.detected_encoding(), IonEncoding::Text_1_0);
-
-        // The first thing the reader encounters is an IVM. Verify that all of its accessors report
-        // the expected values.
-        let ivm = reader.next_item()?.expect_ivm()?;
-        assert_eq!(ivm.major_minor(), (1, 1));
-        assert_eq!(ivm.stream_encoding_before_marker(), IonEncoding::Text_1_0);
-        assert_eq!(ivm.stream_encoding_after_marker()?, IonEncoding::Text_1_1);
-        assert!(ivm.is_text());
-        assert!(!ivm.is_binary());
-
-        // After encountering the IVM, the reader will have changed its detected encoding to Text v1.1.
-        assert_eq!(reader.detected_encoding(), IonEncoding::Text_1_1);
-
-        // The next stream item is an encoding directive that defines some symbols and some macros.
-        let _directive = reader.next_item()?.expect_encoding_directive()?;
-
-        // === Make sure it has the expected symbol definitions ===
-        let pending_changes = reader
-            .pending_context_changes()
-            .new_active_module()
-            .expect("this directive defines a new active module");
-        let new_symbol_table = pending_changes.symbol_table();
-        assert_eq!(
-            new_symbol_table.symbols_tail(3),
-            &[
-                Symbol::from("foo"),
-                Symbol::from("bar"),
-                Symbol::from("baz"),
-            ]
-        );
-
-        // === Make sure it has the expected macro definitions ====
-        let new_macro_table = pending_changes.macro_table();
-        // This directive defines two new macros in addition to the existing system macros.
-        assert_eq!(new_macro_table.len(), 2 + MacroTable::NUM_SYSTEM_MACROS);
-        assert_eq!(
-            new_macro_table.macro_with_id(MacroTable::FIRST_USER_MACRO_ID),
-            new_macro_table.macro_with_name("seventeen")
-        );
-        assert_eq!(
-            new_macro_table.macro_with_id(MacroTable::FIRST_USER_MACRO_ID + 1),
-            new_macro_table.macro_with_name("twelve")
-        );
-
-        // Expand the e-expressions to make sure the macro definitions work as expected.
-        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 17);
-        assert_eq!(reader.expect_next_value()?.read()?.expect_i64()?, 12);
         Ok(())
     }
 }

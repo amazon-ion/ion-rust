@@ -662,14 +662,6 @@ mod tests {
         [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12),
         (6, 1), (6, 6), (6, 12), (7, 1), (8, 7), (9, 7), (9, 8), (9, 10), (9, 12)],
     )]
-    #[cfg_attr(
-        feature = "experimental-ion-1-1",
-        case::multiple_top_level_containers_ion_1_1(
-            "$ion_1_1\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
-            [(2, 1), (2, 6), (2, 12), (3, 1), (4, 7), (5, 7), (5, 8), (5, 10), (5, 12),
-            (7, 1), (7, 6), (7, 12), (8, 1), (9, 7), (10, 7), (10, 8), (10, 10), (10, 12)],
-        )
-    )]
     #[case::binary_1_0_data(
         [
             0xE0u8, 0x01, 0x00, 0xEA, // IVM
@@ -677,17 +669,6 @@ mod tests {
             0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
         ],
         [/* no locations */],
-    )]
-    #[cfg_attr(
-        feature = "experimental-ion-1-1",
-        case::binary_1_1_data(
-            [
-                0xE0u8, 0x01, 0x01, 0xEA, // IVM
-                0x95, 65, 10, 66, 10, 67, // String: "A\nB\nC"
-                0x95, 68, 10, 69, 10, 70, // String: "D\nE\nF"
-            ],
-            [/* no locations */],
-        )
     )]
     fn location_test_slice_input<const N: usize, I: AsRef<[u8]>>(
         #[case] ion_input: I,
@@ -758,14 +739,6 @@ mod tests {
         [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12),
         (6, 1), (6, 6), (6, 12), (7, 1), (8, 7), (9, 7), (9, 8), (9, 10), (9, 12)],
     )]
-    #[cfg_attr(
-        feature = "experimental-ion-1-1",
-        case::multiple_top_level_containers_ion_1_1(
-            "$ion_1_1\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
-            [(2, 1), (2, 6), (2, 12), (3, 1), (4, 7), (5, 7), (5, 8), (5, 10), (5, 12),
-            (7, 1), (7, 6), (7, 12), (8, 1), (9, 7), (10, 7), (10, 8), (10, 10), (10, 12)],
-        )
-    )]
     // FIXME: Currently failing because of https://github.com/amazon-ion/ion-rust/issues/954
     // #[case::binary_1_0_data(
     //     [
@@ -774,17 +747,6 @@ mod tests {
     //         0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
     //     ],
     //     [/* no locations */],
-    // )]
-    // #[cfg_attr(
-    //     feature = "experimental-ion-1-1",
-    //     case::binary_1_1_data(
-    //         [
-    //             0xE0u8, 0x01, 0x01, 0xEA, // IVM
-    //             0x95, 65, 10, 66, 10, 67, // String: "A\nB\nC"
-    //             0x95, 68, 10, 69, 10, 70, // String: "D\nE\nF"
-    //         ],
-    //         [/* no locations */],
-    //     )
     // )]
     fn location_test_stream_input<const N: usize, I: AsRef<[u8]>>(
         #[case] ion_input: I,

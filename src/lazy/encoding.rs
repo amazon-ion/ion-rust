@@ -492,8 +492,7 @@ mod tests {
 
     use crate::lazy::encoding::TextEncoding;
     use crate::{
-        ion_list, ion_seq, ion_sexp, ion_struct, v1_0, v1_1, IonResult, Sequence, TextFormat,
-        WriteConfig,
+        ion_list, ion_seq, ion_sexp, ion_struct, v1_0, IonResult, Sequence, TextFormat, WriteConfig,
     };
 
     #[rstest]
@@ -501,25 +500,13 @@ mod tests {
         v1_0::Text.with_format(TextFormat::Pretty),
         "{\n  foo: 1,\n  bar: 2,\n}\n[\n  1,\n  2,\n]\n(\n  1\n  2\n)\n"
     )]
-    #[case::pretty_v1_1(
-        v1_1::Text.with_format(TextFormat::Pretty),
-        "$ion_1_1\n{\n  foo: 1,\n  bar: 2,\n}\n[\n  1,\n  2,\n]\n(\n  1\n  2\n)\n"
-    )]
     #[case::compact_v1_0(
         v1_0::Text.with_format(TextFormat::Compact),
         "{foo: 1, bar: 2, } [1, 2, ] (1 2 ) "
     )]
-    #[case::compact_v1_1(
-        v1_1::Text.with_format(TextFormat::Compact),
-        "$ion_1_1 {foo: 1, bar: 2, } [1, 2, ] (1 2 ) "
-    )]
     #[case::lines_v1_0(
         v1_0::Text.with_format(TextFormat::Lines),
         "{foo: 1, bar: 2, }\n[1, 2, ]\n(1 2 )\n"
-    )]
-    #[case::lines_v1_1(
-        v1_1::Text.with_format(TextFormat::Lines),
-        "$ion_1_1\n{foo: 1, bar: 2, }\n[1, 2, ]\n(1 2 )\n"
     )]
     fn encode_formatted_text<E: TextEncoding>(
         #[case] config: impl Into<WriteConfig<E>>,

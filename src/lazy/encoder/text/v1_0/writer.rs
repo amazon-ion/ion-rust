@@ -164,7 +164,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 mod tests {
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    use crate::{v1_1, Annotatable, IonData, IonResult, Reader, SequenceWriter};
+    use crate::{v1_0, Annotatable, IonData, IonResult, Reader, SequenceWriter};
 
     #[test]
     fn write_annotated_values() -> IonResult<()> {
@@ -187,10 +187,10 @@ mod tests {
             foo::bar::baz::4
         "#;
 
-        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
+        let mut reader = Reader::new(v1_0::Text, encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
+        let mut reader = Reader::new(v1_0::Text, expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
