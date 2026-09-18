@@ -1,8 +1,34 @@
 use crate::lazy::binary::raw::type_descriptor::Header;
-use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
-use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::IonType;
 use std::ops::Range;
+
+/// Encodings that can back a lazy binary value. Binary 1.0 values are always backed by
+/// the `Tagged` variant.
+///
+/// This is a subset of the encodings in the
+/// [`ParameterEncoding`](crate::lazy::expanded::template::ParameterEncoding) enum.
+/// `BinaryValueEncoding` contains only those variants that can back a binary value literal--
+/// encodings that are not macro-shaped.
+///
+/// When `LazyRawBinaryValue::read()` is called, this enum is inspected to determine how the
+/// bytes in the `BinaryBuffer` should be parsed to yield the value it represents.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BinaryValueEncoding {
+    Tagged,
+    FlexUInt,
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
+}
+
+/// Whether an encoded annotations sequence is represented as a series of symbol addresses or
+/// as a series of `FlexSym`s. In Ion 1.0, annotations are always encoded as symbol addresses.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AnnotationsEncoding {
+    SymbolAddress,
+    FlexSym,
+}
 
 pub trait EncodedHeader: Copy {
     type TypeCode;
@@ -267,10 +293,10 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
 #[cfg(test)]
 mod tests {
     use crate::binary::IonTypeCode;
-    use crate::lazy::binary::encoded_value::EncodedBinaryValue;
+    use crate::lazy::binary::encoded_value::{
+        AnnotationsEncoding, BinaryValueEncoding, EncodedBinaryValue,
+    };
     use crate::lazy::binary::raw::type_descriptor::Header;
-    use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
-    use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
     use crate::{IonResult, IonType};
 
     #[test]

@@ -1,6 +1,5 @@
-use crate::lazy::binary::raw::v1_1::{
-    binary_buffer::ArgGroupingBitmap, value::BinaryValueEncoding,
-};
+use crate::lazy::binary::encoded_value::BinaryValueEncoding;
+use crate::lazy::binary::raw::v1_1::binary_buffer::ArgGroupingBitmap;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::compiler::ExpansionAnalysis;
 use crate::lazy::expanded::macro_evaluator::{

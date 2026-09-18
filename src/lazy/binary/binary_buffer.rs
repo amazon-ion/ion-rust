@@ -6,15 +6,13 @@ use crate::binary::constants::v1_0::{length_codes, IVM};
 use crate::binary::int::DecodedInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::lazy::binary::encoded_value::EncodedBinaryValue;
+use crate::lazy::binary::encoded_value::{
+    AnnotationsEncoding, BinaryValueEncoding, EncodedBinaryValue,
+};
 use crate::lazy::binary::raw::r#struct::LazyRawBinaryFieldName_1_0;
 use crate::lazy::binary::raw::type_descriptor::{Header, TypeDescriptor, ION_1_0_TYPE_DESCRIPTORS};
-use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
-use crate::lazy::binary::raw::v1_1::value::BinaryValueEncoding;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::LazyRawFieldExpr;
-use crate::lazy::encoder::binary::v1_1::flex_int::FlexInt;
-use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::result::IonFailure;
@@ -176,21 +174,6 @@ impl<'a> BinaryBuffer<'a> {
             }
             invalid_ivm => IonResult::decoding_error(format!("invalid IVM: {invalid_ivm:?}")),
         }
-    }
-
-    /// Reads a [`FlexInt`] from the buffer.
-    pub fn read_flex_int(self) -> ParseResult<'a, FlexInt> {
-        let flex_int = FlexInt::read(self.bytes(), self.offset())?;
-        let remaining = self.consume(flex_int.size_in_bytes());
-        Ok((flex_int, remaining))
-    }
-
-    /// Reads a [`FlexUInt`] from the buffer.
-    #[inline(always)]
-    pub fn read_flex_uint(self) -> ParseResult<'a, FlexUInt> {
-        let flex_uint = FlexUInt::read(self.bytes(), self.offset())?;
-        let remaining = self.consume(flex_uint.size_in_bytes());
-        Ok((flex_uint, remaining))
     }
 
     /// Reads a `VarUInt` encoding primitive from the beginning of the buffer. If it is successful,

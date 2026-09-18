@@ -42,15 +42,16 @@ use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::RawReaderState;
-use crate::lazy::text::raw::r#struct::LazyRawTextFieldName;
+use crate::lazy::text::raw::r#struct::{
+    LazyRawTextFieldName, LazyRawTextStruct, RawTextStructCacheIterator,
+};
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
-use crate::lazy::text::raw::sequence::{RawTextList, RawTextSExp};
+use crate::lazy::text::raw::sequence::{RawTextList, RawTextSExp, RawTextSequenceCacheIterator};
 use crate::lazy::text::raw::v1_1::arg_group::{
     EExpArg, EExpArgExpr, TextEExpArgGroup, TextEExpArgGroupIterator,
 };
 use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextReader_1_1, LazyRawTextStruct, MacroIdRef, RawTextSequenceCacheIterator,
-    RawTextStructCacheIterator, TextEExpression_1_1,
+    LazyRawTextReader_1_1, MacroIdRef, TextEExpression_1_1,
 };
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,

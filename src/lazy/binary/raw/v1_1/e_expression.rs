@@ -84,7 +84,8 @@ impl<'top> BinaryEExpression_1_1<'top> {
     /// where the `0xF4` is the opcode and the `0x01` is the `FlexUInt` address) or combined
     /// (for example: `0x00` is both an opcode and a macro address).
     pub fn opcode_and_address_span(&self) -> Span<'top> {
-        self.input.slice(0, self.length_offset as usize).into()
+        let input = self.input.slice(0, self.length_offset as usize);
+        Span::with_offset(input.offset(), input.bytes())
     }
 
     /// Returns `true` if this binary e-expression includes a length prefix.
@@ -97,9 +98,8 @@ impl<'top> BinaryEExpression_1_1<'top> {
     /// the returned span will be empty.
     pub fn length_prefix_span(&self) -> Span<'top> {
         let num_bytes = (self.bitmap_offset - self.length_offset) as usize;
-        self.input
-            .slice(self.length_offset as usize, num_bytes)
-            .into()
+        let input = self.input.slice(self.length_offset as usize, num_bytes);
+        Span::with_offset(input.offset(), input.bytes())
     }
 
     /// Returns `true` if this binary e-expression includes an argument encoding bitmap.
@@ -112,9 +112,8 @@ impl<'top> BinaryEExpression_1_1<'top> {
     /// If there is no argument encoding bitmap, the returned span will be empty.
     pub fn bitmap_span(&self) -> Span<'top> {
         let num_bytes = (self.args_offset - self.bitmap_offset) as usize;
-        self.input
-            .slice(self.bitmap_offset as usize, num_bytes)
-            .into()
+        let input = self.input.slice(self.bitmap_offset as usize, num_bytes);
+        Span::with_offset(input.offset(), input.bytes())
     }
 }
 
@@ -476,7 +475,7 @@ impl<'top> BinaryEExpArgGroup<'top> {
 
     pub fn header_span(&self) -> Span<'_> {
         let header_input = self.input.slice(0, self.header_size as usize);
-        Span::from(header_input)
+        Span::with_offset(header_input.offset(), header_input.bytes())
     }
 }
 

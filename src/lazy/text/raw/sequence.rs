@@ -15,9 +15,34 @@ use crate::lazy::encoding::TextEncoding;
 use crate::lazy::text::buffer::{whitespace_and_then, TextBuffer};
 use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::parse_result::WithContext;
-use crate::lazy::text::raw::v1_1::reader::RawTextSequenceCacheIterator;
 use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
 use crate::{IonResult, IonType};
+
+#[derive(Debug, Copy, Clone)]
+pub struct RawTextSequenceCacheIterator<'top, E: TextEncoding> {
+    child_exprs: &'top [LazyRawValueExpr<'top, E>],
+    index: usize,
+}
+
+impl<'top, E: TextEncoding> RawTextSequenceCacheIterator<'top, E> {
+    pub fn new(child_exprs: &'top [LazyRawValueExpr<'top, E>]) -> Self {
+        Self {
+            child_exprs,
+            index: 0,
+        }
+    }
+}
+
+impl<'top, E: TextEncoding> Iterator for RawTextSequenceCacheIterator<'top, E> {
+    type Item = IonResult<LazyRawValueExpr<'top, E>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_expr = self.child_exprs.get(self.index)?;
+        self.index += 1;
+        Some(Ok(*next_expr))
+    }
+}
+
 // ===== Lists =====
 
 #[derive(Copy, Clone)]

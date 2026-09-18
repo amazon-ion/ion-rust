@@ -1,12 +1,8 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::IonEncoding;
-use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{
-    Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawReader, LazyRawStruct,
-    LazyRawValue, LazyRawValueExpr,
-};
-use crate::lazy::encoding::{TextEncoding, TextEncoding_1_1};
+use crate::lazy::decoder::{HasRange, HasSpan, LazyRawReader};
+use crate::lazy::encoding::TextEncoding_1_1;
 use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::macro_table::{Macro, MacroRef, ION_1_1_SYSTEM_MACROS};
 use crate::lazy::expanded::EncodingContextRef;
@@ -14,10 +10,8 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem
 use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::lazy::text::buffer::TextBuffer;
-use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::v1_1::arg_group::{EExpArg, TextEExpArgGroup};
-use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
 use crate::result::IonFailure;
 use crate::{v1_1, IonError, IonResult, MacroDef, MacroTable};
 use compact_str::CompactString;
@@ -435,31 +429,6 @@ impl<'top> TextEExpression_1_1<'top> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct RawTextSequenceCacheIterator<'top, E: TextEncoding> {
-    child_exprs: &'top [LazyRawValueExpr<'top, E>],
-    index: usize,
-}
-
-impl<'top, E: TextEncoding> RawTextSequenceCacheIterator<'top, E> {
-    pub fn new(child_exprs: &'top [LazyRawValueExpr<'top, E>]) -> Self {
-        Self {
-            child_exprs,
-            index: 0,
-        }
-    }
-}
-
-impl<'top, E: TextEncoding> Iterator for RawTextSequenceCacheIterator<'top, E> {
-    type Item = IonResult<LazyRawValueExpr<'top, E>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let next_expr = self.child_exprs.get(self.index)?;
-        self.index += 1;
-        Some(Ok(*next_expr))
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
 pub struct TextEExpArgsIterator_1_1<'top> {
     arg_exprs: &'top [EExpArg<'top, v1_1::Text>],
     index: usize,
@@ -490,91 +459,10 @@ impl<'top> Iterator for TextEExpArgsIterator_1_1<'top> {
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct LazyRawTextStruct<'top, E: TextEncoding> {
-    pub(crate) value: LazyRawTextValue<'top, E>,
-}
-
-impl<E: TextEncoding> Debug for LazyRawTextStruct<'_, E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        for field_result in self.iter() {
-            let field = field_result?;
-            use LazyRawFieldExpr::*;
-            match field {
-                NameValue(name, value) => {
-                    write!(f, "{name:?}: {value:?}")
-                }
-                NameEExp(name, eexp) => {
-                    write!(f, "{name:?}: {eexp:?}")
-                }
-                EExp(eexp) => {
-                    write!(f, "{eexp:?}")
-                }
-            }?;
-        }
-        write!(f, "}}").unwrap();
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct RawTextStructCacheIterator<'top, E: TextEncoding> {
-    field_exprs: &'top [LazyRawFieldExpr<'top, E>],
-    index: usize,
-}
-
-impl<'top, E: TextEncoding> RawTextStructCacheIterator<'top, E> {
-    pub fn new(field_exprs: &'top [LazyRawFieldExpr<'top, E>]) -> Self {
-        Self {
-            field_exprs,
-            index: 0,
-        }
-    }
-}
-
-impl<'top, E: TextEncoding> Iterator for RawTextStructCacheIterator<'top, E> {
-    type Item = IonResult<LazyRawFieldExpr<'top, E>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let next_expr = self.field_exprs.get(self.index)?;
-        self.index += 1;
-        // TODO: Remove the result wrapper because these values are already in the cache
-        Some(Ok(*next_expr))
-    }
-}
-
-impl<'top, E: TextEncoding> LazyContainerPrivate<'top, E> for LazyRawTextStruct<'top, E> {
-    fn from_value(value: LazyRawTextValue<'top, E>) -> Self {
-        LazyRawTextStruct { value }
-    }
-}
-
-impl<'top, E: TextEncoding> LazyRawContainer<'top, E> for LazyRawTextStruct<'top, E> {
-    fn as_value(&self) -> <E as Decoder>::Value<'top> {
-        self.value
-    }
-}
-
-impl<'top, E: TextEncoding> LazyRawStruct<'top, E> for LazyRawTextStruct<'top, E> {
-    type Iterator = RawTextStructCacheIterator<'top, E>;
-
-    fn annotations(&self) -> RawTextAnnotationsIterator<'top> {
-        self.value.annotations()
-    }
-
-    fn iter(&self) -> Self::Iterator {
-        let MatchedValue::Struct(field_exprs) = self.value.encoded_value.matched() else {
-            unreachable!("struct contained a matched value of the wrong type")
-        };
-        RawTextStructCacheIterator::new(field_exprs)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::lazy::any_encoding::IonVersion;
+    use crate::lazy::decoder::LazyRawValue;
     use crate::lazy::expanded::compiler::TemplateCompiler;
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::raw_value_ref::RawValueRef;

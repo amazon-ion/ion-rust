@@ -23,14 +23,14 @@ use crate::lazy::never::Never;
 use crate::lazy::text::buffer::{whitespace_and_then, IonParser, TextBuffer};
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::MatchedValue;
-use crate::lazy::text::raw::r#struct::{LazyRawTextFieldName, RawTextStructIterator};
+use crate::lazy::text::raw::r#struct::{
+    LazyRawTextFieldName, LazyRawTextStruct, RawTextStructIterator,
+};
 use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{
     RawTextList, RawTextListIterator, RawTextSExp, RawTextSExpIterator,
 };
-use crate::lazy::text::raw::v1_1::reader::{
-    LazyRawTextReader_1_1, LazyRawTextStruct, TextEExpression_1_1,
-};
+use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, TextEExpression_1_1};
 use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
     LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,

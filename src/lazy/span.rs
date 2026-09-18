@@ -1,4 +1,3 @@
-use crate::lazy::binary::raw::v1_1::binary_buffer::BinaryBuffer;
 use crate::lazy::streaming_raw_reader::IoBuffer;
 use crate::lazy::text::buffer::TextBuffer;
 use crate::result::IonFailure;
@@ -87,15 +86,6 @@ impl<'a> Span<'a> {
 impl HasRange for Span<'_> {
     fn range(&self) -> Range<usize> {
         self.offset..self.offset + self.bytes.len()
-    }
-}
-
-impl<'a> From<BinaryBuffer<'a>> for Span<'a> {
-    fn from(value: BinaryBuffer<'a>) -> Self {
-        Span {
-            bytes: value.bytes(),
-            offset: value.offset(),
-        }
     }
 }
 

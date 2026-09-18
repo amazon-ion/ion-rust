@@ -154,7 +154,7 @@ impl FlexUInt {
 
 #[cfg(test)]
 mod tests {
-    use crate::lazy::binary::binary_buffer::BinaryBuffer;
+    use crate::lazy::binary::raw::v1_1::binary_buffer::BinaryBuffer;
     use crate::lazy::encoder::binary::v1_1::flex_uint::FlexUInt;
     use crate::{EncodingContext, IonError, IonResult, IonVersion};
 

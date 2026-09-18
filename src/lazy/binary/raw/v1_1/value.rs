@@ -5,7 +5,6 @@ use std::ops::Range;
 
 use num_traits::PrimInt;
 
-use crate::lazy::binary::raw::v1_1::binary_buffer::AnnotationsEncoding;
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryStruct_1_1;
 use crate::lazy::binary::raw::v1_1::sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1};
 use crate::lazy::binary::raw::v1_1::LengthType;
@@ -21,7 +20,9 @@ use crate::v1_1::FlexUInt;
 use crate::{
     lazy::{
         binary::{
-            encoded_value::{EncodedBinaryValue, EncodedHeader},
+            encoded_value::{
+                AnnotationsEncoding, BinaryValueEncoding, EncodedBinaryValue, EncodedHeader,
+            },
             raw::{
                 v1_1::{
                     annotations_iterator::RawBinaryAnnotationsIterator_1_1,
@@ -95,26 +96,6 @@ impl<'top> RawVersionMarker<'top> for LazyRawBinaryVersionMarker_1_1<'top> {
     fn stream_encoding_before_marker(&self) -> IonEncoding {
         IonEncoding::Binary_1_1
     }
-}
-
-/// Encodings that can back a lazy binary value. Binary 1.0 values are always backed by
-/// the `Tagged` variant.
-///
-/// This is a subset of the encodings in the
-/// [`ParameterEncoding`](crate::lazy::expanded::template::ParameterEncoding) enum.
-/// `BinaryValueEncoding` contains only those variants that can back a binary value literal--
-/// encodings that are not macro-shaped.
-///
-/// When `LazyRawBinaryValue::read()` is called, this enum is inspected to determine how the
-/// bytes in the `BinaryBuffer` should be parsed to yield the value it represents.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum BinaryValueEncoding {
-    Tagged,
-    FlexUInt,
-    UInt8,
-    UInt16,
-    UInt32,
-    UInt64,
 }
 
 #[derive(Debug, Copy, Clone)]

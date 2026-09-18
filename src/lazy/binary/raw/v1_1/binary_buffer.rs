@@ -5,14 +5,16 @@ use std::mem::size_of;
 use std::ops::Range;
 
 use crate::binary::constants::v1_1::IVM;
-use crate::lazy::binary::encoded_value::EncodedBinaryValue;
+use crate::lazy::binary::encoded_value::{
+    AnnotationsEncoding, BinaryValueEncoding, EncodedBinaryValue,
+};
 use crate::lazy::binary::raw::v1_1::e_expression::{
     BinaryEExpArgsIterator_1_1, BinaryEExpression_1_1,
 };
 use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryFieldName_1_1;
 use crate::lazy::binary::raw::v1_1::type_code::OpcodeKind;
 use crate::lazy::binary::raw::v1_1::value::{
-    BinaryValueEncoding, DelimitedContents, LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
+    DelimitedContents, LazyRawBinaryValue_1_1, LazyRawBinaryVersionMarker_1_1,
 };
 use crate::lazy::binary::raw::v1_1::{Header, LengthType, Opcode, OpcodeType, ION_1_1_OPCODES};
 use crate::lazy::decoder::{LazyRawFieldExpr, LazyRawValueExpr, RawValueExpr};
@@ -1143,12 +1145,6 @@ impl Iterator for ArgGroupingBitmapIterator {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AnnotationsEncoding {
-    SymbolAddress,
-    FlexSym,
-}
-
 /// Represents the data found in an Ion 1.1 annotations sequence
 #[derive(Clone, Copy, Debug)]
 pub struct EncodedAnnotations {
