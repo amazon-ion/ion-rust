@@ -1305,8 +1305,8 @@ impl<'top> AnnotatableWriter for BinaryEExpParameterValueWriter_1_1<'_, 'top> {
     }
 }
 
+// TODO(pt003): remove with Ion 1.1, when this file is deleted.
 #[cfg(test)]
-#[cfg(feature = "experimental-ion-1-1")]
 mod tests {
     use num_traits::FloatConst;
     use rstest::rstest;

@@ -198,43 +198,7 @@ fn build_parts<E: Encoding>(config: WriteConfig<E>) -> IonResult<WriterParts<E>>
 /// Only encodings whose raw writer is [`Reusable`] have this API, which today means Ion 1.0 -- both
 /// binary and text. An Ion 1.1 writer cannot be parked and reused, because its macro table cannot yet
 /// be recycled; the missing `Reusable` bound makes `idle`/`attach`/`detach` resolve to nothing (E0599)
-/// rather than silently producing a document that references undefined macros:
-// The doctests are gated on the Ion 1.1 feature that makes `v1_1` public. Without it they would fail
-// to compile for the wrong reason (E0603: private module), which would mask a regression in the bound.
-#[cfg_attr(
-    feature = "experimental-ion-1-1",
-    doc = r#"
-```compile_fail,E0599
-use ion_rs::{v1_1, IonResult};
-fn main() -> IonResult<()> {
-    // no method named `idle` found: `BinaryEncoding_1_1::Writer<Vec<u8>>` is not `Reusable`.
-    let idle = v1_1::BinaryWriter::<()>::idle(v1_1::Binary)?;
-    Ok(())
-}
-```
-
-```compile_fail,E0599
-use ion_rs::{v1_1, IonResult};
-fn main() -> IonResult<()> {
-    // Same for text 1.1.
-    let idle = v1_1::TextWriter::<()>::idle(v1_1::Text)?;
-    Ok(())
-}
-```
-
-`detach` is gated by the same bound (on its own `impl` block):
-
-```compile_fail,E0599
-use ion_rs::{v1_1, IonResult};
-fn main() -> IonResult<()> {
-    let writer = v1_1::BinaryWriter::new(v1_1::Binary, Vec::new())?;
-    // no method named `detach` found: `BinaryEncoding_1_1::Writer<Vec<u8>>` is not `Reusable`.
-    let (idle, bytes) = writer.detach();
-    Ok(())
-}
-```
-"#
-)]
+/// rather than silently producing a document that references undefined macros.
 #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
 impl<E: Encoding> Writer<E, ()>
 where
@@ -1633,7 +1597,7 @@ mod reuse_tests {
     }
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
+// TODO(pt003): remove with Ion 1.1, when the 1.1 writers are deleted.
 #[cfg(test)]
 mod tests {
     use crate::lazy::encoder::value_writer::AnnotatableWriter;

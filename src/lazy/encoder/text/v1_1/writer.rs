@@ -117,7 +117,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
     }
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
+// TODO(pt003): remove with Ion 1.1, when this file is deleted.
 #[cfg(test)]
 mod tests {
     use crate::lazy::any_encoding::IonVersion;
@@ -131,9 +131,12 @@ mod tests {
     use crate::lazy::expanded::EncodingContext;
     use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, MacroIdRef};
     use crate::symbol_ref::AsSymbolRef;
+    // `ElementReader` is only re-exported at the crate root under `experimental-reader-writer`;
+    // import it by module path so these tests build with default features too.
+    use crate::element::reader::ElementReader;
     use crate::{
-        v1_1, Annotatable, Decimal, EExpWriter, ElementReader, IonData, IonResult, IonType, Null,
-        RawSymbolRef, Reader, Timestamp, Writer,
+        v1_1, Annotatable, Decimal, EExpWriter, IonData, IonResult, IonType, Null, RawSymbolRef,
+        Reader, Timestamp, Writer,
     };
 
     #[test]

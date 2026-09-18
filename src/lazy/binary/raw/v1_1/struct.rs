@@ -322,12 +322,15 @@ impl<'top> Iterator for RawBinaryStructIterator_1_1<'top> {
     }
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
+// TODO(pt005b): remove with Ion 1.1, when this file is deleted.
 #[cfg(test)]
 mod tests {
+    // `ElementReader` is only re-exported at the crate root under `experimental-reader-writer`;
+    // import it by module path so these tests build with default features too.
+    use crate::element::reader::ElementReader;
     use crate::{
-        v1_1, AnyEncoding, Element, ElementReader, IonResult, Reader, SequenceWriter, StructWriter,
-        ValueWriter, Writer,
+        v1_1, AnyEncoding, Element, IonResult, Reader, SequenceWriter, StructWriter, ValueWriter,
+        Writer,
     };
 
     #[test]

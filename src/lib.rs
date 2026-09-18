@@ -406,25 +406,8 @@ pub mod v1_0 {
     pub use crate::lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text};
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
-pub mod v1_1 {
-    pub use crate::constants::v1_1::constants;
-    pub use crate::constants::v1_1::system_symbols;
-
-    #[cfg(feature = "experimental-tooling-apis")]
-    v1_1_tooling_apis!(pub);
-
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    v1_1_tooling_apis!(pub(crate));
-
-    #[cfg(feature = "experimental-reader-writer")]
-    v1_1_reader_writer!(pub);
-
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    v1_1_reader_writer!(pub(crate));
-}
-
-#[cfg(not(feature = "experimental-ion-1-1"))]
+// TODO(pt010): remove with Ion 1.1. The Ion 1.1 types are no longer part of the public API, but
+// they remain reachable crate-internally until the code behind them is deleted.
 pub(crate) mod v1_1 {
     #[cfg(feature = "experimental-tooling-apis")]
     v1_1_tooling_apis!(pub);

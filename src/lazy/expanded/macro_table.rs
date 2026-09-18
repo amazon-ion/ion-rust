@@ -917,7 +917,8 @@ impl MacroTable {
     }
 }
 
-#[cfg(all(test, feature = "experimental-ion-1-1"))]
+// TODO(pt006): remove with Ion 1.1, when the macro table is deleted.
+#[cfg(test)]
 mod tests {
     use crate::lazy::expanded::template::TemplateMacroRef;
     use crate::{

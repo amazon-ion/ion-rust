@@ -171,7 +171,8 @@ mod tests {
     use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::{AnyEncoding, Element, IonResult, Reader, Sequence};
 
-    #[cfg(feature = "experimental-ion-1-1")]
+    // TODO(pt008): collapse to the 1.0-only body when `ExpandedValueSource` loses its macro
+    // variants.
     fn test_data() -> String {
         let test_data = r#"
             $ion_1_1
@@ -196,20 +197,6 @@ mod tests {
 
              // === Produces a value backed by an `ExpandedValueSource::Constructed` ===
              (:greet "Alice")
-         "#;
-        test_data.to_owned()
-    }
-
-    #[cfg(not(feature = "experimental-ion-1-1"))]
-    fn test_data() -> String {
-        let test_data = r#"
-            // === Values backed by `ExpandedValueSource::ValueLiteral` ===
-            foo
-            true
-            baz::5
-            [(), {}, ()]
-            2025T
-            "Hello"
          "#;
         test_data.to_owned()
     }

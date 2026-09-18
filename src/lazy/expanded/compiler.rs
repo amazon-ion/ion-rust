@@ -1769,10 +1769,14 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "experimental-ion-1-1")]
+    // TODO(pt006): remove with Ion 1.1, when the macro compiler is deleted.
     #[test]
     fn dependent_macros() -> IonResult<()> {
-        use crate::{AnyEncoding, Element, ElementReader, Reader};
+        // `ElementReader` is only re-exported at the crate root under
+        // `experimental-reader-writer`; import it by module path so this test builds with
+        // default features too.
+        use crate::element::reader::ElementReader;
+        use crate::{AnyEncoding, Element, Reader};
 
         let ion = r#"
             $ion_1_1

@@ -1161,7 +1161,7 @@ pub struct EncodedAnnotations {
     pub sequence_length: u16,
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
+// TODO(pt005b): remove with Ion 1.1, when this file is deleted.
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -1178,7 +1178,10 @@ mod tests {
     use crate::lazy::text::raw::v1_1::reader::{MacroAddress, MacroIdRef};
     use crate::v1_0::RawValueRef;
     use crate::RawSymbolRef;
-    use crate::{AnyEncoding, Element, ElementReader, Reader, SequenceWriter, Writer};
+    // `ElementReader` is only re-exported at the crate root under `experimental-reader-writer`;
+    // import it by module path so these tests build with default features too.
+    use crate::element::reader::ElementReader;
+    use crate::{AnyEncoding, Element, Reader, SequenceWriter, Writer};
 
     #[rstest]
     #[case::no_args(0, &[0b00u8], &[])]
