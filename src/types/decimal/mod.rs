@@ -167,7 +167,10 @@ impl Decimal {
     // Scales up the coefficient associated with a greater exponent and compares it with the
     // other coefficient. `d1` must have a larger exponent than `d2`.
     fn compare_scaled_coefficients(d1: &Decimal, d2: &Decimal) -> Ordering {
-        let exponent_delta = d1.exponent - d2.exponent;
+        // `abs_diff` computes the difference as a `u64` without the intermediate `i64`
+        // subtraction, which can overflow at the extremes of the exponent range. The caller
+        // guarantees `d1.exponent > d2.exponent`, so the result is the positive delta.
+        let exponent_delta = d1.exponent.abs_diff(d2.exponent);
         // d1 has a larger exponent, so scale up its coefficient to match d2's exponent.
         // For example, when comparing these values of d1 and d2:
         //     d1 =  8 * 10^3
@@ -181,7 +184,7 @@ impl Decimal {
         // negatives. It decides the wide-difference cases from bit widths without materializing
         // `10^exponent_delta`, and the inline fast path never allocates.
         d1.coefficient
-            .cmp_magnitude_scaled(exponent_delta as u32 as u64, &d2.coefficient)
+            .cmp_magnitude_scaled(exponent_delta, &d2.coefficient)
     }
 
     /// Returns the integer part of `self`. This means that non-integer numbers are always
@@ -193,8 +196,8 @@ impl Decimal {
             // Divide the coefficient's magnitude by 10^|exponent|, discarding the fractional
             // digits. The quotient carries the coefficient's sign, so a value that truncates to
             // zero keeps a negative sign as `-0` without this method setting one.
-            let power = self.exponent.unsigned_abs() as u32;
-            let (quotient, _remainder) = self.coefficient.div_rem_pow10(power as u64);
+            let power = self.exponent.unsigned_abs();
+            let (quotient, _remainder) = self.coefficient.div_rem_pow10(power);
             Decimal::new(quotient, 0)
         }
     }
@@ -211,8 +214,8 @@ impl Decimal {
             // The remainder of dividing the magnitude by 10^|exponent| is the fractional part.
             // It carries the coefficient's sign, so an integral value keeps a negative sign as
             // `-0` without this method setting one, and the exponent is preserved.
-            let power = self.exponent.unsigned_abs() as u32;
-            let (_quotient, remainder) = self.coefficient.div_rem_pow10(power as u64);
+            let power = self.exponent.unsigned_abs();
+            let (_quotient, remainder) = self.coefficient.div_rem_pow10(power);
             Decimal::new(remainder, self.exponent)
         }
     }
