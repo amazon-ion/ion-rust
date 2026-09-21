@@ -70,14 +70,16 @@ jobs:
       # folded scalar joins the lines with spaces and the value word-splits into one filter each.
       # (No `#` comments inside the block -- they would become literal filter words. Document each
       # module here instead.)
-      #   overflowing_int      -- 16-byte overflowing integer representation
-      #   move_soundness_tests -- raw binary writer stays sound when moved (AliasableBump arena)
+      #   overflowing_int              -- 16-byte overflowing integer representation
+      #   move_soundness_tests         -- raw binary writer stays sound when moved (AliasableBump arena)
+      #   decimal_drop_soundness_tests -- Decimal/Coefficient drop glue frees the union exactly once
       # (The reusable-writer `reuse_tests` verify behavior, not unsafe soundness, so they run under
       # normal `cargo test` only -- their large allocations are prohibitively slow under Miri.)
       MIRI_TEST_SELECTION: >-
         overflowing_int
         move_soundness_tests
         annotations
+        decimal_drop_soundness_tests
     steps:
       - name: Git Checkout
         uses: actions/checkout@v5

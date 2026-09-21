@@ -948,4 +948,188 @@ mod decimal_tests {
         let d = Decimal::new(1i64, -39i64);
         assert_eq!(d.fract(), Decimal::new(1i64, -39i64));
     }
+
+    #[test]
+    fn decimal_and_coefficient_layout() {
+        use std::mem::{align_of, size_of};
+        // The `Value`-variant budget is 32 bytes (pt000 Scope); this design reaches 24.
+        assert!(size_of::<Decimal>() <= 32);
+        assert_eq!(size_of::<Decimal>(), 24);
+        assert_eq!(align_of::<Decimal>(), 8);
+        assert_eq!(size_of::<Coefficient>(), 16);
+        assert_eq!(align_of::<Coefficient>(), 8);
+    }
+
+    #[rstest]
+    // `trunc` of a value below one keeps the coefficient's sign on the zero result.
+    #[case(Decimal::new(-5, -1).trunc(), Decimal::negative_zero())]
+    // `fract` of an integral value keeps the coefficient's sign on the zero result.
+    #[case(Decimal::new(-5, 0).fract(), Decimal::negative_zero())]
+    // `fract` of a negative zero is a negative zero.
+    #[case(Decimal::negative_zero().fract(), Decimal::negative_zero())]
+    fn trunc_fract_preserve_negative_zero(#[case] actual: Decimal, #[case] expected: Decimal) {
+        // `assert_eq!` is numeric and would pass even if the sign were lost; `ion_eq`
+        // distinguishes -0 from +0.
+        assert!(
+            actual.ion_eq(&expected),
+            "{actual:?} is not ion_eq to {expected:?}"
+        );
+    }
+
+    #[test]
+    fn fract_preserves_exponent_on_negative_zero_remainder() {
+        // -1.0 stored as coefficient -10, exponent -1. Its fractional part is zero, but `IonEq`
+        // compares exponents, so the result must be a negative zero *at exponent -1*.
+        let actual = Decimal::new(-10, -1).fract();
+        let expected = Decimal::new(Coefficient::negative_zero(), -1);
+        assert!(
+            actual.ion_eq(&expected),
+            "{actual:?} is not ion_eq to {expected:?}"
+        );
+    }
+
+    #[test]
+    fn zero_constants_structural_vs_numeric() {
+        // `Coefficient` equality is structural: the two zero constants are unequal.
+        assert_ne!(Coefficient::ZERO, Coefficient::NEGATIVE_ZERO);
+        // `Decimal` equality is numeric: the two zero constants are equal.
+        assert_eq!(Decimal::ZERO, Decimal::NEGATIVE_ZERO);
+    }
+
+    #[test]
+    fn scaled_comparison_does_not_narrow_exponent_delta() {
+        // A delta of exactly 2^32 narrows to 0 under `as u32`, which would scale by 10^0 = 1 and
+        // wrongly report two very different decimals as equal. 1e(2^32) is astronomically larger
+        // than 1e0.
+        let big = Decimal::new(1i64, 1i64 << 32);
+        let one = Decimal::new(1i64, 0);
+        assert_eq!(big.cmp(&one), Ordering::Greater);
+        assert_eq!(one.cmp(&big), Ordering::Less);
+    }
+
+    #[test]
+    fn scaled_comparison_survives_extreme_exponents() {
+        // The old code subtracted the exponents as `i64`; `i64::MAX - i64::MIN` overflows.
+        // `abs_diff` computes the delta as `u64` without overflow, and the union decides the
+        // extreme case from bit widths without materializing 10^delta.
+        let hi = Decimal::new(1i64, i64::MAX);
+        let lo = Decimal::new(1i64, i64::MIN);
+        assert_eq!(hi.cmp(&lo), Ordering::Greater);
+        assert_eq!(lo.cmp(&hi), Ordering::Less);
+    }
+
+    #[test]
+    fn negative_pair_unequal_exponents_compares_correctly() {
+        // Two negatives with unequal exponents exercise the scaled-comparison path. -100 (=-10e1)
+        // is greater than -200 (=-2e2). Comparing a scaled *value* instead of a magnitude would
+        // invert this for two negatives — the double-reversal trap.
+        let a = Decimal::new(-10, 1); // -100
+        let b = Decimal::new(-2, 2); // -200
+        assert_eq!(a.cmp(&b), Ordering::Greater);
+        assert_eq!(b.cmp(&a), Ordering::Less);
+
+        // Heap-magnitude analogue: negative coefficients beyond i128, unequal exponents.
+        // 2^128 forces a heap-backed magnitude.
+        let mut bytes = vec![0u8; 18];
+        bytes[16] = 1;
+        let magnitude = Int::from_le_signed_bytes(&bytes);
+        let c = Decimal::new(
+            Coefficient::from_sign_and_value(Sign::Negative, magnitude.clone()),
+            0,
+        );
+        let d = Decimal::new(
+            Coefficient::from_sign_and_value(Sign::Negative, magnitude),
+            1,
+        );
+        // c = -2^128, d = -2^128 * 10, so c > d.
+        assert_eq!(c.cmp(&d), Ordering::Greater);
+        assert_eq!(d.cmp(&c), Ordering::Less);
+    }
+}
+
+#[cfg(test)]
+mod decimal_drop_soundness_tests {
+    // A dedicated module so the Miri job's module-path selection
+    // (`MIRI_TEST_SELECTION` in .github/workflows/miri.yml) can target these tests.
+    // `Coefficient`/`Decimal` implement no `Drop` of their own, so Miri confirms their
+    // drop glue reaches the union's single free. Mirrors `OverflowingInt`'s own drop tests.
+    use crate::decimal::{Coefficient, Sign};
+    use crate::ion_data::IonEq;
+    use crate::{Decimal, Int};
+
+    /// A heap-backed coefficient: 2^128 exceeds the 126-bit inline capacity, so its magnitude is
+    /// stored on the heap — the only case with anything to free.
+    fn heap_coefficient(sign: Sign) -> Coefficient {
+        let mut bytes = vec![0u8; 18];
+        bytes[16] = 1;
+        Coefficient::from_sign_and_value(sign, Int::from_le_signed_bytes(&bytes))
+    }
+
+    #[test]
+    #[allow(unused_assignments)] // The reassignment drops the first heap value — the point of the test.
+    fn coefficient_drop_through_reassignment() {
+        let mut c = heap_coefficient(Sign::Positive);
+        c = heap_coefficient(Sign::Negative);
+        assert_eq!(c.magnitude(), heap_coefficient(Sign::Positive).magnitude());
+    }
+
+    #[test]
+    fn coefficient_drop_through_mem_replace_and_swap() {
+        let mut a = heap_coefficient(Sign::Positive);
+        let b = heap_coefficient(Sign::Negative);
+        let old = std::mem::replace(&mut a, b);
+        drop(old);
+
+        let mut x = heap_coefficient(Sign::Positive);
+        let mut y = Coefficient::new(1);
+        std::mem::swap(&mut x, &mut y);
+        drop((x, y));
+    }
+
+    #[test]
+    fn coefficient_drop_through_container() {
+        // Vec drop
+        let values = vec![
+            heap_coefficient(Sign::Positive),
+            Coefficient::new(1),
+            heap_coefficient(Sign::Negative),
+        ];
+        drop(values);
+
+        // HashMap drop
+        let mut map = std::collections::HashMap::new();
+        map.insert(1u8, heap_coefficient(Sign::Positive));
+        map.insert(2u8, heap_coefficient(Sign::Negative));
+        drop(map);
+    }
+
+    #[test]
+    fn coefficient_drop_clone_then_drop_both() {
+        let original = heap_coefficient(Sign::Positive);
+        let clone = original.clone();
+        assert_eq!(original, clone);
+        drop(original);
+        drop(clone);
+    }
+
+    #[test]
+    fn coefficient_drop_during_unwind() {
+        // A panic while a heap coefficient is live must still free it exactly once.
+        let result = std::panic::catch_unwind(|| {
+            let _c = heap_coefficient(Sign::Positive);
+            panic!("unwind with a live heap coefficient");
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decimal_drop_through_container_and_clone() {
+        // `Decimal` embeds the coefficient, so its drop glue must reach the union through the
+        // embedded `Coefficient` as well.
+        let d = Decimal::new(heap_coefficient(Sign::Negative), 3);
+        let clone = d.clone();
+        assert!(d.ion_eq(&clone));
+        let values = vec![d, clone, Decimal::new(heap_coefficient(Sign::Positive), -2)];
+        drop(values);
+    }
 }

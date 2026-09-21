@@ -353,4 +353,23 @@ mod coefficient_tests {
         assert_eq!(-1, Sign::Negative as i8);
         assert_eq!(1, Sign::Positive as i8);
     }
+
+    #[test]
+    fn display_and_debug_negative_heap_coefficient_single_sign() {
+        // 2^128 exceeds i128, so the magnitude is heap-backed. `Display` must render exactly one
+        // leading '-', not the doubled sign the baseline produced by formatting an
+        // already-signed magnitude.
+        let mut bytes = vec![0u8; 18];
+        bytes[16] = 1;
+        let magnitude = Int::from_le_signed_bytes(&bytes);
+        let c = Coefficient::from_sign_and_value(Sign::Negative, magnitude);
+        let shown = format!("{c}");
+        assert_eq!(shown, "-340282366920938463463374607431768211456");
+        assert!(!shown.starts_with("--"));
+        // `Debug` wraps the same rendering, so it must not double the sign either.
+        assert_eq!(
+            format!("{c:?}"),
+            "Coefficient(-340282366920938463463374607431768211456)"
+        );
+    }
 }
