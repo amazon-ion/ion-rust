@@ -4,9 +4,7 @@ use std::cmp::Ordering;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
-use crate::types::integer::{IntData, UIntData};
 use crate::{Int, IonResult};
-use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
@@ -177,21 +175,13 @@ impl Decimal {
         // d1 has the larger exponent (3). We need to scale its coefficient up to d2's 10^2 scale.
         // We do this by multiplying it times 10^exponent_delta, which is 1 in this case.
         // This lets us compare 80 and 80, determining that the decimals are equal.
-        let d1_mag = d1.coefficient.magnitude();
-        let d2_mag = d2.coefficient.magnitude();
-        // Fast path: both fit in u128
-        if let (Some(m1), Some(m2)) = (d1_mag.as_u128(), d2_mag.as_u128()) {
-            if let Some(multiplicand) = 10u128.checked_pow(exponent_delta as u32) {
-                if let Some(scaled) = m1.checked_mul(multiplicand) {
-                    return scaled.cmp(&m2);
-                }
-            }
-        }
-        // Slow path: use BigUint for arbitrary-precision scaling and comparison
-        let d1_big = d1_mag.data;
-        let scaled = d1_big * UIntData::from_big(BigUint::from(10u32).pow(exponent_delta as u32));
-        let other = d2_mag.data;
-        scaled.cmp(&other)
+        //
+        // The union scales the magnitude and compares magnitudes — the sign is handled by the
+        // caller (`compare`/`ion_cmp`), so comparing a *value* here would double-reverse two
+        // negatives. It decides the wide-difference cases from bit widths without materializing
+        // `10^exponent_delta`, and the inline fast path never allocates.
+        d1.coefficient
+            .cmp_magnitude_scaled(exponent_delta as u32 as u64, &d2.coefficient)
     }
 
     /// Returns the integer part of `self`. This means that non-integer numbers are always
@@ -200,16 +190,12 @@ impl Decimal {
         if self.exponent >= 0 {
             self.clone()
         } else {
-            // Extract the coefficient, we'll lose the sign if it's ZERO, but we add it back at the
-            // end.
-            let mut coeff = self.coefficient.as_int().unwrap_or(Int::ZERO).data;
-            let scaling_factor =
-                IntData::from_big(BigInt::from(10).pow(self.exponent.unsigned_abs() as u32));
-            coeff = coeff / scaling_factor;
-            Decimal::new(
-                Coefficient::from_sign_and_value(self.coefficient.sign(), coeff),
-                0,
-            )
+            // Divide the coefficient's magnitude by 10^|exponent|, discarding the fractional
+            // digits. The quotient carries the coefficient's sign, so a value that truncates to
+            // zero keeps a negative sign as `-0` without this method setting one.
+            let power = self.exponent.unsigned_abs() as u32;
+            let (quotient, _remainder) = self.coefficient.div_rem_pow10(power as u64);
+            Decimal::new(quotient, 0)
         }
     }
 
@@ -222,14 +208,12 @@ impl Decimal {
                 0,
             )
         } else {
-            let mut coeff = self.coefficient.as_int().unwrap_or(Int::ZERO).data;
-            let scaling_factor =
-                IntData::from_big(BigInt::from(10).pow(self.exponent.unsigned_abs() as u32));
-            coeff = coeff % scaling_factor;
-            Decimal::new(
-                Coefficient::from_sign_and_value(self.coefficient.sign(), coeff),
-                self.exponent,
-            )
+            // The remainder of dividing the magnitude by 10^|exponent| is the fractional part.
+            // It carries the coefficient's sign, so an integral value keeps a negative sign as
+            // `-0` without this method setting one, and the exponent is preserved.
+            let power = self.exponent.unsigned_abs() as u32;
+            let (_quotient, remainder) = self.coefficient.div_rem_pow10(power as u64);
+            Decimal::new(remainder, self.exponent)
         }
     }
 }

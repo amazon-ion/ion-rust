@@ -130,6 +130,29 @@ impl Coefficient {
     pub(crate) fn cmp_magnitude(&self, other: &Coefficient) -> Ordering {
         self.repr.cmp_magnitude_scaled(0, &other.repr)
     }
+
+    /// Splits the coefficient at `10^k`, returning `(quotient, remainder)`.
+    ///
+    /// **Both results carry this coefficient's sign**, which is exactly what `trunc` and `fract`
+    /// need, so those callers reattach no sign of their own. Applying the sign here — rather than
+    /// in `decimal/mod.rs` — keeps the union's sign-*setting* entry point (the only operation that
+    /// can manufacture a `-0`) unreachable from `Decimal`. A zero quotient or remainder therefore
+    /// keeps a negative sign as `-0`.
+    pub(crate) fn div_rem_pow10(&self, k: u64) -> (Coefficient, Coefficient) {
+        let (quotient, remainder) = self.repr.div_rem_pow10(k);
+        (
+            Coefficient { repr: quotient },
+            Coefficient { repr: remainder },
+        )
+    }
+
+    /// Compares this coefficient's magnitude scaled by `10^k` against `other`'s magnitude,
+    /// ignoring sign. `Decimal`'s unequal-exponent comparison routes through this; the union
+    /// decides the extreme cases from bit widths and only materializes `10^k` when the two
+    /// magnitudes are close enough that neither dominates, so inline operands never allocate.
+    pub(crate) fn cmp_magnitude_scaled(&self, k: u64, other: &Coefficient) -> Ordering {
+        self.repr.cmp_magnitude_scaled(k, &other.repr)
+    }
 }
 
 /// Converts a signed [`Int`] into an [`OverflowingInt`], preserving sign and magnitude. An `Int`
