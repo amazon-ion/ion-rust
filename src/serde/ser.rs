@@ -11,6 +11,7 @@ use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
+use crate::serde::TunnelBytes;
 use crate::symbol_ref::AsSymbolRef;
 use crate::write_config::{WriteConfig, WriteConfigKind};
 use crate::Value::Null;
@@ -238,28 +239,15 @@ impl<'a, V: ValueWriter + 'a> ser::Serializer for ValueSerializer<'a, V> {
         T: ?Sized + Serialize,
     {
         if name == TUNNELED_TIMESTAMP_TYPE_NAME {
-            assert_eq!(
-                std::mem::size_of_val(value),
-                std::mem::size_of::<Timestamp>()
-            );
-            // # Safety
-            // compiler doesn't understand that the generic T here is actually Timestamp here since
-            // we are using TUNNELED_TIMESTAMP_TYPE_NAME flag here which indicates a timestamp value
-            // The assert statement above that compares the sizes of the Timestamp and value types
-            let timestamp = unsafe { std::mem::transmute_copy::<&T, &Timestamp>(&value) };
+            let timestamp = Timestamp::try_from(TunnelBytes(value.serialize(TunnelSerializer)?))?;
             self.value_writer
                 .with_annotations(self.annotations)?
-                .write_timestamp(timestamp)
+                .write_timestamp(&timestamp)
         } else if name == TUNNELED_DECIMAL_TYPE_NAME {
-            // # Safety
-            // compiler doesn't understand that the generic T here is actually Decimal here since
-            // we are using TUNNELED_DECIMAL_TYPE_NAME flag here which indicates a decimal value
-            // The assert statement above that compares the sizes of the Decimal and value types
-            assert_eq!(std::mem::size_of_val(value), std::mem::size_of::<Decimal>());
-            let decimal = unsafe { std::mem::transmute_copy::<&T, &Decimal>(&value) };
+            let decimal = Decimal::try_from(TunnelBytes(value.serialize(TunnelSerializer)?))?;
             self.value_writer
                 .with_annotations(self.annotations)?
-                .write_decimal(decimal)
+                .write_decimal(&decimal)
         } else {
             value.serialize(self)
         }
@@ -730,5 +718,115 @@ impl ser::Serializer for MapKeySerializer {
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         Err(key_must_be_a_string())
+    }
+}
+
+macro_rules! ret_ty {
+    () => {
+        Self::Ok
+    };
+    ($t:ident) => {
+        Self::$t
+    };
+}
+
+// Implements each listed `Serializer` method (and its associated type, if any) as an error.
+macro_rules! unsupported {
+    ($message:literal; $($fn_name:ident $(<$($generics:ident),*>)? ($($type:ty),*) $(-> $ret:ident)?),+ $(,)?) => {
+        $(
+        $(type $ret = Impossible<Self::Ok, IonError>;)?
+        fn $fn_name$(<$($generics),*>)?(self, $(_: $type),*) -> Result<ret_ty!($($ret)?), Self::Error>
+        $(where $($generics : ?Sized + Serialize),+)? {
+            IonResult::encoding_error(concat!(stringify!($fn_name), ": ", $message))
+        }
+        )+
+    };
+}
+
+/// Serializes a [`TunnelBytes`] to its bytes; every other value is an error.
+struct TunnelSerializer;
+
+impl ser::Serializer for TunnelSerializer {
+    type Ok = Vec<u8>;
+    type Error = IonError;
+
+    fn serialize_bytes(self, value: &[u8]) -> Result<Self::Ok, Self::Error> {
+        Ok(value.to_vec())
+    }
+
+    unsupported!(
+        "unsupported for tunneled Ion serde payload";
+        serialize_bool(bool),
+        serialize_i8(i8),
+        serialize_i16(i16),
+        serialize_i32(i32),
+        serialize_i64(i64),
+        serialize_u8(u8),
+        serialize_u16(u16),
+        serialize_u32(u32),
+        serialize_u64(u64),
+        serialize_f32(f32),
+        serialize_f64(f64),
+        serialize_char(char),
+        serialize_str(&str),
+        serialize_none(),
+        serialize_unit(),
+        serialize_unit_struct(&'static str),
+        serialize_some<T>(&T),
+        serialize_unit_variant(&'static str, u32, &'static str),
+        serialize_newtype_struct<T>(&'static str, &T),
+        serialize_newtype_variant<T>(&'static str, u32, &'static str, &T),
+        serialize_seq(Option<usize>) -> SerializeSeq,
+        serialize_tuple(usize) -> SerializeTuple,
+        serialize_tuple_struct(&'static str, usize) -> SerializeTupleStruct,
+        serialize_tuple_variant(&'static str, u32, &'static str, usize) -> SerializeTupleVariant,
+        serialize_map(Option<usize>) -> SerializeMap,
+        serialize_struct(&'static str, usize) -> SerializeStruct,
+        serialize_struct_variant(&'static str, u32, &'static str, usize) -> SerializeStructVariant
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::serde::ser::TunnelSerializer;
+    use crate::serde::TunnelBytes;
+    use crate::{IonError, IonResult};
+    use rstest::rstest;
+    use serde::Serialize;
+
+    #[test]
+    fn tunnel_serializer_supports_tunnel_bytes() {
+        assert_eq!(
+            TunnelBytes(vec![1, 2, 3])
+                .serialize(TunnelSerializer)
+                .unwrap(),
+            [1, 2, 3]
+        );
+    }
+
+    struct SpoofedNewtypeStruct;
+
+    impl Serialize for SpoofedNewtypeStruct {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.serialize_newtype_struct("spoofed", &1_u8)
+        }
+    }
+
+    #[rstest]
+    #[case::non_bytes(|| 1_u32.serialize(TunnelSerializer), "serialize_u32:")]
+    #[case::spoofed_newtype_struct(
+        || SpoofedNewtypeStruct.serialize(TunnelSerializer),
+        "serialize_newtype_struct:"
+    )]
+    fn tunnel_serializer_rejects(
+        #[case] serialize: fn() -> IonResult<Vec<u8>>,
+        #[case] expected_prefix: &str,
+    ) {
+        let error = serialize().unwrap_err();
+        assert!(matches!(error, IonError::Encoding(_)));
+        assert!(error.to_string().starts_with(expected_prefix), "{error}");
     }
 }
