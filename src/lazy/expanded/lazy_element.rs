@@ -93,8 +93,6 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
                     ExpandedValueSource<'top, Encoding>,
                 >(self.source)
             },
-            // TODO: Preserve variable provenance.
-            variable: None,
         };
         LazyValue::new(expanded)
     }
@@ -173,8 +171,6 @@ mod tests {
 
     fn test_data() -> String {
         let test_data = r#"
-            $ion_1_0
-
             // === Values backed by `ExpandedValueSource::ValueLiteral` ===
             foo
             true

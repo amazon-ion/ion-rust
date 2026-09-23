@@ -121,11 +121,8 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     /// an ephemeral value resulting from macro expansion), returns that encoding's representation
     /// of the raw value. Otherwise, returns `None`.
     pub fn raw(&self) -> Option<D::Value<'top>> {
-        if let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source() {
-            Some(raw_value)
-        } else {
-            None
-        }
+        let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source();
+        Some(raw_value)
     }
 
     /// Returns `true` if this value is any form of `null`, including
@@ -261,40 +258,24 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
         let context = self.context().context.clone();
-
-        let source = if let ExpandedValueSource::ValueLiteral(raw_value) =
-            self.expanded_value.source
-        {
-            // If the value's source is a `ValueLiteral`, then it may hold references to bytes in the input buffer.
-            // We need to modify the source to point to heap data that is owned by `context`.
-            // First, get the `IoBufferSource` and ask it for a shared copy of the IoBuffer.
-            // SAFETY: `io_buffer_source` is an `UnsafeCell` to allow us to set it from the `StreamingRawReader`
-            //         after each top-level value. Unfortunately, that means we need to use `unsafe` to access it here.
-            let IoBufferSource::IoBuffer(ref io_buffer) =
-                (unsafe { &*context.io_buffer_source.get() })
-            else {
-                unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
-            };
-            // Take note of all the ValueLiteral's recorded offsets.
-            let value_span = raw_value.span();
-            let value_offset = value_span.offset();
-            let value_length = value_span.len();
-            // Now, swap out the backing data for a slice of the `IoBuffer`.
-            // The value begins at stream position `value_offset`.
-            // The buffer begins at `io_buffer.stream_offset()`.
-            // To find the serialized value within the buffer,
-            // subtract the buffer's offset from the value's.
-            let local_offset = value_offset - io_buffer.stream_offset();
-            let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
-            // Construct a new span that is backed by the IoBuffer.
-            let backing_span = Span::with_offset(value_offset, value_bytes);
-            let raw_value = raw_value.with_backing_data(backing_span);
-            ExpandedValueSource::ValueLiteral(raw_value)
-        } else {
-            // If the value is not a literal, then it lives in the bump allocator.
-            // That is to say, it is already heap data that is owned by `context`.
-            self.expanded_value.source
+        // The value's source is a `ValueLiteral`, which may hold references to bytes in the input
+        // buffer. Modify the source to point to heap data owned by `context`.
+        // First, get the `IoBufferSource` and ask it for a shared copy of the IoBuffer.
+        // SAFETY: `io_buffer_source` is an `UnsafeCell` to allow us to set it from the
+        //         `StreamingRawReader` after each top-level value. That means we need `unsafe` here.
+        let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded_value.source;
+        let IoBufferSource::IoBuffer(ref io_buffer) = (unsafe { &*context.io_buffer_source.get() })
+        else {
+            unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
         };
+        let value_span = raw_value.span();
+        let value_offset = value_span.offset();
+        let value_length = value_span.len();
+        let local_offset = value_offset - io_buffer.stream_offset();
+        let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
+        let backing_span = Span::with_offset(value_offset, value_bytes);
+        let raw_value = raw_value.with_backing_data(backing_span);
+        let source = ExpandedValueSource::ValueLiteral(raw_value);
         // Now that we have upheld the invariants required by `LazyElement::new`, we can safely call it.
         unsafe { LazyElement::new(context, source) }
     }

@@ -2,7 +2,7 @@
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{Decoder, HasRange, HasSpan, LazyRawValue, RawVersionMarker};
-use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0};
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::TextBuffer;
@@ -103,7 +103,6 @@ impl<'top, E: TextEncoding> LazyRawTextVersionMarker<'top, E> {
 }
 
 pub type LazyRawTextVersionMarker_1_0<'top> = LazyRawTextVersionMarker<'top, TextEncoding_1_0>;
-pub type LazyRawTextVersionMarker_1_1<'top> = LazyRawTextVersionMarker<'top, TextEncoding_1_1>;
 
 impl<'top, E: TextEncoding> HasSpan<'top> for LazyRawTextVersionMarker<'top, E> {
     fn span(&self) -> Span<'top> {
@@ -128,13 +127,10 @@ impl<'top, E: TextEncoding> RawVersionMarker<'top> for LazyRawTextVersionMarker<
 }
 
 pub type LazyRawTextValue_1_0<'top> = LazyRawTextValue<'top, TextEncoding_1_0>;
-pub type LazyRawTextValue_1_1<'top> = LazyRawTextValue<'top, TextEncoding_1_1>;
 
 impl<Encoding: TextEncoding> Debug for LazyRawTextValue<'_, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        // The encoding's name, via its `Decoder` impl: `TextEncoding` no longer implies
-        // `Encoding`, whose `name()` this used to call.
-        write!(f, "{}", Encoding::INITIAL_ENCODING_EXPECTED.name())?;
+        write!(f, "{}", Encoding::name())?;
 
         // Try to read the value
         match self.read() {
@@ -237,7 +233,6 @@ impl<'top, Encoding: TextEncoding> LazyRawValue<'top, Encoding>
     fn encoding(&self) -> IonEncoding {
         match <Encoding as Decoder>::INITIAL_ENCODING_EXPECTED.version() {
             IonVersion::v1_0 => IonEncoding::Text_1_0,
-            IonVersion::v1_1 => IonEncoding::Text_1_1,
         }
     }
 }

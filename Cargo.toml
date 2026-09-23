@@ -25,8 +25,7 @@ default = []
 experimental-ion-hash = ["dep:digest", "dep:sha2", "experimental-reader-writer"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
-# These are not guaranteed any sort of API stability and may also have non-standard
-# Ion behavior (e.g., draft Ion 1.1 capabilities).
+# These are not guaranteed any sort of API stability.
 experimental = [
     "experimental-reader-writer",
     "experimental-tooling-apis",

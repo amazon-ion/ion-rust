@@ -1,6 +1,4 @@
 pub mod v1_0;
-// TODO(pt004): this now holds only shared encoding primitives; relocate them and delete the module.
-pub mod v1_1;
 
 use bumpalo::Bump as BumpAllocator;
 use std::ops::Deref;

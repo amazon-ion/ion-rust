@@ -2,55 +2,13 @@ use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::IonType;
 use std::ops::Range;
 
-/// Encodings that can back a lazy binary value. Binary 1.0 values are always backed by
-/// the `Tagged` variant.
-///
-/// This is a subset of the encodings in the
-/// [`ParameterEncoding`](crate::lazy::expanded::template::ParameterEncoding) enum.
-/// `BinaryValueEncoding` contains only those variants that can back a binary value literal--
-/// encodings that are not macro-shaped.
-///
-/// When `LazyRawBinaryValue::read()` is called, this enum is inspected to determine how the
-/// bytes in the `BinaryBuffer` should be parsed to yield the value it represents.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum BinaryValueEncoding {
-    Tagged,
-    FlexUInt,
-    UInt8,
-    UInt16,
-    UInt32,
-    UInt64,
-}
-
-/// Whether an encoded annotations sequence is represented as a series of symbol addresses or
-/// as a series of `FlexSym`s. In Ion 1.0, annotations are always encoded as symbol addresses.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AnnotationsEncoding {
-    SymbolAddress,
-    FlexSym,
-}
-
 pub trait EncodedHeader: Copy {
-    type TypeCode;
     fn ion_type(&self) -> IonType;
-    fn type_code(&self) -> Self::TypeCode;
-
-    fn is_null(&self) -> bool;
 }
 
 impl EncodedHeader for Header {
-    type TypeCode = crate::binary::type_code::IonTypeCode;
-
     fn ion_type(&self) -> IonType {
         self.ion_type
-    }
-
-    fn type_code(&self) -> Self::TypeCode {
-        self.ion_type_code
-    }
-
-    fn is_null(&self) -> bool {
-        self.is_null()
     }
 }
 
@@ -62,7 +20,6 @@ impl EncodedHeader for Header {
 /// without re-parsing its header information each time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EncodedBinaryValue<HeaderType: EncodedHeader> {
-    pub(crate) encoding: BinaryValueEncoding,
     // If the compiler decides that a value is too large to be moved/copied with inline code,
     // it will relocate the value using memcpy instead. This can be quite slow by comparison.
     //
@@ -100,15 +57,9 @@ pub struct EncodedBinaryValue<HeaderType: EncodedHeader> {
     //
     // In Ion 1.0, the annotations header contains several fields: an opcode, a wrapper length, and
     // the length of the sequence itself. It does not include the actual sequence of annotations.
-    //
-    // In Ion 1.1, the annotations header contains an opcode and (in the case of opcode 0xE9) a
-    // FlexUInt length.
     pub annotations_header_length: u8,
     // The number of bytes used to encode the series of symbol IDs inside the annotations wrapper.
     pub annotations_sequence_length: u16,
-    // Whether the annotations sequence is encoded as `FlexSym`s or as symbol addresses.
-    // In Ion 1.0, they are always encoded as symbol addresses.
-    pub annotations_encoding: AnnotationsEncoding,
     // The offset of the type descriptor byte within the overall input stream.
     pub header_offset: usize,
     // The number of bytes used to encode the optional length VarUInt following the header byte.
@@ -150,15 +101,6 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
         start..end
     }
 
-    /// Returns the number of bytes used to encode this value's opcode. If this value was serialized
-    /// using a tagless encoding, returns `0`.
-    pub fn opcode_length(&self) -> usize {
-        match self.encoding {
-            BinaryValueEncoding::Tagged => 1,
-            _ => 0,
-        }
-    }
-
     /// Returns the number of bytes used to encode this value's data.
     /// If the value can fit in the type descriptor byte (e.g. `true`, `false`, `null`, `0`),
     /// this function will return 0.
@@ -198,9 +140,6 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
     ///
     /// In Ion 1.0, the annotations header contains several fields: an opcode, a wrapper length, and
     /// the length of the sequence itself. It does not include the actual sequence of annotations.
-    ///
-    /// In Ion 1.1, the annotations header contains an opcode and (in the case of opcode 0xE9) a
-    /// FlexUInt representing the sequence length.
     #[allow(dead_code)]
     pub fn annotations_header_length(&self) -> usize {
         self.annotations_header_length as usize
@@ -293,9 +232,7 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
 #[cfg(test)]
 mod tests {
     use crate::binary::IonTypeCode;
-    use crate::lazy::binary::encoded_value::{
-        AnnotationsEncoding, BinaryValueEncoding, EncodedBinaryValue,
-    };
+    use crate::lazy::binary::encoded_value::EncodedBinaryValue;
     use crate::lazy::binary::raw::type_descriptor::Header;
     use crate::{IonResult, IonType};
 
@@ -303,7 +240,6 @@ mod tests {
     fn accessors() -> IonResult<()> {
         // 3-byte String with 1-byte annotation
         let value = EncodedBinaryValue {
-            encoding: BinaryValueEncoding::Tagged,
             header: Header {
                 ion_type: IonType::String,
                 ion_type_code: IonTypeCode::String,
@@ -311,7 +247,6 @@ mod tests {
             },
             annotations_header_length: 2,
             annotations_sequence_length: 1,
-            annotations_encoding: AnnotationsEncoding::SymbolAddress,
             header_offset: 200,
             length_length: 0,
             value_body_length: 3,

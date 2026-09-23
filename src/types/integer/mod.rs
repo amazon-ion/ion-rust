@@ -12,7 +12,7 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem;
-use std::ops::{Add, Neg};
+use std::ops::Neg;
 
 /// Represents an unsigned integer of any size.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -378,11 +378,6 @@ impl Int {
     #[allow(clippy::should_implement_trait)]
     pub fn neg(self) -> Self {
         self.data.neg().into()
-    }
-
-    /// Returns the sum of this value and `rhs`.
-    pub(crate) fn add(self, rhs: Self) -> Self {
-        self.data.add(rhs.data).into()
     }
 }
 

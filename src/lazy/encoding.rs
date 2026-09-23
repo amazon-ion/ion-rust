@@ -5,21 +5,10 @@ use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0};
-use crate::lazy::binary::raw::v1_1::e_expression::BinaryEExpression_1_1;
-use crate::lazy::binary::raw::v1_1::r#struct::LazyRawBinaryFieldName_1_1;
-use crate::lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1;
-use crate::lazy::binary::raw::v1_1::value::LazyRawBinaryVersionMarker_1_1;
-use crate::lazy::binary::raw::v1_1::{
-    r#struct::LazyRawBinaryStruct_1_1,
-    sequence::{LazyRawBinaryList_1_1, LazyRawBinarySExp_1_1},
-    value::LazyRawBinaryValue_1_1,
-    RawBinaryAnnotationsIterator_1_1,
-};
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
-use crate::lazy::decoder::{Decoder, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::Encoder;
-use crate::lazy::never::Never;
 use crate::lazy::text::buffer::{whitespace_and_then, IonParser, TextBuffer};
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::MatchedValue;
@@ -30,10 +19,9 @@ use crate::lazy::text::raw::reader::LazyRawTextReader_1_0;
 use crate::lazy::text::raw::sequence::{
     RawTextList, RawTextListIterator, RawTextSExp, RawTextSExpIterator,
 };
-use crate::lazy::text::raw::v1_1::reader::{LazyRawTextReader_1_1, TextEExpression_1_1};
 use crate::lazy::text::value::{
-    LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextValue_1_1, LazyRawTextVersionMarker_1_0,
-    LazyRawTextVersionMarker_1_1, RawTextAnnotationsIterator,
+    LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextVersionMarker_1_0,
+    RawTextAnnotationsIterator,
 };
 
 use crate::{
@@ -42,7 +30,7 @@ use crate::{
 };
 use std::fmt::Debug;
 use std::io;
-use winnow::combinator::{alt, cut_err, opt, separated_pair};
+use winnow::combinator::{opt, separated_pair};
 use winnow::Parser;
 
 /// Marker trait for types that represent an Ion encoding.
@@ -115,12 +103,7 @@ impl OutputFromBytes for String {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct BinaryEncoding_1_0;
 
-/// The Ion 1.1 binary encoding.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct BinaryEncoding_1_1;
-
 impl BinaryEncoding for BinaryEncoding_1_0 {}
-impl BinaryEncoding for BinaryEncoding_1_1 {}
 
 /// The Ion 1.0 text encoding.
 #[derive(Copy, Clone, Debug, Default)]
@@ -131,10 +114,6 @@ impl TextEncoding_1_0 {
         WriteConfig::<Self>::new(format)
     }
 }
-
-/// The Ion 1.1 text encoding.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct TextEncoding_1_1;
 
 impl Encoding for BinaryEncoding_1_0 {
     type Output = Vec<u8>;
@@ -189,22 +168,23 @@ impl Encoding for TextEncoding_1_0 {
 }
 
 /// Marker trait for binary encodings of any version.
-pub trait BinaryEncoding: Decoder {}
+pub trait BinaryEncoding: Encoding<Output = Vec<u8>> + Decoder {}
 
 /// Marker trait for text encodings.
 pub trait TextEncoding:
-    for<'a> Decoder<
-    AnnotationsIterator<'a> = RawTextAnnotationsIterator<'a>,
-    Value<'a> = LazyRawTextValue<'a, Self>,
->
+    Encoding<Output = String>
+    + for<'a> Decoder<
+        AnnotationsIterator<'a> = RawTextAnnotationsIterator<'a>,
+        Value<'a> = LazyRawTextValue<'a, Self>,
+    >
 {
     fn new_value<'a>(
         input: TextBuffer<'a>,
         encoded_text_value: EncodedTextValue<'a, Self>,
     ) -> Self::Value<'a>;
 
-    /// Matches an expression that appears in value position.
-    fn value_expr_matcher<'a>() -> impl IonParser<'a, LazyRawValueExpr<'a, Self>>;
+    /// Matches a value that appears in value position.
+    fn value_expr_matcher<'a>() -> impl IonParser<'a, Self::Value<'a>>;
 
     /// Matches an expression that appears in struct field position. Does NOT match trailing commas.
     fn field_expr_matcher<'a>() -> impl IonParser<'a, LazyRawFieldExpr<'a, Self>>;
@@ -298,8 +278,8 @@ impl TextEncoding for TextEncoding_1_0 {
         LazyRawTextValue_1_0::new(encoded_text_value, input)
     }
 
-    fn value_expr_matcher<'a>() -> impl IonParser<'a, LazyRawValueExpr<'a, Self>> {
-        TextBuffer::match_annotated_value::<Self>.map(RawValueExpr::ValueLiteral)
+    fn value_expr_matcher<'a>() -> impl IonParser<'a, Self::Value<'a>> {
+        TextBuffer::match_annotated_value::<Self>
     }
 
     fn field_expr_matcher<'a>() -> impl IonParser<'a, LazyRawFieldExpr<'a, Self>> {
@@ -316,50 +296,6 @@ impl TextEncoding for TextEncoding_1_0 {
         })
     }
 }
-impl TextEncoding for TextEncoding_1_1 {
-    fn new_value<'a>(
-        input: TextBuffer<'a>,
-        encoded_text_value: EncodedTextValue<'a, Self>,
-    ) -> Self::Value<'a> {
-        LazyRawTextValue_1_1::new(encoded_text_value, input)
-    }
-
-    fn value_expr_matcher<'a>() -> impl IonParser<'a, LazyRawValueExpr<'a, Self>> {
-        alt((
-            TextBuffer::match_e_expression.map(RawValueExpr::EExp),
-            TextBuffer::match_annotated_value::<Self>.map(RawValueExpr::ValueLiteral),
-        ))
-    }
-
-    fn field_expr_matcher<'a>() -> impl IonParser<'a, LazyRawFieldExpr<'a, Self>> {
-        cut_err(alt((
-            // A (name, eexp) pair. Check for this first to prevent `(:` from being considered
-            // the beginning of an s-expression.
-            separated_pair(
-                whitespace_and_then(TextBuffer::match_struct_field_name),
-                whitespace_and_then(":"),
-                whitespace_and_then(TextBuffer::match_e_expression),
-            )
-            .map(|(field_name, invocation)| {
-                LazyRawFieldExpr::NameEExp(LazyRawTextFieldName::new(field_name), invocation)
-            }),
-            // A (name, value) pair
-            separated_pair(
-                whitespace_and_then(TextBuffer::match_struct_field_name),
-                whitespace_and_then(":"),
-                whitespace_and_then(TextBuffer::match_annotated_value::<Self>),
-            )
-            .map(move |(field_name, value)| {
-                let field_name = LazyRawTextFieldName::new(field_name);
-                LazyRawFieldExpr::NameValue(field_name, value)
-            }),
-            // An e-expression
-            TextBuffer::match_e_expression.map(LazyRawFieldExpr::EExp),
-        )))
-        .context("matching a struct field")
-    }
-}
-
 impl Decoder for BinaryEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_0;
     type Reader<'data> = LazyRawBinaryReader_1_0<'data>;
@@ -369,8 +305,6 @@ impl Decoder for BinaryEncoding_1_0 {
     type Struct<'top> = LazyRawBinaryStruct_1_0<'top>;
     type FieldName<'top> = LazyRawBinaryFieldName_1_0<'top>;
     type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator<'top>;
-    // Macros are not supported in Ion 1.0
-    type EExp<'top> = Never;
     type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_0<'top>;
 }
 
@@ -384,35 +318,7 @@ impl Decoder for TextEncoding_1_0 {
     type Struct<'top> = LazyRawTextStruct<'top, Self>;
     type FieldName<'top> = LazyRawTextFieldName<'top, Self>;
     type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
-    // Macros are not supported in Ion 1.0
-    type EExp<'top> = Never;
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_0<'top>;
-}
-
-impl Decoder for TextEncoding_1_1 {
-    const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_1;
-    type Reader<'data> = LazyRawTextReader_1_1<'data>;
-    type Value<'top> = LazyRawTextValue_1_1<'top>;
-    type SExp<'top> = RawTextSExp<'top, Self>;
-    type List<'top> = RawTextList<'top, Self>;
-    type Struct<'top> = LazyRawTextStruct<'top, Self>;
-    type FieldName<'top> = LazyRawTextFieldName<'top, Self>;
-    type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
-    type EExp<'top> = TextEExpression_1_1<'top>;
-    type VersionMarker<'top> = LazyRawTextVersionMarker_1_1<'top>;
-}
-
-impl Decoder for BinaryEncoding_1_1 {
-    const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Binary_1_1;
-    type Reader<'data> = LazyRawBinaryReader_1_1<'data>;
-    type Value<'top> = &'top LazyRawBinaryValue_1_1<'top>;
-    type SExp<'top> = LazyRawBinarySExp_1_1<'top>;
-    type List<'top> = LazyRawBinaryList_1_1<'top>;
-    type Struct<'top> = LazyRawBinaryStruct_1_1<'top>;
-    type FieldName<'top> = LazyRawBinaryFieldName_1_1<'top>;
-    type AnnotationsIterator<'top> = RawBinaryAnnotationsIterator_1_1<'top>;
-    type EExp<'top> = &'top BinaryEExpression_1_1<'top>;
-    type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_1<'top>;
 }
 
 /// Marker trait for types that represent value literals in an Ion stream of some encoding.
@@ -429,14 +335,13 @@ pub trait RawValueLiteral {}
 
 impl<E: TextEncoding> RawValueLiteral for LazyRawTextValue<'_, E> {}
 impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_0<'top> {}
-impl<'top> RawValueLiteral for &'top LazyRawBinaryValue_1_1<'top> {}
 impl RawValueLiteral for LazyRawAnyValue<'_> {}
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
 
-    use crate::lazy::encoding::Encoding;
+    use crate::lazy::encoding::TextEncoding;
     use crate::{
         ion_list, ion_seq, ion_sexp, ion_struct, v1_0, IonResult, Sequence, TextFormat, WriteConfig,
     };
@@ -454,7 +359,7 @@ mod tests {
         v1_0::Text.with_format(TextFormat::Lines),
         "{foo: 1, bar: 2, }\n[1, 2, ]\n(1 2 )\n"
     )]
-    fn encode_formatted_text<E: Encoding<Output = String>>(
+    fn encode_formatted_text<E: TextEncoding>(
         #[case] config: impl Into<WriteConfig<E>>,
         #[case] expected: &str,
     ) -> IonResult<()> {

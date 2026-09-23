@@ -8,7 +8,7 @@ use crate::lazy::system_reader::SystemReader;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, MacroTable, SymbolTable};
+use crate::{IonError, IonResult, SymbolTable};
 
 /// An Ion reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -103,6 +103,9 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
+    // Only reachable from outside the crate when `experimental-reader-writer` is enabled; the
+    // library itself does not call it.
+    #[allow(dead_code)]
     pub fn expect_next(&mut self) -> IonResult<LazyValue<'_, Encoding>> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
@@ -111,11 +114,6 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     #[allow(dead_code)]
     pub fn symbol_table(&self) -> &SymbolTable {
         self.system_reader.symbol_table()
-    }
-
-    #[allow(dead_code)]
-    pub fn macro_table(&self) -> &MacroTable {
-        self.system_reader.macro_table()
     }
 }
 
@@ -130,27 +128,6 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
 }
 
 use crate::lazy::expanded::lazy_element::LazyElement;
-use crate::lazy::{expanded::template::TemplateMacro, text::raw::v1_1::reader::MacroAddress};
-
-// TODO: The Reader is now able to understand encoding directives, so it would be good to
-//       conditionally compile these using `#[cfg(test)]`. However, these methods are still used by
-//       some of the benchmarks, which are not `cfg`-detectable. The benchmarks to be updated to
-//       include encoding directives in each data stream.
-#[allow(dead_code)]
-impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
-    // TODO: Remove this when the reader can understand 1.1 encoding directives.
-    pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
-        self.system_reader
-            .expanding_reader
-            .register_template_src(template_definition)
-    }
-
-    pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        self.system_reader
-            .expanding_reader
-            .register_template(template_macro)
-    }
-}
 
 impl<Encoding: Decoder, Input: IonInput> Iterator for Reader<Encoding, Input> {
     type Item = IonResult<LazyElement<Encoding>>;

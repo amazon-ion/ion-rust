@@ -397,26 +397,26 @@ mod tests {
         let list = reader.next()?.expect_value()?.read()?.expect_list()?;
         let mut sum = 0;
         for value in &list {
-            sum += value?.expect_value()?.read()?.expect_i64()?;
+            sum += value?.read()?.expect_i64()?;
         }
         assert_eq!(sum, 6);
         // (foo++ 1 2)
         let sexp = reader.next()?.expect_value()?.read()?.expect_sexp()?;
         let mut sexp_elements = sexp.iter();
         assert_eq!(
-            sexp_elements.next().unwrap()?.expect_value()?.read()?,
+            sexp_elements.next().unwrap()?.read()?,
             RawValueRef::Symbol("foo".into())
         );
         assert_eq!(
-            sexp_elements.next().unwrap()?.expect_value()?.read()?,
+            sexp_elements.next().unwrap()?.read()?,
             RawValueRef::Symbol("++".into())
         );
         assert_eq!(
-            sexp_elements.next().unwrap()?.expect_value()?.read()?,
+            sexp_elements.next().unwrap()?.read()?,
             RawValueRef::Int(2.into())
         );
         assert_eq!(
-            sexp_elements.next().unwrap()?.expect_value()?.read()?,
+            sexp_elements.next().unwrap()?.read()?,
             RawValueRef::Int(3.into())
         );
 
@@ -479,15 +479,15 @@ mod tests {
         let list = list_value.read()?.expect_list()?;
         let mut child_values = list.iter();
 
-        let value1 = child_values.next().unwrap()?.expect_value()?;
+        let value1 = child_values.next().unwrap()?;
         assert_eq!(value1.span(), b"1");
         assert_eq!(value1.range(), 19..20);
 
-        let value2 = child_values.next().unwrap()?.expect_value()?;
+        let value2 = child_values.next().unwrap()?;
         assert_eq!(value2.span(), b"2");
         assert_eq!(value2.range(), 22..23);
 
-        let value3 = child_values.next().unwrap()?.expect_value()?;
+        let value3 = child_values.next().unwrap()?;
         assert_eq!(value3.span(), b"3");
         assert_eq!(value3.range(), 25..26);
 

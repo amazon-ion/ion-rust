@@ -12,12 +12,10 @@ use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersi
 use crate::lazy::decoder::private::LazyContainerPrivate;
 use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
-    LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, LazyRawValueExpr, RawValueExpr,
-    RawVersionMarker,
+    LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, RawVersionMarker,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use crate::lazy::expanded::EncodingContextRef;
-use crate::lazy::never::Never;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
@@ -30,8 +28,7 @@ use crate::lazy::text::raw::sequence::{RawTextList, RawTextSExp, RawTextSequence
 use crate::lazy::text::value::{
     LazyRawTextValue_1_0, LazyRawTextVersionMarker_1_0, RawTextAnnotationsIterator,
 };
-use crate::result::IonFailure;
-use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0, SYSTEM_SYMBOLS_1_1};
+use crate::symbol_table::{SystemSymbolTable, SYSTEM_SYMBOLS_1_0};
 use crate::{Encoding, IonResult, IonType, RawStreamItem, RawSymbolRef};
 use std::fmt::Debug;
 use std::ops::Range;
@@ -55,8 +52,6 @@ impl Decoder for AnyEncoding {
     type Struct<'top> = LazyRawAnyStruct<'top>;
     type FieldName<'top> = LazyRawAnyFieldName<'top>;
     type AnnotationsIterator<'top> = RawAnyAnnotationsIterator<'top>;
-    // `AnyEncoding` only supports Ion 1.0, which has no e-expressions.
-    type EExp<'top> = Never;
     type VersionMarker<'top> = LazyRawAnyVersionMarker<'top>;
 }
 
@@ -148,10 +143,10 @@ pub struct LazyRawAnyReader<'data> {
 impl LazyRawAnyReader<'_> {
     fn detect_encoding(data: &[u8]) -> IonEncoding {
         match *data {
-            // A binary Ion 1.1 IVM (`E0 01 01 EA`) is also handed to the binary 1.0 reader; it
-            // reports the marker as an unsupported version rather than attempting to decode the
-            // Ion 1.1 stream that follows.
-            [0xE0, 0x01, 0x00 | 0x01, 0xEA, ..] => IonEncoding::Binary_1_0,
+            // A stream beginning with `0xE0` cannot be valid Ion text, so route every such stream
+            // to the binary 1.0 reader. It decodes an Ion 1.0 IVM and rejects any other version
+            // marker (e.g. a binary Ion 1.1 IVM) as unsupported.
+            [0xE0, ..] => IonEncoding::Binary_1_0,
             _ => IonEncoding::Text_1_0,
         }
     }
@@ -177,16 +172,11 @@ impl<'data> RawReaderKind<'data> {
         saved_state: RawReaderState<'data>,
     ) -> RawReaderKind<'data> {
         use IonEncoding::*;
-        // `AnyEncoding` has no Ion 1.1 readers, so the 1.1 encodings are folded into their 1.0
-        // counterparts. They cannot reach this point in practice: `detect_encoding` never reports
-        // them and `LazyRawAnyReader::next` rejects a 1.1 IVM before recording a new encoding. If
-        // one does arrive in a caller-supplied `RawReaderState`, the 1.0 reader will report the
-        // stream's IVM as an unsupported version.
         match saved_state.encoding() {
-            Text_1_0 | Text_1_1 => {
+            Text_1_0 => {
                 RawReaderKind::Text_1_0(LazyRawTextReader_1_0::resume(context, saved_state))
             }
-            Binary_1_0 | Binary_1_1 => {
+            Binary_1_0 => {
                 RawReaderKind::Binary_1_0(LazyRawBinaryReader_1_0::resume(context, saved_state))
             }
         }
@@ -203,24 +193,19 @@ impl<'data> RawReaderKind<'data> {
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum IonEncoding {
-    // In the absence of a binary IVM, readers must assume Ion 1.0 text data until a
-    // text Ion 1.1 version marker is found.
+    // In the absence of a binary IVM, readers must assume Ion 1.0 text data.
     #[default]
     Text_1_0,
     Binary_1_0,
-    Text_1_1,
-    Binary_1_1,
 }
 
 impl IonEncoding {
     pub fn is_text(&self) -> bool {
-        use IonEncoding::*;
-        matches!(*self, Text_1_0 | Text_1_1)
+        matches!(*self, IonEncoding::Text_1_0)
     }
 
     pub fn is_binary(&self) -> bool {
-        use IonEncoding::*;
-        matches!(*self, Binary_1_0 | Binary_1_1)
+        matches!(*self, IonEncoding::Binary_1_0)
     }
 
     pub fn name(&self) -> &str {
@@ -228,10 +213,6 @@ impl IonEncoding {
         match self {
             Text_1_0 => TextEncoding_1_0::name(),
             Binary_1_0 => BinaryEncoding_1_0::name(),
-            // TODO(pt005b): remove with Ion 1.1. These no longer implement `Encoding`, whose
-            //               `name()` the other arms delegate to.
-            Text_1_1 => "text Ion v1.1",
-            Binary_1_1 => "binary Ion v1.1",
         }
     }
 
@@ -239,7 +220,6 @@ impl IonEncoding {
         use IonEncoding::*;
         match self {
             Text_1_0 | Binary_1_0 => IonVersion::v1_0,
-            Text_1_1 | Binary_1_1 => IonVersion::v1_1,
         }
     }
 }
@@ -248,15 +228,12 @@ impl IonEncoding {
 pub enum IonVersion {
     #[default]
     v1_0,
-    v1_1,
 }
 
 impl IonVersion {
     pub fn major_minor(&self) -> (u8, u8) {
-        use IonVersion::*;
         match self {
-            v1_0 => (1, 0),
-            v1_1 => (1, 1),
+            IonVersion::v1_0 => (1, 0),
         }
     }
 
@@ -264,7 +241,6 @@ impl IonVersion {
     pub fn system_symbol_table(&self) -> &'static SystemSymbolTable {
         match self {
             IonVersion::v1_0 => SYSTEM_SYMBOLS_1_0,
-            IonVersion::v1_1 => SYSTEM_SYMBOLS_1_1,
         }
     }
 }
@@ -344,17 +320,6 @@ impl<'data> LazyRawReader<'data, AnyEncoding> for LazyRawAnyReader<'data> {
         if let RawStreamItem::VersionMarker(ivm) = item {
             let ivm_old_encoding = ivm.stream_encoding_before_marker();
             let ivm_new_encoding = ivm.stream_encoding_after_marker()?;
-            // TODO(pt005b): `IonVersion::v1_1` still exists, so `stream_encoding_after_marker()`
-            //               reports an Ion 1.1 IVM as supported. `AnyEncoding` has no Ion 1.1
-            //               readers, so reject it here. When `IonVersion::v1_1` is removed,
-            //               `stream_encoding_after_marker()` will supply this error itself and
-            //               this check can go away.
-            if ivm_new_encoding.version() == IonVersion::v1_1 {
-                let (major, minor) = ivm.major_minor();
-                return IonResult::decoding_error(format!(
-                    "Ion version {major}.{minor} is not supported"
-                ));
-            }
             if ivm_new_encoding != ivm_old_encoding {
                 // Save the new encoding; when `next()` is called again, we'll make a new reader.
                 self.new_encoding = Some(ivm_new_encoding);
@@ -434,26 +399,6 @@ impl<'top> From<&'top LazyRawBinaryValue_1_0<'top>> for LazyRawAnyValue<'top> {
     }
 }
 
-impl<'top> From<LazyRawValueExpr<'top, TextEncoding_1_0>> for LazyRawValueExpr<'top, AnyEncoding> {
-    fn from(value: LazyRawValueExpr<'top, TextEncoding_1_0>) -> Self {
-        match value {
-            RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
-            RawValueExpr::EExp(_) => unreachable!("macro invocation in text Ion 1.0"),
-        }
-    }
-}
-
-impl<'top> From<LazyRawValueExpr<'top, BinaryEncoding_1_0>>
-    for LazyRawValueExpr<'top, AnyEncoding>
-{
-    fn from(value: LazyRawValueExpr<'top, BinaryEncoding_1_0>) -> Self {
-        match value {
-            RawValueExpr::ValueLiteral(v) => RawValueExpr::ValueLiteral(v.into()),
-            RawValueExpr::EExp(_) => unreachable!("macro invocation in binary Ion 1.0"),
-        }
-    }
-}
-
 impl<'top> From<RawValueRef<'top, TextEncoding_1_0>> for RawValueRef<'top, AnyEncoding> {
     fn from(value: RawValueRef<'top, TextEncoding_1_0>) -> Self {
         use RawValueRef::*;
@@ -507,9 +452,6 @@ impl<'top> From<LazyRawStreamItem<'top, TextEncoding_1_0>>
             LazyRawStreamItem::<TextEncoding_1_0>::Value(value) => {
                 LazyRawStreamItem::<AnyEncoding>::Value(value.into())
             }
-            LazyRawStreamItem::<TextEncoding_1_0>::EExp(_) => {
-                unreachable!("Ion 1.0 does not support macro invocations")
-            }
             LazyRawStreamItem::<TextEncoding_1_0>::EndOfStream(end) => {
                 LazyRawStreamItem::<AnyEncoding>::EndOfStream(end)
             }
@@ -527,9 +469,6 @@ impl<'top> From<LazyRawStreamItem<'top, BinaryEncoding_1_0>>
             }
             LazyRawStreamItem::<BinaryEncoding_1_0>::Value(value) => {
                 LazyRawStreamItem::<AnyEncoding>::Value(value.into())
-            }
-            LazyRawStreamItem::<BinaryEncoding_1_0>::EExp(_) => {
-                unreachable!("Ion 1.0 does not support macro invocations")
             }
             LazyRawStreamItem::<BinaryEncoding_1_0>::EndOfStream(end) => {
                 LazyRawStreamItem::<AnyEncoding>::EndOfStream(end)
@@ -723,7 +662,7 @@ pub enum RawAnyListIteratorKind<'data> {
 }
 
 impl<'data> Iterator for RawAnyListIterator<'data> {
-    type Item = IonResult<LazyRawValueExpr<'data, AnyEncoding>>;
+    type Item = IonResult<LazyRawAnyValue<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.encoding {
@@ -842,7 +781,7 @@ pub enum RawAnySExpIteratorKind<'data> {
 }
 
 impl<'data> Iterator for RawAnySExpIterator<'data> {
-    type Item = IonResult<LazyRawValueExpr<'data, AnyEncoding>>;
+    type Item = IonResult<LazyRawAnyValue<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.encoding {
@@ -1012,8 +951,6 @@ impl<'data> From<LazyRawFieldExpr<'data, TextEncoding_1_0>>
         use LazyRawFieldExpr::*;
         match text_field {
             NameValue(name, value) => NameValue(name.into(), value.into()),
-            NameEExp(_, _) => unreachable!("(name, e-exp) field in text Ion 1.0"),
-            EExp(_) => unreachable!("e-exp field in text Ion 1.0"),
         }
     }
 }
@@ -1025,8 +962,6 @@ impl<'data> From<LazyRawFieldExpr<'data, BinaryEncoding_1_0>>
         use LazyRawFieldExpr::*;
         match binary_field {
             NameValue(name, value) => NameValue(name.into(), value.into()),
-            NameEExp(_, _) => unreachable!("(name, e-exp) field in binary Ion 1.0"),
-            EExp(_) => unreachable!("e-exp field in binary Ion 1.0"),
         }
     }
 }
@@ -1143,7 +1078,7 @@ mod tests {
 
             let mut sum = 0;
             for lazy_value_result in reader.next()?.expect_value()?.read()?.expect_list()?.iter() {
-                sum += lazy_value_result?.expect_value()?.read()?.expect_i64()?;
+                sum += lazy_value_result?.read()?.expect_i64()?;
             }
             assert_eq!(sum, 6);
 
@@ -1175,119 +1110,30 @@ mod tests {
         Ok(())
     }
 
-    fn expect_version_change(
-        reader: &mut LazyRawAnyReader<'_>,
-        encoding_before: IonEncoding,
-        encoding_after: IonEncoding,
-    ) -> IonResult<()> {
-        // The reader is using the expected encoding before we hit the IVM
-        assert_eq!(reader.encoding(), encoding_before);
-        // The next item is an IVM
-        let ivm = reader.next()?.expect_ivm()?;
-        // The IVM correctly reports the expected before/after encodings
-        assert_eq!(ivm.stream_encoding_before_marker(), encoding_before);
-        assert_eq!(ivm.stream_encoding_after_marker()?, encoding_after);
-        // The reader is now using the new encoding
-        assert_eq!(reader.encoding(), encoding_after);
-        Ok(())
-    }
-
-    fn expect_int(
-        reader: &mut LazyRawAnyReader<'_>,
-        expected_encoding: IonEncoding,
-        expected_int: i64,
-    ) -> IonResult<()> {
-        let value = reader.next()?.expect_value()?;
-        let actual_int = value.read()?.expect_i64()?;
-        assert_eq!(actual_int, expected_int);
-        assert_eq!(reader.encoding(), expected_encoding);
-        Ok(())
-    }
-
-    /// Asserts that the reader's next item is an IVM for an unsupported Ion version and that
-    /// reading it produces an error. `AnyEncoding` only supports Ion 1.0, so an Ion 1.1 IVM must
-    /// be rejected rather than silently mis-parsed as Ion 1.0.
-    fn expect_unsupported_version(reader: &mut LazyRawAnyReader<'_>) {
-        match reader.next() {
-            Ok(_) => panic!("expected an unsupported-version error, but the item was accepted"),
-            Err(error) => {
-                let message = error.to_string();
-                assert!(
-                    message.contains("Ion version 1.1 is not supported"),
-                    "expected an unsupported-version error, got: {message}"
-                );
+    /// `AnyEncoding` supports only Ion 1.0, so an IVM for any other version -- text or binary --
+    /// must be rejected with a decoding error rather than silently mis-parsed as Ion 1.0.
+    #[test]
+    fn rejects_unsupported_version_ivm() {
+        let cases: &[(&str, &[u8])] = &[
+            ("text $ion_1_1", b"$ion_1_1 0"),
+            ("text $ion_1_2", b"$ion_1_2 0"),
+            ("text $ion_99_99", b"$ion_99_99 0"),
+            ("binary 1.1", &[0xE0, 0x01, 0x01, 0xEA]),
+            ("binary 1.2", &[0xE0, 0x01, 0x02, 0xEA]),
+            ("binary 99.99", &[0xE0, 0x63, 0x63, 0xEA]),
+        ];
+        for (label, data) in cases {
+            let context = EncodingContext::empty();
+            let mut reader = LazyRawAnyReader::new(context.get_ref(), data, true);
+            match reader.next() {
+                Ok(_) => {
+                    panic!("{label}: expected an unsupported-version error, but it was accepted")
+                }
+                Err(error) => assert!(
+                    error.to_string().contains("is not supported"),
+                    "{label}: expected an unsupported-version error, got: {error}"
+                ),
             }
         }
-    }
-
-    #[test]
-    fn switch_text_versions() -> IonResult<()> {
-        const DATA: &str = r#"
-            1
-            $ion_1_0
-            2
-            $ion_1_1
-            3
-        "#;
-
-        let encoding_context = EncodingContext::empty();
-        let mut reader = LazyRawAnyReader::new(encoding_context.get_ref(), DATA.as_bytes(), true);
-
-        expect_int(&mut reader, IonEncoding::Text_1_0, 1)?;
-
-        // This IVM doesn't change the encoding.
-        expect_version_change(&mut reader, IonEncoding::Text_1_0, IonEncoding::Text_1_0)?;
-
-        expect_int(&mut reader, IonEncoding::Text_1_0, 2)?;
-
-        // `AnyEncoding` has no Ion 1.1 reader, so the `$ion_1_1` IVM is rejected. The `3` that
-        // follows it is never read.
-        expect_unsupported_version(&mut reader);
-
-        Ok(())
-    }
-
-    #[test]
-    fn switch_binary_versions() -> IonResult<()> {
-        const DATA: &[u8] = &[
-            0xE0, 0x01, 0x00, 0xEA, // $ion_1_0
-            0x21, 0x02, // 2
-            0xE0, 0x01, 0x01, 0xEA, // $ion_1_1
-            0x61, 0x03, // 3, encoded as binary Ion 1.1
-        ];
-
-        let encoding_context = EncodingContext::empty();
-        let mut reader = LazyRawAnyReader::new(encoding_context.get_ref(), DATA, true);
-
-        // When the reader is constructed it peeks at the leading bytes to see if they're an IVM.
-        // In this case, they were a binary Ion v1.0 IVM, so the reader is already expecting to see
-        // binary 1.0 data. Reading the binary version marker tells the reader to switch encodings.
-        expect_version_change(
-            &mut reader,
-            IonEncoding::Binary_1_0,
-            IonEncoding::Binary_1_0,
-        )?;
-
-        expect_int(&mut reader, IonEncoding::Binary_1_0, 2)?;
-
-        // `AnyEncoding` has no Ion 1.1 reader, so the binary 1.1 IVM is rejected. The `3` that
-        // follows it is never read.
-        expect_unsupported_version(&mut reader);
-
-        Ok(())
-    }
-
-    #[test]
-    fn reject_leading_binary_1_1_ivm() {
-        // `detect_encoding` hands a leading binary Ion 1.1 IVM to the binary 1.0 reader, which
-        // surfaces it as a version marker for an unsupported version.
-        const DATA: &[u8] = &[
-            0xE0, 0x01, 0x01, 0xEA, // $ion_1_1
-            0x61, 0x03, // 3, encoded as binary Ion 1.1
-        ];
-
-        let encoding_context = EncodingContext::empty();
-        let mut reader = LazyRawAnyReader::new(encoding_context.get_ref(), DATA, true);
-        expect_unsupported_version(&mut reader);
     }
 }

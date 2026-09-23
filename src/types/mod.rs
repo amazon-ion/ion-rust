@@ -29,10 +29,7 @@ pub use r#struct::Struct;
 pub use sexp::SExp;
 pub use string::Str;
 pub use symbol::Symbol;
-pub use timestamp::{
-    HasDay, HasFractionalSeconds, HasHour, HasMinute, HasMonth, HasOffset, HasSeconds, HasYear,
-    Timestamp, TimestampBuilder, TimestampPrecision,
-};
+pub use timestamp::{Timestamp, TimestampPrecision};
 
 use crate::ion_data::{IonDataHash, IonDataOrd};
 use std::cmp::Ordering;

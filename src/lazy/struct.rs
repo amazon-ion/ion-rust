@@ -68,10 +68,6 @@ impl<D: Decoder> Debug for LazyStruct<'_, D> {
 }
 
 impl<'top, D: Decoder> LazyStruct<'top, D> {
-    pub(crate) fn new(expanded_struct: LazyExpandedStruct<'top, D>) -> Self {
-        Self { expanded_struct }
-    }
-
     /// Returns an iterator over this struct's fields. See [`LazyField`].
     pub fn iter(&self) -> StructIterator<'top, D> {
         StructIterator {
@@ -86,19 +82,8 @@ impl<'top, D: Decoder> LazyStruct<'top, D> {
 
     pub fn as_value(&self) -> LazyValue<'top, D> {
         let context = self.expanded_struct.context;
-        let expanded_value = match self.expanded_struct.source {
-            ExpandedStructSource::ValueLiteral(v) => {
-                LazyExpandedValue::from_literal(context, v.as_value())
-            }
-            ExpandedStructSource::Template(env, element, _) => {
-                LazyExpandedValue::from_template(context, env, element)
-            }
-            _ => {
-                let value_ref = context.allocator().alloc_with(|| ValueRef::Struct(*self));
-                let annotations = &[];
-                LazyExpandedValue::from_constructed(context, annotations, value_ref)
-            }
-        };
+        let ExpandedStructSource::ValueLiteral(v) = self.expanded_struct.source;
+        let expanded_value = LazyExpandedValue::from_literal(context, v.as_value());
         LazyValue::new(expanded_value)
     }
 
@@ -301,24 +286,15 @@ impl<'top, D: Decoder> LazyField<'top, D> {
     // This method is available when the feature is enabled or when running unit tests.
     #[cfg(any(test, feature = "experimental-tooling-apis"))]
     pub fn raw_name(&self) -> Option<D::FieldName<'top>> {
-        if let crate::LazyExpandedFieldName::RawName(_context, raw_name) =
-            self.expanded_field.name()
-        {
-            Some(raw_name)
-        } else {
-            None
-        }
+        let crate::LazyExpandedFieldName::RawName(_context, raw_name) = self.expanded_field.name();
+        Some(raw_name)
     }
 
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn raw_value(&self) -> Option<D::Value<'top>> {
-        if let crate::ExpandedValueSource::ValueLiteral(literal) =
-            self.expanded_field.value().source()
-        {
-            Some(literal)
-        } else {
-            None
-        }
+        let crate::ExpandedValueSource::ValueLiteral(literal) =
+            self.expanded_field.value().source();
+        Some(literal)
     }
 
     #[cfg(feature = "experimental-tooling-apis")]

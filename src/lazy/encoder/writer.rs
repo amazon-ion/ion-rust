@@ -455,9 +455,6 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                         ));
                     }
                 }
-                RawSymbolRef::SystemSymbol_1_1(_symbol) => {
-                    // The system symbol was validated on creation.
-                }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
                     let sid = match self.symbol_table().sid_for(text) {
@@ -516,9 +513,6 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                             "annotation symbol ID {sid} is out of range"
                         ));
                     }
-                }
-                RawSymbolRef::SystemSymbol_1_1(_symbol) => {
-                    // Symbol was validated on creation, nothing to do.
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
@@ -582,7 +576,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                 }
                 SymbolId(symbol_id)
             }
-            SystemSymbol_1_1(symbol) => SystemSymbol_1_1(symbol),
             Text(text) => {
                 match value_writer_config.symbol_value_encoding() {
                     SymbolIds => {
@@ -698,9 +691,6 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
                     )));
                 }
                 return self.raw_struct_writer.encode_field_name(symbol_id);
-            }
-            RawSymbolRef::SystemSymbol_1_1(symbol) => {
-                return self.raw_struct_writer.encode_field_name(symbol);
             }
             // Otherwise, get its associated text.
             RawSymbolRef::Text(text) => text,

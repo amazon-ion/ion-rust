@@ -163,7 +163,6 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for &'top LazyRawBinaryValue_1
 
 #[cfg_attr(not(feature = "experimental-tooling-apis"), allow(dead_code))]
 pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
-    fn opcode_length(&self) -> usize;
     fn length_length(&self) -> usize;
     fn body_length(&self) -> usize;
     fn annotations_sequence_length(&self) -> usize;
@@ -208,17 +207,14 @@ pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
     /// The span containing the value's opcode.
     fn value_opcode_span(&self) -> Span<'top> {
         let value_span = self.value_span();
-        Span::with_offset(
-            value_span.range().start,
-            &value_span.bytes()[0..self.opcode_length()],
-        )
+        Span::with_offset(value_span.range().start, &value_span.bytes()[0..1])
     }
 
     /// The span containing the value's encoded length (if it is not encoded within the opcode.)
     fn value_length_span(&self) -> Span<'top> {
         let value_span = self.value_span();
         let value_range = value_span.range();
-        let opcode_length = self.opcode_length();
+        let opcode_length = 1;
         let length_length = self.length_length();
         let length_bytes = &value_span.bytes()[opcode_length..opcode_length + length_length];
         Span::with_offset(value_range.start + opcode_length, length_bytes)
@@ -227,7 +223,7 @@ pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
     /// The span containing the value's opcode and length.
     fn value_header_span(&self) -> Span<'top> {
         let value_span = self.value_span();
-        let opcode_length = self.opcode_length();
+        let opcode_length = 1;
         let length_length = self.length_length();
         let header_bytes = &value_span.bytes()[..opcode_length + length_length];
         Span::with_offset(value_span.range().start, header_bytes)
@@ -256,10 +252,6 @@ pub trait BinaryValueLiteral<'top, D: Decoder>: LazyRawValue<'top, D> {
 }
 
 impl<'top> BinaryValueLiteral<'top, BinaryEncoding_1_0> for &'top LazyRawBinaryValue_1_0<'top> {
-    fn opcode_length(&self) -> usize {
-        self.encoded_value.opcode_length()
-    }
-
     fn length_length(&self) -> usize {
         self.encoded_value.length_length as usize
     }

@@ -234,25 +234,9 @@ macro_rules! v1_x_reader_writer {
             lazy::sequence::{LazyList, LazySExp},
             lazy::encoder::value_writer::{AnnotatableWriter, ValueWriter, ContextWriter, StructWriter, SequenceWriter},
             lazy::any_encoding::IonEncoding,
-            lazy::expanded::compiler::TemplateCompiler,
-            lazy::expanded::template::TemplateMacro,
-            lazy::expanded::template::TemplateBodyExpr,
-            lazy::expanded::template::TemplateBodyExprKind,
-            lazy::expanded::template::TemplateMacroInvocation,
-            lazy::expanded::macro_table::MacroDef,
-            lazy::expanded::macro_evaluator::MacroEvaluator,
-            lazy::expanded::macro_evaluator::MacroExpansionKind,
-            lazy::expanded::macro_table::MacroKind,
-            lazy::expanded::macro_table::MacroTable,
             lazy::expanded::EncodingContext,
             lazy::any_encoding::IonVersion,
             lazy::binary::raw::reader::LazyRawBinaryReader_1_0,
-            lazy::binary::raw::v1_1::reader::LazyRawBinaryReader_1_1,
-            lazy::expanded::macro_evaluator::RawEExpression,
-            lazy::expanded::macro_evaluator::ValueExpr,
-            lazy::expanded::macro_evaluator::MacroExpr,
-            lazy::expanded::macro_evaluator::MacroExprKind,
-            lazy::expanded::macro_evaluator::MacroExprArgsIterator,
         };
     };
 }
@@ -264,16 +248,6 @@ macro_rules! v1_0_reader_writer {
         #[allow(unused_imports)]
         $visibility use crate::{
             lazy::encoder::writer::{BinaryWriter_1_0 as BinaryWriter, TextWriter_1_0 as TextWriter},
-        };
-    };
-}
-
-macro_rules! v1_1_reader_writer {
-    ($visibility:vis) => {
-        #[allow(unused_imports)]
-        $visibility use crate::{
-            lazy::encoding::{BinaryEncoding_1_1 as Binary, TextEncoding_1_1 as Text},
-            lazy::expanded::macro_table::Macro
         };
     };
 }
@@ -317,8 +291,7 @@ macro_rules! v1_x_tooling_apis {
                 LazyExpandedFieldName,
                 FieldExpr,
             },
-            lazy::expanded::e_expression::{EExpression, EExpressionArgsIterator, EExpArgGroup, EExpArgGroupIterator},
-            lazy::expanded::sequence::{Environment, ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
+            lazy::expanded::sequence::{ExpandedListSource, ExpandedSExpSource, LazyExpandedList, LazyExpandedSExp},
             lazy::expanded::{ExpandedStreamItem, LazyExpandedValue, ExpandingReader, ExpandedValueSource, ExpandedAnnotationsSource, ExpandedValueRef},
             lazy::system_stream_item::SystemStreamItem,
             lazy::system_reader::{SystemReader},
@@ -354,25 +327,6 @@ macro_rules! v1_0_tooling_apis {
     };
 }
 
-macro_rules! v1_1_tooling_apis {
-    ($visibility:vis) => {
-        #[allow(unused_imports)]
-        $visibility use crate::{
-            lazy::encoder::binary::v1_1::flex_int::FlexInt,
-            lazy::encoder::binary::v1_1::flex_uint::FlexUInt,
-            lazy::binary::raw::v1_1::sequence::{
-                LazyRawBinaryList_1_1 as LazyRawBinaryList,
-                LazyRawBinarySExp_1_1 as LazyRawBinarySExp
-            },
-            lazy::binary::raw::v1_1::r#struct::{LazyRawBinaryStruct_1_1 as LazyRawBinaryStruct, LazyRawBinaryFieldName_1_1 as LazyRawBinaryFieldName},
-            lazy::binary::raw::v1_1::value::{
-                LazyRawBinaryValue_1_1 as LazyRawBinaryValue,
-                LazyRawBinaryVersionMarker_1_1 as LazyRawBinaryVersionMarker,
-            },
-        };
-    };
-}
-
 #[cfg(feature = "experimental-reader-writer")]
 v1_x_reader_writer!(pub);
 
@@ -399,22 +353,6 @@ pub mod v1_0 {
     v1_0_reader_writer!(pub(crate));
 
     pub use crate::lazy::encoding::{BinaryEncoding_1_0 as Binary, TextEncoding_1_0 as Text};
-}
-
-// TODO(pt010): remove with Ion 1.1. The Ion 1.1 types are no longer part of the public API, but
-// they remain reachable crate-internally until the code behind them is deleted.
-pub(crate) mod v1_1 {
-    #[cfg(feature = "experimental-tooling-apis")]
-    v1_1_tooling_apis!(pub);
-
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    v1_1_tooling_apis!(pub(crate));
-
-    #[cfg(feature = "experimental-reader-writer")]
-    v1_1_reader_writer!(pub);
-
-    #[cfg(not(feature = "experimental-reader-writer"))]
-    v1_1_reader_writer!(pub(crate));
 }
 
 /// Whether or not the text spacing is generous/human-friendly or something more compact.

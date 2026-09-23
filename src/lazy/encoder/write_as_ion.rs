@@ -17,13 +17,12 @@
 use std::io;
 use std::marker::PhantomData;
 
-use crate::lazy::decoder::{Decoder, LazyRawValueExpr, RawValueExpr};
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::annotation_seq::AnnotationsVec;
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
 use crate::lazy::encoding::Encoding;
 use crate::lazy::value::LazyValue;
 use crate::lazy::value_ref::ValueRef;
-use crate::result::IonFailure;
 use crate::v1_0::RawValueRef;
 use crate::{
     Blob, Clob, Decimal, Element, Int, IonResult, IonType, LazyList, LazyRawFieldExpr,
@@ -309,14 +308,14 @@ impl<D: Decoder> WriteAsIon for RawValueRef<'_, D> {
             List(l) => {
                 let mut list_writer = value_writer.list_writer()?;
                 for value_result in l.iter() {
-                    list_writer.write(WriteableRawValueExpr::<'_, D>::new(value_result?))?;
+                    list_writer.write(WriteableRawValue::new(value_result?))?;
                 }
                 list_writer.close()
             }
             SExp(s) => {
                 let mut sexp_writer = value_writer.sexp_writer()?;
                 for value_result in s.iter() {
-                    sexp_writer.write(WriteableRawValueExpr::<'_, D>::new(value_result?))?;
+                    sexp_writer.write(WriteableRawValue::new(value_result?))?;
                 }
                 sexp_writer.close()
             }
@@ -324,16 +323,8 @@ impl<D: Decoder> WriteAsIon for RawValueRef<'_, D> {
                 let mut struct_writer = value_writer.struct_writer()?;
                 for field_result in s.iter() {
                     let field: LazyRawFieldExpr<'_, D> = field_result?;
-                    match field {
-                        LazyRawFieldExpr::NameValue(name, value) => {
-                            struct_writer.write(name.read()?, WriteableRawValue::new(value))?;
-                        }
-                        LazyRawFieldExpr::NameEExp(..) | LazyRawFieldExpr::EExp(_) => {
-                            return IonResult::encoding_error(
-                                "cannot transcribe an e-expression: no encoding supports writing them",
-                            );
-                        }
-                    }
+                    let LazyRawFieldExpr::NameValue(name, value) = field;
+                    struct_writer.write(name.read()?, WriteableRawValue::new(value))?;
                 }
                 struct_writer.close()
             }
@@ -370,33 +361,6 @@ impl<'a, D: Decoder, RawValue: LazyRawValue<'a, D>> WriteAsIon
                 .write_as_ion(writer.with_annotations(annotations)?)
         } else {
             self.raw_value.read()?.write_as_ion(writer)
-        }
-    }
-}
-
-/// Wrapper type for `LazyRawValueExpr`s that implements `WriteAsIon`.
-pub struct WriteableRawValueExpr<'a, D: Decoder> {
-    raw_value_expr: LazyRawValueExpr<'a, D>,
-    spooky: PhantomData<&'a D>,
-}
-
-impl<'a, D: Decoder> WriteableRawValueExpr<'a, D> {
-    pub fn new(raw_value_expr: LazyRawValueExpr<'a, D>) -> Self {
-        Self {
-            raw_value_expr,
-            spooky: PhantomData,
-        }
-    }
-}
-
-impl<D: Decoder> WriteAsIon for WriteableRawValueExpr<'_, D> {
-    fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
-        use RawValueExpr::*;
-        match self.raw_value_expr {
-            ValueLiteral(v) => WriteableRawValue::new(v).write_as_ion(writer),
-            EExp(_) => IonResult::encoding_error(
-                "cannot transcribe an e-expression: no encoding supports writing them",
-            ),
         }
     }
 }

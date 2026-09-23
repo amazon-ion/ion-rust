@@ -5,7 +5,7 @@ use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawStruct, LazyRawValue,
 };
-use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0, TextEncoding_1_1};
+use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0};
 use crate::lazy::span::Span;
 use crate::lazy::text::buffer::{whitespace_and_then, TextBuffer};
 use crate::lazy::text::matched::{MatchedFieldName, MatchedValue};
@@ -107,14 +107,9 @@ impl<'top> LazyRawFieldName<'top, TextEncoding_1_0>
     }
 }
 
-impl<'top> LazyRawFieldName<'top, TextEncoding_1_1>
-    for LazyRawTextFieldName<'top, TextEncoding_1_1>
-{
-    fn read(&self) -> IonResult<RawSymbolRef<'top>> {
-        self.matched.read()
-    }
-}
-
+/// A raw, lazily-read struct in a text Ion stream. It holds the struct's `LazyRawTextValue` and
+/// parses its fields on demand when iterated; it is the `Struct` associated type of the text
+/// [`Decoder`] implementations.
 #[derive(Copy, Clone)]
 pub struct LazyRawTextStruct<'top, E: TextEncoding> {
     pub(crate) value: LazyRawTextValue<'top, E>,
@@ -124,19 +119,8 @@ impl<E: TextEncoding> Debug for LazyRawTextStruct<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field_result in self.iter() {
-            let field = field_result?;
-            use LazyRawFieldExpr::*;
-            match field {
-                NameValue(name, value) => {
-                    write!(f, "{name:?}: {value:?}")
-                }
-                NameEExp(name, eexp) => {
-                    write!(f, "{name:?}: {eexp:?}")
-                }
-                EExp(eexp) => {
-                    write!(f, "{eexp:?}")
-                }
-            }?;
+            let LazyRawFieldExpr::NameValue(name, value) = field_result?;
+            write!(f, "{name:?}: {value:?}")?;
         }
         write!(f, "}}").unwrap();
 

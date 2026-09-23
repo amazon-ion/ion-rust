@@ -292,28 +292,13 @@ mod tests {
         // Exercise the `Debug` impl
         println!("Lazy Raw Sequence: {lazy_list:?}");
         let mut list_values = lazy_list.sequence.iter();
+        assert_eq!(list_values.next().expect("first")?.ion_type(), IonType::Int);
         assert_eq!(
-            list_values
-                .next()
-                .expect("first")?
-                .expect_value()?
-                .ion_type(),
-            IonType::Int
-        );
-        assert_eq!(
-            list_values
-                .next()
-                .expect("second")?
-                .expect_value()?
-                .ion_type(),
+            list_values.next().expect("second")?.ion_type(),
             IonType::Bool
         );
         assert_eq!(
-            list_values
-                .next()
-                .expect("third")?
-                .expect_value()?
-                .ion_type(),
+            list_values.next().expect("third")?.ion_type(),
             IonType::Symbol
         );
         Ok(())
@@ -339,7 +324,6 @@ mod tests {
                 }
                 Value(value) => println!("{:?}", value.read()?),
                 EndOfStream(_) => break,
-                EExp(_) => unreachable!("No macros in Ion 1.0"),
             }
         }
         Ok(())
