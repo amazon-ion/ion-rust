@@ -9,6 +9,10 @@
 //! state; a second test in this binary would run on another thread by default and its allocations
 //! would race into the measurement window. Keeping one test keeps the window quiet.
 
+// Skipped under Miri: allocation counts are meaningless there, and the custom
+// `#[global_allocator]` trips Tree Borrows during teardown on macOS/Windows.
+#![cfg(not(miri))]
+
 use ion_rs::{Annotations, Symbol};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
