@@ -1,20 +1,21 @@
-//! Allocation-counting harness for `Annotations`.
+//! Allocation-counting integration test for `Annotations`.
 //!
-//! This is a **bench target separate from any timing target** on purpose: it installs a counting
-//! `#[global_allocator]`, and an atomic increment per allocation would skew any timings it shared a
-//! binary with. It measures allocation *counts*, not latency, and asserts the property the
-//! tagged-pointer representation must guarantee by construction: the consuming iterator allocates
-//! on **no** arm.
+//! This is a **standalone integration test** (its own binary) on purpose: it installs a counting
+//! `#[global_allocator]` to assert the property the tagged-pointer representation must guarantee by
+//! construction — the consuming iterator allocates on **no** arm. It measures allocation *counts*,
+//! not latency.
 //!
-//! Run with `cargo bench --bench annotations_allocations`.
+//! It deliberately contains a **single** `#[test]`. The allocation counter is process-global mutable
+//! state; a second test in this binary would run on another thread by default and its allocations
+//! would race into the measurement window. Keeping one test keeps the window quiet.
 
 use ion_rs::{Annotations, Symbol};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Counts every allocation and reallocation. Deallocations are not counted — the claims here are
-/// about how many times a path reaches the allocator, not about net live bytes.
+/// Counts every allocation and reallocation. Deallocations are not counted — the claim here is about
+/// how many times a path reaches the allocator, not about net live bytes.
 struct CountingAllocator;
 
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
@@ -57,44 +58,29 @@ fn allocations_during<R>(f: impl FnOnce() -> R) -> (usize, R) {
     (after - before, result)
 }
 
-/// Builds `n` owned symbols. Done outside every measurement window so the symbols' own
-/// allocations never enter a count.
+/// Builds `n` owned symbols. Done outside every measurement window so the symbols' own allocations
+/// never enter a count.
 fn symbols(n: usize) -> Vec<Symbol> {
     (0..n)
         .map(|i| Symbol::owned(format!("annotation{i}")))
         .collect()
 }
 
-fn main() {
-    // The consuming iterator must allocate on no arm; that is why `into_boxed_slice` reuses each
-    // arm's existing allocation rather than rebuilding a `Vec`. Build the value outside the window,
-    // then count only the `into_iter` + full drain.
+/// The consuming iterator must allocate on no arm; that is why `into_boxed_slice` reuses each arm's
+/// existing allocation rather than rebuilding a `Vec`. Build the value outside the window, then count
+/// only the `into_iter` + full drain. Covers every tag arm: 0 (empty), 1, 2, and 3+ (boxed slice).
+#[test]
+fn into_iter_does_not_allocate_on_any_arm() {
     for n in [0usize, 1, 2, 3] {
         let annotations = Annotations::from(symbols(n));
         let (allocs, drained) = allocations_during(|| {
             let count = black_box(annotations).into_iter().map(black_box).count();
             black_box(count)
         });
-        println!("into_iter drain, {n} annotation(s): {allocs} allocation(s)");
         assert_eq!(
             allocs, 0,
             "into_iter must not allocate on the {n}-annotation arm"
         );
         assert_eq!(drained, n, "into_iter must yield every annotation");
-    }
-
-    // Allocations for the storage `Element` embeds. This is the heap work `Annotations`
-    // construction performs for its field, measured over an already-built `Vec` so only the
-    // representation's own allocations enter the count. The 0 case is not an allocation win (an
-    // empty `Vec` did not allocate either); it is a footprint win — 24 bytes down to 8 in every
-    // `Element`. Because construction routes an exact-sized `Vec`'s buffer through
-    // `into_boxed_slice`, the 1- and 2-annotation arms reuse that buffer as their compact box and
-    // allocate nothing; only the 3+ arm allocates, for its outer thinning cell. Reported, not
-    // asserted, so a future arm change is visible here.
-    for n in [0usize, 1, 2, 3] {
-        let prebuilt = symbols(n);
-        let (allocs, annotations) = allocations_during(|| Annotations::from(black_box(prebuilt)));
-        println!("Annotations construction, {n} annotation(s): {allocs} allocation(s)");
-        black_box(annotations);
     }
 }

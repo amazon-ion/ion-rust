@@ -615,8 +615,8 @@ mod tests {
         let cloned = annotations.clone();
         assert_eq!(cloned, annotations);
 
-        // Consuming round-trip recollects an equal value. Whether each arm reaches the allocator is
-        // a separate, manual check: run `cargo bench --bench annotations_allocations`.
+        // Consuming round-trip recollects an equal value. That the consuming iterator reaches the
+        // allocator on no arm is asserted by the `tests/annotations_allocations.rs` integration test.
         let recollected: Annotations = annotations.clone().into_iter().collect();
         assert_eq!(recollected, annotations);
     }

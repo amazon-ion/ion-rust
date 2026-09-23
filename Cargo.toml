@@ -123,10 +123,6 @@ harness = false
 name = "struct_threshold_model"
 harness = false
 
-[[bench]]
-name = "annotations_allocations"
-harness = false
-
 [profile.release]
 lto = true
 codegen-units = 1
