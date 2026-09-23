@@ -161,26 +161,6 @@ impl Decimal {
         coefficient.sign() == Sign::Negative && !coefficient.magnitude().is_zero()
     }
 
-    /// Semantically identical to `self >= Decimal::new(1, 0)`, but much cheaper to compute.
-    pub(crate) fn is_greater_than_or_equal_to_one(&self) -> bool {
-        // If the coefficient has a magnitude of zero, the Decimal is a zero of some precision
-        // and so is not >= 1.
-        if self.coefficient().is_zero() {
-            return false;
-        }
-
-        // If the coefficient is non-zero, look at the exponent. A non-negative exponent means the
-        // value has to be >= 1.
-        if self.exponent >= 0 {
-            return true;
-        }
-
-        // If the exponent is negative, we have to see whether if its magnitude outweighs the
-        // magnitude of the coefficient.
-        let num_coefficient_decimal_digits = self.coefficient().number_of_decimal_digits() as u64;
-        num_coefficient_decimal_digits > self.exponent.unsigned_abs()
-    }
-
     // Determines whether the first decimal value is greater than, equal to, or less than
     // the second decimal value.
     fn compare(d1: &Decimal, d2: &Decimal) -> Ordering {

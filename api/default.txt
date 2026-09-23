@@ -808,6 +808,8 @@ pub fn ion_rs::Value::from(ion_rs::Timestamp) -> Self
 impl core::convert::TryFrom<ion_rs::Element> for ion_rs::Timestamp
 pub type ion_rs::Timestamp::Error = ion_rs::ConversionOperationError<ion_rs::Element, ion_rs::Timestamp>
 pub fn ion_rs::Timestamp::try_from(ion_rs::Element) -> ion_rs::ConversionOperationResult<ion_rs::Element, ion_rs::Timestamp>
+impl core::fmt::Debug for ion_rs::Timestamp
+pub fn ion_rs::Timestamp::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for ion_rs::Timestamp
 pub fn ion_rs::Timestamp::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::result::Result<(), core::fmt::Error>
 pub struct ion_rs::UInt
