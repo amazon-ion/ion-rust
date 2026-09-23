@@ -45,14 +45,9 @@ impl AliasableBump {
     /// first). Using a stale alias afterward is undefined behavior (aliasing violation and
     /// use-after-free).
     pub(crate) unsafe fn reset(&mut self) {
-        // In normal operation this handle holds the only `Rc` (it is never cloned), so `get_mut`
-        // succeeds and we reset in place. If the arena were ever shared, we cannot obtain unique
-        // access, so fall back to a fresh arena rather than panicking -- the same defensive
-        // strategy as `EncodingContext::make_allocator_mut`, and it keeps `reset` panic-free (no
-        // `unwrap`/`expect` on a hot path).
         match Rc::get_mut(&mut self.0) {
             Some(bump) => bump.reset(),
-            None => self.0 = Rc::new(BumpAllocator::new()),
+            None => unreachable!("get_mut never fails; the Rc is private and never cloned"),
         }
     }
 }
