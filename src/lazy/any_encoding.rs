@@ -225,6 +225,7 @@ impl IonEncoding {
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IonVersion {
     #[default]
     v1_0,
