@@ -20,7 +20,7 @@ use crate::lazy::encoder::value_writer_config::{
     ValueWriterConfig,
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::LazyRawWriter;
+use crate::lazy::encoder::{LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_SYMBOL_RETAIN_CAP};
 use crate::lazy::encoding::{
     BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
 };
@@ -45,6 +45,15 @@ pub(crate) struct WriterSymbolTable {
 
 impl WriterSymbolTable {
     pub fn reset_num_pending(&mut self) {
+        self.num_pending = 0;
+    }
+
+    /// Returns this table to the default state used at the beginning of a stream so that the writer
+    /// can encode a fresh, independent document: the symbols added for the previous document are
+    /// discarded, as is the pending-symbol bookkeeping for any of them whose definition was never
+    /// written. Also bounds the capacity the table retains -- see [`IDLE_SYMBOL_RETAIN_CAP`].
+    pub(crate) fn reset_for_reuse(&mut self) {
+        self.symbols.reset_to_default_capped(IDLE_SYMBOL_RETAIN_CAP);
         self.num_pending = 0;
     }
 
@@ -129,8 +138,12 @@ impl Deref for WriterMacroTable {
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
+// Note: the struct itself is generic over `Output` WITHOUT an `Output: Write` bound so that a
+// sink-less `Writer<E, ()>` can be parked in a pool (e.g. thread-local) between uses, retaining its
+// warm sub-writers and their scratch arenas. All encoding methods live in `impl<E, Output: Write>`;
+// the idle state (`Writer<E, ()>`) exposes only `idle`/`set_config`/`attach`.
 #[cfg_attr(feature = "experimental-reader-writer", visibility::make(pub))]
-pub(crate) struct Writer<E: Encoding, Output: Write> {
+pub(crate) struct Writer<E: Encoding, Output> {
     symbols: WriterSymbolTable,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
@@ -148,18 +161,195 @@ pub type TextWriter_1_1<Output> = Writer<TextEncoding_1_1, Output>;
 #[allow(dead_code)]
 pub type BinaryWriter_1_1<Output> = Writer<BinaryEncoding_1_1, Output>;
 
+/// The sink-independent parts of a managed writer; see [`build_parts`].
+// Named fields rather than a tuple: the two sub-writers have the same type, so a positional return
+// would let a swapped destructuring compile silently.
+struct WriterParts<E: Encoding> {
+    symbols: WriterSymbolTable,
+    data_writer: E::Writer<Vec<u8>>,
+    directive_writer: E::Writer<Vec<u8>>,
+}
+
+/// Builds the sink-independent parts of a managed writer -- a fresh symbol table and the two
+/// `Vec<u8>`-backed sub-writers -- in the state a freshly constructed writer is in before its first
+/// `flush`: the `directive_writer` holds the encoding's construction prologue (an IVM for binary,
+/// nothing for text) and the `data_writer`'s has been erased.
+///
+/// [`Writer::new`] and [`Writer::idle`] differ only in the sink they bind (and, for `new`, the initial
+/// `flush`), so they share this rather than each spelling the fields out and risking divergence.
+fn build_parts<E: Encoding>(config: WriteConfig<E>) -> IonResult<WriterParts<E>> {
+    let directive_writer = E::Writer::build(config.clone(), vec![])?;
+    let mut data_writer = E::Writer::build(config, vec![])?;
+    // Erase the IVM that's created by default; only the directive writer carries the prologue.
+    data_writer.output_mut().clear();
+    // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
+    let symbols = WriterSymbolTable::new(SymbolTable::new(E::ion_version()));
+    Ok(WriterParts {
+        symbols,
+        data_writer,
+        directive_writer,
+    })
+}
+
+/// The idle (sink-less) state of a reusable managed writer. It holds warm sub-writers (each with a
+/// warm scratch arena) and a fresh symbol table, but no output sink, so it can be parked in a pool.
+/// Call [`Self::attach`] to bind a sink and get an active writer back.
+///
+/// Only encodings whose raw writer is [`Reusable`] have this API, which today means Ion 1.0 -- both
+/// binary and text. An Ion 1.1 writer cannot be parked and reused, because its macro table cannot yet
+/// be recycled; the missing `Reusable` bound makes `idle`/`attach`/`detach` resolve to nothing (E0599)
+/// rather than silently producing a document that references undefined macros:
+// The doctests are gated on the Ion 1.1 feature that makes `v1_1` public. Without it they would fail
+// to compile for the wrong reason (E0603: private module), which would mask a regression in the bound.
+#[cfg_attr(
+    feature = "experimental-ion-1-1",
+    doc = r#"
+```compile_fail,E0599
+use ion_rs::{v1_1, IonResult};
+fn main() -> IonResult<()> {
+    // no method named `idle` found: `BinaryEncoding_1_1::Writer<Vec<u8>>` is not `Reusable`.
+    let idle = v1_1::BinaryWriter::<()>::idle(v1_1::Binary)?;
+    Ok(())
+}
+```
+
+```compile_fail,E0599
+use ion_rs::{v1_1, IonResult};
+fn main() -> IonResult<()> {
+    // Same for text 1.1.
+    let idle = v1_1::TextWriter::<()>::idle(v1_1::Text)?;
+    Ok(())
+}
+```
+
+`detach` is gated by the same bound (on its own `impl` block):
+
+```compile_fail,E0599
+use ion_rs::{v1_1, IonResult};
+fn main() -> IonResult<()> {
+    let writer = v1_1::BinaryWriter::new(v1_1::Binary, Vec::new())?;
+    // no method named `detach` found: `BinaryEncoding_1_1::Writer<Vec<u8>>` is not `Reusable`.
+    let (idle, bytes) = writer.detach();
+    Ok(())
+}
+```
+"#
+)]
+#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
+impl<E: Encoding> Writer<E, ()>
+where
+    E::Writer<Vec<u8>>: Reusable,
+{
+    /// Creates an idle (sink-less) writer that can be parked and reused: bind a sink with
+    /// [`Self::attach`], encode, then reclaim it with [`Writer::detach`]. No bytes are emitted until
+    /// a sink is attached and flushed.
+    ///
+    /// `config` applies to every document this writer goes on to encode and is otherwise fixed once
+    /// it is built; use [`Self::set_config`] to re-configure a parked writer before attaching it to
+    /// a new sink.
+    pub fn idle(config: impl Into<WriteConfig<E>>) -> IonResult<Self> {
+        let WriterParts {
+            symbols,
+            data_writer,
+            directive_writer,
+        } = build_parts(config.into())?;
+        Ok(Writer {
+            symbols,
+            data_writer,
+            directive_writer,
+            output: (),
+            value_writer_config: E::default_value_writer_config(),
+        })
+    }
+
+    /// Re-configures this idle writer, which is otherwise fixed to the configuration it was built
+    /// with. A pooled writer built for one caller's [`WriteConfig`] can then be handed to another's:
+    /// call this before [`Self::attach`] so the next document honors the caller's configuration
+    /// (e.g. `Pretty` rather than `Compact` text).
+    pub fn set_config(&mut self, config: impl Into<WriteConfig<E>>) {
+        let config = config.into();
+        self.directive_writer.apply_config(&config);
+        self.data_writer.apply_config(&config);
+        // Not derived from `config` today; this is the state `new`/`idle` would produce.
+        self.value_writer_config = E::default_value_writer_config();
+    }
+
+    /// Binds `output` to this idle writer and returns an active writer ready to encode.
+    pub fn attach<Output: Write>(self, output: Output) -> Writer<E, Output> {
+        // Moving the sub-writers (and so their scratch arenas) is sound: each holds its arena via an
+        // `AliasableBump`, which keeps the `&Bump` captured by the arena-allocated encoding buffer
+        // valid across the move.
+        let (active, ()) = self.replace_output(output);
+        active
+    }
+}
+
+#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
+impl<E: Encoding, Output: Write> Writer<E, Output>
+where
+    E::Writer<Vec<u8>>: Reusable,
+{
+    /// Returns this writer to the idle (sink-less) state along with the output sink, so the writer
+    /// (and its warm sub-writers/arenas) can be parked in a pool and reused via
+    /// [`Writer::<E, ()>::attach`].
+    ///
+    /// **This DISCARDS any un-flushed document.** Nothing is written to `output` here; call
+    /// [`Self::flush`] (or [`Self::close`], if you do not need the writer back) first to emit what
+    /// has been encoded so far. Detaching is deliberately infallible so that it is usable from a
+    /// `Drop` impl, where an I/O error could not be reported: any writing that could fail is the
+    /// caller's `flush`.
+    ///
+    /// The returned writer is in the same fresh-document state as [`Writer::<E, ()>::idle`], and
+    /// bounds the memory it retains while parked.
+    pub fn detach(mut self) -> (Writer<E, ()>, Output) {
+        // Forget the previous document's symbols (including any whose definition was still pending)
+        // so the reused writer encodes a NEW, independent document.
+        self.symbols.reset_for_reuse();
+
+        // Only the system role re-seeds the construction prologue; emitting one on the data writer
+        // would corrupt the next document. Nothing is written to `output` -- that is `flush`'s job.
+        self.directive_writer.recycle(WriterRole::System);
+        self.data_writer.recycle(WriterRole::Application);
+
+        self.replace_output(())
+    }
+}
+
+// No `Output: Write` bound: this is how a writer crosses between the active (`Output: Write`) and
+// idle (`Output = ()`) states.
+#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
+impl<E: Encoding, Output> Writer<E, Output> {
+    /// Swaps this writer's output sink for `output`, returning the rebuilt writer and the sink it
+    /// was holding. Everything else -- the warm sub-writers, their scratch arenas, the symbol table
+    /// -- moves across untouched.
+    fn replace_output<NewOutput>(self, output: NewOutput) -> (Writer<E, NewOutput>, Output) {
+        let Writer {
+            symbols,
+            data_writer,
+            directive_writer,
+            output: previous_output,
+            value_writer_config,
+        } = self;
+        let writer = Writer {
+            symbols,
+            data_writer,
+            directive_writer,
+            output,
+            value_writer_config,
+        };
+        (writer, previous_output)
+    }
+}
+
 #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
 impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Constructs a writer for the requested encoding using the provided configuration.
     pub fn new(config: impl Into<WriteConfig<E>>, output: Output) -> IonResult<Self> {
-        let config = config.into();
-        let directive_writer = E::Writer::build(config.clone(), vec![])?;
-        let mut data_writer = E::Writer::build(config, vec![])?;
-        // Erase the IVM that's created by default
-        data_writer.output_mut().clear();
-        // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
-        let ion_version = E::ion_version();
-        let symbols = WriterSymbolTable::new(SymbolTable::new(ion_version));
+        let WriterParts {
+            symbols,
+            data_writer,
+            directive_writer,
+        } = build_parts(config.into())?;
         let mut writer = Writer {
             symbols,
             data_writer,
@@ -1048,6 +1238,397 @@ impl<S: SequenceWriter> ElementWriter for S {
 
     fn write_element(&mut self, element: &Element) -> IonResult<()> {
         self.write(element)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::Writer;
+    // `DEFAULT_BUMP_SIZE` is the binary writer's arena size, imported here (and only here) so the
+    // arena tests can derive their sizes from the real arena rather than hardcoding them.
+    use crate::lazy::encoder::binary::v1_0::writer::DEFAULT_BUMP_SIZE;
+    use crate::lazy::encoder::{
+        LazyRawWriter, Reusable, IDLE_BUFFER_CAPACITY, IDLE_RETAIN_CAP, IDLE_SYMBOL_RETAIN_CAP,
+    };
+    use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+    use crate::{v1_0, Element, Encoding, IonData, IonResult, TextFormat, WriteConfig};
+    use bumpalo::Bump as BumpAllocator;
+    use rstest::rstest;
+
+    /// Encodes a single document with a fresh managed writer (the non-reused baseline).
+    fn encode_fresh<E: Encoding>(
+        config: impl Into<WriteConfig<E>>,
+        doc: &Element,
+    ) -> IonResult<Vec<u8>> {
+        let mut writer = Writer::new(config, Vec::new())?;
+        writer.write(doc)?;
+        writer.close()
+    }
+
+    /// The bytes a freshly built raw `E` writer leaves buffered before anything is encoded: the IVM
+    /// for binary Ion 1.0, nothing for text. Derived from `LazyRawWriter::build` rather than
+    /// hardcoded, so the expectation does not restate the `recycle` logic under test.
+    fn construction_prologue<E: Encoding>(config: impl Into<WriteConfig<E>>) -> IonResult<Vec<u8>> {
+        let raw_writer = E::Writer::<Vec<u8>>::build(config.into(), vec![])?;
+        Ok(raw_writer.output().clone())
+    }
+
+    fn idle_binary_writer() -> IonResult<Writer<BinaryEncoding_1_0, ()>> {
+        Writer::<BinaryEncoding_1_0, ()>::idle(v1_0::Binary)
+    }
+
+    /// The size of a freshly constructed scratch arena, computed rather than hardcoded so bumpalo's
+    /// internal rounding cannot make the assertions brittle.
+    fn fresh_arena_bytes() -> usize {
+        BumpAllocator::with_capacity(DEFAULT_BUMP_SIZE).allocated_bytes()
+    }
+
+    /// A managed Ion 1.0 writer that is reused across DIFFERENT documents (each of which forces the
+    /// binary encoding to emit its own local symbol table) must produce bytes byte-for-byte identical
+    /// to a fresh writer per document, and those bytes must read back as the document that was
+    /// written. This exercises both the prologue re-seed and the symbol-table reset that `detach`
+    /// performs: a stale symbol table, a missing IVM, or an IVM emitted on the wrong sub-writer would
+    /// corrupt every document after the first.
+    #[rstest]
+    #[case::binary_1_0(v1_0::Binary)]
+    #[case::text_1_0(v1_0::Text)]
+    fn reuse_is_byte_identical_and_round_trips<E>(#[case] encoding: E) -> IonResult<()>
+    where
+        E: Encoding + Into<WriteConfig<E>>,
+        E::Writer<Vec<u8>>: Reusable,
+    {
+        // Two structs with disjoint text field names and symbol values, so each forces the binary
+        // writer to emit its own local symbol table.
+        let doc1 = Element::read_one(r#"{ alpha: sym_a, beta: sym_b }"#)?;
+        let doc2 = Element::read_one(r#"{ gamma: sym_c, delta: sym_d, epsilon: sym_e }"#)?;
+        // Round three repeats `doc1`: a reset that is only correct the first time would show up here.
+        let rounds = [&doc1, &doc2, &doc1];
+
+        let config: WriteConfig<E> = encoding.into();
+        let expected_prologue = construction_prologue(config.clone())?;
+
+        let mut idle = Writer::<E, ()>::idle(config.clone())?;
+        for (round, doc) in rounds.into_iter().enumerate() {
+            let mut writer = idle.attach(Vec::new());
+            writer.write(doc)?;
+            // `detach` does not write; `flush` is what emits the document to the sink.
+            writer.flush()?;
+            let (next_idle, bytes) = writer.detach();
+            idle = next_idle;
+
+            // The parked writer must be in the same state `new`/`idle` leave behind: the next
+            // document's prologue is buffered in the directive writer and nowhere else.
+            assert_eq!(
+                idle.directive_writer.output(),
+                &expected_prologue,
+                "round {round}: the parked directive writer does not hold exactly the construction prologue"
+            );
+            assert!(
+                idle.data_writer.output().is_empty(),
+                "round {round}: the parked data writer holds bytes it should not"
+            );
+
+            let fresh = encode_fresh(config.clone(), doc)?;
+            assert_eq!(
+                bytes, fresh,
+                "round {round}: reused bytes are not byte-identical to fresh:\n  reused: {bytes:02X?}\n  fresh:  {fresh:02X?}"
+            );
+            let read_back = Element::read_one(bytes)?;
+            assert!(
+                IonData::eq(&read_back, doc),
+                "round {round}: reused writer's output did not read back as the document written:\n  read back: {read_back:?}\n  written:   {doc:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// `detach` must release a scratch arena that grew past `IDLE_RETAIN_CAP` while encoding an
+    /// unusually large value, rather than retaining it for the life of the pooled writer.
+    #[test]
+    fn detach_shrinks_oversized_arena() -> IonResult<()> {
+        // A blob twice the retain cap; large top-level values are encoded through the bump arena.
+        let big = vec![0u8; IDLE_RETAIN_CAP * 2];
+
+        let mut writer = idle_binary_writer()?.attach(Vec::new());
+        writer.write(big.as_slice())?;
+        // Precondition: the value really did grow the arena past the cap. Without this the
+        // post-conditions below could pass vacuously if large values stopped routing through it.
+        assert!(
+            writer.data_writer.allocated_bytes() > IDLE_RETAIN_CAP,
+            "arena did not exceed the retain cap before detach: {} bytes",
+            writer.data_writer.allocated_bytes()
+        );
+        writer.flush()?;
+
+        let (idle, bytes) = writer.detach();
+        assert_eq!(
+            idle.data_writer.allocated_bytes(),
+            fresh_arena_bytes(),
+            "detach retained the oversized arena instead of replacing it with a fresh one"
+        );
+        // The large value still made it to the sink intact.
+        assert_eq!(
+            Element::read_one(bytes)?.expect_blob()?,
+            big.as_slice(),
+            "the large value did not survive the arena shrink"
+        );
+
+        // The writer whose arena was swapped out still encodes a correct document.
+        let doc = Element::read_one(r#"{ a: 1, b: [2, 3], c: sym_c }"#)?;
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (_idle, bytes) = writer.detach();
+        assert_eq!(
+            bytes,
+            encode_fresh(v1_0::Binary, &doc)?,
+            "reuse after an arena shrink is not byte-identical to fresh"
+        );
+        Ok(())
+    }
+
+    /// `detach` must also bound the sub-writers' backing `Vec`s, which grow to hold the largest
+    /// document encoded so far.
+    #[test]
+    fn detach_caps_retained_sub_writer_buffers() -> IonResult<()> {
+        let big = vec![0u8; IDLE_RETAIN_CAP * 2];
+
+        let mut writer = idle_binary_writer()?.attach(Vec::new());
+        writer.write(big.as_slice())?;
+        // `flush` moves the encoded value out of the arena and through the data writer's `Vec`, which
+        // is what grows its capacity. Precondition: it really did grow past the cap.
+        writer.flush()?;
+        assert!(
+            writer.data_writer.output().capacity() > IDLE_RETAIN_CAP,
+            "data buffer did not exceed the retain cap before detach: {} bytes",
+            writer.data_writer.output().capacity()
+        );
+
+        let (idle, _bytes) = writer.detach();
+        assert!(
+            idle.data_writer.output().capacity() <= IDLE_RETAIN_CAP,
+            "detach retained an oversized data buffer: {} bytes",
+            idle.data_writer.output().capacity()
+        );
+        // Only the data buffer is asserted on: this document puts nothing but a symbol table in the
+        // directive buffer, so it never approaches the cap and an assertion about it would hold no
+        // matter what `detach` did. `detach_retains_warm_capacity_for_a_mid_sized_document` covers the
+        // directive buffer's under-cap behavior, which is the one that has content here.
+
+        // Reuse after the buffer swap is still byte-identical, which also proves the re-seeded IVM
+        // landed in the replacement buffer.
+        let doc = Element::read_one(r#"{ a: 1, b: [2, 3], c: sym_c }"#)?;
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (_idle, bytes) = writer.detach();
+        assert_eq!(
+            bytes,
+            encode_fresh(v1_0::Binary, &doc)?,
+            "reuse after a buffer cap is not byte-identical to fresh"
+        );
+        Ok(())
+    }
+
+    /// `detach` must also bound the symbol table, which grows to hold every symbol the writer has
+    /// interned. Its contents are discarded on reuse either way, so retaining that capacity would be
+    /// pure overhead for the life of a pooled writer.
+    #[test]
+    fn detach_caps_retained_symbol_table() -> IonResult<()> {
+        // A struct with far more distinct field names than the cap allows the table to retain.
+        let fields = (0..IDLE_SYMBOL_RETAIN_CAP * 2)
+            .map(|i| format!("field_{i}: {i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let doc = Element::read_one(format!("{{ {fields} }}"))?;
+
+        let mut writer = idle_binary_writer()?.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        // Precondition: the document really did grow the table past the cap.
+        assert!(
+            writer.symbol_table().retained_capacity() > IDLE_SYMBOL_RETAIN_CAP,
+            "symbol table did not exceed the retain cap before detach: {} entries",
+            writer.symbol_table().retained_capacity()
+        );
+
+        let (idle, _bytes) = writer.detach();
+        assert!(
+            idle.symbols.retained_capacity() <= IDLE_SYMBOL_RETAIN_CAP,
+            "detach retained an oversized symbol table: {} entries",
+            idle.symbols.retained_capacity()
+        );
+
+        // The writer whose table was swapped out still encodes a correct document.
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (_idle, bytes) = writer.detach();
+        assert_eq!(
+            bytes,
+            encode_fresh(v1_0::Binary, &doc)?,
+            "reuse after a symbol table cap is not byte-identical to fresh"
+        );
+        Ok(())
+    }
+
+    /// The flip side of the three cap tests, and the premise the whole API rests on: for a document
+    /// whose arena, buffers, and symbol table all stay UNDER their caps, `detach` must leave that warm
+    /// memory exactly as it found it. A regression that reallocated any of it on every `detach` would
+    /// still encode correct documents -- and would make pooling pointless -- so only this test would
+    /// catch it.
+    #[test]
+    fn detach_retains_warm_capacity_for_a_mid_sized_document() -> IonResult<()> {
+        // Big enough to grow the arena past its initial chunk and the data buffer past the capacity a
+        // replacement buffer would be given, but far short of the cap at which either is released.
+        let mid_sized_blob = vec![0u8; DEFAULT_BUMP_SIZE * 2];
+        // More symbols than a fresh table is sized for, fewer than the cap at which it is released.
+        let fields = (0..IDLE_SYMBOL_RETAIN_CAP / 4)
+            .map(|i| format!("field_{i}: {i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let doc = Element::read_one(format!("{{ {fields} }}"))?;
+        let fresh_symbol_capacity = idle_binary_writer()?.symbols.retained_capacity();
+
+        let mut writer = idle_binary_writer()?.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.write(mid_sized_blob.as_slice())?;
+        // `flush` drains the buffers (leaving their capacity) and rewinds the arena, which is the
+        // state `detach` finds them in.
+        writer.flush()?;
+
+        let arena_bytes = writer.data_writer.allocated_bytes();
+        let data_capacity = writer.data_writer.output().capacity();
+        let directive_capacity = writer.directive_writer.output().capacity();
+        let symbol_capacity = writer.symbol_table().retained_capacity();
+        // Preconditions: this document really did leave each of the four warmer than a fresh writer's,
+        // and left none of them past the cap that would (correctly) release it. Without these, the
+        // assertions below could pass by measuring memory that was never warm to begin with.
+        assert!(
+            arena_bytes > fresh_arena_bytes() && arena_bytes <= IDLE_RETAIN_CAP,
+            "the document did not leave the arena warm and under the cap: {arena_bytes} bytes"
+        );
+        assert!(
+            data_capacity > IDLE_BUFFER_CAPACITY && data_capacity <= IDLE_RETAIN_CAP,
+            "the document did not leave the data buffer warm and under the cap: {data_capacity} bytes"
+        );
+        assert!(
+            directive_capacity > 0 && directive_capacity <= IDLE_RETAIN_CAP,
+            "the document did not leave the directive buffer warm and under the cap: {directive_capacity} bytes"
+        );
+        assert!(
+            symbol_capacity > fresh_symbol_capacity && symbol_capacity <= IDLE_SYMBOL_RETAIN_CAP,
+            "the document did not leave the symbol table warm and under the cap: {symbol_capacity} entries"
+        );
+
+        let (idle, _bytes) = writer.detach();
+        assert_eq!(
+            idle.data_writer.allocated_bytes(),
+            arena_bytes,
+            "detach replaced an under-cap scratch arena instead of keeping it warm"
+        );
+        assert_eq!(
+            idle.data_writer.output().capacity(),
+            data_capacity,
+            "detach replaced an under-cap data buffer instead of keeping it warm"
+        );
+        assert_eq!(
+            idle.directive_writer.output().capacity(),
+            directive_capacity,
+            "detach replaced an under-cap directive buffer instead of keeping it warm"
+        );
+        assert_eq!(
+            idle.symbols.retained_capacity(),
+            symbol_capacity,
+            "detach replaced an under-cap symbol table instead of keeping it warm"
+        );
+
+        // ...and the writer whose warm state was kept still encodes a correct document.
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (_idle, bytes) = writer.detach();
+        assert_eq!(
+            bytes,
+            encode_fresh(v1_0::Binary, &doc)?,
+            "reuse of a warm writer is not byte-identical to fresh"
+        );
+        Ok(())
+    }
+
+    /// `detach` writes nothing: a document that was never flushed is dropped, and the writer is still
+    /// left in the fresh-document state that makes the NEXT document correct. Both encodings are
+    /// covered because they buffer an un-flushed document in different places -- binary in its scratch
+    /// arena, text directly in its output buffer -- and each `recycle` has to discard its own.
+    #[rstest]
+    #[case::binary_1_0(v1_0::Binary)]
+    #[case::text_1_0(v1_0::Text)]
+    fn detach_discards_an_unflushed_document<E>(#[case] encoding: E) -> IonResult<()>
+    where
+        E: Encoding + Into<WriteConfig<E>>,
+        E::Writer<Vec<u8>>: Reusable,
+    {
+        let dropped = Element::read_one(r#"{ never_flushed: sym_x }"#)?;
+        let config: WriteConfig<E> = encoding.into();
+
+        let mut writer = Writer::<E, ()>::idle(config.clone())?.attach(Vec::new());
+        writer.write(&dropped)?;
+        let (idle, bytes) = writer.detach();
+        assert!(
+            bytes.is_empty(),
+            "detach wrote to the sink instead of discarding the un-flushed document: {bytes:02X?}"
+        );
+
+        // Neither the discarded document's bytes nor its symbols may leak into the next one.
+        let doc = Element::read_one(r#"{ a: 1, b: [2, 3], c: sym_c }"#)?;
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (_idle, bytes) = writer.detach();
+        assert_eq!(
+            bytes,
+            encode_fresh(config, &doc)?,
+            "reuse after a discarded document is not byte-identical to fresh"
+        );
+        Ok(())
+    }
+
+    /// A parked writer built for one `WriteConfig` must be able to adopt another's, in place: a pool
+    /// hands whichever writer it has to whichever caller asks next.
+    #[test]
+    fn set_config_re_applies_the_text_format() -> IonResult<()> {
+        let doc = Element::read_one(r#"{ a: 1, b: [2, 3], c: sym_c }"#)?;
+        let compact = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact);
+        let pretty = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Pretty);
+
+        let mut idle = Writer::<TextEncoding_1_0, ()>::idle(compact.clone())?;
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (parked, compact_bytes) = writer.detach();
+        assert_eq!(
+            compact_bytes,
+            encode_fresh(compact, &doc)?,
+            "the compact document is not byte-identical to fresh"
+        );
+
+        // Re-configure the parked writer and encode the same document again.
+        idle = parked;
+        idle.set_config(pretty.clone());
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (_idle, pretty_bytes) = writer.detach();
+        assert_eq!(
+            pretty_bytes,
+            encode_fresh(pretty, &doc)?,
+            "the re-configured writer did not encode pretty text"
+        );
+        assert_ne!(
+            compact_bytes, pretty_bytes,
+            "the two text formats produced identical bytes, so this test proves nothing"
+        );
         Ok(())
     }
 }

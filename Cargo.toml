@@ -144,3 +144,7 @@ opt-level = 2
 name = "conformance"
 harness = false
 test = false
+
+[[bench]]
+name = "write_reuse"
+harness = false

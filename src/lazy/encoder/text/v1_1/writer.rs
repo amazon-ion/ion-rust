@@ -61,7 +61,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_1<W> {
     where
         Self: Sized,
     {
-        match &config.kind {
+        match config.kind() {
             WriteConfigKind::Text(text_config) => {
                 let whitespace_config = match text_config.text_kind {
                     TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,

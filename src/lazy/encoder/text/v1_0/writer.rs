@@ -2,17 +2,16 @@ use std::io::Write;
 
 use delegate::delegate;
 
+use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::text::v1_0::value_writer::TextValueWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::writer::WriterMacroTable;
-use crate::lazy::encoder::LazyRawWriter;
+use crate::lazy::encoder::{cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole};
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
 use crate::lazy::expanded::macro_table::EMPTY_MACRO_TABLE;
-use crate::text::whitespace_config::{
-    WhitespaceConfig, COMPACT_WHITESPACE_CONFIG, LINES_WHITESPACE_CONFIG, PRETTY_WHITESPACE_CONFIG,
-};
+use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::ParentType;
 use crate::write_config::WriteConfigKind;
 use crate::{ContextWriter, IonResult, TextFormat, WriteConfig};
@@ -53,6 +52,37 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
     }
 }
 
+// Implemented only for the `Vec<u8>` instantiation, mirroring the binary 1.0 writer: that is the only
+// one the managed writer's reusable-writer API needs (`E::Writer<Vec<u8>>: Reusable`).
+impl Reusable for LazyRawTextWriter_1_0<Vec<u8>> {}
+
+impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
+    /// Discards any buffered (unflushed) content and bounds the retained output buffer; in either
+    /// role, that is all: a text 1.0 writer owns no scratch state and emits no construction prologue
+    /// to re-seed.
+    fn recycle(&mut self, _role: WriterRole) {
+        // A text writer encodes straight into its output buffer, so this is where an unflushed
+        // document is discarded. Like binary's, the clear lives here so the contract does not depend
+        // on the caller having drained the buffer first.
+        self.output.clear();
+        cap_retained_buffer(&mut self.output);
+    }
+
+    /// Re-derives the whitespace rules from `config`, the only state a text writer takes from it.
+    fn apply_config<E: Encoding>(&mut self, config: &WriteConfig<E>) {
+        match config.kind() {
+            WriteConfigKind::Text(text_config) => {
+                self.whitespace_config = text_config.text_kind.into()
+            }
+            WriteConfigKind::Binary(_) => {
+                unreachable!("Text writer can not be configured from binary encoding")
+            }
+        }
+    }
+}
+
+impl<W: Write> Sealed for LazyRawTextWriter_1_0<W> {}
+
 impl<W: Write> SequenceWriter for LazyRawTextWriter_1_0<W> {
     type Resources = W;
 
@@ -85,13 +115,9 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 
     /// Build text writer based on given writer configuration
     fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
-        match &config.kind {
+        match config.kind() {
             WriteConfigKind::Text(text_config) => {
-                let whitespace_config = match text_config.text_kind {
-                    TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,
-                    TextFormat::Lines => &LINES_WHITESPACE_CONFIG,
-                    TextFormat::Pretty => &PRETTY_WHITESPACE_CONFIG,
-                };
+                let whitespace_config = text_config.text_kind.into();
                 Ok(LazyRawTextWriter_1_0 {
                     output,
                     whitespace_config,

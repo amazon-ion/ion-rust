@@ -20,7 +20,7 @@ fn write_with_config<T: Serialize, E: Encoding>(
     value: &T,
     config: WriteConfig<E>,
 ) -> IonResult<Vec<u8>> {
-    let is_human_readable = matches!(config.kind, WriteConfigKind::Text(_));
+    let is_human_readable = matches!(config.kind(), WriteConfigKind::Text(_));
     let mut writer = Writer::new(config, vec![])?;
     let serializer = ValueSerializer::new(writer.value_writer(), is_human_readable);
     value.serialize(serializer)?;

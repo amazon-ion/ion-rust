@@ -14,11 +14,15 @@ use crate::{IonResult, TextFormat};
 /// This will be used to create a writer without specifying which writer methods to use
 #[derive(Clone, Debug)]
 pub struct WriteConfig<E: Encoding> {
-    pub(crate) kind: WriteConfigKind,
+    kind: WriteConfigKind,
     phantom_data: PhantomData<E>,
 }
 
 impl<E: Encoding> WriteConfig<E> {
+    pub(crate) fn kind(&self) -> &WriteConfigKind {
+        &self.kind
+    }
+
     pub(crate) fn encode<V: WriteAsIon>(&self, value: V) -> IonResult<E::Output> {
         let bytes = self.encode_to(value, Vec::new())?;
         Ok(E::Output::from_bytes(bytes))

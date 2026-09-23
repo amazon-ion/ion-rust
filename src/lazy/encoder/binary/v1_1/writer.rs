@@ -137,7 +137,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_1<W> {
     where
         Self: Sized,
     {
-        match &config.kind {
+        match config.kind() {
             WriteConfigKind::Text(_) => {
                 unreachable!("Text writer can not be created from binary encoding")
             }

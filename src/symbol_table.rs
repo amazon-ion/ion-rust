@@ -127,11 +127,40 @@ impl SymbolTable {
     }
 
     /// Sets the symbol table to the 'default' state used at the beginning of any stream of the
-    /// current version.
+    /// current version, retaining the storage it has grown.
     pub(crate) fn reset_to_default(&mut self) {
+        self.reset_to_default_capped(usize::MAX)
+    }
+
+    /// Like [`Self::reset_to_default`], but also bounds the capacity the table retains: if its
+    /// storage has grown to hold more than `max_retained_symbols` entries, it is shrunk back toward
+    /// the capacity a fresh table starts with instead of being retained.
+    ///
+    /// Correctness-neutral -- the contents are discarded either way. It exists so that a writer which
+    /// is parked and reused (see [`Writer::detach`](crate::Writer::detach)) does not hold the table it
+    /// built for one symbol-heavy document for the rest of its (possibly very long) life.
+    // This is the single implementation of the reset; `reset_to_default` is the uncapped case of it.
+    pub(crate) fn reset_to_default_capped(&mut self, max_retained_symbols: usize) {
         self.symbols_by_id.clear();
         self.ids_by_text.clear();
+        // Hysteresis: storage is only released once it has grown past the cap, and only down to the
+        // capacity a fresh table starts with, so an ordinary reset does not reallocate at all.
+        if self.symbols_by_id.capacity() > max_retained_symbols {
+            self.symbols_by_id.shrink_to(Self::INITIAL_SYMBOLS_CAPACITY);
+        }
+        if self.ids_by_text.capacity() > max_retained_symbols {
+            self.ids_by_text.shrink_to(Self::INITIAL_SYMBOLS_CAPACITY);
+        }
         self.initialize_with_all_system_symbols()
+    }
+
+    /// The number of entries this table's storage can hold without reallocating.
+    // Exposed for the reusable-writer tests, which confirm that parking a writer bounds it.
+    #[cfg(test)]
+    pub(crate) fn retained_capacity(&self) -> usize {
+        self.symbols_by_id
+            .capacity()
+            .max(self.ids_by_text.capacity())
     }
 
     /// Sets the symbol table's contents to the permanent prefix used by the current Ion version.

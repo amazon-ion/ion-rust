@@ -44,3 +44,15 @@ pub(crate) static PRETTY_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig 
     // The first value in a container appears on a line by itself
     space_after_container_start: "\n",
 };
+
+use crate::TextFormat;
+
+impl From<TextFormat> for &'static WhitespaceConfig {
+    fn from(value: TextFormat) -> Self {
+        match value {
+            TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,
+            TextFormat::Lines => &LINES_WHITESPACE_CONFIG,
+            TextFormat::Pretty => &PRETTY_WHITESPACE_CONFIG,
+        }
+    }
+}
