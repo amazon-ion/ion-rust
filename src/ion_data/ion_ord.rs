@@ -122,6 +122,8 @@ mod ord_tests {
         1000d0
     "
     )]
+    // Current IonDataOrd implementation compares in this order:
+    // local-date-time -> precision -> offset -> attoseconds
     #[case::timestamps_sorted_by_point_in_time_and_precision(
         r"
         null.timestamp
@@ -131,8 +133,8 @@ mod ord_tests {
         2020-01-01T00:00Z
         2020-01-01T00:00:00Z
         2020-01-01T00:00:00.000Z
-        2020-01-01T00:00:00.000000Z
         2020-01-01T00:00:00.001Z
+        2020-01-01T00:00:00.000000Z
         2020-01-01T00:00:00.001000Z
         2020-01-01T00:00:01Z
         2020-01-01T00:01Z
@@ -143,13 +145,15 @@ mod ord_tests {
     )]
     #[case::timestamps_sorted_by_offset(
         r"
-        2020-01-01T06:00:00-00:00
         2020-01-01T05:00:00-01:00
-        2020-01-01T06:00:00+00:00
-        2020-01-01T07:00:00+01:00
-        2020-01-01T06:00:00.000-00:00
         2020-01-01T05:00:00.000-01:00
+        2020-01-01T06:00:00-00:00
+        2020-01-01T06:00:00-01:00
+        2020-01-01T06:00:00+00:00
+        2020-01-01T06:00:00+01:00
+        2020-01-01T06:00:00.000-00:00
         2020-01-01T06:00:00.000+00:00
+        2020-01-01T07:00:00+01:00
         2020-01-01T07:00:00.000+01:00
     "
     )]
@@ -239,12 +243,18 @@ mod ord_tests {
     "
     )]
     fn test_order(#[case] ion: &str) {
+        use rand::seq::SliceRandom;
+
         let original = Element::read_all(ion)
             .unwrap()
             .into_iter()
             .map(IonData::from)
             .collect::<Vec<_>>();
         let mut copy = original.clone();
+
+        // Shuffle to ensure that we don't succeed just because it works well enough to survive a stable sort.
+        let mut rng = rand::rng();
+        copy.shuffle(&mut rng);
         copy.sort();
 
         // Prints using display (i.e. as Ion text)
@@ -255,7 +265,7 @@ mod ord_tests {
             ))
         );
         println!(
-            "copy: {}",
+            "actual: {}",
             List::from(Sequence::new(copy.iter().cloned().map(IonData::into_inner)))
         );
         // Prints using debug

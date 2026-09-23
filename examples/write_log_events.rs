@@ -19,9 +19,9 @@ mod example {
     use chrono::{DateTime, FixedOffset};
     use ion_rs::v1_1::Macro;
     use ion_rs::*;
+    use rand::prelude::IndexedRandom;
     use rand::rngs::StdRng;
-    use rand::seq::SliceRandom;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
     use std::env::args;
     use std::io::BufWriter;
     use std::ops::Range;
@@ -283,7 +283,7 @@ mod example {
     // Any time we need an integer, we'll generate a random one between 0 and 5,000.
     const INT_PARAMETER_RANGE: Range<i64> = 0..5_000;
     fn generate_int_parameter(rng: &mut StdRng) -> Parameter {
-        Parameter::Int(rng.gen_range(INT_PARAMETER_RANGE))
+        Parameter::Int(rng.random_range(INT_PARAMETER_RANGE))
     }
 
     // Any time we need a string, we'll select one at random from this collection of plural nouns.
@@ -356,8 +356,8 @@ mod example {
             .into();
         let timestamp: Timestamp = datetime.into();
 
-        let thread_id = rng.gen_range(1..=128);
-        let thread_name = format!("{THREAD_NAME_PREFIX}{}", rng.gen_range(1..=8));
+        let thread_id = rng.random_range(1..=128);
+        let thread_name = format!("{THREAD_NAME_PREFIX}{}", rng.random_range(1..=8));
         let statement = log_statements.choose(rng).unwrap();
 
         let parameters: Vec<Parameter> = statement

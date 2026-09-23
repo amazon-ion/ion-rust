@@ -77,7 +77,7 @@ jobs:
       MIRI_TEST_SELECTION: >-
         overflowing_int
         move_soundness_tests
-
+        annotations
     steps:
       - name: Git Checkout
         uses: actions/checkout@v5

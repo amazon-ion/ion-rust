@@ -32,7 +32,7 @@ pub use string::Str;
 pub use symbol::Symbol;
 pub use timestamp::{
     HasDay, HasFractionalSeconds, HasHour, HasMinute, HasMonth, HasOffset, HasSeconds, HasYear,
-    Mantissa, Timestamp, TimestampBuilder, TimestampPrecision,
+    Timestamp, TimestampBuilder, TimestampPrecision,
 };
 
 use crate::ion_data::{IonDataHash, IonDataOrd};

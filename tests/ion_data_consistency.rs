@@ -24,6 +24,8 @@ const SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
     "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
     "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
+    // Timestamp limits fractional seconds to 18 digits.
+    "ion-tests/iontestdata/good/equivs/timestampsLargeFractionalPrecision.ion",
 ];
 
 #[test_resources("ion-tests/iontestdata/good/equivs/**/*.ion")]

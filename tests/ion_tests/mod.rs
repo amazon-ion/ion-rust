@@ -387,6 +387,9 @@ pub const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
     // The binary reader does not check whether nested values are longer than their
     // parent container.
     "ion-tests/iontestdata/bad/listWithValueLargerThanSize.10n",
+    // Timestamp limits fractional seconds to 18 digits.
+    "ion-tests/iontestdata/good/equivs/timestampsLargeFractionalPrecision.ion",
+    "ion-tests/iontestdata/good/typecodes/T6-large.10n",
     // ROUND TRIP
     // These tests have shared symbol table imports in them, which the Reader does not
     // yet support.

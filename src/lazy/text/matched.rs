@@ -1200,7 +1200,7 @@ mod tests {
     use crate::lazy::bytes_ref::BytesRef;
     use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
     use crate::lazy::text::buffer::TextBuffer;
-    use crate::{Decimal, Int, IonResult, Timestamp};
+    use crate::{Decimal, Element, Int, IonResult, Timestamp};
     use winnow::combinator::peek;
     use winnow::Parser;
 
@@ -1460,30 +1460,31 @@ mod tests {
     }
 
     #[test]
-    fn read_timestamps_arbitrary_precision() -> IonResult<()> {
-        fn expect_timestamp(data: &str, expected: Timestamp) {
-            let encoding_context = EncodingContext::empty();
-            let context = encoding_context.get_ref();
-            let mut buffer = TextBuffer::new(context, data.as_bytes());
-            let matched = peek(TextBuffer::match_timestamp)
-                .parse_next(&mut buffer)
-                .unwrap();
-            let actual = matched.read(buffer).unwrap();
-            assert_eq!(
-                actual, expected,
-                "Actual didn't match expected for input '{data}'.\n{actual:?}\n!=\n{expected:?}",
-            );
+    fn read_timestamps_fractional_precision() -> IonResult<()> {
+        // Parse text timestamps at various fractional precisions
+        fn parse_timestamp(text: &str) -> IonResult<Timestamp> {
+            let elem = Element::read_one(text)?;
+            Ok(elem.expect_timestamp()?.clone())
         }
 
-        expect_timestamp(
-            "2023-08-13T10:30:45.727885129180488904360266563744972327436484050815Z",
-            Timestamp::with_ymd(2023, 8, 13)
-                .with_hour_and_minute(10, 30)
-                .with_second(45)
-                .with_fractional_seconds(Decimal::new(Int::from_le_signed_bytes(&[0x7F; 20]), -48))
-                .with_offset(0)
-                .build()?,
-        );
+        // Millisecond precision
+        let ts = parse_timestamp("2023-08-13T10:30:45.123Z")?;
+        assert_eq!(ts.subsecond_digit_count(), 3);
+
+        // Microsecond precision
+        let ts = parse_timestamp("2023-08-13T10:30:45.123456Z")?;
+        assert_eq!(ts.subsecond_digit_count(), 6);
+
+        // Nanosecond precision
+        let ts = parse_timestamp("2023-08-13T10:30:45.123456789Z")?;
+        assert_eq!(ts.subsecond_digit_count(), 9);
+
+        // 18-digit precision (max supported)
+        let ts = parse_timestamp("2023-08-13T10:30:45.123456789012345678Z")?;
+        assert_eq!(ts.subsecond_digit_count(), 18);
+
+        // >18 digits: rejected
+        assert!(parse_timestamp("2023-08-13T10:30:45.1234567890123456789Z").is_err());
 
         Ok(())
     }

@@ -1,17 +1,15 @@
 // Copyright Amazon.com, Inc. or its affiliates.
 
 use std::io::Write;
-use std::ops::Neg;
 
 use arrayvec::ArrayVec;
-use chrono::{Datelike, Timelike};
 
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
 use crate::result::IonResult;
-use crate::types::{Mantissa, TimestampPrecision};
-use crate::{Decimal, Timestamp};
+use crate::types::TimestampPrecision;
+use crate::Timestamp;
 
 const MAX_INLINE_LENGTH: usize = 13;
 const MAX_TIMESTAMP_LENGTH: usize = 32;
@@ -37,59 +35,33 @@ where
     W: Write,
 {
     fn encode_timestamp(&mut self, timestamp: &Timestamp) -> IonResult<usize> {
-        const SECONDS_PER_MINUTE: f32 = 60f32;
         let mut bytes_written: usize = 0;
 
-        // Each unit of the binary-encoded timestamp (hour, minute, etc) is written in UTC.
-        // The reader is expected to apply the encoded offset (in minutes) to derive the local time.
+        // Ion 1.0 binary encodes timestamp fields in UTC.
+        // First, convert local fields to UTC by subtracting the offset.
+        let utc = timestamp.to_utc();
 
-        // [Timestamp]s are modeled as a UTC NaiveDateTime and an optional FixedOffset.
-        // We can use the UTC NaiveDateTime to query for the individual time fields (year, month,
-        // etc) that we need to write out.
-        let utc = timestamp.date_time;
-
-        // Write out the offset (minutes difference from UTC). If the offset is
-        // unknown, negative zero is used.
-        if let Some(offset) = timestamp.offset {
-            // Ion encodes offsets in minutes while chrono's DateTime stores it in seconds.
-            let offset_seconds = offset.local_minus_utc();
-            let offset_minutes = (offset_seconds as f32 / SECONDS_PER_MINUTE).round() as i64;
-            bytes_written += VarInt::write_i64(self, offset_minutes)?;
+        // Write offset (minutes from UTC). Unknown offset = negative zero.
+        if let Some(offset_minutes) = timestamp.offset() {
+            bytes_written += VarInt::write_i64(self, offset_minutes as i64)?;
         } else {
-            // The offset is unknown. Write negative zero.
             bytes_written += VarInt::write_negative_zero(self)?;
         }
 
         bytes_written += VarUInt::write_u64(self, utc.year() as u64)?;
 
-        // So far, we've written required fields. The rest are optional!
-        if timestamp.precision > TimestampPrecision::Year {
+        let precision = timestamp.precision();
+        if precision > TimestampPrecision::Year {
             bytes_written += VarUInt::write_u64(self, utc.month() as u64)?;
-            if timestamp.precision > TimestampPrecision::Month {
+            if precision > TimestampPrecision::Month {
                 bytes_written += VarUInt::write_u64(self, utc.day() as u64)?;
-                if timestamp.precision > TimestampPrecision::Day {
+                if precision > TimestampPrecision::Day {
                     bytes_written += VarUInt::write_u64(self, utc.hour() as u64)?;
                     bytes_written += VarUInt::write_u64(self, utc.minute() as u64)?;
-                    if timestamp.precision > TimestampPrecision::HourAndMinute {
+                    if precision > TimestampPrecision::HourAndMinute {
                         bytes_written += VarUInt::write_u64(self, utc.second() as u64)?;
-                        if let Some(ref mantissa) = timestamp.fractional_seconds {
-                            // TODO: Both branches encode directly due to one
-                            // branch owning vs borrowing the decimal
-                            // representation. #286 should provide a fix.
-                            match mantissa {
-                                Mantissa::Digits(precision) => {
-                                    // Consider the following case: `2000-01-01T00:00:00.123Z`.
-                                    // That's 123 millis, or 123,000,000 nanos.
-                                    // Our mantissa is 0.123, or 123d-3.
-                                    let scaled = utc.nanosecond() / 10u32.pow(9 - *precision); // 123,000,000 -> 123
-                                    let exponent = (*precision as i64).neg(); // -3
-                                    let fractional = Decimal::new(scaled, exponent); // 123d-3
-                                    bytes_written += self.encode_decimal(&fractional)?;
-                                }
-                                Mantissa::Arbitrary(decimal) => {
-                                    bytes_written += self.encode_decimal(decimal)?;
-                                }
-                            };
+                        if let Some(decimal) = timestamp.fractional_seconds_as_decimal() {
+                            bytes_written += self.encode_decimal(&decimal)?;
                         }
                     }
                 }

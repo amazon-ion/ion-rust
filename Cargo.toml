@@ -36,7 +36,7 @@ experimental = [
 ]
 
 # Access to public conversions between Timestamp and chrono types (NaiveDateTime, DateTime<FixedOffset>).
-experimental-chrono = []
+experimental-chrono = ["dep:chrono"]
 
 # Feature for indicating explicit opt-in to Ion 1.1
 experimental-ion-1-1 = ["experimental-reader-writer"]
@@ -60,7 +60,7 @@ base64 = "0.12"
 # this makes it explicitly not do this as there is an advisory warning against this:
 # See: https://github.com/chronotope/chrono/issues/602
 compact_str = "0.8.0"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"], optional = true }
 delegate = "0.12.0"
 thiserror = "1.0"
 winnow = { version = "=0.6.24", features = ["simd"] }
@@ -91,7 +91,7 @@ serde_bytes = "0.11.17"
 walkdir = "2.5.0"
 test-generator = "0.3"
 criterion = "0.5.1"
-rand = "0.8.5"
+rand = "0.10"
 tempfile = "3.10.0"
 
 [[bench]]
@@ -113,6 +113,10 @@ bench = false
 
 [[bench]]
 name = "text_location_throughput"
+harness = false
+
+[[bench]]
+name = "timestamp"
 harness = false
 
 [[bench]]
