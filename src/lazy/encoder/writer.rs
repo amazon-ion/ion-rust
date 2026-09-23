@@ -2,38 +2,26 @@ use delegate::delegate;
 use ice_code::ice as cold_path;
 use std::io::Write;
 use std::ops::Deref;
-use std::sync::Arc;
 
 use crate::constants::v1_0::system_symbol_ids;
-use crate::constants::v1_1;
 use crate::element::element_writer::ElementWriter;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
-use crate::lazy::encoder::binary::v1_1::value_writer::BinaryValueWriter_1_1;
-use crate::lazy::encoder::value_writer::internal::{
-    EExpWriterInternal, FieldEncoder, MakeValueWriter,
-};
+use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{
-    AnnotatableWriter, EExpWriter, FieldWriter, SequenceWriter, StructWriter, ValueWriter,
+    AnnotatableWriter, FieldWriter, SequenceWriter, StructWriter, ValueWriter,
 };
 use crate::lazy::encoder::value_writer_config::{
-    AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, SymbolValueEncoding,
-    ValueWriterConfig,
+    AnnotationsEncoding, FieldNameEncoding, SymbolValueEncoding, ValueWriterConfig,
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_SYMBOL_RETAIN_CAP};
-use crate::lazy::encoding::{
-    BinaryEncoding_1_0, BinaryEncoding_1_1, Encoding, TextEncoding_1_0, TextEncoding_1_1,
-};
-use crate::lazy::expanded::macro_table::{Macro, MacroRef, ION_1_1_SYSTEM_MACROS};
-use crate::lazy::expanded::template::{Parameter, ParameterEncoding};
-use crate::lazy::text::raw::v1_1::reader::{MacroIdLike, MacroIdRef, ModuleKind, QualifiedAddress};
+use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
 use crate::write_config::WriteConfig;
 use crate::{
-    ContextWriter, Decimal, Element, Int, IonError, IonInput, IonResult, IonType, IonVersion,
-    MacroDef, MacroTable, RawSymbolRef, Symbol, SymbolId, SymbolTable, TemplateMacro, Timestamp,
-    UInt, Value,
+    ContextWriter, Decimal, Element, Int, IonResult, IonType, RawSymbolRef, Symbol, SymbolId,
+    SymbolTable, Timestamp, Value,
 };
 
 /// A thin wrapper around a `SymbolTable` that tracks the number of symbols whose definition has
@@ -87,56 +75,6 @@ impl Deref for WriterSymbolTable {
     }
 }
 
-/// A thin wrapper around a `MacroTable` that tracks the number of macros whose definition has
-/// not yet been written to output.
-pub struct WriterMacroTable {
-    macros: MacroTable,
-    num_pending: usize,
-}
-
-impl WriterMacroTable {
-    pub fn new(macros: MacroTable) -> Self {
-        Self {
-            macros,
-            num_pending: 0,
-        }
-    }
-
-    pub fn add_template_macro(&mut self, template_macro: TemplateMacro) -> IonResult<usize> {
-        let address = self.macros.add_template_macro(template_macro)?;
-        self.num_pending += 1;
-        Ok(address)
-    }
-
-    pub(crate) fn add_macro(&mut self, macro_ref: &Arc<MacroDef>) -> IonResult<usize> {
-        let address = self.macros.len();
-        self.macros.append_macro(macro_ref)?;
-        self.num_pending += 1;
-        Ok(address)
-    }
-
-    pub fn reset_num_pending(&mut self) {
-        self.num_pending = 0;
-    }
-
-    pub fn num_pending(&self) -> usize {
-        self.num_pending
-    }
-
-    pub fn pending(&self) -> &[Arc<MacroDef>] {
-        self.macros.macros_tail(self.num_pending)
-    }
-}
-
-// Read-only methods on the underlying MacroTable can be invoked directly.
-impl Deref for WriterMacroTable {
-    type Target = MacroTable;
-
-    fn deref(&self) -> &Self::Target {
-        &self.macros
-    }
-}
-
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
 // Note: the struct itself is generic over `Output` WITHOUT an `Output: Write` bound so that a
 // sink-less `Writer<E, ()>` can be parked in a pool (e.g. thread-local) between uses, retaining its
@@ -156,10 +94,6 @@ pub(crate) struct Writer<E: Encoding, Output> {
 pub type TextWriter_1_0<Output> = Writer<TextEncoding_1_0, Output>;
 #[allow(dead_code)]
 pub type BinaryWriter_1_0<Output> = Writer<BinaryEncoding_1_0, Output>;
-#[allow(dead_code)]
-pub type TextWriter_1_1<Output> = Writer<TextEncoding_1_1, Output>;
-#[allow(dead_code)]
-pub type BinaryWriter_1_1<Output> = Writer<BinaryEncoding_1_1, Output>;
 
 /// The sink-independent parts of a managed writer; see [`build_parts`].
 // Named fields rather than a tuple: the two sub-writers have the same type, so a positional return
@@ -196,45 +130,9 @@ fn build_parts<E: Encoding>(config: WriteConfig<E>) -> IonResult<WriterParts<E>>
 /// Call [`Self::attach`] to bind a sink and get an active writer back.
 ///
 /// Only encodings whose raw writer is [`Reusable`] have this API, which today means Ion 1.0 -- both
-/// binary and text. An Ion 1.1 writer cannot be parked and reused, because its macro table cannot yet
-/// be recycled; the missing `Reusable` bound makes `idle`/`attach`/`detach` resolve to nothing (E0599)
-/// rather than silently producing a document that references undefined macros:
-// The doctests are gated on the Ion 1.1 feature that makes `v1_1` public. Without it they would fail
-// to compile for the wrong reason (E0603: private module), which would mask a regression in the bound.
-#[cfg_attr(
-    feature = "experimental-ion-1-1",
-    doc = r#"
-```compile_fail,E0599
-use ion_rs::{v1_1, IonResult};
-fn main() -> IonResult<()> {
-    // no method named `idle` found: `BinaryEncoding_1_1::Writer<Vec<u8>>` is not `Reusable`.
-    let idle = v1_1::BinaryWriter::<()>::idle(v1_1::Binary)?;
-    Ok(())
-}
-```
-
-```compile_fail,E0599
-use ion_rs::{v1_1, IonResult};
-fn main() -> IonResult<()> {
-    // Same for text 1.1.
-    let idle = v1_1::TextWriter::<()>::idle(v1_1::Text)?;
-    Ok(())
-}
-```
-
-`detach` is gated by the same bound (on its own `impl` block):
-
-```compile_fail,E0599
-use ion_rs::{v1_1, IonResult};
-fn main() -> IonResult<()> {
-    let writer = v1_1::BinaryWriter::new(v1_1::Binary, Vec::new())?;
-    // no method named `detach` found: `BinaryEncoding_1_1::Writer<Vec<u8>>` is not `Reusable`.
-    let (idle, bytes) = writer.detach();
-    Ok(())
-}
-```
-"#
-)]
+/// binary and text. For an encoding that opts out, the missing `Reusable` bound makes
+/// `idle`/`attach`/`detach` resolve to nothing (E0599) rather than silently producing an invalid
+/// document.
 #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
 impl<E: Encoding> Writer<E, ()>
 where
@@ -361,61 +259,6 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         Ok(writer)
     }
 
-    pub(crate) fn macro_table(&self) -> &WriterMacroTable {
-        self.data_writer.macro_table()
-    }
-
-    pub(crate) fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
-        self.data_writer.macro_table_mut()
-    }
-
-    /// Takes a TDL expression representing a macro definition and returns a `Macro` that can
-    /// later be invoked by passing it to [`Writer::eexp_writer()`].
-    pub fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
-        self.data_writer.compile_macro(source)
-    }
-
-    /// Register a previously compiled `Macro` for use in this `Writer`.
-    pub fn register_macro(&mut self, macro_: &Macro) -> IonResult<Macro> {
-        self.data_writer.register_macro(macro_.definition())
-    }
-
-    /// Gets a macro with the provided ID from the default module.
-    pub fn get_macro<'a>(&self, id: impl Into<MacroIdRef<'a>>) -> IonResult<Macro> {
-        let id = id.into();
-        let macro_table = self.macro_table();
-
-        let qualified_address = match id {
-            MacroIdRef::LocalName(name) => {
-                let address = macro_table.address_for_id(id).ok_or_else(|| {
-                    IonError::illegal_operation(format!(
-                        "macro table does not contain a macro named '{name}'"
-                    ))
-                })?;
-                QualifiedAddress::new(ModuleKind::Default, address)
-            }
-            MacroIdRef::LocalAddress(address) => {
-                QualifiedAddress::new(ModuleKind::Default, address)
-            }
-            MacroIdRef::SystemAddress(address) => {
-                QualifiedAddress::new(ModuleKind::System, address.as_usize())
-            }
-        };
-
-        let macro_table: &MacroTable = match qualified_address.module() {
-            ModuleKind::Default => self.macro_table(),
-            ModuleKind::System => &ION_1_1_SYSTEM_MACROS,
-        };
-
-        let macro_def = macro_table
-            .clone_macro_with_address(qualified_address.address())
-            .ok_or_else(|| {
-                IonError::encoding_error(format!("no macro with the specified ID ({id:?}) found"))
-            })?;
-
-        Ok(Macro::new(macro_def, qualified_address))
-    }
-
     pub fn output(&self) -> &Output {
         &self.output
     }
@@ -434,19 +277,8 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
     /// Writes bytes of previously encoded values to the output stream.
     pub fn flush(&mut self) -> IonResult<()> {
         if self.symbols.num_pending() > 0 {
-            match E::ion_version() {
-                IonVersion::v1_0 => self.write_lst_append()?,
-                IonVersion::v1_1 => self.write_append_symbols_directive()?,
-            }
+            self.write_lst_append()?;
             self.symbols.reset_num_pending();
-        }
-
-        // TODO: In Ion 1.1, new symbols and new macros could be added using the same directive.
-        if self.macro_table().num_pending() > 0 {
-            self.write_append_macros_directive()?;
-            self.macro_table_mut()
-                .expect("the pending macro count is >0")
-                .reset_num_pending();
         }
 
         self.directive_writer.flush()?;
@@ -504,75 +336,6 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
         new_symbol_list.close()?;
 
         lst.close()
-    }
-
-    fn write_append_macros_directive(&mut self) -> IonResult<()> {
-        let Self {
-            data_writer,
-            directive_writer,
-            ..
-        } = self;
-
-        let macros = data_writer.macro_table();
-
-        // TODO: Once expression group serialization is complete, this can be replaced by a call
-        //       to the `add_macros` system macro.
-        let mut directive = directive_writer
-            .value_writer()
-            .with_annotations("$ion")?
-            .sexp_writer()?;
-
-        directive
-            .write_symbol(v1_1::system_symbols::MODULE)?
-            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
-
-        let mut symbols_sexp = directive.sexp_writer()?;
-        symbols_sexp
-            .write_symbol(v1_1::system_symbols::SYMBOL_TABLE)?
-            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
-        symbols_sexp.close()?;
-
-        let pending_macros = macros
-            .pending()
-            .iter()
-            // Only user-defined template macros can be added to the macro table.
-            .map(|m| m.require_template());
-
-        let mut macro_table = directive.sexp_writer()?;
-        macro_table
-            .write_symbol(v1_1::system_symbols::MACRO_TABLE)?
-            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?
-            .write_all(pending_macros)?;
-        macro_table.close()?;
-        directive.close()
-    }
-
-    /// Helper method to encode an LST append containing pending symbols.
-    fn write_append_symbols_directive(&mut self) -> IonResult<()> {
-        let Self {
-            symbols,
-            directive_writer,
-            ..
-        } = self;
-
-        let mut directive = directive_writer
-            .value_writer()
-            .with_annotations(v1_1::system_symbols::ION)?
-            .sexp_writer()?;
-
-        directive
-            .write_symbol(v1_1::system_symbols::MODULE)?
-            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?;
-
-        let pending_symbols = symbols.pending().iter().map(Symbol::text);
-
-        let mut symbol_table = directive.sexp_writer()?;
-        symbol_table
-            .write_symbol(v1_1::system_symbols::SYMBOL_TABLE)?
-            .write_symbol(v1_1::constants::DEFAULT_MODULE_NAME)?
-            .write_list(pending_symbols)?;
-        symbol_table.close()?;
-        directive.close()
     }
 }
 
@@ -637,41 +400,6 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
     }
 }
 
-// Generally useful methods, but currently only called in unit tests.
-#[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
-impl ApplicationValueWriter<'_, BinaryValueWriter_1_1<'_, '_>> {
-    pub fn with_container_encoding(mut self, container_encoding: ContainerEncoding) -> Self {
-        self.value_writer_config = self
-            .value_writer_config
-            .with_container_encoding(container_encoding);
-        self
-    }
-
-    pub fn with_annotations_encoding(mut self, annotations_encoding: AnnotationsEncoding) -> Self {
-        self.value_writer_config = self
-            .value_writer_config
-            .with_annotations_encoding(annotations_encoding);
-        self
-    }
-
-    pub fn with_symbol_value_encoding(
-        mut self,
-        symbol_value_encoding: SymbolValueEncoding,
-    ) -> Self {
-        self.value_writer_config = self
-            .value_writer_config
-            .with_symbol_value_encoding(symbol_value_encoding);
-        self
-    }
-
-    pub fn with_field_name_encoding(mut self, field_name_encoding: FieldNameEncoding) -> Self {
-        self.value_writer_config = self
-            .value_writer_config
-            .with_field_name_encoding(field_name_encoding);
-        self
-    }
-}
-
 impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
     type AnnotatedValueWriter<'a>
         = ApplicationValueWriter<'a, V::AnnotatedValueWriter<'a>>
@@ -726,9 +454,6 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                             "annotation symbol ID {sid} is out of range"
                         ));
                     }
-                }
-                RawSymbolRef::SystemSymbol_1_1(_symbol) => {
-                    // The system symbol was validated on creation.
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
@@ -789,9 +514,6 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                         ));
                     }
                 }
-                RawSymbolRef::SystemSymbol_1_1(_symbol) => {
-                    // Symbol was validated on creation, nothing to do.
-                }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
                     match self.symbols.sid_for(text) {
@@ -814,7 +536,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     type ListWriter = ApplicationListWriter<'value, V>;
     type SExpWriter = ApplicationSExpWriter<'value, V>;
     type StructWriter = ApplicationStructWriter<'value, V>;
-    type EExpWriter = ApplicationEExpWriter<'value, V>;
 
     delegate! {
         to self.raw_value_writer {
@@ -855,7 +576,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
                 }
                 SymbolId(symbol_id)
             }
-            SystemSymbol_1_1(symbol) => SystemSymbol_1_1(symbol),
             Text(text) => {
                 match value_writer_config.symbol_value_encoding() {
                     SymbolIds => {
@@ -905,17 +625,6 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             self.symbols,
             config,
             self.raw_value_writer.struct_writer()?,
-        ))
-    }
-
-    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
-    where
-        Self: 'a,
-    {
-        Ok(ApplicationEExpWriter::new(
-            self.symbols,
-            self.value_writer_config,
-            self.raw_value_writer.eexp_writer(macro_id)?,
         ))
     }
 }
@@ -982,9 +691,6 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
                     )));
                 }
                 return self.raw_struct_writer.encode_field_name(symbol_id);
-            }
-            RawSymbolRef::SystemSymbol_1_1(symbol) => {
-                return self.raw_struct_writer.encode_field_name(symbol);
             }
             // Otherwise, get its associated text.
             RawSymbolRef::Text(text) => text,
@@ -1118,115 +824,6 @@ impl<V: ValueWriter> SequenceWriter for ApplicationSExpWriter<'_, V> {
 
     fn close(self) -> IonResult<Self::Resources> {
         self.raw_sexp_writer.close()
-    }
-}
-
-pub struct ApplicationEExpWriter<'value, V: ValueWriter> {
-    symbols: &'value mut WriterSymbolTable,
-    raw_eexp_writer: V::EExpWriter,
-    value_writer_config: ValueWriterConfig,
-}
-
-impl<'value, V: ValueWriter> ApplicationEExpWriter<'value, V> {
-    pub(crate) fn new(
-        symbols: &'value mut WriterSymbolTable,
-        value_writer_config: ValueWriterConfig,
-        raw_eexp_writer: V::EExpWriter,
-    ) -> Self {
-        Self {
-            symbols,
-            value_writer_config,
-            raw_eexp_writer,
-        }
-    }
-
-    /// Returns a reference to the macro signature parameter for which the next argument corresponds.
-    /// If no more parameters remain in the signature, returns `None`.
-    pub fn current_parameter(&self) -> Option<&Parameter> {
-        self.raw_eexp_writer.current_parameter()
-    }
-
-    /// Helper method. If there are no more parameters, returns `Err`. Otherwise, returns
-    /// `Ok(next_parameter)`.
-    #[inline]
-    fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
-        self.raw_eexp_writer.expect_next_parameter()
-    }
-}
-
-impl<V: ValueWriter> SequenceWriter for ApplicationEExpWriter<'_, V> {
-    type Resources = ();
-
-    /// Writes a value in the current context (list, s-expression, or stream) and upon success
-    /// returns another reference to `self` to enable method chaining.
-    fn write<Value: WriteAsIon>(&mut self, value: Value) -> IonResult<&mut Self> {
-        value.write_as_ion(self.make_value_writer())?;
-        Ok(self)
-    }
-
-    fn close(self) -> IonResult<Self::Resources> {
-        self.raw_eexp_writer.close()
-    }
-}
-
-impl<V: ValueWriter> ContextWriter for ApplicationEExpWriter<'_, V> {
-    type NestedValueWriter<'a>
-        = ApplicationValueWriter<
-        'a,
-        <<V as ValueWriter>::EExpWriter as ContextWriter>::NestedValueWriter<'a>,
-    >
-    where
-        Self: 'a;
-}
-
-impl<V: ValueWriter> MakeValueWriter for ApplicationEExpWriter<'_, V> {
-    fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
-        ApplicationValueWriter::new(
-            self.symbols,
-            self.value_writer_config,
-            self.raw_eexp_writer.make_value_writer(),
-        )
-    }
-}
-
-impl<V: ValueWriter> EExpWriterInternal for ApplicationEExpWriter<'_, V> {
-    fn expect_next_parameter(&mut self) -> IonResult<&Parameter> {
-        Self::expect_next_parameter(self) // Delegate to the inherent impl
-    }
-}
-
-impl<V: ValueWriter> EExpWriter for ApplicationEExpWriter<'_, V> {
-    type ExprGroupWriter<'group>
-        = <V::EExpWriter as EExpWriter>::ExprGroupWriter<'group>
-    where
-        Self: 'group;
-
-    fn invoked_macro(&self) -> MacroRef<'_> {
-        self.raw_eexp_writer.invoked_macro()
-    }
-
-    fn current_parameter(&self) -> Option<&Parameter> {
-        Self::current_parameter(self) // Delegate to the inherent impl
-    }
-
-    fn write_flex_uint(&mut self, value: impl Into<UInt>) -> IonResult<()> {
-        self.expect_next_parameter()
-            .and_then(|p| p.expect_encoding(&ParameterEncoding::FlexUInt))?;
-        self.raw_eexp_writer.write_flex_uint(value)
-    }
-
-    fn write_fixed_uint8(&mut self, value: impl Into<u8>) -> IonResult<()> {
-        self.expect_next_parameter()
-            .and_then(|p| p.expect_encoding(&ParameterEncoding::UInt8))?;
-        self.raw_eexp_writer.write_fixed_uint8(value)
-    }
-
-    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>> {
-        let _param = self
-            .expect_next_parameter()
-            .and_then(|p| p.expect_variadic())?;
-        // TODO: Pass `Parameter` to group writer so it can do its own validation
-        self.raw_eexp_writer.expr_group_writer()
     }
 }
 
@@ -1633,313 +1230,10 @@ mod reuse_tests {
     }
 }
 
-#[cfg(feature = "experimental-ion-1-1")]
 #[cfg(test)]
 mod tests {
-    use crate::lazy::encoder::value_writer::AnnotatableWriter;
-    use crate::lazy::encoder::value_writer_config::{AnnotationsEncoding, SymbolValueEncoding};
-    use crate::raw_symbol_ref::AsRawSymbolRef;
-    use crate::{
-        v1_0, v1_1, EExpWriter, Element, FieldNameEncoding, HasSpan, IonResult, LazyRawValue,
-        RawSymbolRef, SequenceWriter, StructWriter, SystemReader, TextFormat, ValueWriter, Writer,
-    };
+    use crate::{v1_0, IonResult, Writer};
     use std::io::BufWriter;
-
-    fn symbol_value_encoding_test<const N: usize, A: AsRawSymbolRef>(
-        encoding: SymbolValueEncoding,
-        symbol_and_encoding_pairs: [(A, &[u8]); N],
-    ) -> IonResult<()> {
-        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-        for (symbol, _expected_bytes) in &symbol_and_encoding_pairs {
-            writer
-                .value_writer()
-                .with_symbol_value_encoding(encoding)
-                .write_symbol(symbol)?;
-        }
-        let bytes = writer.close()?;
-        let mut reader = SystemReader::new(v1_1::Binary, bytes.as_slice());
-        for (symbol, expected_bytes) in &symbol_and_encoding_pairs {
-            let value = reader.expect_next_value()?;
-            let raw_value = value.raw().unwrap();
-            let actual_bytes = raw_value.span().bytes();
-            assert_eq!(
-                actual_bytes, *expected_bytes,
-                "actual {actual_bytes:02X?} != expected {expected_bytes:02X?}",
-            );
-            println!(
-                "{:?} {:02X?} == {:02X?}",
-                symbol.as_raw_symbol_ref(),
-                actual_bytes,
-                expected_bytes
-            )
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn intern_new_symbol_values() -> IonResult<()> {
-        use RawSymbolRef::*;
-        symbol_value_encoding_test(
-            SymbolValueEncoding::SymbolIds,
-            [
-                (Text("$ion_symbol_table"), &[0xE1, 0x03]),
-                (Text("name"), &[0xE1, 0x04]),
-                (SymbolId(6), &[0xE1, 0x06]), // SIDs are written as-is
-                (Text("foo"), &[0xE1, 0x40]), // Text is added to the symbol table and encoded as a SID
-            ],
-        )
-    }
-
-    #[test]
-    fn do_not_intern_new_symbol_values() -> IonResult<()> {
-        use RawSymbolRef::*;
-        symbol_value_encoding_test(
-            SymbolValueEncoding::NewSymbolsAsInlineText,
-            [
-                // Known text symbols are written as SIDs
-                (Text("$ion_symbol_table"), &[0xE1, 0x03]),
-                (Text("name"), &[0xE1, 0x04]),
-                // SIDs are written as-is
-                (SymbolId(6), &[0xE1, 0x06]),
-                // New text symbols are written as inline text
-                //                 f     o     o
-                (Text("foo"), &[0xA3, 0x66, 0x6F, 0x6F]),
-            ],
-        )
-    }
-
-    #[test]
-    fn encode_all_text_as_is() -> IonResult<()> {
-        use RawSymbolRef::*;
-        symbol_value_encoding_test(
-            SymbolValueEncoding::InlineText,
-            [
-                // Known text symbols are written as inline text
-                (Text("name"), &[0xA4, 0x6E, 0x61, 0x6D, 0x65]),
-                // SIDs are written as-is
-                (SymbolId(6), &[0xE1, 0x06]),
-                // New text symbols are written as inline text
-                //                 f     o     o
-                (Text("foo"), &[0xA3, 0x66, 0x6F, 0x6F]),
-            ],
-        )
-    }
-
-    fn annotations_sequence_encoding_test(
-        encoding: AnnotationsEncoding,
-        sequence: &[RawSymbolRef<'_>],
-        expected_encoding: &[u8],
-    ) -> IonResult<()> {
-        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-        writer
-            .value_writer()
-            .with_annotations_encoding(encoding)
-            .with_annotations(sequence)?
-            .write_string("foo")?;
-        let bytes = writer.close()?;
-        let mut reader = SystemReader::new(v1_1::Binary, bytes.as_slice());
-        let value = reader.expect_next_value()?;
-        let raw_value = value.raw().unwrap();
-        let annotations = raw_value.annotations_span();
-        assert_eq!(
-            annotations.bytes(),
-            expected_encoding,
-            "{:02X?} != {:02X?}",
-            annotations.bytes(),
-            expected_encoding
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn intern_new_annotations() -> IonResult<()> {
-        use RawSymbolRef::*;
-        annotations_sequence_encoding_test(
-            AnnotationsEncoding::SymbolIds,
-            &[
-                Text("$ion_symbol_table"),
-                Text("name"),
-                SymbolId(6),
-                Text("foo"),
-            ],
-            &[
-                0xE9, // Opcode: FlexUInt follows with byte length of sequence
-                0x0B, // FlexUInt byte length: 4
-                0x07, // FlexSym SID $3
-                0x09, // FlexSym SID $4
-                0x0D, // FlexSym SID $6
-                0x02, 0x01, // FlexSym SID $64
-            ],
-        )
-    }
-
-    #[test]
-    fn write_new_annotations_as_text() -> IonResult<()> {
-        use RawSymbolRef::*;
-        annotations_sequence_encoding_test(
-            AnnotationsEncoding::NewSymbolsAsInlineText,
-            &[
-                Text("$ion_symbol_table"),
-                Text("name"),
-                SymbolId(6),
-                Text("foo"),
-            ],
-            &[
-                0xE9, // Opcode: FlexUInt follows with byte length of sequence
-                0x0F, // FlexUInt byte length: 7
-                0x07, // FlexSym: SID $3
-                0x09, // FlexSym: SID $4
-                0x0D, // FlexSym: SID $6
-                0xFB, // FlexSym: 3 UTF-8 bytes
-                // f     o     o
-                0x66, 0x6F, 0x6F,
-            ],
-        )
-    }
-
-    #[test]
-    #[rustfmt::skip]
-    fn write_text_annotations_as_is() -> IonResult<()> {
-        use RawSymbolRef::*;
-        annotations_sequence_encoding_test(
-            AnnotationsEncoding::InlineText,
-            &[Text("name"), SymbolId(6), Text("foo")],
-            &[
-                0xE9, // Opcode: FlexUInt follows with byte length of sequence
-                0x15, // FlexUInt byte length: 10
-                0xF9, // FlexSym: 4 UTF-8 bytes
-                // n     a     m     e
-                0x6E, 0x61, 0x6D, 0x65,
-                0x0D, // FlexSym: SID $6
-                0xFB, // FlexSym: 3 UTF-8 bytes
-                // f     o     o
-                0x66, 0x6F, 0x6F,
-            ],
-        )
-    }
-
-    /// Writes a struct with all of the provided field names using the requested field name encoding.
-    /// For simplicity, the value for each field is the integer 0.
-    fn struct_field_encoding_test(
-        encoding: FieldNameEncoding,
-        field_names_and_encodings: &[(RawSymbolRef<'_>, &[u8])],
-    ) -> IonResult<()> {
-        // Configure a struct writer that uses the requested field name encoding
-        let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-        let mut struct_writer = writer
-            .value_writer()
-            .struct_writer()?
-            .with_field_name_encoding(encoding);
-
-        for (name, _) in field_names_and_encodings {
-            struct_writer.write(name, /* same value for every field*/ 0)?;
-        }
-        struct_writer.close()?;
-        let bytes = writer.close()?;
-
-        println!("encoded bytes: {bytes:02X?}");
-
-        let mut reader = SystemReader::new(v1_1::Binary, bytes.as_slice());
-        let struct_ = reader.expect_next_value()?.read()?.expect_struct()?;
-        for (field, (_name, expected_encoding)) in
-            struct_.iter().zip(field_names_and_encodings.iter())
-        {
-            let raw_name = field?.raw_name().unwrap();
-            let raw_name_encoding = raw_name.span().bytes();
-            assert_eq!(
-                raw_name_encoding, *expected_encoding,
-                "actual {:#02X?}\n!=\nexpected {:#02X?}",
-                raw_name_encoding, *expected_encoding
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn intern_all_field_names() -> IonResult<()> {
-        struct_field_encoding_test(
-            FieldNameEncoding::SymbolIds,
-            &[
-                // New symbols
-                (RawSymbolRef::Text("foo"), &[0x81]), // FlexUInt SID $64,
-                (RawSymbolRef::Text("bar"), &[0x83]), // FlexUInt SID $65,
-                (RawSymbolRef::Text("baz"), &[0x85]), // FlexUInt SID $66,
-                // Symbols that are already in the symbol table
-                (RawSymbolRef::Text("name"), &[0x09]), // FlexUInt SID $4,
-                (RawSymbolRef::Text("foo"), &[0x81]),  // FlexUInt SID $64,
-            ],
-        )
-    }
-
-    #[test]
-    fn write_all_field_names_as_text() -> IonResult<()> {
-        struct_field_encoding_test(
-            FieldNameEncoding::InlineText,
-            &[
-                // New symbols
-                (RawSymbolRef::Text("foo"), &[0xFB, 0x66, 0x6F, 0x6F]), // FlexSym -3, "foo"
-                (RawSymbolRef::Text("bar"), &[0xFB, 0x62, 0x61, 0x72]), // FlexSym -3, "bar"
-                (RawSymbolRef::Text("baz"), &[0xFB, 0x62, 0x61, 0x7A]), // FlexSym -3, "baz"
-                // Symbols that are already in the symbol table are still written as text
-                (RawSymbolRef::Text("name"), &[0xF9, 0x6E, 0x61, 0x6D, 0x65]), // FlexSym -4, "name"
-            ],
-        )
-    }
-
-    #[test]
-    fn write_new_field_names_as_text() -> IonResult<()> {
-        struct_field_encoding_test(
-            FieldNameEncoding::NewSymbolsAsInlineText,
-            &[
-                // New symbols
-                (RawSymbolRef::Text("foo"), &[0xFB, 0x66, 0x6F, 0x6F]), // FlexSym -3, "foo"
-                (RawSymbolRef::Text("bar"), &[0xFB, 0x62, 0x61, 0x72]), // FlexSym -3, "bar"
-                (RawSymbolRef::Text("baz"), &[0xFB, 0x62, 0x61, 0x7A]), // FlexSym -3, "baz"
-                // Symbols that are already in the symbol table are written as SIDs
-                (RawSymbolRef::Text("name"), &[0x09]), // FlexSym 4, SID $4,
-            ],
-        )
-    }
-
-    #[test]
-    fn define_new_macro() -> IonResult<()> {
-        let mut writer = Writer::new(v1_1::Text.with_format(TextFormat::Lines), Vec::new())?;
-
-        // Define a macro
-        let identity = writer.compile_macro("(macro identity (x*) (%x))")?;
-
-        // Invoke that macro
-        let mut eexp_writer = writer.eexp_writer(&identity)?;
-        let mut group_writer = eexp_writer.expr_group_writer()?;
-        group_writer.write_all(["foo", "bar", "baz"])?;
-        group_writer.close()?;
-        eexp_writer.close()?;
-
-        writer.flush()?;
-
-        // Confirm the output is as expected
-        let output = writer.output().as_slice();
-
-        println!("output:\n{}", std::str::from_utf8(output).unwrap());
-
-        let actual = Element::read_all(output)?;
-
-        let expected = Element::read_all(
-            r#"
-            "foo"
-            "bar"
-            "baz"
-        "#,
-        )?;
-
-        assert_eq!(
-            actual, expected,
-            "// actual\n{actual:?}\n// !=\n// expected\n{expected:?}"
-        );
-
-        Ok(())
-    }
 
     #[test]
     fn flush_underlying_sink() -> IonResult<()> {
@@ -1961,238 +1255,5 @@ mod tests {
         // Make sure that this caused the encoded bytes to reach the `Vec<u8>`.
         assert!(writer.output().get_ref().len() > len_before_flush);
         Ok(())
-    }
-
-    mod eexp_parameter_validation {
-        use super::*;
-        use num_traits::{PrimInt, Unsigned};
-        use rstest::*;
-
-        #[test]
-        fn accept_valid_parameter_encoding() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // The argument passed as parameter `a` is "hello"
-            eexp_writer.write("hello")?;
-            // The argument passed as parameter `b` is 42
-            eexp_writer.write_flex_uint(42usize)?;
-            eexp_writer.close()?;
-            let bytes = writer.close()?;
-            // Reading the encoded data back, we get the expected output.
-            let actual = Element::read_all(&bytes)?;
-            let expected = Element::read_all("\"hello\" 42")?;
-            assert_eq!(actual, expected);
-            Ok(())
-        }
-
-        #[test]
-        fn tagged_parameter_rejects_flex_uint() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // Attempt to write a FlexUInt where a tagged value is required, resulting in an error.
-            assert!(eexp_writer.write_flex_uint(42usize).is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn flex_uint_parameter_rejects_tagged_value() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a flex_uint::b) (.values (%a) (%b)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            eexp_writer.write("hello")?;
-            // Attempt to write a tagged value where a FlexUInt is required, resulting in an error.
-            assert!(eexp_writer.write("world").is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn exactly_one_parameter_rejects_expr_group() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a) (%a)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // Attempt to start an expression group for parameter `a`, which has a cardinality of
-            // exactly-one.
-            assert!(eexp_writer.expr_group_writer().is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn zero_or_more_parameter_rejects_tagged_value() -> IonResult<()> {
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro("(macro foo (a*) (%a)))")?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // Attempt to write a tagged value for parameter `a`, which has a cardinality of
-            // zero-or-more, and therefore requires an expression group.
-            assert!(eexp_writer.write("hello").is_err());
-            Ok(())
-        }
-
-        #[test]
-        fn tagless_uint8_encoding() -> IonResult<()> {
-            let macro_source = "(macro foo (uint8::x) (%x))";
-            #[rustfmt::skip]
-            let expected: &[u8] = &[
-                0xE0, 0x01, 0x01, 0xEA,                       // IVM
-                0xE7, 0xF9, 0x24, 0x69, 0x6F, 0x6E,           // $ion::
-                0xFC, 0x55, 0xEE, 0x10, 0xA1, 0x5F,           // (module _
-                0xC4, 0xEE, 0x0F, 0xA1, 0x5F,                 //   (symbol_table _ )
-                0xFC, 0x3F, 0xEE, 0x0E, 0xA1, 0x5F,           //   (macro_table _
-                0xFC, 0x33,                                   //      (
-                0xA5, 0x6d, 0x61, 0x63, 0x72, 0x6F,           //        macro
-                0xA3, 0x66, 0x6F, 0x6F,                       //        foo
-                0xC9,                                         //        (
-                0xE7, 0xF7, 0x75, 0x69, 0x6E, 0x74, 0x38,     //          uint8::
-                0xA1, 0x78,                                   //          x )
-                0xC4, 0xA1, 0x25, 0xA1, 0x78,                 //        ('%' x))))
-                0x18, 0x05,                                   //  (:foo 5)
-
-            ];
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            eexp_writer.write_int(&5.into())?;
-            let _ = eexp_writer.close();
-            let output = writer.close()?;
-            assert_eq!(output.as_slice(), expected);
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            eexp_writer.write_i64(5i64)?;
-            let _ = eexp_writer.close();
-            let output = writer.close()?;
-            assert_eq!(output.as_slice(), expected);
-
-            Ok(())
-        }
-
-        #[test]
-        fn tagless_uint8_encoding_fails() -> IonResult<()> {
-            let macro_source = "(macro foo (uint8::x) (%x))";
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            let result = eexp_writer.write_int(&1024.into());
-            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
-            assert!(result.is_err(), "unexpected success");
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            let result = eexp_writer.write_i64(1024.into());
-            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
-            assert!(result.is_err(), "unexpected success");
-
-            Ok(())
-        }
-
-        #[rstest]
-        #[case::uint8("(macro foo (uint8::x) (%x))", 5, "5")]
-        #[case::uint16("(macro foo (uint16::x) (%x))", 5, "5")]
-        #[case::uint32("(macro foo (uint32::x) (%x))", 5, "5")]
-        #[case::uint64("(macro foo (uint64::x) (%x))", 5, "5")]
-        fn tagless_uint_encoding(
-            #[case] macro_source: &str,
-            #[case] input: i64,
-            #[case] expected: &str,
-        ) -> IonResult<()> {
-            use crate::{Element, Int};
-
-            // write_int
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let int: Int = input.into();
-            eexp_writer.write_int(&int)?;
-            eexp_writer.close()?;
-
-            let output = writer.close()?;
-            let actual = Element::read_all(&output)?;
-            let exp_elem = Element::read_all(expected)?;
-            assert_eq!(actual, exp_elem);
-
-            // write_i64
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            eexp_writer.write_i64(input)?;
-            eexp_writer.close()?;
-
-            let output = writer.close()?;
-            let actual = Element::read_all(&output)?;
-            let exp_elem = Element::read_all(expected)?;
-            assert_eq!(actual, exp_elem);
-
-            Ok(())
-        }
-
-        #[rstest]
-        #[case::uint8("(macro foo (uint8::x) (%x))", 5u8)]
-        #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
-        #[case::uint32("(macro foo (uint32::x) (%x))", 5u32)]
-        #[case::uint64("(macro foo (uint64::x) (%x))", 5u64)]
-        fn tagless_uint_encoding_write_int_fails<T: PrimInt + Unsigned>(
-            #[case] macro_source: &str,
-            #[case] input: T,
-        ) -> IonResult<()> {
-            let max_int = T::max_value();
-            let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
-            let neg_input = -num_traits::cast::cast::<_, i128>(input).unwrap();
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let result = eexp_writer.write_int(&max_int_plus_one.into());
-            assert!(result.is_err(), "unexpected success");
-
-            // Ensure we cannot write a negative value..
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let result = eexp_writer.write_int(&neg_input.into());
-            assert!(result.is_err(), "unexpected success");
-
-            Ok(())
-        }
-
-        #[rstest]
-        #[case::uint8("(macro foo (uint8::x) (%x))", 5u8)]
-        #[case::uint16("(macro foo (uint16::x) (%x))", 5u16)]
-        #[case::uint32("(macro foo (uint32::x) (%x))", 5u32)]
-        fn tagless_uint_encoding_write_i64_fails<T: PrimInt + Unsigned>(
-            #[case] macro_source: &str,
-            #[case] input: T,
-        ) -> IonResult<()> {
-            let max_int = T::max_value();
-            let max_int_plus_one = num_traits::cast::cast::<_, i128>(max_int).unwrap() + 1i128;
-            let neg_input = -num_traits::cast::cast::<_, i128>(input).unwrap();
-
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            // eexp_writer should do the "right thing" given the parameter's encoding.
-            let result = eexp_writer.write_i64(max_int_plus_one.try_into().unwrap());
-            // the "right thing" should be to error, since `x` can only be an 8bit unsigned int.
-            assert!(result.is_err(), "unexpected success");
-
-            // Ensure we cannot write a negative value..
-            let mut writer = Writer::new(v1_1::Binary, Vec::new())?;
-            let foo = writer.compile_macro(macro_source)?;
-            let mut eexp_writer = writer.eexp_writer(&foo)?;
-            let result = eexp_writer.write_i64(neg_input.try_into().unwrap());
-            assert!(result.is_err(), "unexpected success");
-
-            Ok(())
-        }
     }
 }

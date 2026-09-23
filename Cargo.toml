@@ -25,21 +25,16 @@ default = []
 experimental-ion-hash = ["dep:digest", "dep:sha2", "experimental-reader-writer"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
-# These are not guaranteed any sort of API stability and may also have non-standard
-# Ion behavior (e.g., draft Ion 1.1 capabilities).
+# These are not guaranteed any sort of API stability.
 experimental = [
     "experimental-reader-writer",
     "experimental-tooling-apis",
     "experimental-serde",
-    "experimental-ion-1-1",
     "experimental-chrono",
 ]
 
 # Access to public conversions between Timestamp and chrono types (NaiveDateTime, DateTime<FixedOffset>).
 experimental-chrono = ["dep:chrono"]
-
-# Feature for indicating explicit opt-in to Ion 1.1
-experimental-ion-1-1 = ["experimental-reader-writer"]
 
 # Access to the streaming Reader and Writer types.
 # These APIs are functional and well-tested, but are not yet stable.
@@ -59,7 +54,6 @@ base64 = "0.12"
 # chrono < 0.5 brings in a deprecated version of the `time` crate via `oldtime` feature by default
 # this makes it explicitly not do this as there is an advisory warning against this:
 # See: https://github.com/chronotope/chrono/issues/602
-compact_str = "0.8.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"], optional = true }
 delegate = "0.12.0"
 thiserror = "1.0"
@@ -139,11 +133,6 @@ debug = true
 # This makes test runs faster without affecting incremental build times.
 [profile.dev.package."*"]
 opt-level = 2
-
-[[test]]
-name = "conformance"
-harness = false
-test = false
 
 [[bench]]
 name = "write_reuse"

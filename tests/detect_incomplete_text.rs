@@ -32,23 +32,9 @@ static CANONICAL_FILE_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
 static SKIP_LIST_1_0: LazyLock<HashSet<String>> =
     LazyLock::new(|| CANONICAL_FILE_NAMES.iter().cloned().collect());
 
-#[cfg(feature = "experimental-ion-1-1")]
-static SKIP_LIST_1_1: LazyLock<HashSet<String>> = LazyLock::new(|| {
-    CANONICAL_FILE_NAMES
-        .iter()
-        .map(|file_1_0| file_1_0.replace("iontestdata", "iontestdata_1_1"))
-        .collect()
-});
-
 #[test_resources("ion-tests/iontestdata/good/**/*.ion")]
 fn detect_incomplete_input_1_0(file_name: &str) {
     incomplete_text_detection_test(&SKIP_LIST_1_0, file_name).unwrap()
-}
-
-#[cfg(feature = "experimental-ion-1-1")]
-#[test_resources("ion-tests/iontestdata_1_1/good/**/*.ion")]
-fn detect_incomplete_input_1_1(file_name: &str) {
-    incomplete_text_detection_test(&SKIP_LIST_1_1, file_name).unwrap()
 }
 
 fn incomplete_text_detection_test(skip_list: &HashSet<String>, file_name: &str) -> IonResult<()> {

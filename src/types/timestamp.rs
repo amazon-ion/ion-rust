@@ -2718,7 +2718,7 @@ mod chrono_interop {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::types::TimestampBuilder;
+        use crate::types::timestamp::TimestampBuilder;
 
         /// Constructs a [`FixedOffset`] at the specified offset seconds from UTC. If the specified
         /// offset is out of bounds, this method will panic.

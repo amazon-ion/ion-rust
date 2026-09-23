@@ -1,8 +1,6 @@
 use crate::catalog::{Catalog, EmptyCatalog};
 use crate::lazy::any_encoding::AnyEncoding;
-use crate::lazy::encoding::{
-    BinaryEncoding_1_0, BinaryEncoding_1_1, TextEncoding_1_0, TextEncoding_1_1,
-};
+use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
 use crate::Decoder;
 
 /// Provides configuration details for reader construction.
@@ -34,20 +32,8 @@ impl From<TextEncoding_1_0> for ReadConfig<TextEncoding_1_0> {
     }
 }
 
-impl From<TextEncoding_1_1> for ReadConfig<TextEncoding_1_1> {
-    fn from(encoding: TextEncoding_1_1) -> Self {
-        ReadConfig::new(encoding)
-    }
-}
-
 impl From<BinaryEncoding_1_0> for ReadConfig<BinaryEncoding_1_0> {
     fn from(encoding: BinaryEncoding_1_0) -> Self {
-        ReadConfig::new(encoding)
-    }
-}
-
-impl From<BinaryEncoding_1_1> for ReadConfig<BinaryEncoding_1_1> {
-    fn from(encoding: BinaryEncoding_1_1) -> Self {
         ReadConfig::new(encoding)
     }
 }

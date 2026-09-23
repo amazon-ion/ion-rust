@@ -93,8 +93,6 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
                     ExpandedValueSource<'top, Encoding>,
                 >(self.source)
             },
-            // TODO: Preserve variable provenance.
-            variable: None,
         };
         LazyValue::new(expanded)
     }
@@ -171,36 +169,6 @@ mod tests {
     use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::{AnyEncoding, Element, IonResult, Reader, Sequence};
 
-    #[cfg(feature = "experimental-ion-1-1")]
-    fn test_data() -> String {
-        let test_data = r#"
-            $ion_1_1
-
-            // === Values backed by `ExpandedValueSource::ValueLiteral` ===
-            foo
-            true
-            baz::5
-            [(), {}, ()]
-            2025T
-            "Hello"
-
-            // === Macro output backed by `ExpandedValueSource::ValueLiteral` ===
-            (:values 1 2 3)
-
-             (:add_macros
-                (macro foo () 'singleton value')
-                (macro greet (name) (.make_string "Hello, " (%name))))
-
-             // === Produces a value backed by an `ExpandedValueSource::SingletonEExp` ===
-             (:foo)
-
-             // === Produces a value backed by an `ExpandedValueSource::Constructed` ===
-             (:greet "Alice")
-         "#;
-        test_data.to_owned()
-    }
-
-    #[cfg(not(feature = "experimental-ion-1-1"))]
     fn test_data() -> String {
         let test_data = r#"
             // === Values backed by `ExpandedValueSource::ValueLiteral` ===

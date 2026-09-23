@@ -8,7 +8,6 @@ pub(crate) mod decoder;
 pub(crate) mod encoder;
 pub(crate) mod encoding;
 pub(crate) mod expanded;
-mod never;
 pub(crate) mod raw_stream_item;
 pub(crate) mod raw_value_ref;
 pub(crate) mod reader;

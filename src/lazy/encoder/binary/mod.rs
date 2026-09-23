@@ -1,5 +1,4 @@
 pub mod v1_0;
-pub mod v1_1;
 
 use bumpalo::Bump as BumpAllocator;
 use std::ops::Deref;

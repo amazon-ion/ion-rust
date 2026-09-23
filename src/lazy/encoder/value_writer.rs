@@ -1,15 +1,11 @@
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
-use crate::lazy::encoder::value_writer::internal::{
-    EExpWriterInternal, FieldEncoder, MakeValueWriter,
-};
+use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::text::raw::v1_1::reader::MacroIdLike;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp, UInt};
+use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
 
 // This module is `pub(crate)` to deter crates from providing their own implementations of these traits.
 pub(crate) mod internal {
-    use crate::lazy::expanded::template::Parameter;
     use crate::raw_symbol_ref::AsRawSymbolRef;
     use crate::{ContextWriter, IonResult};
 
@@ -37,41 +33,16 @@ pub(crate) mod internal {
         /// the field name itself, and the delimiting `:`.
         fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()>;
     }
-
-    pub trait EExpWriterInternal {
-        fn expect_next_parameter(&mut self) -> IonResult<&Parameter>;
-    }
 }
 
 /// A writer which can encode nested values.
 ///
-/// Implementors include top-level writers, container writers, and e-expression writers.
+/// Implementors include top-level writers and container writers.
 pub trait ContextWriter {
     /// The `ValueWriter` type family the implementor uses to encode data nested in this context.
     type NestedValueWriter<'a>: ValueWriter
     where
         Self: 'a;
-}
-
-pub trait EExpWriter: SequenceWriter + EExpWriterInternal {
-    // TODO: more methods for writing tagless encodings
-    type ExprGroupWriter<'group>: SequenceWriter
-    where
-        Self: 'group;
-
-    fn invoked_macro(&self) -> MacroRef<'_>;
-
-    fn current_parameter(&self) -> Option<&Parameter>;
-
-    fn write_flex_uint(&mut self, _value: impl Into<UInt>) -> IonResult<()> {
-        todo!("currently only implemented for binary 1.1 to enable unit testing for the reader")
-    }
-
-    fn write_fixed_uint8(&mut self, _value: impl Into<u8>) -> IonResult<()> {
-        todo!("currently only implemented for binary 1.1 to enable unit testing for the reader")
-    }
-
-    fn expr_group_writer(&mut self) -> IonResult<Self::ExprGroupWriter<'_>>;
 }
 
 pub trait AnnotatableWriter {
@@ -91,7 +62,6 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     type ListWriter: SequenceWriter<Resources = ()>;
     type SExpWriter: SequenceWriter<Resources = ()>;
     type StructWriter: StructWriter;
-    type EExpWriter: EExpWriter<Resources = ()>;
 
     fn write_null(self, ion_type: IonType) -> IonResult<()>;
     fn write_bool(self, value: bool) -> IonResult<()>;
@@ -109,9 +79,6 @@ pub trait ValueWriter: AnnotatableWriter + Sized {
     fn list_writer(self) -> IonResult<Self::ListWriter>;
     fn sexp_writer(self) -> IonResult<Self::SExpWriter>;
     fn struct_writer(self) -> IonResult<Self::StructWriter>;
-    fn eexp_writer<'a>(self, macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter>
-    where
-        Self: 'a;
 
     fn write(self, value: impl WriteAsIon) -> IonResult<()> {
         value.write_as_ion(self)
@@ -213,11 +180,6 @@ macro_rules! delegate_value_writer_to {
                 fn list_writer(self) -> IonResult<Self::ListWriter>;
                 fn sexp_writer(self) -> IonResult<Self::SExpWriter>;
                 fn struct_writer(self) -> IonResult<Self::StructWriter>;
-                fn eexp_writer<'a>(
-                    self,
-                    macro_id: impl MacroIdLike<'a>,
-                 ) -> IonResult<Self::EExpWriter> where Self: 'a;
-
             }
         }
     };
@@ -233,8 +195,6 @@ macro_rules! delegate_value_writer_to_self {
 }
 
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
-use crate::lazy::expanded::macro_table::MacroRef;
-use crate::lazy::expanded::template::Parameter;
 pub(crate) use delegate_value_writer_to;
 pub(crate) use delegate_value_writer_to_self;
 
@@ -290,8 +250,6 @@ impl<'field, StructWriterType: StructWriter> ValueWriter for FieldWriter<'field,
         <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::SExpWriter;
     type StructWriter =
         <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::StructWriter;
-    type EExpWriter =
-        <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::EExpWriter;
 
     delegate_value_writer_to!(fallible closure |self_: Self| {
         self_.struct_writer.encode_field_name(self_.name)?;
@@ -352,8 +310,6 @@ impl<'field, StructWriterType: StructWriter> ValueWriter
     <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::SExpWriter;
     type StructWriter =
     <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::StructWriter;
-    type EExpWriter =
-    <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::EExpWriter;
 
     delegate_value_writer_to!(fallible closure |self_: Self| {
         self_.struct_writer.encode_field_name(self_.name)?;
@@ -477,13 +433,6 @@ pub trait SequenceWriter: MakeValueWriter {
         &mut self,
     ) -> IonResult<<Self::NestedValueWriter<'_> as ValueWriter>::StructWriter> {
         self.value_writer().struct_writer()
-    }
-
-    fn eexp_writer<'a>(
-        &'a mut self,
-        macro_id: impl MacroIdLike<'a>,
-    ) -> IonResult<<Self::NestedValueWriter<'a> as ValueWriter>::EExpWriter> {
-        self.value_writer().eexp_writer(macro_id)
     }
 
     fn write_list<V: WriteAsIon, I: IntoIterator<Item = V>>(

@@ -7,7 +7,7 @@ use std::ops::Range;
 
 #[derive(Debug, Copy, Clone)]
 /// Raw stream components that a RawReader may encounter.
-pub enum RawStreamItem<M: Debug + Copy + Clone, V: Debug + Copy + Clone, E: Debug + Copy + Clone> {
+pub enum RawStreamItem<M: Debug + Copy + Clone, V: Debug + Copy + Clone> {
     /// An Ion Version Marker (IVM) indicating the Ion major and minor version that were used to
     /// encode the values that follow.
     VersionMarker(M),
@@ -15,65 +15,50 @@ pub enum RawStreamItem<M: Debug + Copy + Clone, V: Debug + Copy + Clone, E: Debu
     /// data and (in the case of containers) access any nested values, see the documentation
     /// for [`LazyRawBinaryValue`](crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0).
     Value(V),
-    /// An Ion 1.1+ macro invocation. Ion 1.0 readers will never return a macro invocation.
-    EExp(E),
     /// The end of the stream
     EndOfStream(EndPosition),
 }
 
-pub type LazyRawStreamItem<'top, D> = RawStreamItem<
-    <D as Decoder>::VersionMarker<'top>,
-    <D as Decoder>::Value<'top>,
-    <D as Decoder>::EExp<'top>,
->;
+pub type LazyRawStreamItem<'top, D> =
+    RawStreamItem<<D as Decoder>::VersionMarker<'top>, <D as Decoder>::Value<'top>>;
 
 impl LazyRawStreamItem<'_, AnyEncoding> {
     pub fn encoding(&self) -> IonEncoding {
         match self {
             LazyRawStreamItem::<AnyEncoding>::VersionMarker(m) => m.encoding(),
             LazyRawStreamItem::<AnyEncoding>::Value(v) => v.encoding(),
-            LazyRawStreamItem::<AnyEncoding>::EExp(e) => e.encoding(),
             LazyRawStreamItem::<AnyEncoding>::EndOfStream(eos) => eos.encoding(),
         }
     }
 }
 
-impl<
-        M: Debug + Copy + Clone + HasRange,
-        V: Debug + Copy + Clone + HasRange,
-        E: Debug + Copy + Clone + HasRange,
-    > HasRange for RawStreamItem<M, V, E>
+impl<M: Debug + Copy + Clone + HasRange, V: Debug + Copy + Clone + HasRange> HasRange
+    for RawStreamItem<M, V>
 {
     fn range(&self) -> Range<usize> {
         use RawStreamItem::*;
         match self {
             VersionMarker(marker) => marker.range(),
             Value(value) => value.range(),
-            EExp(eexp) => eexp.range(),
             EndOfStream(eos) => eos.range(),
         }
     }
 }
 
-impl<
-        'top,
-        M: Debug + Copy + Clone + HasSpan<'top>,
-        V: Debug + Copy + Clone + HasSpan<'top>,
-        E: Debug + Copy + Clone + HasSpan<'top>,
-    > HasSpan<'top> for RawStreamItem<M, V, E>
+impl<'top, M: Debug + Copy + Clone + HasSpan<'top>, V: Debug + Copy + Clone + HasSpan<'top>>
+    HasSpan<'top> for RawStreamItem<M, V>
 {
     fn span(&self) -> Span<'top> {
         use RawStreamItem::*;
         match self {
             VersionMarker(marker) => marker.span(),
             Value(value) => value.span(),
-            EExp(eexp) => eexp.span(),
             EndOfStream(eos) => eos.span(),
         }
     }
 }
 
-impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
+impl<M: Copy + Debug, V: Copy + Debug> RawStreamItem<M, V> {
     /// If this item is an Ion version marker (IVM), returns `Some((major, minor))` indicating the
     /// version. Otherwise, returns `None`.
     pub fn version_marker(&self) -> Option<M> {
@@ -107,22 +92,6 @@ impl<M: Copy + Debug, V: Copy + Debug, E: Copy + Debug> RawStreamItem<M, V, E> {
             Ok(value)
         } else {
             IonResult::decoding_error(format!("expected value, found {self:?}"))
-        }
-    }
-
-    pub fn as_macro_invocation(&self) -> Option<&E> {
-        if let Self::EExp(m) = self {
-            Some(m)
-        } else {
-            None
-        }
-    }
-
-    pub fn expect_eexp(self) -> IonResult<E> {
-        if let Self::EExp(m) = self {
-            Ok(m)
-        } else {
-            IonResult::decoding_error(format!("expected a macro invocation, found {self:?}"))
         }
     }
 }
