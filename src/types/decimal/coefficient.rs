@@ -5,8 +5,7 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::result::{IonError, IonFailure};
-use crate::types::integer::UIntData;
-use crate::types::overflowing_int::{Magnitude, OverflowingInt};
+use crate::types::overflowing_int::OverflowingInt;
 use crate::IonResult;
 use crate::{Int, UInt};
 
@@ -25,9 +24,6 @@ pub enum Sign {
 /// participates — so [`Coefficient::ZERO`] and [`Coefficient::NEGATIVE_ZERO`] are **not** equal
 /// under [`PartialEq::eq`]. The numeric equality that treats the two zeros as equal lives on
 /// [`Decimal`](crate::Decimal), through its own `PartialEq`/[`IonEq`](crate::IonData) split.
-///
-/// While the Ion specification allows this type to be of arbitrary size, this implementation
-/// stores magnitudes up to 126 bits inline and heap-allocates larger ones.
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Coefficient {
     repr: OverflowingInt,
@@ -44,7 +40,7 @@ impl Coefficient {
 
     pub(crate) fn new<I: Into<Int>>(value: I) -> Self {
         Coefficient {
-            repr: int_to_overflowing_int(value.into()),
+            repr: OverflowingInt::from(value.into()),
         }
     }
 
@@ -53,7 +49,7 @@ impl Coefficient {
     /// negative zero from a zero result.
     pub(crate) fn from_sign_and_value(sign: Sign, magnitude: impl Into<Int>) -> Self {
         Coefficient {
-            repr: int_to_overflowing_int(magnitude.into()).with_sign(sign),
+            repr: OverflowingInt::from(magnitude.into()).with_sign(sign),
         }
     }
 
@@ -62,22 +58,18 @@ impl Coefficient {
     }
 
     pub fn magnitude(&self) -> UInt {
-        match self.repr.magnitude_ref() {
-            Magnitude::Small(magnitude) => UInt::from(magnitude),
-            Magnitude::Big(magnitude) => UInt::from(UIntData::from_big(magnitude.clone())),
-        }
+        UInt::from(self.repr.magnitude_ref())
     }
 
     /// Returns true when the sign is negative. This is a **sign-only** query: it is true for
-    /// negative zero, matching the decArith `is-signed` rule. (It deliberately differs from the
-    /// integer types' same-named predicate, which has no negative zero to report.)
+    /// negative zero.
     pub fn is_negative(&self) -> bool {
         self.repr.sign() == Sign::Negative
     }
 
     /// Returns the number of digits in the base-10 representation of the coefficient
     pub(crate) fn number_of_decimal_digits(&self) -> u32 {
-        self.magnitude().number_of_decimal_digits()
+        self.repr.magnitude_ref().number_of_decimal_digits()
     }
 
     /// Constructs a new Coefficient that represents negative zero.
@@ -113,31 +105,12 @@ impl Coefficient {
     /// `None` case to emit the negative-zero coefficient subfield, so this contract is
     /// load-bearing on the write path.
     pub(crate) fn as_int(&self) -> Option<Int> {
-        if self.is_negative_zero() {
-            return None;
-        }
-        let magnitude = Int::from(&self.magnitude());
-        Some(if self.is_negative() {
-            magnitude.neg()
-        } else {
-            magnitude
-        })
-    }
-
-    /// Compares this coefficient's magnitude against `other`'s, ignoring sign and without
-    /// allocating. `Decimal`'s equal-exponent comparison routes through this instead of the
-    /// owned, allocating [`Self::magnitude`].
-    pub(crate) fn cmp_magnitude(&self, other: &Coefficient) -> Ordering {
-        self.repr.cmp_magnitude_scaled(0, &other.repr)
+        Int::try_from(&self.repr).ok()
     }
 
     /// Splits the coefficient at `10^k`, returning `(quotient, remainder)`.
     ///
-    /// **Both results carry this coefficient's sign**, which is exactly what `trunc` and `fract`
-    /// need, so those callers reattach no sign of their own. Applying the sign here — rather than
-    /// in `decimal/mod.rs` — keeps the union's sign-*setting* entry point (the only operation that
-    /// can manufacture a `-0`) unreachable from `Decimal`. A zero quotient or remainder therefore
-    /// keeps a negative sign as `-0`.
+    /// Both results carry this coefficient's sign. A zero quotient or remainder keeps a negative sign as `-0`.
     pub(crate) fn div_rem_pow10(&self, k: u64) -> (Coefficient, Coefficient) {
         let (quotient, remainder) = self.repr.div_rem_pow10(k);
         (
@@ -152,15 +125,6 @@ impl Coefficient {
     /// magnitudes are close enough that neither dominates, so inline operands never allocate.
     pub(crate) fn cmp_magnitude_scaled(&self, k: u64, other: &Coefficient) -> Ordering {
         self.repr.cmp_magnitude_scaled(k, &other.repr)
-    }
-}
-
-/// Converts a signed [`Int`] into an [`OverflowingInt`], preserving sign and magnitude. An `Int`
-/// never carries a negative zero, so the sign derived here is unambiguous.
-fn int_to_overflowing_int(value: Int) -> OverflowingInt {
-    match value.as_i128() {
-        Some(value) => OverflowingInt::from(value),
-        None => OverflowingInt::from(value.to_bigint()),
     }
 }
 
@@ -229,11 +193,7 @@ impl TryFrom<&Coefficient> for UInt {
 
 impl Display for Coefficient {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // The magnitude is unsigned, so the sign is written exactly once here.
-        if self.is_negative() {
-            write!(f, "-")?;
-        }
-        write!(f, "{}", self.magnitude())
+        write!(f, "{}", self.repr)
     }
 }
 

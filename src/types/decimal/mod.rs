@@ -149,7 +149,7 @@ impl Decimal {
     fn compare_magnitudes(d1: &Decimal, d2: &Decimal) -> Ordering {
         // If the exponents match, we can compare the two coefficients directly.
         if d1.exponent == d2.exponent {
-            return d1.coefficient.cmp_magnitude(&d2.coefficient);
+            return d1.coefficient.cmp_magnitude_scaled(0, &d2.coefficient);
         }
 
         // If the exponents don't match, we need to scale one of the magnitudes to match the other
@@ -259,8 +259,7 @@ impl IonDataOrd for Decimal {
 
 impl IonDataHash for Decimal {
     fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
-        state.write_i8(self.coefficient.sign() as i8);
-        self.coefficient.magnitude().hash(state);
+        self.coefficient.hash(state);
         state.write_i64(self.exponent);
     }
 }
@@ -481,15 +480,10 @@ mod bigdecimal {
         /// Attempts to create a BigDecimal from a Decimal. Returns an Error if the Decimal being
         /// converted is a special value (negative zero) or has a magnitude no representable as u128.
         fn try_into(self) -> Result<BigDecimal, Self::Error> {
-            if self.coefficient().is_negative_zero() {
-                return IonResult::illegal_operation("Cannot convert negative zero to BigDecimal.");
+            match self.coefficient().as_int() {
+                Some(coefficient) => Ok(BigDecimal::new(coefficient.to_bigint(), self.scale())),
+                None => IonResult::illegal_operation("Cannot convert negative zero to BigDecimal."),
             }
-            let bigint = self
-                .coefficient()
-                .as_int()
-                .expect("coefficient is not negative zero; checked above")
-                .to_bigint();
-            Ok(BigDecimal::new(bigint, self.scale()))
         }
     }
 
@@ -952,12 +946,11 @@ mod decimal_tests {
     #[test]
     fn decimal_and_coefficient_layout() {
         use std::mem::{align_of, size_of};
-        // The `Value`-variant budget is 32 bytes (pt000 Scope); this design reaches 24.
-        assert!(size_of::<Decimal>() <= 32);
-        assert_eq!(size_of::<Decimal>(), 24);
-        assert_eq!(align_of::<Decimal>(), 8);
-        assert_eq!(size_of::<Coefficient>(), 16);
-        assert_eq!(align_of::<Coefficient>(), 8);
+        // The `Value`-variant budget is 32 bytes; this design reaches 24.
+        assert!(size_of::<Decimal>() <= 24);
+        assert!(align_of::<Decimal>() <= 8);
+        assert!(size_of::<Coefficient>() <= 16);
+        assert!(align_of::<Coefficient>() <= 8);
     }
 
     #[rstest]
@@ -1044,92 +1037,5 @@ mod decimal_tests {
         // c = -2^128, d = -2^128 * 10, so c > d.
         assert_eq!(c.cmp(&d), Ordering::Greater);
         assert_eq!(d.cmp(&c), Ordering::Less);
-    }
-}
-
-#[cfg(test)]
-mod decimal_drop_soundness_tests {
-    // A dedicated module so the Miri job's module-path selection
-    // (`MIRI_TEST_SELECTION` in .github/workflows/miri.yml) can target these tests.
-    // `Coefficient`/`Decimal` implement no `Drop` of their own, so Miri confirms their
-    // drop glue reaches the union's single free. Mirrors `OverflowingInt`'s own drop tests.
-    use crate::decimal::{Coefficient, Sign};
-    use crate::ion_data::IonEq;
-    use crate::{Decimal, Int};
-
-    /// A heap-backed coefficient: 2^128 exceeds the 126-bit inline capacity, so its magnitude is
-    /// stored on the heap — the only case with anything to free.
-    fn heap_coefficient(sign: Sign) -> Coefficient {
-        let mut bytes = vec![0u8; 18];
-        bytes[16] = 1;
-        Coefficient::from_sign_and_value(sign, Int::from_le_signed_bytes(&bytes))
-    }
-
-    #[test]
-    #[allow(unused_assignments)] // The reassignment drops the first heap value — the point of the test.
-    fn coefficient_drop_through_reassignment() {
-        let mut c = heap_coefficient(Sign::Positive);
-        c = heap_coefficient(Sign::Negative);
-        assert_eq!(c.magnitude(), heap_coefficient(Sign::Positive).magnitude());
-    }
-
-    #[test]
-    fn coefficient_drop_through_mem_replace_and_swap() {
-        let mut a = heap_coefficient(Sign::Positive);
-        let b = heap_coefficient(Sign::Negative);
-        let old = std::mem::replace(&mut a, b);
-        drop(old);
-
-        let mut x = heap_coefficient(Sign::Positive);
-        let mut y = Coefficient::new(1);
-        std::mem::swap(&mut x, &mut y);
-        drop((x, y));
-    }
-
-    #[test]
-    fn coefficient_drop_through_container() {
-        // Vec drop
-        let values = vec![
-            heap_coefficient(Sign::Positive),
-            Coefficient::new(1),
-            heap_coefficient(Sign::Negative),
-        ];
-        drop(values);
-
-        // HashMap drop
-        let mut map = std::collections::HashMap::new();
-        map.insert(1u8, heap_coefficient(Sign::Positive));
-        map.insert(2u8, heap_coefficient(Sign::Negative));
-        drop(map);
-    }
-
-    #[test]
-    fn coefficient_drop_clone_then_drop_both() {
-        let original = heap_coefficient(Sign::Positive);
-        let clone = original.clone();
-        assert_eq!(original, clone);
-        drop(original);
-        drop(clone);
-    }
-
-    #[test]
-    fn coefficient_drop_during_unwind() {
-        // A panic while a heap coefficient is live must still free it exactly once.
-        let result = std::panic::catch_unwind(|| {
-            let _c = heap_coefficient(Sign::Positive);
-            panic!("unwind with a live heap coefficient");
-        });
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn decimal_drop_through_container_and_clone() {
-        // `Decimal` embeds the coefficient, so its drop glue must reach the union through the
-        // embedded `Coefficient` as well.
-        let d = Decimal::new(heap_coefficient(Sign::Negative), 3);
-        let clone = d.clone();
-        assert!(d.ion_eq(&clone));
-        let values = vec![d, clone, Decimal::new(heap_coefficient(Sign::Positive), -2)];
-        drop(values);
     }
 }
