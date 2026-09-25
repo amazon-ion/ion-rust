@@ -1,15 +1,13 @@
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::lazy_element::LazyElement;
-use crate::lazy::expanded::{
-    EncodingContextRef, ExpandedAnnotationsIterator, IoBufferSource, LazyExpandedValue,
-};
+use crate::lazy::expanded::{EncodingContextRef, ExpandedAnnotationsIterator, LazyExpandedValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::location::SourceLocation;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
     try_or_some_err, Annotations, Element, ExpandedValueSource, HasSpan, IntoAnnotatedElement,
-    IonError, IonResult, IonType, LazyRawValue, Span, SymbolRef, SymbolTable, Value,
+    IonError, IonResult, IonType, LazyRawValue, SymbolRef, SymbolTable, Value,
 };
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -255,29 +253,17 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     }
 
     pub fn to_owned(self) -> LazyElement<D> {
-        // Clone the `EncodingContext`, which will also bump the reference counts for the resources
-        // it owns.
+        // Cloning the context bumps its resources' reference counts and captures a shared handle to
+        // the reader's input buffer, keeping this value's bytes available; `save_io_buffer` takes a
+        // second handle to the same allocation for the `LazyElement` to hold directly.
         let context = self.context().context.clone();
-        // The value's source is a `ValueLiteral`, which may hold references to bytes in the input
-        // buffer. Modify the source to point to heap data owned by `context`.
-        // First, get the `IoBufferSource` and ask it for a shared copy of the IoBuffer.
-        // SAFETY: `io_buffer_source` is an `UnsafeCell` to allow us to set it from the
-        //         `StreamingRawReader` after each top-level value. That means we need `unsafe` here.
+        let io_buffer = context.save_io_buffer();
+        // `raw_value` may refer to the reader's buffer and context, so ask the encoding for a
+        // lifetime-free form. The span is `raw_value.span()`, read through our own handle.
         let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded_value.source;
-        let IoBufferSource::IoBuffer(ref io_buffer) = (unsafe { &*context.io_buffer_source.get() })
-        else {
-            unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
-        };
-        let value_span = raw_value.span();
-        let value_offset = value_span.offset();
-        let value_length = value_span.len();
-        let local_offset = value_offset - io_buffer.stream_offset();
-        let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
-        let backing_span = Span::with_offset(value_offset, value_bytes);
-        let raw_value = raw_value.with_backing_data(backing_span);
-        let source = ExpandedValueSource::ValueLiteral(raw_value);
-        // Now that we have upheld the invariants required by `LazyElement::new`, we can safely call it.
-        unsafe { LazyElement::new(context, source) }
+        let span = io_buffer.span_for_stream_range(raw_value.span().range());
+        let detached_value = D::detach_value(raw_value, span);
+        LazyElement::new(context, io_buffer, detached_value)
     }
 }
 
