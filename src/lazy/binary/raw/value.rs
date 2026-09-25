@@ -670,7 +670,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let builder = builder.with_hour_and_minute(hour, minute);
         if input.is_empty() {
             let timestamp = if is_known_offset {
-                builder.build_utc_fields_at_offset(offset_minutes)
+                builder.localize_to_offset(offset_minutes).build()
             } else {
                 builder.build()
             }?;
@@ -684,7 +684,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let builder = builder.with_second(second);
         if input.is_empty() {
             let timestamp = if is_known_offset {
-                builder.build_utc_fields_at_offset(offset_minutes)
+                builder.localize_to_offset(offset_minutes).build()
             } else {
                 builder.build()
             }?;
@@ -706,7 +706,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         let builder = builder
             .with_fractional_seconds(Decimal::new(subsecond_coefficient, subsecond_exponent));
         let timestamp = if is_known_offset {
-            builder.build_utc_fields_at_offset(offset_minutes)
+            builder.localize_to_offset(offset_minutes).build()
         } else {
             builder.build()
         }?;
