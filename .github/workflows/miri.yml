@@ -70,8 +70,8 @@ jobs:
       # folded scalar joins the lines with spaces and the value word-splits into one filter each.
       # (No `#` comments inside the block -- they would become literal filter words. Document each
       # module here instead.)
-      #   overflowing_int      -- 16-byte overflowing integer representation
-      #   move_soundness_tests -- raw binary writer stays sound when moved (AliasableBump arena)
+      #   overflowing_int              -- 16-byte overflowing integer representation
+      #   move_soundness_tests         -- raw binary writer stays sound when moved (AliasableBump arena)
       # (The reusable-writer `reuse_tests` verify behavior, not unsafe soundness, so they run under
       # normal `cargo test` only -- their large allocations are prohibitively slow under Miri.)
       MIRI_TEST_SELECTION: >-

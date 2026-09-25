@@ -7,17 +7,16 @@ use arrayvec::ArrayVec;
 use crate::binary::int::DecodedInt;
 use crate::binary::var_int::VarInt;
 use crate::binary::var_uint::VarUInt;
-use crate::decimal::Sign;
+use crate::decimal::Coefficient;
 use crate::ion_data::IonEq;
 use crate::result::{IonFailure, IonResult};
-use crate::{Decimal, Int, IonError};
+use crate::{Decimal, IonError};
 
 const MAX_INLINE_LENGTH: usize = 13;
 
 const DECIMAL_BUFFER_SIZE: usize = 32;
 const DECIMAL_POSITIVE_ZERO: Decimal = Decimal {
-    coefficient_value: Int::ZERO,
-    coefficient_sign: Sign::Positive,
+    coefficient: Coefficient::ZERO,
     exponent: 0,
 };
 
@@ -51,18 +50,20 @@ where
 
         bytes_written += VarInt::write_i64(self, decimal.exponent)?;
 
-        // Encode the coefficient directly from the decimal's fields, avoiding the two clones that
-        // `decimal.coefficient().as_int()` would incur (one in `coefficient()`, one in `as_int()`).
-        // `coefficient_value` is the signed coefficient; `coefficient_sign` only carries independent
-        // information when the value is zero, distinguishing +0 from -0.
-        if decimal.coefficient_value.is_zero() {
-            if decimal.coefficient_sign == Sign::Negative {
+        // Encode the coefficient, which carries its own sign — including for negative zero,
+        // where the magnitude is zero but the sign still distinguishes -0 from +0.
+        if decimal.coefficient.is_zero() {
+            if decimal.coefficient.is_negative() {
                 bytes_written += DecodedInt::write_negative_zero(self)?;
             }
             // From the spec: "The subfield should not be present (that is, it has zero length) when
             // the coefficient's value is (positive) zero."
         } else {
-            bytes_written += DecodedInt::write(self, &decimal.coefficient_value)?;
+            let coefficient = decimal
+                .coefficient
+                .as_int()
+                .expect("a non-zero coefficient is always representable as an Int");
+            bytes_written += DecodedInt::write(self, &coefficient)?;
         }
 
         Ok(bytes_written)

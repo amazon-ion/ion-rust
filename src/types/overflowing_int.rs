@@ -51,7 +51,7 @@ use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
 use num_traits::{Pow, ToPrimitive};
 use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem::ManuallyDrop;
 
@@ -153,6 +153,17 @@ impl HeapValue {
 pub(crate) enum Magnitude<'a> {
     Small(u128),
     Big(&'a BigUint),
+}
+
+impl Magnitude<'_> {
+    /// The number of digits in the base-10 representation of the magnitude (`1` for zero).
+    pub(crate) fn number_of_decimal_digits(&self) -> u32 {
+        match self {
+            Magnitude::Small(0) => 1,
+            Magnitude::Small(small) => small.ilog10() + 1,
+            Magnitude::Big(big) => cold_path! { big.to_string().len() as u32 },
+        }
+    }
 }
 
 impl OverflowingInt {
@@ -653,6 +664,18 @@ impl Debug for OverflowingInt {
                 write!(f, "OverflowingInt::Inline({sign}{magnitude})")
             }
             Magnitude::Big(big) => write!(f, "OverflowingInt::Heap({sign}{big})"),
+        }
+    }
+}
+
+impl Display for OverflowingInt {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.sign() == Sign::Negative {
+            write!(f, "-")?;
+        }
+        match self.magnitude_ref() {
+            Magnitude::Small(magnitude) => write!(f, "{magnitude}"),
+            Magnitude::Big(big) => write!(f, "{big}"),
         }
     }
 }
