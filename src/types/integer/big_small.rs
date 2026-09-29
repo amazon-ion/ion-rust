@@ -98,28 +98,6 @@ impl_as_big_or_small!(this: i128, BigInt => Cow::Owned((*this).into()), Self => 
 impl_as_big_or_small!(this: BigUint, Self => Cow::Borrowed(this), u128 => this.to_u128());
 impl_as_big_or_small!(this: BigInt, Self => Cow::Borrowed(this), i128 => this.to_i128());
 
-/// Implements an arithmetic op that tries the checked primitive version first, falling back to BigInt/BigUint.
-macro_rules! impl_std_op_big_small {
-    ($Trait:ident<$Rhs:ty> for $T:ident, $op:ident, $checked_op:ident) => {
-        impl std::ops::$Trait<$Rhs> for $T {
-            type Output = $T;
-            fn $op(self, rhs: $Rhs) -> $T {
-                if let (Some(a), Some(b)) = (&self.as_small_value(), &rhs.as_small_value()) {
-                    if let Some(result) = a.$checked_op(*b) {
-                        return $T(SmallValue(result));
-                    }
-                }
-                cold_path! {{
-                    let a = self.as_big_value();
-                    let b = rhs.as_big_value();
-                    $T::from_big(a.as_ref().$op(b.as_ref()))
-                }}
-            }
-        }
-    };
-}
-pub(crate) use impl_std_op_big_small;
-
 macro_rules! impl_display_big_small {
     ($t:ty) => {
         impl std::fmt::Display for $t {

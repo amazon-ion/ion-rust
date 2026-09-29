@@ -265,13 +265,6 @@ impl Int {
         data: IntData::ZERO,
     };
 
-    #[allow(unused)]
-    pub(crate) fn new(data: impl Into<i128>) -> Self {
-        Self {
-            data: IntData::from(data.into()),
-        }
-    }
-
     /// Returns a [`UInt`] representing the unsigned magnitude of this `Int`.
     #[inline]
     pub fn unsigned_abs(&self) -> UInt {

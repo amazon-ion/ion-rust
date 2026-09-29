@@ -1316,7 +1316,6 @@ mod timestamp_tests {
     use rstest::*;
     use std::cmp::Ordering;
     use std::io::Write;
-    use std::ops::Mul;
 
     // `build` validates its `u32`/`i32` fields before narrowing them to `u8`/`u16`/`i16`, on the
     // `localize_to_offset` (UTC-fields) path just as on the plain path: without pre-narrowing
@@ -2040,7 +2039,7 @@ mod timestamp_tests {
         assert_eq!(timestamp_3.nanoseconds(), 0);
 
         // Big fractional coefficient (>18 digits) is rejected
-        let big_coefficient: Int = Int::from(i128::MAX).data.mul(4).into();
+        let big_coefficient = Int::from(u128::MAX);
         let result = Timestamp::with_ymd(2023, 1, 1)
             .with_hour_and_minute(0, 0)
             .with_second(0)

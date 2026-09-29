@@ -123,17 +123,6 @@ impl_as_big_or_small!(this: UIntData, BigUint => this.0.as_big_value(), u128 => 
 
 impl_display_big_small!(UIntData);
 
-impl_std_op_big_small!(Add<UIntData> for UIntData, add, checked_add);
-impl_std_op_big_small!(Sub<UIntData> for UIntData, sub, checked_sub);
-impl_std_op_big_small!(Mul<UIntData> for UIntData, mul, checked_mul);
-impl_std_op_big_small!(Div<UIntData> for UIntData, div, checked_div);
-impl_std_op_big_small!(Rem<UIntData> for UIntData, rem, checked_rem);
-impl_std_op_big_small!(Add<u128> for UIntData, add, checked_add);
-impl_std_op_big_small!(Sub<u128> for UIntData, sub, checked_sub);
-impl_std_op_big_small!(Mul<u128> for UIntData, mul, checked_mul);
-impl_std_op_big_small!(Div<u128> for UIntData, div, checked_div);
-impl_std_op_big_small!(Rem<u128> for UIntData, rem, checked_rem);
-
 impl std::hash::Hash for UIntData {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Hash the canonical LE byte representation for consistency
@@ -195,38 +184,6 @@ impl IntData {
         }
     }
 
-    /// Returns the number of bytes required to represent this value as a two's complement
-    /// (signed) integer.
-    // Exercised by `int_byte_len` below; the library itself does not currently call it.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn byte_len(&self) -> usize {
-        match &self.0 {
-            SmallValue(small) => {
-                let sign_bits = if *small < 0 {
-                    small.leading_ones()
-                } else {
-                    small.leading_zeros()
-                };
-                let num_magnitude_bits = i128::BITS - sign_bits;
-                // Calculates the ceiling of (num_magnitude_bits + 1) / 8
-                (num_magnitude_bits / 8 + 1) as usize
-            }
-            BigValue(big) => cold_path! {{
-                if big.is_positive() {
-                    (big.bits() / 8 + 1) as usize
-                } else {
-                    // BigInt::bits() gives us the number of bits for the unsigned magnitude.
-                    // Converting to 2's complement, can result in an extra bit iff the unsigned
-                    // value is (2^n)-1, so when `n` is one less than a multiple of 8, using
-                    // BigInt::bits() will get us the wrong number of BYTES.
-                    // It is simpler and cheaper to just get the actual signed bytes representation,
-                    // although this does result in allocations.
-                    return big.to_signed_bytes_le().len()
-                }
-            }},
-        }
-    }
-
     #[inline]
     pub(crate) fn unsigned_abs(&self) -> UIntData {
         match &self.0 {
@@ -246,17 +203,6 @@ impl IntData {
 impl_as_big_or_small!(this: IntData, BigInt => this.0.as_big_value(), i128 => this.0.as_small_value());
 
 impl_display_big_small!(IntData);
-
-impl_std_op_big_small!(Add<IntData> for IntData, add, checked_add);
-impl_std_op_big_small!(Sub<IntData> for IntData, sub, checked_sub);
-impl_std_op_big_small!(Mul<IntData> for IntData, mul, checked_mul);
-impl_std_op_big_small!(Div<IntData> for IntData, div, checked_div);
-impl_std_op_big_small!(Rem<IntData> for IntData, rem, checked_rem);
-impl_std_op_big_small!(Add<i128> for IntData, add, checked_add);
-impl_std_op_big_small!(Sub<i128> for IntData, sub, checked_sub);
-impl_std_op_big_small!(Mul<i128> for IntData, mul, checked_mul);
-impl_std_op_big_small!(Div<i128> for IntData, div, checked_div);
-impl_std_op_big_small!(Rem<i128> for IntData, rem, checked_rem);
 
 impl Neg for IntData {
     type Output = IntData;
@@ -283,16 +229,6 @@ impl std::hash::Hash for IntData {
 }
 
 // ===== TryFrom/From impls =====
-
-impl TryFrom<IntData> for UIntData {
-    type Error = IonError;
-    fn try_from(value: IntData) -> Result<Self, Self::Error> {
-        if value.is_negative() {
-            return IonResult::decoding_error("cannot convert negative IntData to UIntData");
-        }
-        Ok(value.unsigned_abs())
-    }
-}
 
 impl From<UIntData> for IntData {
     fn from(value: UIntData) -> Self {
@@ -361,8 +297,7 @@ from_primitive_for_uint_data!(u8, u16, u32, u64, u128, usize);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::rstest;
-    use std::ops::{Neg, Sub};
+    use std::ops::Neg;
 
     #[test]
     fn uint_inline_roundtrip() {
@@ -535,68 +470,6 @@ mod tests {
         assert_eq!(be.len(), 17);
     }
 
-    #[rstest]
-    #[case(0, 1)]
-    #[case(1, 1)]
-    #[case(127, 1)]
-    #[case(128, 2)]
-    #[case(256, 2)]
-    #[case(-1, 1)]
-    #[case(-128, 1)]
-    #[case(-129, 2)]
-    #[case::pos_2pow127_sub1(BigInt::from(2).pow(127).sub(1), 16)]
-    #[case::pos_2pow127(BigInt::from(2).pow(127), 17)]
-    #[case::pos_2pow135_sub1(BigInt::from(2).pow(135).sub(1), 17)]
-    #[case::pos_2pow135(BigInt::from(2).pow(135), 18)]
-    #[case::pos_2pow143_sub1(BigInt::from(2).pow(143).sub(1), 18)]
-    #[case::pos_2pow143(BigInt::from(2).pow(143), 19)]
-    #[case::neg_2pow127(BigInt::from(2).pow(127).neg(), 16)]
-    #[case::neg_2pow127_sub1(BigInt::from(2).pow(127).neg().sub(1), 17)]
-    #[case::neg_2pow135(BigInt::from(2).pow(135).neg(), 17)]
-    #[case::neg_2pow135_sub1(BigInt::from(2).pow(135).neg().sub(1), 18)]
-    #[case::neg_2pow143(BigInt::from(2).pow(143).neg(), 18)]
-    #[case::neg_2pow143_sub1(BigInt::from(2).pow(143).neg().sub(1), 19)]
-    #[trace] // <-- Displays all arguments for failed test cases
-    fn int_byte_len(#[case] num: impl Into<BigInt>, #[case] expected_len: usize) {
-        let int_data = IntData::from_big(num.into());
-        let actual_len = int_data.byte_len();
-        assert_eq!(
-            actual_len, expected_len,
-            "Length {} doesn't match expected {}",
-            actual_len, expected_len
-        );
-        let to_le_bytes_len = int_data.to_le_bytes().len();
-        assert_eq!(
-            actual_len, to_le_bytes_len,
-            "Length {} doesn't match to_le_bytes().len() ({})",
-            actual_len, to_le_bytes_len
-        );
-    }
-
-    #[test]
-    fn int_arithmetic() {
-        let a = IntData::from(100);
-        let b = IntData::from(42);
-        assert_eq!((a.clone() + b.clone()).try_into(), Ok(142));
-        assert_eq!((a.clone() - b.clone()).try_into(), Ok(58));
-        assert_eq!((a.clone() * 3).try_into(), Ok(300));
-        assert_eq!((a.clone() / 10).try_into(), Ok(10));
-        assert_eq!((a.clone() % 30).try_into(), Ok(10));
-
-        // Negative
-        let c = IntData::from(-50);
-        assert_eq!((a.clone() + c.clone()).try_into(), Ok(50));
-        assert_eq!((c.clone() - a.clone()).try_into(), Ok(-150));
-    }
-
-    #[test]
-    fn uint_arithmetic() {
-        let a = UIntData::from(100u8);
-        let b = UIntData::from(42u8);
-        assert_eq!((a.clone() + b.clone()).try_into(), Ok(142));
-        assert_eq!((a.clone() - b.clone()).try_into(), Ok(58));
-    }
-
     #[test]
     fn uint_from_str_radix() {
         assert_eq!(UIntData::from_str_radix("0", 10).unwrap().try_into(), Ok(0));
@@ -616,12 +489,6 @@ mod tests {
         let big = UIntData::from_str_radix("340282366920938463463374607431768211456", 10).unwrap();
         assert!(matches!(big.0, BigValue(_)));
         assert!(UIntData::from_str_radix("xyz", 10).is_err());
-    }
-
-    #[test]
-    fn try_from_negative_int_to_uint_fails() {
-        let neg = IntData::from(-1i128);
-        assert!(UIntData::try_from(neg).is_err());
     }
 
     #[test]
