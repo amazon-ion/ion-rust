@@ -854,6 +854,30 @@ impl IonDataHash for Timestamp {
     }
 }
 
+/// How the builder's configured `year..second` fields relate to UTC, and whether an offset is
+/// known. Kept as a single field (rather than an `Option<i32>` plus a boolean) so that only the
+/// three meaningful states are representable — there is no "UTC-relative but no offset" state to
+/// guard against.
+#[derive(Debug, Clone, Copy)]
+enum BuilderOffset {
+    /// The offset from UTC is unknown; the fields are taken as-is.
+    Unknown,
+    /// The fields are in the local time of this offset (minutes from UTC); taken as-is.
+    FromLocalFields(i32),
+    /// The fields are in UTC; `build()` shifts them into the local time of this offset.
+    FromUtcFields(i32),
+}
+
+impl BuilderOffset {
+    /// The offset in minutes if one was set (whether the fields are local or UTC), else `None`.
+    fn minutes(self) -> Option<i32> {
+        match self {
+            BuilderOffset::Unknown => None,
+            BuilderOffset::FromLocalFields(m) | BuilderOffset::FromUtcFields(m) => Some(m),
+        }
+    }
+}
+
 /// A Builder object for incrementally configuring and finally instantiating a [Timestamp].
 /// This builder uses the type-state pattern to expose only those methods which can result in a
 /// valid Timestamp. For example, it is not possible to set the `day` field without first setting
@@ -863,7 +887,7 @@ impl IonDataHash for Timestamp {
 pub struct TimestampBuilder<T> {
     _state: PhantomData<T>,
     precision: TimestampPrecision,
-    offset: Option<i32>,
+    offset: BuilderOffset,
     // year..second are always set. Default is the implied value for the field if precision is less than that field.
     year: u32,
     month: u32,
@@ -957,47 +981,45 @@ impl<T> TimestampBuilder<T> {
                 self.fractional_digits, MAX_FRAC_DIGITS
             ));
         }
-        if let Some(offset_minutes) = self.offset {
+        if let Some(offset_minutes) = self.offset.minutes() {
             validate_offset_minutes(offset_minutes)?;
         }
         Ok(())
     }
 
     /// Attempt to construct a [Timestamp] using the values configured on the [TimestampBuilder].
+    ///
+    /// When the offset was set via [`localize_to_offset`](TimestampBuilder::localize_to_offset),
+    /// the configured fields are treated as UTC and shifted into the local time of that offset;
+    /// otherwise (no offset, or one set via [`with_offset`](TimestampBuilder::with_offset)) the
+    /// fields are taken as-is.
     pub fn build(self) -> IonResult<Timestamp> {
         // Each field is validated *before* it is narrowed; a `u32`-to-`u8`/`u16` cast of an
         // out-of-range value would silently wrap and could produce a field that
-        // `Timestamp::from_fields` then accepts as valid (e.g. `month: 268` becomes `12`).
+        // `Timestamp::from_fields`/`from_utc_fields` then accepts as valid (e.g. `month: 268`
+        // becomes `12`). `validate_field_ranges` covers the date-time fields and the offset.
         self.validate_field_ranges()?;
+
+        // If the fields are in UTC, `from_utc_fields` shifts them into local time at the offset;
+        // otherwise they are already local (or the offset is unknown) and taken as-is.
+        if let BuilderOffset::FromUtcFields(offset_minutes) = self.offset {
+            return Timestamp::from_utc_fields(
+                self.precision,
+                offset_minutes as i16,
+                self.year as u16,
+                self.month as u8,
+                self.day as u8,
+                self.hour as u8,
+                self.minute as u8,
+                self.second as u8,
+                self.fractional_digits as u8,
+                self.attoseconds,
+            );
+        }
 
         Timestamp::from_fields(
             self.precision,
-            self.offset.map(|i| i as i16),
-            self.year as u16,
-            self.month as u8,
-            self.day as u8,
-            self.hour as u8,
-            self.minute as u8,
-            self.second as u8,
-            self.fractional_digits as u8,
-            self.attoseconds,
-        )
-    }
-
-    /// Like [Self::build], but the fields provided for each time unit are understood
-    /// to be in UTC rather than in the local time of the specified offset (if there is one).
-    pub(crate) fn build_utc_fields_at_offset(self, offset_minutes: i32) -> IonResult<Timestamp> {
-        // Validate the fields *before* they are narrowed, for the same reason `build` does: a
-        // `u32`-to-`u8`/`u16` cast of an out-of-range value would silently wrap and could produce
-        // a field that `Timestamp::from_utc_fields` then accepts as valid (e.g. `month: 268`
-        // becomes `12`). `validate_field_ranges` covers the date-time fields and `self.offset`;
-        // the UTC offset arrives as a parameter here, so validate it before its own narrowing to
-        // `i16`.
-        self.validate_field_ranges()?;
-        validate_offset_minutes(offset_minutes)?;
-        Timestamp::from_utc_fields(
-            self.precision,
-            offset_minutes as i16,
+            self.offset.minutes().map(|i| i as i16),
             self.year as u16,
             self.month as u8,
             self.day as u8,
@@ -1019,7 +1041,7 @@ impl TimestampBuilder<HasYear> {
         TimestampBuilder {
             _state: Default::default(),
             precision: TimestampPrecision::Year,
-            offset: None,
+            offset: BuilderOffset::Unknown,
             year,
             month: 1,
             day: 1,
@@ -1093,18 +1115,52 @@ impl TimestampBuilder<HasDay> {
     }
 }
 
-macro_rules! with_offset {
-    () => {
-        /// Sets the difference, in minutes, from UTC. A positive value indicates
-        /// Eastern Hemisphere, while a negative value indicates Western Hemisphere.
-        // The unit (minutes) could be seconds (which is what the chrono crate uses
-        // internally), but Ion uses minutes in its binary representation, so it
-        // makes sense to be consistent.
-        pub fn with_offset(mut self, offset_minutes: i32) -> TimestampBuilder<HasOffset> {
-            self.offset = Some(offset_minutes);
-            self.change_state()
-        }
-    };
+/// Marker for the builder type-states at which a UTC offset is meaningful — hour precision or
+/// finer. It bounds the single blanket impl below that provides [`TimestampBuilder::with_offset`]
+/// and [`TimestampBuilder::localize_to_offset`], so those two setters are defined once rather than
+/// duplicated across each state's `impl` block.
+///
+/// The trait is declared `pub` (required: it bounds `pub` methods) but lives in the private `types`
+/// module and is not re-exported, so it is effectively sealed — no type outside the crate can name
+/// it, let alone implement it, and the set of offset-bearing states cannot be extended downstream.
+/// (If the builder is ever exported as nameable public API, add a private supertrait to keep that
+/// sealing explicit once the module no longer hides it.)
+pub trait SupportsOffset {}
+impl SupportsOffset for HasHour {}
+impl SupportsOffset for HasMinute {}
+impl SupportsOffset for HasSeconds {}
+impl SupportsOffset for HasFractionalSeconds {}
+
+impl<S: SupportsOffset> TimestampBuilder<S> {
+    /// Sets the difference, in minutes, from UTC. A positive value indicates
+    /// Eastern Hemisphere, while a negative value indicates Western Hemisphere.
+    ///
+    /// The already-configured time fields are treated as being in the local time of this
+    /// offset. To instead supply the fields in UTC and have them shifted into local time,
+    /// use [`Self::localize_to_offset`].
+    // The unit (minutes) could be seconds (which is what the chrono crate uses
+    // internally), but Ion uses minutes in its binary representation, so it
+    // makes sense to be consistent.
+    pub fn with_offset(mut self, offset_minutes: i32) -> TimestampBuilder<HasOffset> {
+        self.offset = BuilderOffset::FromLocalFields(offset_minutes);
+        self.change_state()
+    }
+
+    /// Attaches an offset (in minutes from UTC) while declaring that the already-configured
+    /// time fields are given in *UTC*. [`Self::build`] shifts them into the local time of this
+    /// offset — the inverse interpretation of [`Self::with_offset`], which takes the fields as
+    /// already being local.
+    ///
+    /// This is the natural way to construct a timestamp from a source that records the instant
+    /// in UTC alongside a separate offset, such as Ion 1.0's binary encoding. Field and offset
+    /// validation is deferred to [`Self::build`], so this setter itself is infallible.
+    ///
+    /// Mutually exclusive with [`Self::with_offset`]: both consume the builder and leave it in
+    /// a terminal state from which only [`Self::build`] is available.
+    pub fn localize_to_offset(mut self, offset_minutes: i32) -> TimestampBuilder<HasOffset> {
+        self.offset = BuilderOffset::FromUtcFields(offset_minutes);
+        self.change_state()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1115,8 +1171,6 @@ impl TimestampBuilder<HasHour> {
         self.minute = minute;
         self.change_state()
     }
-
-    with_offset!();
 }
 
 #[derive(Debug, Clone)]
@@ -1127,8 +1181,6 @@ impl TimestampBuilder<HasMinute> {
         self.second = second;
         self.change_state()
     }
-
-    with_offset!();
 }
 
 #[derive(Debug, Clone)]
@@ -1246,15 +1298,10 @@ impl TimestampBuilder<HasSeconds> {
         };
         self.change_state()
     }
-
-    with_offset!();
 }
 
 #[derive(Debug, Clone)]
 pub struct HasFractionalSeconds;
-impl TimestampBuilder<HasFractionalSeconds> {
-    with_offset!();
-}
 
 #[derive(Debug, Clone)]
 pub struct HasOffset;
@@ -1271,15 +1318,17 @@ mod timestamp_tests {
     use std::io::Write;
     use std::ops::Mul;
 
-    // `build` validates its `u32`/`i32` fields before narrowing them to `u8`/`u16`/`i16`.
-    // `build_utc_fields_at_offset` must do the same: without pre-narrowing validation an
-    // out-of-range field wraps into a plausible wrong value that `from_utc_fields` accepts. This
-    // path is taken by binary 1.0 known-offset decoding and by binary 1.1 UTC-flag decoding (which
-    // passes offset 0); binary 1.1 known-offset decoding uses `with_offset` + `build` instead.
+    // `build` validates its `u32`/`i32` fields before narrowing them to `u8`/`u16`/`i16`, on the
+    // `localize_to_offset` (UTC-fields) path just as on the plain path: without pre-narrowing
+    // validation an out-of-range field wraps into a plausible wrong value that `from_utc_fields`
+    // accepts. The UTC-fields path is taken by binary 1.0 known-offset decoding; binary 1.1 uses
+    // `with_offset` + `build` (its short form always has a zero offset, where the two are
+    // equivalent).
 
     /// `build`'s own comment cites `month: 268` becoming `12` as the reason it validates before
-    /// narrowing. Its sibling must not skip that guard. Each value wraps into an in-range value
-    /// (e.g. `268 as u8 == 12`), so a rejection here can only come from pre-narrowing validation.
+    /// narrowing; the UTC-fields path must apply that guard too. Each value wraps into an in-range
+    /// value (e.g. `268 as u8 == 12`), so a rejection here can only come from pre-narrowing
+    /// validation.
     #[rstest]
     #[case::year(67_557, 1, 1, 0, 0, 0)]
     #[case::month(2021, 268, 1, 0, 0, 0)]
@@ -1287,7 +1336,7 @@ mod timestamp_tests {
     #[case::hour(2021, 1, 1, 261, 0, 0)]
     #[case::minute(2021, 1, 1, 0, 286, 0)]
     #[case::second(2021, 1, 1, 0, 0, 315)]
-    fn build_utc_fields_at_offset_rejects_out_of_range_fields(
+    fn localize_to_offset_rejects_out_of_range_fields(
         #[case] year: u32,
         #[case] month: u32,
         #[case] day: u32,
@@ -1297,7 +1346,8 @@ mod timestamp_tests {
     ) {
         let built = TimestampBuilder::with_ymd(year, month, day)
             .with_hms(hour, minute, second)
-            .build_utc_fields_at_offset(0);
+            .localize_to_offset(0)
+            .build();
         assert!(
             built.is_err(),
             "expected {year}-{month}-{day}T{hour}:{minute}:{second} to be rejected, got `{}`",
@@ -1305,7 +1355,7 @@ mod timestamp_tests {
         );
     }
 
-    /// The offset parameter is narrowed `i32 as i16`, so out-of-range values must be rejected
+    /// The offset is narrowed `i32 as i16` inside `build`, so out-of-range values must be rejected
     /// before that cast. `MAX_OFFSET_MINUTES + 1` catches the ordinary out-of-range case; `65536`
     /// is the boundary that survives `as i16` (it wraps to `0`), the one value the downstream
     /// `from_fields` offset check cannot catch on its own.
@@ -1313,10 +1363,11 @@ mod timestamp_tests {
     #[case(1440)]
     #[case(-1440)]
     #[case(65536)]
-    fn build_utc_fields_at_offset_rejects_out_of_range_offset(#[case] offset_minutes: i32) {
+    fn localize_to_offset_rejects_out_of_range_offset(#[case] offset_minutes: i32) {
         let built = TimestampBuilder::with_ymd(2021, 1, 1)
             .with_hour_and_minute(0, 0)
-            .build_utc_fields_at_offset(offset_minutes);
+            .localize_to_offset(offset_minutes)
+            .build();
         assert!(
             built.is_err(),
             "expected offset {offset_minutes} to be rejected, got `{}`",
@@ -1328,11 +1379,12 @@ mod timestamp_tests {
     /// only guard against a subsecond value that outruns one full second (invariant 4). Reachable
     /// from binary 1.1 short-form subseconds (e.g. the 10-bit millisecond field admits 1000..=1023).
     #[test]
-    fn build_utc_fields_at_offset_rejects_over_range_subseconds() {
+    fn localize_to_offset_rejects_over_range_subseconds() {
         let built = TimestampBuilder::with_ymd(2024, 1, 1)
             .with_hms(0, 0, 0)
             .with_milliseconds(1023)
-            .build_utc_fields_at_offset(0);
+            .localize_to_offset(0)
+            .build();
         assert!(
             built.is_err(),
             "1023 milliseconds (>= 1 second) should be rejected, got `{}`",
@@ -1348,7 +1400,7 @@ mod timestamp_tests {
     #[case(2021, 6, 15, 12, 30, 45, -1439)]
     #[case(9999, 12, 31, 23, 59, 59, 0)]
     #[case(1, 1, 1, 0, 0, 0, 0)]
-    fn build_utc_fields_at_offset_accepts_in_range_extremes(
+    fn localize_to_offset_accepts_in_range_extremes(
         #[case] year: u32,
         #[case] month: u32,
         #[case] day: u32,
@@ -1359,7 +1411,8 @@ mod timestamp_tests {
     ) {
         let built = TimestampBuilder::with_ymd(year, month, day)
             .with_hms(hour, minute, second)
-            .build_utc_fields_at_offset(offset_minutes);
+            .localize_to_offset(offset_minutes)
+            .build();
         assert!(
             built.is_ok(),
             "expected {year}-{month}-{day}T{hour}:{minute}:{second} at offset {offset_minutes} \
@@ -1368,8 +1421,103 @@ mod timestamp_tests {
         );
     }
 
+    /// The UTC-fields path must actually shift the fields into local time at the offset, including
+    /// across day/month/year boundaries. `accepts_in_range_extremes` only checks that these build;
+    /// this pins the resulting local field values so a sign or rollover error can't pass. Offsets
+    /// are in minutes; seconds are unaffected by an offset.
+    #[rstest]
+    // +1439 (23:59) rolls forward past midnight into the next day.
+    #[case((2021, 6, 15, 12, 30, 45), 1439, (2021, 6, 16, 12, 29, 45))]
+    // -1439 rolls back past midnight into the previous day.
+    #[case((2021, 6, 15, 12, 30, 45), -1439, (2021, 6, 14, 12, 31, 45))]
+    // A negative offset rolls back across a month and year boundary.
+    #[case((2021, 1, 1, 0, 30, 0), -60, (2020, 12, 31, 23, 30, 0))]
+    fn localize_to_offset_shifts_utc_fields_into_local_time(
+        #[case] utc: (u32, u32, u32, u32, u32, u32),
+        #[case] offset_minutes: i32,
+        #[case] expected_local: (u32, u32, u32, u32, u32, u32),
+    ) -> IonResult<()> {
+        let (year, month, day, hour, minute, second) = utc;
+        let ts = TimestampBuilder::with_ymd(year, month, day)
+            .with_hms(hour, minute, second)
+            .localize_to_offset(offset_minutes)
+            .build()?;
+        assert_eq!(
+            (
+                ts.year(),
+                ts.month(),
+                ts.day(),
+                ts.hour(),
+                ts.minute(),
+                ts.second(),
+                ts.offset()
+            ),
+            (
+                expected_local.0,
+                expected_local.1,
+                expected_local.2,
+                expected_local.3,
+                expected_local.4,
+                expected_local.5,
+                Some(offset_minutes)
+            ),
+        );
+        Ok(())
+    }
+
+    /// `localize_to_offset` is also reachable at `HasHour` precision (where `minute` defaults to 0).
+    /// Exercise it with a negative offset that rolls the hour back across a day/month/year boundary.
+    #[test]
+    fn localize_to_offset_shifts_hour_precision_fields() -> IonResult<()> {
+        let ts = TimestampBuilder::with_ymd(2021, 1, 1)
+            .with_hour(0)
+            .localize_to_offset(-60)
+            .build()?;
+        assert_eq!(
+            (
+                ts.year(),
+                ts.month(),
+                ts.day(),
+                ts.hour(),
+                ts.minute(),
+                ts.offset()
+            ),
+            (2020, 12, 31, 23, 0, Some(-60)),
+        );
+        Ok(())
+    }
+
+    /// A shift can push local time outside the representable range even though the UTC fields and
+    /// the offset are each in range — the failure mode unique to the UTC-fields path. `build` must
+    /// surface it as an error (via `from_fields`' post-shift year check), not wrap silently.
+    #[rstest]
+    // 9999-12-31T23:59:59 UTC + 1 minute rolls into year 10000.
+    #[case(9999, 12, 31, 23, 59, 59, 1)]
+    // 0001-01-01T00:00:00 UTC - 1 minute rolls back into year 0.
+    #[case(1, 1, 1, 0, 0, 0, -1)]
+    fn localize_to_offset_rejects_shift_out_of_range(
+        #[case] year: u32,
+        #[case] month: u32,
+        #[case] day: u32,
+        #[case] hour: u32,
+        #[case] minute: u32,
+        #[case] second: u32,
+        #[case] offset_minutes: i32,
+    ) {
+        let built = TimestampBuilder::with_ymd(year, month, day)
+            .with_hms(hour, minute, second)
+            .localize_to_offset(offset_minutes)
+            .build();
+        assert!(
+            built.is_err(),
+            "expected {year}-{month}-{day}T{hour}:{minute}:{second} shifted by {offset_minutes} \
+             min to be rejected, got `{}`",
+            built.unwrap()
+        );
+    }
+
     /// The same defect reached through the public API. A binary 1.0 timestamp with a known offset
-    /// at HourAndMinute precision routes to `build_utc_fields_at_offset`, so an out-of-range
+    /// at HourAndMinute precision routes to `localize_to_offset` + `build`, so an out-of-range
     /// VarUInt month must surface as an error rather than a plausible wrong month. The assertion
     /// checks the error names the offending field, so a structurally malformed buffer (which fails
     /// for an unrelated reason) can't pass this test by accident.
@@ -1455,7 +1603,7 @@ mod timestamp_tests {
         let timestamp1 = builder1.with_offset(-5 * 60).build()?;
         // Builder 2 specifies its time fields in UTC and expects the offset to be applied afterwards
         let builder2 = TimestampBuilder::with_ymd(2021, 2, 5).with_hour_and_minute(16, 43);
-        let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
+        let timestamp2 = builder2.localize_to_offset(-5 * 60).build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -1468,7 +1616,7 @@ mod timestamp_tests {
         let timestamp1 = builder1.with_offset(-5 * 60).build()?;
         // Builder 2 specifies its time fields in UTC and expects the offset to be applied afterwards
         let builder2 = TimestampBuilder::with_ymd(2021, 2, 5).with_hms(16, 43, 51);
-        let timestamp2 = builder2.build_utc_fields_at_offset(-5 * 60)?;
+        let timestamp2 = builder2.localize_to_offset(-5 * 60).build()?;
         assert_eq!(timestamp1, timestamp2);
         assert!(timestamp1.ion_eq(&timestamp2));
         Ok(())
@@ -2184,7 +2332,7 @@ mod timestamp_tests {
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).build().unwrap(), "3030-03-31T")]
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build().unwrap(), "3030-03-31T17:31-00:00")]
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).with_offset(-420).build().unwrap(), "3030-03-31T17:31-07:00")]
-    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).build_utc_fields_at_offset(-420).unwrap(), "3030-03-31T10:31-07:00")]
+    #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).localize_to_offset(-420).build().unwrap(), "3030-03-31T10:31-07:00")]
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_offset(0).build().unwrap(), "3030-03-31T17:31:57+00:00")]
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_milliseconds(27).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.027+00:00")]
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_microseconds(27).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.000027+00:00")]

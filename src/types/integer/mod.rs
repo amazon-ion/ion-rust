@@ -3,7 +3,8 @@ mod int_data;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
-use crate::types::CountDecimalDigits;
+use crate::types::decimal::Sign;
+use crate::types::overflowing_int::{Magnitude, OverflowingInt};
 use crate::{IonError, IonResult};
 pub(crate) use big_small::AsBigOrSmallValue;
 pub(crate) use int_data::{IntData, UIntData};
@@ -363,8 +364,6 @@ impl Int {
         self.data.to_le_bytes()
     }
 
-    #[cfg_attr(not(feature = "bigdecimal"), allow(dead_code))]
-    // Only used for bigdecimal conversion.
     pub(crate) fn to_bigint(&self) -> BigInt {
         self.data.as_big_value().into_owned()
     }
@@ -399,18 +398,6 @@ impl IonDataHash for Int {
     }
 }
 
-impl CountDecimalDigits for Int {
-    fn count_decimal_digits(self) -> u32 {
-        self.data.count_decimal_digits()
-    }
-}
-
-impl CountDecimalDigits for UInt {
-    fn count_decimal_digits(self) -> u32 {
-        self.data.count_decimal_digits()
-    }
-}
-
 impl Display for UInt {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.data)
@@ -435,6 +422,51 @@ impl From<UInt> for IntData {
 impl From<&UInt> for Int {
     fn from(value: &UInt) -> Self {
         IntData::from(value.data.clone()).into()
+    }
+}
+
+// ===== Conversions to/from the `OverflowingInt` union =====
+
+/// Materializes a borrowed `Magnitude` as an owned [`UInt`].
+impl From<Magnitude<'_>> for UInt {
+    fn from(magnitude: Magnitude<'_>) -> Self {
+        match magnitude {
+            Magnitude::Small(magnitude) => UInt::from(magnitude),
+            Magnitude::Big(magnitude) => UInt::from(UIntData::from_big(magnitude.clone())),
+        }
+    }
+}
+
+/// Converts a signed [`Int`] into an [`OverflowingInt`], preserving sign and
+/// magnitude. An `Int` never carries a negative zero, so the sign is unambiguous.
+impl From<Int> for OverflowingInt {
+    fn from(value: Int) -> Self {
+        match value.as_i128() {
+            Some(value) => OverflowingInt::from(value),
+            None => OverflowingInt::from(value.to_bigint()),
+        }
+    }
+}
+
+/// Converts an `OverflowingInt` into an [`Int`], preserving sign and magnitude.
+/// Fails for negative zero, since `Int` has no negative zero.
+impl TryFrom<&OverflowingInt> for Int {
+    type Error = IonError;
+
+    fn try_from(value: &OverflowingInt) -> Result<Self, Self::Error> {
+        let is_negative = value.sign() == Sign::Negative;
+        if is_negative && value.is_zero() {
+            return IonResult::illegal_operation("cannot convert negative zero to Int");
+        }
+        if let Some(value) = value.as_i128() {
+            return Ok(Int::from(value));
+        }
+        let magnitude = Int::from(UInt::from(value.magnitude_ref()));
+        Ok(if is_negative {
+            magnitude.neg()
+        } else {
+            magnitude
+        })
     }
 }
 

@@ -4,9 +4,7 @@ use std::cmp::Ordering;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
-use crate::types::integer::{IntData, UIntData};
 use crate::{Int, IonResult};
-use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
@@ -41,77 +39,37 @@ pub use coefficient::{Coefficient, Sign};
 /// ```
 #[derive(Clone, Debug)]
 pub struct Decimal {
-    // ===== A note on layout =====
-    // A `Coefficient` is a `(Sign, Int)` pair. The `Sign` is a one-byte enum that allows the
-    // `Coefficient` to distinguish between positive and negative zero. If the value is not
-    // negative zero, then the `Sign` will agree with the sign of the `Int` value.
-    //
-    // `Decimal` previously contained a `Coefficient`, but this resulted in large amounts of wasted
-    // memory. Because of alignment requirements, the `Coefficient` was stored like this:
-    //
-    //              Int      Sign    Padding
-    //       ┌───────┴───────┐╰╮┌───────┴──────┐
-    //       IIIIIIII IIIIIIII S_______ ________
-    //
-    //
-    // When the `Coefficient` was stored inside the `Decimal`, the situation was compounded.
-    // The `Decimal` required an alignment of 16 bytes, causing even more padding to be added:
-    //
-    //              Int      Sign    Padding     Exponent  Padding
-    //       ┌───────┴───────┐╰╮┌───────┴──────┐ ┌──┴───┐ ┌──┴───┐
-    //       IIIIIIII IIIIIIII S_______ ________ EEEEEEEE ________
-    //       └──────────────┬──────────────────┘
-    //                   Decimal
-    // Of the `Decimal`'s 48 bytes, 23 were padding—a huge waste. Because many types contain a
-    // Decimal (however indirectly), this meant that lots of data types had 23 bytes of dead space.
-    //
-    // `Decimal` now stores the value and sign fields itself and uses them to construct a `Coefficient`
-    // on demand. As a result, `Decimal` is now only 32 bytes, 7 of which are padding.
-    //
-    //              Int        Exponent  Padding
-    //       ┌───────┴───────┐ ┌───┴──┐  ┌──┴──┐
-    //       IIIIIIII IIIIIIII EEEEEEEE S_______
-    //                                  ╰╮
-    //                                  Sign
-    //
-    // While the compiler is free to rearrange the layout of a type in each compile, the layouts
-    // described above have remained steady over several versions of Rust.
-    pub(crate) coefficient_value: Int,
-    pub(crate) coefficient_sign: Sign,
+    // `Coefficient` wraps a 16-byte, align-8 `OverflowingInt`, so embedding it directly here
+    // yields a 24-byte, align-8 `Decimal`. An earlier representation stored the coefficient's
+    // sign and magnitude as separate fields to dodge the align-16 padding of the old magnitude
+    // type; that is no longer necessary now that the coefficient is align 8.
+    pub(crate) coefficient: Coefficient,
     pub(crate) exponent: i64,
 }
 
 impl Decimal {
     pub const ZERO: Decimal = Decimal {
-        coefficient_value: Int::ZERO,
-        coefficient_sign: Sign::Positive,
+        coefficient: Coefficient::ZERO,
         exponent: 0,
     };
 
     pub const NEGATIVE_ZERO: Decimal = Decimal {
-        coefficient_value: Int::ZERO,
-        coefficient_sign: Sign::Negative,
+        coefficient: Coefficient::NEGATIVE_ZERO,
         exponent: 0,
     };
 
     /// Constructs a new Decimal with the provided components. The value of the decimal is:
     ///    `coefficient * 10^exponent`
     pub fn new<C: Into<Coefficient>, E: Into<i64>>(coefficient: C, exponent: E) -> Decimal {
-        let coefficient = coefficient.into();
-        let exponent = exponent.into();
-        if coefficient.is_negative_zero() {
-            return Decimal::negative_zero_with_exponent(exponent);
-        }
         Decimal {
-            coefficient_value: coefficient.as_int().unwrap(), // Only fails for -0, checked above.
-            coefficient_sign: coefficient.sign(),
-            exponent,
+            coefficient: coefficient.into(),
+            exponent: exponent.into(),
         }
     }
 
     /// Returns this `Decimal`'s coefficient.
     pub fn coefficient(&self) -> Coefficient {
-        Coefficient::from_sign_and_value(self.coefficient_sign, self.coefficient_value.clone())
+        self.coefficient.clone()
     }
 
     /// Returns this `Decimal`'s exponent.
@@ -129,7 +87,7 @@ impl Decimal {
 
     /// Returns the number of digits in the non-scaled integer representation of the decimal.
     pub fn precision(&self) -> u64 {
-        self.coefficient().number_of_decimal_digits() as u64
+        self.coefficient.number_of_decimal_digits() as u64
     }
 
     /// Constructs a Decimal with the value `-0d0`. This is provided as a convenience method
@@ -143,22 +101,20 @@ impl Decimal {
     /// applied to a zero literal (`-0`).
     pub fn negative_zero_with_exponent(exponent: i64) -> Decimal {
         Decimal {
-            coefficient_value: Int::ZERO,
-            coefficient_sign: Sign::Negative,
+            coefficient: Coefficient::NEGATIVE_ZERO,
             exponent,
         }
     }
 
     /// Returns `true` if this Decimal is a zero of any sign or exponent.
     pub fn is_zero(&self) -> bool {
-        self.coefficient().is_zero()
+        self.coefficient.is_zero()
     }
 
     /// Returns true if this Decimal's coefficient has a negative sign AND a magnitude greater than
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
-        let coefficient = self.coefficient();
-        coefficient.sign() == Sign::Negative && !coefficient.magnitude().is_zero()
+        self.coefficient.sign() == Sign::Negative && !self.coefficient.is_zero()
     }
 
     // Determines whether the first decimal value is greater than, equal to, or less than
@@ -170,7 +126,7 @@ impl Decimal {
         }
         // Even if the exponents are wildly different, disagreement in the coefficient's signs
         // still tells us which value is bigger.
-        let sign_cmp = d1.coefficient().sign().cmp(&d2.coefficient().sign());
+        let sign_cmp = d1.coefficient.sign().cmp(&d2.coefficient.sign());
         if sign_cmp != Ordering::Equal {
             return sign_cmp;
         }
@@ -178,7 +134,7 @@ impl Decimal {
         // If the signs are the same, compare their magnitudes.
         let ordering = Decimal::compare_magnitudes(d1, d2);
 
-        if d1.coefficient().sign() == Sign::Positive {
+        if d1.coefficient.sign() == Sign::Positive {
             // If the values are both positive, use the magnitudes' ordering.
             ordering
         } else {
@@ -193,10 +149,7 @@ impl Decimal {
     fn compare_magnitudes(d1: &Decimal, d2: &Decimal) -> Ordering {
         // If the exponents match, we can compare the two coefficients directly.
         if d1.exponent == d2.exponent {
-            return d1
-                .coefficient()
-                .magnitude()
-                .cmp(&d2.coefficient().magnitude());
+            return d1.coefficient.cmp_magnitude_scaled(0, &d2.coefficient);
         }
 
         // If the exponents don't match, we need to scale one of the magnitudes to match the other
@@ -214,7 +167,10 @@ impl Decimal {
     // Scales up the coefficient associated with a greater exponent and compares it with the
     // other coefficient. `d1` must have a larger exponent than `d2`.
     fn compare_scaled_coefficients(d1: &Decimal, d2: &Decimal) -> Ordering {
-        let exponent_delta = d1.exponent - d2.exponent;
+        // `abs_diff` computes the difference as a `u64` without the intermediate `i64`
+        // subtraction, which can overflow at the extremes of the exponent range. The caller
+        // guarantees `d1.exponent > d2.exponent`, so the result is the positive delta.
+        let exponent_delta = d1.exponent.abs_diff(d2.exponent);
         // d1 has a larger exponent, so scale up its coefficient to match d2's exponent.
         // For example, when comparing these values of d1 and d2:
         //     d1 =  8 * 10^3
@@ -222,21 +178,13 @@ impl Decimal {
         // d1 has the larger exponent (3). We need to scale its coefficient up to d2's 10^2 scale.
         // We do this by multiplying it times 10^exponent_delta, which is 1 in this case.
         // This lets us compare 80 and 80, determining that the decimals are equal.
-        let d1_mag = d1.coefficient().magnitude();
-        let d2_mag = d2.coefficient().magnitude();
-        // Fast path: both fit in u128
-        if let (Some(m1), Some(m2)) = (d1_mag.as_u128(), d2_mag.as_u128()) {
-            if let Some(multiplicand) = 10u128.checked_pow(exponent_delta as u32) {
-                if let Some(scaled) = m1.checked_mul(multiplicand) {
-                    return scaled.cmp(&m2);
-                }
-            }
-        }
-        // Slow path: use BigUint for arbitrary-precision scaling and comparison
-        let d1_big = d1_mag.data;
-        let scaled = d1_big * UIntData::from_big(BigUint::from(10u32).pow(exponent_delta as u32));
-        let other = d2_mag.data;
-        scaled.cmp(&other)
+        //
+        // The union scales the magnitude and compares magnitudes — the sign is handled by the
+        // caller (`compare`/`ion_cmp`), so comparing a *value* here would double-reverse two
+        // negatives. It decides the wide-difference cases from bit widths without materializing
+        // `10^exponent_delta`, and the inline fast path never allocates.
+        d1.coefficient
+            .cmp_magnitude_scaled(exponent_delta, &d2.coefficient)
     }
 
     /// Returns the integer part of `self`. This means that non-integer numbers are always
@@ -245,16 +193,12 @@ impl Decimal {
         if self.exponent >= 0 {
             self.clone()
         } else {
-            // Extract the coefficient, we'll lose the sign if it's ZERO, but we add it back at the
-            // end.
-            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
-            let scaling_factor =
-                IntData::from_big(BigInt::from(10).pow(self.exponent.unsigned_abs() as u32));
-            coeff = coeff / scaling_factor;
-            Decimal::new(
-                Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
-                0,
-            )
+            // Divide the coefficient's magnitude by 10^|exponent|, discarding the fractional
+            // digits. The quotient carries the coefficient's sign, so a value that truncates to
+            // zero keeps a negative sign as `-0` without this method setting one.
+            let power = self.exponent.unsigned_abs();
+            let (quotient, _remainder) = self.coefficient.div_rem_pow10(power);
+            Decimal::new(quotient, 0)
         }
     }
 
@@ -263,18 +207,16 @@ impl Decimal {
     pub fn fract(&self) -> Decimal {
         if self.exponent >= 0 {
             Decimal::new(
-                Coefficient::from_sign_and_value(self.coefficient_sign, 0),
+                Coefficient::from_sign_and_value(self.coefficient.sign(), 0),
                 0,
             )
         } else {
-            let mut coeff = self.coefficient().as_int().unwrap_or(Int::ZERO).data;
-            let scaling_factor =
-                IntData::from_big(BigInt::from(10).pow(self.exponent.unsigned_abs() as u32));
-            coeff = coeff % scaling_factor;
-            Decimal::new(
-                Coefficient::from_sign_and_value(self.coefficient_sign, coeff),
-                self.exponent,
-            )
+            // The remainder of dividing the magnitude by 10^|exponent| is the fractional part.
+            // It carries the coefficient's sign, so an integral value keeps a negative sign as
+            // `-0` without this method setting one, and the exponent is preserved.
+            let power = self.exponent.unsigned_abs();
+            let (_quotient, remainder) = self.coefficient.div_rem_pow10(power);
+            Decimal::new(remainder, self.exponent)
         }
     }
 }
@@ -289,14 +231,14 @@ impl Eq for Decimal {}
 
 impl IonEq for Decimal {
     fn ion_eq(&self, other: &Self) -> bool {
-        self.exponent == other.exponent && self.coefficient() == other.coefficient()
+        self.exponent == other.exponent && self.coefficient == other.coefficient
     }
 }
 
 impl IonDataOrd for Decimal {
     // Numerical order (least to greatest) and then by number of significant figures (least to greatest)
     fn ion_cmp(&self, other: &Self) -> Ordering {
-        let sign_cmp = self.coefficient().sign().cmp(&other.coefficient().sign());
+        let sign_cmp = self.coefficient.sign().cmp(&other.coefficient.sign());
         if sign_cmp != Ordering::Equal {
             return sign_cmp;
         }
@@ -304,7 +246,7 @@ impl IonDataOrd for Decimal {
         // If the signs are the same, compare their magnitudes.
         let ordering = Decimal::compare_magnitudes(self, other);
         if ordering != Ordering::Equal {
-            return match self.coefficient().sign() {
+            return match self.coefficient.sign() {
                 Sign::Negative => ordering.reverse(),
                 Sign::Positive => ordering,
             };
@@ -317,8 +259,7 @@ impl IonDataOrd for Decimal {
 
 impl IonDataHash for Decimal {
     fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
-        state.write_i8(self.coefficient().sign() as i8);
-        self.coefficient().magnitude().hash(state);
+        self.coefficient.hash(state);
         state.write_i64(self.exponent);
     }
 }
@@ -495,14 +436,14 @@ impl Display for Decimal {
         // Inspired by the formatting conventions of Java's BigDecimal.toString()
         const WIDE_NUMBER: usize = 6; // if you think about it, six is a lot 🙃
 
-        let digits = &*self.coefficient().magnitude().to_string();
+        let digits = &*self.coefficient.magnitude().to_string();
         let len = digits.len();
         // The index of the decimal point, relative to the magnitude representation
         //       0123                                                       01234
         // Given ABCDd-2, the decimal gets inserted at position 2, yielding AB.CD
         let dot_index = len as i64 + self.exponent;
 
-        if self.coefficient().sign() == Sign::Negative {
+        if self.coefficient.sign() == Sign::Negative {
             write!(f, "-").unwrap();
         };
 
@@ -539,11 +480,10 @@ mod bigdecimal {
         /// Attempts to create a BigDecimal from a Decimal. Returns an Error if the Decimal being
         /// converted is a special value (negative zero) or has a magnitude no representable as u128.
         fn try_into(self) -> Result<BigDecimal, Self::Error> {
-            if self.coefficient().is_negative_zero() {
-                return IonResult::illegal_operation("Cannot convert negative zero to BigDecimal.");
+            match self.coefficient().as_int() {
+                Some(coefficient) => Ok(BigDecimal::new(coefficient.to_bigint(), self.scale())),
+                None => IonResult::illegal_operation("Cannot convert negative zero to BigDecimal."),
             }
-            let bigint = self.coefficient_value.to_bigint();
-            Ok(BigDecimal::new(bigint, self.scale()))
         }
     }
 
@@ -1001,5 +941,101 @@ mod decimal_tests {
         // since the integer part is zero.
         let d = Decimal::new(1i64, -39i64);
         assert_eq!(d.fract(), Decimal::new(1i64, -39i64));
+    }
+
+    #[test]
+    fn decimal_and_coefficient_layout() {
+        use std::mem::{align_of, size_of};
+        // The `Value`-variant budget is 32 bytes; this design reaches 24.
+        assert!(size_of::<Decimal>() <= 24);
+        assert!(align_of::<Decimal>() <= 8);
+        assert!(size_of::<Coefficient>() <= 16);
+        assert!(align_of::<Coefficient>() <= 8);
+    }
+
+    #[rstest]
+    // `trunc` of a value below one keeps the coefficient's sign on the zero result.
+    #[case(Decimal::new(-5, -1).trunc(), Decimal::negative_zero())]
+    // `fract` of an integral value keeps the coefficient's sign on the zero result.
+    #[case(Decimal::new(-5, 0).fract(), Decimal::negative_zero())]
+    // `fract` of a negative zero is a negative zero.
+    #[case(Decimal::negative_zero().fract(), Decimal::negative_zero())]
+    fn trunc_fract_preserve_negative_zero(#[case] actual: Decimal, #[case] expected: Decimal) {
+        // `assert_eq!` is numeric and would pass even if the sign were lost; `ion_eq`
+        // distinguishes -0 from +0.
+        assert!(
+            actual.ion_eq(&expected),
+            "{actual:?} is not ion_eq to {expected:?}"
+        );
+    }
+
+    #[test]
+    fn fract_preserves_exponent_on_negative_zero_remainder() {
+        // -1.0 stored as coefficient -10, exponent -1. Its fractional part is zero, but `IonEq`
+        // compares exponents, so the result must be a negative zero *at exponent -1*.
+        let actual = Decimal::new(-10, -1).fract();
+        let expected = Decimal::new(Coefficient::negative_zero(), -1);
+        assert!(
+            actual.ion_eq(&expected),
+            "{actual:?} is not ion_eq to {expected:?}"
+        );
+    }
+
+    #[test]
+    fn zero_constants_structural_vs_numeric() {
+        // `Coefficient` equality is structural: the two zero constants are unequal.
+        assert_ne!(Coefficient::ZERO, Coefficient::NEGATIVE_ZERO);
+        // `Decimal` equality is numeric: the two zero constants are equal.
+        assert_eq!(Decimal::ZERO, Decimal::NEGATIVE_ZERO);
+    }
+
+    #[test]
+    fn scaled_comparison_does_not_narrow_exponent_delta() {
+        // A delta of exactly 2^32 narrows to 0 under `as u32`, which would scale by 10^0 = 1 and
+        // wrongly report two very different decimals as equal. 1e(2^32) is astronomically larger
+        // than 1e0.
+        let big = Decimal::new(1i64, 1i64 << 32);
+        let one = Decimal::new(1i64, 0);
+        assert_eq!(big.cmp(&one), Ordering::Greater);
+        assert_eq!(one.cmp(&big), Ordering::Less);
+    }
+
+    #[test]
+    fn scaled_comparison_survives_extreme_exponents() {
+        // The old code subtracted the exponents as `i64`; `i64::MAX - i64::MIN` overflows.
+        // `abs_diff` computes the delta as `u64` without overflow, and the union decides the
+        // extreme case from bit widths without materializing 10^delta.
+        let hi = Decimal::new(1i64, i64::MAX);
+        let lo = Decimal::new(1i64, i64::MIN);
+        assert_eq!(hi.cmp(&lo), Ordering::Greater);
+        assert_eq!(lo.cmp(&hi), Ordering::Less);
+    }
+
+    #[test]
+    fn negative_pair_unequal_exponents_compares_correctly() {
+        // Two negatives with unequal exponents exercise the scaled-comparison path. -100 (=-10e1)
+        // is greater than -200 (=-2e2). Comparing a scaled *value* instead of a magnitude would
+        // invert this for two negatives — the double-reversal trap.
+        let a = Decimal::new(-10, 1); // -100
+        let b = Decimal::new(-2, 2); // -200
+        assert_eq!(a.cmp(&b), Ordering::Greater);
+        assert_eq!(b.cmp(&a), Ordering::Less);
+
+        // Heap-magnitude analogue: negative coefficients beyond i128, unequal exponents.
+        // 2^128 forces a heap-backed magnitude.
+        let mut bytes = vec![0u8; 18];
+        bytes[16] = 1;
+        let magnitude = Int::from_le_signed_bytes(&bytes);
+        let c = Decimal::new(
+            Coefficient::from_sign_and_value(Sign::Negative, magnitude.clone()),
+            0,
+        );
+        let d = Decimal::new(
+            Coefficient::from_sign_and_value(Sign::Negative, magnitude),
+            1,
+        );
+        // c = -2^128, d = -2^128 * 10, so c > d.
+        assert_eq!(c.cmp(&d), Ordering::Greater);
+        assert_eq!(d.cmp(&c), Ordering::Less);
     }
 }
