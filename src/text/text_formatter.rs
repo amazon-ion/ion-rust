@@ -1,4 +1,3 @@
-use crate::constants::v1_1;
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
 use crate::result::IonFailure;
 use crate::{Annotations, Sequence};
@@ -282,10 +281,6 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         use RawSymbolRef::*;
         let write_result = match token.as_raw_symbol_ref() {
             SymbolId(sid) => write!(self.output, "${sid}"),
-            // '' is the only system symbol that requires quoting; the rest are identifiers.
-            SystemSymbol_1_1(v1_1::system_symbols::EMPTY_TEXT) => write!(self.output, "\'\'"),
-            // Any other system symbol is an identifier and doesn't require quoting.
-            SystemSymbol_1_1(symbol) => write!(self.output, "{}", symbol.text()),
             // If the text could be mistaken for a keyword or symbol ID, wrap it in single quotes.
             Text(text) if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) => {
                 write!(self.output, "'{text}'")

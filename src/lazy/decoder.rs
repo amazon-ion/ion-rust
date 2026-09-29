@@ -5,12 +5,10 @@ use std::ops::Range;
 use crate::catalog::Catalog;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
 use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-use crate::lazy::encoder::text::v1_1::writer::LazyRawTextWriter_1_1;
-use crate::lazy::encoder::write_as_ion::{WriteableEExp, WriteableRawValue};
+use crate::lazy::encoder::write_as_ion::WriteableRawValue;
 use crate::lazy::encoding::{
     BinaryEncoding, BinaryEncoding_1_0, RawValueLiteral, TextEncoding_1_0,
 };
-use crate::lazy::expanded::macro_evaluator::RawEExpression;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
 use crate::lazy::raw_value_ref::RawValueRef;
@@ -19,8 +17,8 @@ use crate::lazy::streaming_raw_reader::RawReaderState;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
 use crate::{
-    v1_0, v1_1, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
-    LazyRawAnyFieldName, LazyRawWriter, MacroExpr, RawSymbolRef, ValueExpr, ValueRef,
+    v1_0, Encoding, FieldExpr, IonResult, IonType, LazyExpandedFieldName, LazyExpandedValue,
+    LazyRawWriter, RawSymbolRef, ValueRef,
 };
 
 pub trait HasSpan<'top>: HasRange {
@@ -77,8 +75,6 @@ pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
     type FieldName<'top>: LazyRawFieldName<'top, Self>;
     /// An iterator over the annotations on the input stream's values.
     type AnnotationsIterator<'top>: Iterator<Item = IonResult<RawSymbolRef<'top>>>;
-    /// An e-expression invoking a macro. (Ion 1.1+)
-    type EExp<'top>: RawEExpression<'top, Self>;
 
     type VersionMarker<'top>: RawVersionMarker<'top>;
 
@@ -136,8 +132,6 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
     fn stream_version_after_marker(&self) -> IonResult<IonVersion> {
         match self.major_minor() {
             (1, 0) => Ok(IonVersion::v1_0),
-            #[cfg(feature = "experimental-ion-1-1")]
-            (1, 1) => Ok(IonVersion::v1_1),
             (major, minor) => {
                 IonResult::decoding_error(format!("Ion version {major}.{minor} is not supported"))
             }
@@ -154,153 +148,29 @@ pub trait RawVersionMarker<'top>: Debug + Copy + Clone + HasSpan<'top> {
         let encoding = match (self.is_binary(), self.stream_version_after_marker()?) {
             (true, IonVersion::v1_0) => IonEncoding::Binary_1_0,
             (false, IonVersion::v1_0) => IonEncoding::Text_1_0,
-            (true, IonVersion::v1_1) => IonEncoding::Binary_1_1,
-            (false, IonVersion::v1_1) => IonEncoding::Text_1_1,
         };
         Ok(encoding)
     }
 }
 
-/// An expression found in value position in either serialized Ion or a template.
-/// If it is a value literal, it is considered a stream with exactly one Ion value.
-/// If it is a macro invocation, it is a stream with zero or more Ion values.
-///
-/// When working with `RawValueExpr`s that always use a given decoder's `Value` and
-/// `MacroInvocation` associated types, consider using [`LazyRawValueExpr`] instead.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum RawValueExpr<V, E> {
-    /// A value literal. For example: `5`, `foo`, or `"hello"` in text.
-    ValueLiteral(V),
-    /// An Ion 1.1+ macro invocation. For example: `(:employee 12345 "Sarah" "Gonzalez")` in text.
-    EExp(E),
-}
-
-// `RawValueExpr` above has no ties to a particular encoding. The `LazyRawValueExpr` type alias
-// below uses the `Value` and `MacroInvocation` associated types from the decoder `D`. In most
-// places, this is a helpful constraint; we can talk about the value expression in terms of the
-// LazyDecoder it's associated with. However, in some places (primarily when expanding template
-// values that don't have a LazyDecoder) we need to be able to use it without constraints.
-
-/// An item found in value position within an Ion data stream written in the encoding represented
-/// by the LazyDecoder `D`. This item may be either a value literal or a macro invocation.
-///
-/// For a version of this type that is not constrained to a particular encoding, see
-/// [`RawValueExpr`].
-pub type LazyRawValueExpr<'top, D> =
-    RawValueExpr<<D as Decoder>::Value<'top>, <D as Decoder>::EExp<'top>>;
-
-impl<V: Debug, M: Debug> RawValueExpr<V, M> {
-    pub fn expect_value(self) -> IonResult<V> {
-        match self {
-            RawValueExpr::ValueLiteral(v) => Ok(v),
-            RawValueExpr::EExp(_m) => IonResult::decoding_error(
-                "expected a value literal, but found a macro invocation ({:?})",
-            ),
-        }
-    }
-
-    pub fn expect_macro(self) -> IonResult<M> {
-        match self {
-            RawValueExpr::ValueLiteral(v) => IonResult::decoding_error(format!(
-                "expected a macro invocation but found a value literal ({v:?})",
-            )),
-            RawValueExpr::EExp(m) => Ok(m),
-        }
-    }
-}
-
-impl<V, M> RawValueExpr<V, M> {
-    pub fn resolve<'top, D>(
-        self,
-        context: EncodingContextRef<'top>,
-    ) -> IonResult<ValueExpr<'top, D>>
-    where
-        V: LazyRawValue<'top, D>,
-        M: RawEExpression<'top, D>,
-        D: Decoder<Value<'top> = V, EExp<'top> = M>,
-    {
-        let expr = match self {
-            RawValueExpr::ValueLiteral(value) => {
-                ValueExpr::ValueLiteral(LazyExpandedValue::from_literal(context, value))
-            }
-            RawValueExpr::EExp(invocation) => {
-                ValueExpr::MacroInvocation(MacroExpr::from_eexp(invocation.resolve(context)?))
-            }
-        };
-        Ok(expr)
-    }
-}
-
-impl<V: HasRange, M: HasRange> HasRange for RawValueExpr<V, M> {
-    fn range(&self) -> Range<usize> {
-        match self {
-            RawValueExpr::ValueLiteral(value) => value.range(),
-            RawValueExpr::EExp(eexp) => eexp.range(),
-        }
-    }
-}
-
-impl<'top, V: HasSpan<'top>, M: HasSpan<'top>> HasSpan<'top> for RawValueExpr<V, M> {
-    fn span(&self) -> Span<'top> {
-        match self {
-            RawValueExpr::ValueLiteral(value) => value.span(),
-            RawValueExpr::EExp(eexp) => eexp.span(),
-        }
-    }
-}
-
-/// A (name, value expression) pair representing a field in a struct.
-/// The value expression may be either:
-///   * a value literal
-///   * an e-expression
+/// A (name, value) pair representing a field in a struct.
 #[derive(Copy, Clone, Debug)]
 pub enum LazyRawFieldExpr<'top, D: Decoder> {
     NameValue(D::FieldName<'top>, D::Value<'top>),
-    NameEExp(D::FieldName<'top>, D::EExp<'top>),
-    EExp(D::EExp<'top>),
 }
 
 impl<'top, D: Decoder> LazyRawFieldExpr<'top, D> {
     pub fn resolve(self, context: EncodingContextRef<'top>) -> IonResult<FieldExpr<'top, D>> {
-        use LazyRawFieldExpr::*;
-        let field = match self {
-            NameValue(name, value) => FieldExpr::NameValue(
-                name.resolve(context),
-                LazyExpandedValue::from_literal(context, value),
-            ),
-            NameEExp(name, eexp) => {
-                FieldExpr::NameMacro(name.resolve(context), eexp.resolve(context)?.into())
-            }
-            EExp(eexp) => FieldExpr::EExp(eexp.resolve(context)?),
-        };
-        Ok(field)
+        let LazyRawFieldExpr::NameValue(name, value) = self;
+        Ok(FieldExpr::NameValue(
+            name.resolve(context),
+            LazyExpandedValue::from_literal(context, value),
+        ))
     }
 
     pub fn expect_name_value(self) -> IonResult<(D::FieldName<'top>, D::Value<'top>)> {
-        let LazyRawFieldExpr::NameValue(name, value) = self else {
-            return IonResult::decoding_error(format!(
-                "expected a name/value pair but found {self:?}",
-            ));
-        };
+        let LazyRawFieldExpr::NameValue(name, value) = self;
         Ok((name, value))
-    }
-
-    pub fn expect_name_eexp(self) -> IonResult<(D::FieldName<'top>, D::EExp<'top>)> {
-        let LazyRawFieldExpr::NameEExp(name, eexp) = self else {
-            return IonResult::decoding_error(format!(
-                "expected a name/e-expression pair but found {self:?}",
-            ));
-        };
-        Ok((name, eexp))
-    }
-
-    pub fn expect_eexp(self) -> IonResult<D::EExp<'top>> {
-        let LazyRawFieldExpr::EExp(eexp) = self else {
-            return IonResult::decoding_error(format!(
-                "expected an e-expression but found {self:?}",
-            ));
-        };
-        Ok(eexp)
     }
 }
 
@@ -308,20 +178,12 @@ impl<'top, D: Decoder> LazyRawFieldExpr<'top, D> {
 
 impl<'top> LazyRawFieldExpr<'top, TextEncoding_1_0> {
     pub fn name(&self) -> <TextEncoding_1_0 as Decoder>::FieldName<'top> {
-        use LazyRawFieldExpr::*;
-        match self {
-            NameValue(name, _value) => *name,
-            NameEExp(_, _) => unreachable!("name/eexp field in text Ion 1.0"),
-            EExp(_) => unreachable!("eexp field in text Ion 1.0"),
-        }
+        let LazyRawFieldExpr::NameValue(name, _value) = self;
+        *name
     }
     pub fn value(&self) -> <TextEncoding_1_0 as Decoder>::Value<'top> {
-        use LazyRawFieldExpr::*;
-        match self {
-            NameValue(_name, value) => *value,
-            NameEExp(_, _) => unreachable!("name/eexp field in text Ion 1.0"),
-            EExp(_) => unreachable!("eexp field in text Ion 1.0"),
-        }
+        let LazyRawFieldExpr::NameValue(_name, value) = self;
+        *value
     }
 
     pub fn name_and_value(
@@ -330,12 +192,8 @@ impl<'top> LazyRawFieldExpr<'top, TextEncoding_1_0> {
         <TextEncoding_1_0 as Decoder>::FieldName<'top>,
         <TextEncoding_1_0 as Decoder>::Value<'top>,
     ) {
-        use LazyRawFieldExpr::*;
-        match self {
-            NameValue(name, value) => (*name, *value),
-            NameEExp(_, _) => unreachable!("name/eexp field in text Ion 1.0"),
-            EExp(_) => unreachable!("eexp field in text Ion 1.0"),
-        }
+        let LazyRawFieldExpr::NameValue(name, value) = self;
+        (*name, *value)
     }
 }
 
@@ -343,20 +201,12 @@ impl<'top> LazyRawFieldExpr<'top, TextEncoding_1_0> {
 
 impl<'top> LazyRawFieldExpr<'top, BinaryEncoding_1_0> {
     pub fn name(&self) -> <BinaryEncoding_1_0 as Decoder>::FieldName<'top> {
-        use LazyRawFieldExpr::*;
-        match self {
-            NameValue(name, _value) => *name,
-            NameEExp(_, _) => unreachable!("name/eexp field in binary Ion 1.0"),
-            EExp(_) => unreachable!("eexp field in text Ion 1.0"),
-        }
+        let LazyRawFieldExpr::NameValue(name, _value) = self;
+        *name
     }
     pub fn value(&self) -> <BinaryEncoding_1_0 as Decoder>::Value<'top> {
-        use LazyRawFieldExpr::*;
-        match self {
-            NameValue(_name, value) => *value,
-            NameEExp(_, _) => unreachable!("name/eexp field in text Ion 1.0"),
-            EExp(_) => unreachable!("eexp field in text Ion 1.0"),
-        }
+        let LazyRawFieldExpr::NameValue(_name, value) = self;
+        *value
     }
 
     pub fn name_and_value(
@@ -365,26 +215,19 @@ impl<'top> LazyRawFieldExpr<'top, BinaryEncoding_1_0> {
         <BinaryEncoding_1_0 as Decoder>::FieldName<'top>,
         <BinaryEncoding_1_0 as Decoder>::Value<'top>,
     ) {
-        use LazyRawFieldExpr::*;
-        match self {
-            NameValue(name, value) => (*name, *value),
-            NameEExp(_, _) => unreachable!("name/eexp field in text Ion 1.0"),
-            EExp(_) => unreachable!("eexp field in text Ion 1.0"),
-        }
+        let LazyRawFieldExpr::NameValue(name, value) = self;
+        (*name, *value)
     }
 }
 
 impl<D: Decoder> HasRange for LazyRawFieldExpr<'_, D> {
     // This type does not offer a `span()` method to get the bytes of the entire field.
-    // In the case of a name/value or name/eexp pair, text parsers would need to provide a span that
+    // In the case of a name/value pair, text parsers would need to provide a span that
     // included the interstitial whitespace and delimiting `:` between the name and value,
     // which is not especially useful.
     fn range(&self) -> Range<usize> {
-        match self {
-            LazyRawFieldExpr::NameValue(name, value) => name.range().start..value.range().end,
-            LazyRawFieldExpr::NameEExp(name, eexp) => name.range().start..eexp.range().end,
-            LazyRawFieldExpr::EExp(eexp) => eexp.range(),
-        }
+        let LazyRawFieldExpr::NameValue(name, value) = self;
+        name.range().start..value.range().end
     }
 }
 
@@ -397,10 +240,9 @@ impl<D: Decoder> HasRange for LazyRawFieldExpr<'_, D> {
 // internal code that is defined in terms of `LazyRawField` to call the private `into_value()`
 // function while also preventing users from seeing or depending on it.
 pub(crate) mod private {
-    use crate::lazy::expanded::macro_evaluator::RawEExpression;
     use crate::lazy::expanded::r#struct::FieldExpr;
     use crate::lazy::expanded::EncodingContextRef;
-    use crate::{try_next, try_or_some_err, IonResult, LazyExpandedValue, LazyRawFieldName};
+    use crate::{try_next, IonResult, LazyExpandedValue, LazyRawFieldName};
 
     use super::{Decoder, LazyRawFieldExpr, LazyRawStruct};
 
@@ -432,21 +274,11 @@ pub(crate) mod private {
 
         fn next(&mut self) -> Option<Self::Item> {
             let field: LazyRawFieldExpr<'top, D> = try_next!(self.raw_fields.next());
-            use LazyRawFieldExpr::*;
-            let unexpanded_field = match field {
-                NameValue(name, value) => FieldExpr::NameValue(
-                    name.resolve(self.context),
-                    LazyExpandedValue::from_literal(self.context, value),
-                ),
-                NameEExp(name, raw_eexp) => {
-                    let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
-                    FieldExpr::NameMacro(name.resolve(self.context), eexp.into())
-                }
-                EExp(raw_eexp) => {
-                    let eexp = try_or_some_err!(raw_eexp.resolve(self.context));
-                    FieldExpr::EExp(eexp)
-                }
-            };
+            let LazyRawFieldExpr::NameValue(name, value) = field;
+            let unexpanded_field = FieldExpr::NameValue(
+                name.resolve(self.context),
+                LazyExpandedValue::from_literal(self.context, value),
+            );
             Some(Ok(unexpanded_field))
         }
     }
@@ -502,30 +334,6 @@ pub trait TranscribeRaw<E: Encoding> {
         Self: 'a;
 }
 
-impl<W: Write> TranscribeRaw<v1_1::Binary> for LazyRawTextWriter_1_1<W> {
-    fn transcribe<'a, R: LazyRawReader<'a, v1_1::Binary>>(
-        &mut self,
-        reader: &mut R,
-    ) -> IonResult<()>
-    where
-        Self: 'a,
-    {
-        transcribe_raw_binary_to_text(reader, self)
-    }
-}
-
-impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_1<W> {
-    fn transcribe<'a, R: LazyRawReader<'a, v1_0::Binary>>(
-        &mut self,
-        reader: &mut R,
-    ) -> IonResult<()>
-    where
-        Self: 'a,
-    {
-        transcribe_raw_binary_to_text(reader, self)
-    }
-}
-
 impl<W: Write> TranscribeRaw<v1_0::Binary> for LazyRawTextWriter_1_0<W> {
     fn transcribe<'a, R: LazyRawReader<'a, v1_0::Binary>>(
         &mut self,
@@ -564,9 +372,6 @@ fn transcribe_raw_binary_to_text<
             }
             Value(v) => {
                 writer.write(WriteableRawValue::new(v))?;
-            }
-            EExp(e) => {
-                writer.write(WriteableEExp::new(e))?;
             }
             EndOfStream(_) => {
                 writer.flush()?;
@@ -613,11 +418,11 @@ pub trait LazyRawValue<'top, D: Decoder>:
 }
 
 pub trait RawSequenceIterator<'top, D: Decoder>:
-    Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>
+    Debug + Copy + Clone + Iterator<Item = IonResult<D::Value<'top>>>
 {
-    /// Returns the next raw value expression (or `None` if exhausted) without advancing the iterator.
+    /// Returns the next raw value (or `None` if exhausted) without advancing the iterator.
     #[allow(dead_code)]
-    fn peek_next(&self) -> Option<IonResult<LazyRawValueExpr<'top, D>>> {
+    fn peek_next(&self) -> Option<IonResult<D::Value<'top>>> {
         // Because RawSequenceIterator impls are `Copy`, we can make a cheap copy of `self` and advance
         // *it* without affecting `self`.
         let mut iter_clone = *self;
@@ -627,7 +432,7 @@ pub trait RawSequenceIterator<'top, D: Decoder>:
 
 impl<'top, D: Decoder, T> RawSequenceIterator<'top, D> for T
 where
-    T: Debug + Copy + Clone + Iterator<Item = IonResult<LazyRawValueExpr<'top, D>>>,
+    T: Debug + Copy + Clone + Iterator<Item = IonResult<D::Value<'top>>>,
 {
     // Nothing to do
 }
@@ -671,8 +476,11 @@ pub trait LazyRawStruct<'top, D: Decoder>:
     fn iter(&self) -> Self::Iterator;
 }
 
+// Note: this trait previously required `Into<LazyRawAnyFieldName<'top>>`. That bound was never
+// used generically and `AnyEncoding` no longer has a field name variant for every encoding, so
+// each encoding's `From` impl (where one exists) stands on its own.
 pub trait LazyRawFieldName<'top, D: Decoder<FieldName<'top> = Self>>:
-    Into<LazyRawAnyFieldName<'top>> + HasSpan<'top> + Copy + Debug + Clone
+    HasSpan<'top> + Copy + Debug + Clone
 {
     fn read(&self) -> IonResult<RawSymbolRef<'top>>;
 

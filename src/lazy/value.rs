@@ -121,11 +121,8 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     /// an ephemeral value resulting from macro expansion), returns that encoding's representation
     /// of the raw value. Otherwise, returns `None`.
     pub fn raw(&self) -> Option<D::Value<'top>> {
-        if let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source() {
-            Some(raw_value)
-        } else {
-            None
-        }
+        let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded().source();
+        Some(raw_value)
     }
 
     /// Returns `true` if this value is any form of `null`, including
@@ -261,40 +258,24 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         // Clone the `EncodingContext`, which will also bump the reference counts for the resources
         // it owns.
         let context = self.context().context.clone();
-
-        let source = if let ExpandedValueSource::ValueLiteral(raw_value) =
-            self.expanded_value.source
-        {
-            // If the value's source is a `ValueLiteral`, then it may hold references to bytes in the input buffer.
-            // We need to modify the source to point to heap data that is owned by `context`.
-            // First, get the `IoBufferSource` and ask it for a shared copy of the IoBuffer.
-            // SAFETY: `io_buffer_source` is an `UnsafeCell` to allow us to set it from the `StreamingRawReader`
-            //         after each top-level value. Unfortunately, that means we need to use `unsafe` to access it here.
-            let IoBufferSource::IoBuffer(ref io_buffer) =
-                (unsafe { &*context.io_buffer_source.get() })
-            else {
-                unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
-            };
-            // Take note of all the ValueLiteral's recorded offsets.
-            let value_span = raw_value.span();
-            let value_offset = value_span.offset();
-            let value_length = value_span.len();
-            // Now, swap out the backing data for a slice of the `IoBuffer`.
-            // The value begins at stream position `value_offset`.
-            // The buffer begins at `io_buffer.stream_offset()`.
-            // To find the serialized value within the buffer,
-            // subtract the buffer's offset from the value's.
-            let local_offset = value_offset - io_buffer.stream_offset();
-            let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
-            // Construct a new span that is backed by the IoBuffer.
-            let backing_span = Span::with_offset(value_offset, value_bytes);
-            let raw_value = raw_value.with_backing_data(backing_span);
-            ExpandedValueSource::ValueLiteral(raw_value)
-        } else {
-            // If the value is not a literal, then it lives in the bump allocator.
-            // That is to say, it is already heap data that is owned by `context`.
-            self.expanded_value.source
+        // The value's source is a `ValueLiteral`, which may hold references to bytes in the input
+        // buffer. Modify the source to point to heap data owned by `context`.
+        // First, get the `IoBufferSource` and ask it for a shared copy of the IoBuffer.
+        // SAFETY: `io_buffer_source` is an `UnsafeCell` to allow us to set it from the
+        //         `StreamingRawReader` after each top-level value. That means we need `unsafe` here.
+        let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded_value.source;
+        let IoBufferSource::IoBuffer(ref io_buffer) = (unsafe { &*context.io_buffer_source.get() })
+        else {
+            unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
         };
+        let value_span = raw_value.span();
+        let value_offset = value_span.offset();
+        let value_length = value_span.len();
+        let local_offset = value_offset - io_buffer.stream_offset();
+        let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
+        let backing_span = Span::with_offset(value_offset, value_bytes);
+        let raw_value = raw_value.with_backing_data(backing_span);
+        let source = ExpandedValueSource::ValueLiteral(raw_value);
         // Now that we have upheld the invariants required by `LazyElement::new`, we can safely call it.
         unsafe { LazyElement::new(context, source) }
     }
@@ -662,14 +643,6 @@ mod tests {
         [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12),
         (6, 1), (6, 6), (6, 12), (7, 1), (8, 7), (9, 7), (9, 8), (9, 10), (9, 12)],
     )]
-    #[cfg_attr(
-        feature = "experimental-ion-1-1",
-        case::multiple_top_level_containers_ion_1_1(
-            "$ion_1_1\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
-            [(2, 1), (2, 6), (2, 12), (3, 1), (4, 7), (5, 7), (5, 8), (5, 10), (5, 12),
-            (7, 1), (7, 6), (7, 12), (8, 1), (9, 7), (10, 7), (10, 8), (10, 10), (10, 12)],
-        )
-    )]
     #[case::binary_1_0_data(
         [
             0xE0u8, 0x01, 0x00, 0xEA, // IVM
@@ -677,17 +650,6 @@ mod tests {
             0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
         ],
         [/* no locations */],
-    )]
-    #[cfg_attr(
-        feature = "experimental-ion-1-1",
-        case::binary_1_1_data(
-            [
-                0xE0u8, 0x01, 0x01, 0xEA, // IVM
-                0x95, 65, 10, 66, 10, 67, // String: "A\nB\nC"
-                0x95, 68, 10, 69, 10, 70, // String: "D\nE\nF"
-            ],
-            [/* no locations */],
-        )
     )]
     fn location_test_slice_input<const N: usize, I: AsRef<[u8]>>(
         #[case] ion_input: I,
@@ -758,14 +720,6 @@ mod tests {
         [(1, 1), (1, 6), (1, 12), (2, 1), (3, 7), (4, 7), (4, 8), (4, 10), (4, 12),
         (6, 1), (6, 6), (6, 12), (7, 1), (8, 7), (9, 7), (9, 8), (9, 10), (9, 12)],
     )]
-    #[cfg_attr(
-        feature = "experimental-ion-1-1",
-        case::multiple_top_level_containers_ion_1_1(
-            "$ion_1_1\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}\n{foo:1,bar:2}\n{\n  foo:1,\n  bar:[a,b,c],\n}",
-            [(2, 1), (2, 6), (2, 12), (3, 1), (4, 7), (5, 7), (5, 8), (5, 10), (5, 12),
-            (7, 1), (7, 6), (7, 12), (8, 1), (9, 7), (10, 7), (10, 8), (10, 10), (10, 12)],
-        )
-    )]
     // FIXME: Currently failing because of https://github.com/amazon-ion/ion-rust/issues/954
     // #[case::binary_1_0_data(
     //     [
@@ -774,17 +728,6 @@ mod tests {
     //         0x85, 68, 10, 69, 10, 70, // String: "D\nE\nF"
     //     ],
     //     [/* no locations */],
-    // )]
-    // #[cfg_attr(
-    //     feature = "experimental-ion-1-1",
-    //     case::binary_1_1_data(
-    //         [
-    //             0xE0u8, 0x01, 0x01, 0xEA, // IVM
-    //             0x95, 65, 10, 66, 10, 67, // String: "A\nB\nC"
-    //             0x95, 68, 10, 69, 10, 70, // String: "D\nE\nF"
-    //         ],
-    //         [/* no locations */],
-    //     )
     // )]
     fn location_test_stream_input<const N: usize, I: AsRef<[u8]>>(
         #[case] ion_input: I,

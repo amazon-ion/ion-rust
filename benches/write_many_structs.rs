@@ -11,7 +11,7 @@ mod benchmark {
 #[cfg(feature = "experimental")]
 mod benchmark {
     use criterion::Criterion;
-    use ion_rs::{v1_0, v1_1, IonResult, RawSymbolRef, SequenceWriter, StructWriter, ValueWriter};
+    use ion_rs::{v1_0, IonResult, RawSymbolRef, SequenceWriter, StructWriter, ValueWriter};
     use std::hint::black_box;
 
     fn write_struct_with_string_values(value_writer: impl ValueWriter) -> IonResult<()> {
@@ -85,40 +85,6 @@ mod benchmark {
         struct_.close()
     }
 
-    fn write_eexp_with_symbol_values(value_writer: impl ValueWriter) -> IonResult<()> {
-        let mut eexp = value_writer.eexp_writer(0)?;
-        eexp.write(black_box(1670446800245i64))? // timestamp
-            .write(black_box(418))? // thread_id
-            // These are still strings because they're so short that using symbols to represent
-            // them wouldn't be beneficial.
-            .write(black_box("6"))? // thread_name
-            .write(black_box("1"))? // client_num
-            .write(symbol_id(black_box(10)))?; // host_id: "abc-123" ($10)
-        let mut nested_eexp = eexp.eexp_writer(1)?;
-        nested_eexp
-            // $11 = region 4
-            .write(symbol_id(black_box(11)))?
-            // $12 = "2022-12-07T20:59:59.744000Z" (string, not timestamp)
-            .write(symbol_id(black_box(12)))?;
-        nested_eexp.close()?;
-        eexp.close()
-    }
-
-    fn write_eexp_with_string_values(value_writer: impl ValueWriter) -> IonResult<()> {
-        let mut eexp = value_writer.eexp_writer(0)?;
-        eexp.write(black_box(1670446800245i64))? // timestamp
-            .write(black_box(418))? // thread_id
-            .write(black_box("6"))? // thread_name
-            .write(black_box("1"))? // client_num
-            .write(black_box("abc-123"))?; // host_id
-        let mut nested_eexp = eexp.eexp_writer(1)?;
-        nested_eexp
-            .write(black_box("region 4"))?
-            .write(black_box("2022-12-07T20:59:59.744000Z"))?;
-        nested_eexp.close()?;
-        eexp.close()
-    }
-
     fn symbol_id(sid: usize) -> RawSymbolRef<'static> {
         RawSymbolRef::SymbolId(sid)
     }
@@ -160,106 +126,6 @@ mod benchmark {
             buffer.clear()
         }
         binary_1_0_group.finish();
-
-        let mut binary_1_1_group = c.benchmark_group("binary 1.1");
-        binary_1_1_group.bench_function("write structs with string values", |b| {
-            b.iter(|| {
-                buffer.clear();
-                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
-                write_struct_with_string_values(writer.value_writer()).unwrap();
-                writer.flush().unwrap();
-                black_box(buffer.as_slice());
-            });
-        });
-        if !buffer.is_empty() {
-            println!("\nencoded 1.1 size with string values: {}\n", buffer.len());
-            buffer.clear()
-        }
-
-        binary_1_1_group.bench_function("write structs with symbol values", |b| {
-            b.iter(|| {
-                buffer.clear();
-                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
-                write_struct_with_symbol_values(writer.value_writer()).unwrap();
-                writer.flush().unwrap();
-
-                black_box(buffer.as_slice());
-            });
-        });
-        if !buffer.is_empty() {
-            println!("\nencoded 1.1 size with symbol values: {}\n", buffer.len());
-            buffer.clear()
-        }
-
-        binary_1_1_group.bench_function("write delimited structs with string values", |b| {
-            b.iter(|| {
-                buffer.clear();
-                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
-                write_struct_with_string_values(writer.value_writer().with_delimited_containers())
-                    .unwrap();
-                writer.flush().unwrap();
-                black_box(buffer.as_slice());
-            });
-        });
-        if !buffer.is_empty() {
-            println!(
-                "\nencoded 1.1 size, delimited structs with string values: {}\n",
-                buffer.len()
-            );
-            buffer.clear()
-        }
-
-        binary_1_1_group.bench_function("write delimited structs with symbol values", |b| {
-            b.iter(|| {
-                buffer.clear();
-                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
-                write_struct_with_symbol_values(writer.value_writer().with_delimited_containers())
-                    .unwrap();
-                writer.flush().unwrap();
-
-                black_box(buffer.as_slice());
-            });
-        });
-        if !buffer.is_empty() {
-            println!("\nencoded 1.1 size with symbol values: {}\n", buffer.len());
-            buffer.clear()
-        }
-
-        binary_1_1_group.bench_function("write structs with string values using macros", |b| {
-            b.iter(|| {
-                buffer.clear();
-                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
-                write_eexp_with_string_values(writer.value_writer()).unwrap();
-                writer.flush().unwrap();
-                black_box(buffer.as_slice());
-            });
-        });
-        if !buffer.is_empty() {
-            println!(
-                "\nencoded 1.1 size with string values using macros: {}\n",
-                buffer.len()
-            );
-            buffer.clear()
-        }
-
-        binary_1_1_group.bench_function("write structs with symbol values using macros", |b| {
-            b.iter(|| {
-                buffer.clear();
-                let mut writer = v1_1::RawBinaryWriter::new(&mut buffer).unwrap();
-                write_eexp_with_symbol_values(writer.value_writer()).unwrap();
-                writer.flush().unwrap();
-                black_box(buffer.as_slice());
-            });
-        });
-        if !buffer.is_empty() {
-            println!(
-                "\nencoded 1.1 size with symbol values using macros: {}\n",
-                buffer.len()
-            );
-            buffer.clear()
-        }
-
-        binary_1_1_group.finish();
     }
 }
 

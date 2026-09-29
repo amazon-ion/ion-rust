@@ -8,16 +8,42 @@ use winnow::combinator::{alt, opt, peek, terminated};
 use winnow::Parser;
 
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{
-    Decoder, LazyRawContainer, LazyRawSequence, LazyRawValue, LazyRawValueExpr, RawValueExpr,
-};
+use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence, LazyRawValue};
 use crate::lazy::encoding::TextEncoding;
 use crate::lazy::text::buffer::{whitespace_and_then, TextBuffer};
 use crate::lazy::text::matched::MatchedValue;
 use crate::lazy::text::parse_result::WithContext;
-use crate::lazy::text::raw::v1_1::reader::RawTextSequenceCacheIterator;
 use crate::lazy::text::value::{LazyRawTextValue, RawTextAnnotationsIterator};
 use crate::{IonResult, IonType};
+
+/// Iterates over the child values of a text list or s-expression that were matched and cached in
+/// the bump allocator when the container was first scanned. Iterating replays that cache rather
+/// than re-parsing the container's bytes.
+#[derive(Debug, Copy, Clone)]
+pub struct RawTextSequenceCacheIterator<'top, E: TextEncoding> {
+    child_values: &'top [E::Value<'top>],
+    index: usize,
+}
+
+impl<'top, E: TextEncoding> RawTextSequenceCacheIterator<'top, E> {
+    pub fn new(child_values: &'top [E::Value<'top>]) -> Self {
+        Self {
+            child_values,
+            index: 0,
+        }
+    }
+}
+
+impl<'top, E: TextEncoding> Iterator for RawTextSequenceCacheIterator<'top, E> {
+    type Item = IonResult<E::Value<'top>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_value = self.child_values.get(self.index)?;
+        self.index += 1;
+        Some(Ok(*next_value))
+    }
+}
+
 // ===== Lists =====
 
 #[derive(Copy, Clone)]
@@ -31,10 +57,10 @@ impl<'data, E: TextEncoding> RawTextList<'data, E> {
     }
 
     pub fn iter(&self) -> RawTextSequenceCacheIterator<'data, E> {
-        let MatchedValue::List(child_exprs) = self.value.encoded_value.matched() else {
+        let MatchedValue::List(child_values) = self.value.encoded_value.matched() else {
             unreachable!("list contained a matched value of the wrong type")
         };
-        RawTextSequenceCacheIterator::new(child_exprs)
+        RawTextSequenceCacheIterator::new(child_values)
     }
 }
 
@@ -67,7 +93,7 @@ impl<'data, E: TextEncoding> LazyRawSequence<'data, E> for RawTextList<'data, E>
 }
 
 impl<'data, E: TextEncoding> IntoIterator for &RawTextList<'data, E> {
-    type Item = IonResult<LazyRawValueExpr<'data, E>>;
+    type Item = IonResult<E::Value<'data>>;
     type IntoIter = RawTextSequenceCacheIterator<'data, E>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -79,7 +105,7 @@ impl<E: TextEncoding> Debug for RawTextList<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
-            write!(f, "{:?}, ", value?.expect_value()?.read()?)?;
+            write!(f, "{:?}, ", value?.read()?)?;
         }
         write!(f, "]").unwrap();
 
@@ -105,7 +131,7 @@ impl<'data, E: TextEncoding> RawTextListIterator<'data, E> {
 }
 
 impl<'data, E: TextEncoding> Iterator for RawTextListIterator<'data, E> {
-    type Item = IonResult<LazyRawValueExpr<'data, E>>;
+    type Item = IonResult<E::Value<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -124,7 +150,7 @@ impl<'data, E: TextEncoding> Iterator for RawTextListIterator<'data, E> {
         .parse_next(&mut self.input);
 
         match result {
-            Ok(Some(value_expr)) => Some(Ok(value_expr)),
+            Ok(Some(value)) => Some(Ok(value)),
             Ok(None) => {
                 // Don't update `remaining` so subsequent calls will continue to return None
                 None
@@ -151,10 +177,10 @@ impl<'data, E: TextEncoding> RawTextSExp<'data, E> {
     }
 
     pub fn iter(&self) -> RawTextSequenceCacheIterator<'data, E> {
-        let MatchedValue::SExp(child_exprs) = self.value.encoded_value.matched() else {
+        let MatchedValue::SExp(child_values) = self.value.encoded_value.matched() else {
             unreachable!("sexp contained a matched value of the wrong type")
         };
-        RawTextSequenceCacheIterator::new(child_exprs)
+        RawTextSequenceCacheIterator::new(child_values)
     }
 }
 
@@ -177,7 +203,7 @@ impl<'top, E: TextEncoding> RawTextSExpIterator<'top, E> {
 }
 
 impl<'data, E: TextEncoding> Iterator for RawTextSExpIterator<'data, E> {
-    type Item = IonResult<LazyRawValueExpr<'data, E>>;
+    type Item = IonResult<E::Value<'data>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.has_returned_error {
@@ -188,7 +214,7 @@ impl<'data, E: TextEncoding> Iterator for RawTextSExpIterator<'data, E> {
         let result = whitespace_and_then(alt((
             // We only peek at the end so future calls to `next()` will continue to yield `None`.
             peek(")").value(None),
-            // An annotated value or (in Ion 1.1) an e-expression
+            // An annotated value
             E::value_expr_matcher().map(Some),
             // A potentially annotated operator literal
             (
@@ -196,13 +222,12 @@ impl<'data, E: TextEncoding> Iterator for RawTextSExpIterator<'data, E> {
                 whitespace_and_then(TextBuffer::match_operator),
             )
                 .map(|(maybe_annotations, value)| input.apply_annotations(maybe_annotations, value))
-                .map(RawValueExpr::ValueLiteral)
                 .map(Some),
         )))
         .parse_next(&mut self.input);
 
         match result {
-            Ok(Some(value_expr)) => Some(Ok(value_expr)),
+            Ok(Some(value)) => Some(Ok(value)),
             Ok(None) => None,
             Err(e) => {
                 self.has_returned_error = true;
@@ -242,7 +267,7 @@ impl<'data, E: TextEncoding> LazyRawSequence<'data, E> for RawTextSExp<'data, E>
 }
 
 impl<'data, E: TextEncoding> IntoIterator for &RawTextSExp<'data, E> {
-    type Item = IonResult<LazyRawValueExpr<'data, E>>;
+    type Item = IonResult<E::Value<'data>>;
     type IntoIter = RawTextSequenceCacheIterator<'data, E>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -254,7 +279,7 @@ impl<E: TextEncoding> Debug for RawTextSExp<'_, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {
-            write!(f, "{:?} ", value?.expect_value()?.read()?)?;
+            write!(f, "{:?} ", value?.read()?)?;
         }
         write!(f, ")").unwrap();
 

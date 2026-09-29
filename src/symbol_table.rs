@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use crate::constants::{v1_0, v1_1};
+use crate::constants::v1_0;
 use crate::lazy::any_encoding::IonVersion;
 use crate::types::SymbolAddress;
 use crate::{Symbol, SymbolId};
@@ -12,16 +12,11 @@ use crate::{Symbol, SymbolId};
 
 #[derive(Debug, Copy, Clone)]
 pub struct SystemSymbolTable {
-    ion_version: IonVersion,
     symbols_by_address: &'static [&'static str],
     symbols_by_text: &'static phf::Map<&'static str, usize>,
 }
 
 impl SystemSymbolTable {
-    pub const fn ion_version(&self) -> IonVersion {
-        self.ion_version
-    }
-
     /// Returns the number of symbols in this system table **including `$0`**.
     pub const fn len(&self) -> usize {
         self.symbols_by_address.len() + 1
@@ -41,15 +36,8 @@ impl SystemSymbolTable {
 }
 
 pub static SYSTEM_SYMBOLS_1_0: &SystemSymbolTable = &SystemSymbolTable {
-    ion_version: IonVersion::v1_0,
     symbols_by_address: v1_0::SYSTEM_SYMBOLS,
     symbols_by_text: &v1_0::SYSTEM_SYMBOL_TEXT_TO_ID,
-};
-
-pub static SYSTEM_SYMBOLS_1_1: &SystemSymbolTable = &SystemSymbolTable {
-    ion_version: IonVersion::v1_1,
-    symbols_by_address: v1_1::SYSTEM_SYMBOLS,
-    symbols_by_text: &v1_1::SYSTEM_SYMBOL_TEXT_TO_ID,
 };
 
 /// Stores mappings from Symbol IDs to text and vice-versa.
@@ -69,10 +57,9 @@ impl Default for SymbolTable {
 }
 
 impl SymbolTable {
-    // These counts refer to the number of system symbols that are permanently prefixed to the user
-    // table in each Ion version. The counts include SID `$0`.
+    // This count refers to the number of system symbols that are permanently prefixed to the user
+    // table. The count includes SID `$0`.
     const NUM_PREFIX_SYSTEM_SYMBOLS_1_0: usize = 10;
-    const NUM_PREFIX_SYSTEM_SYMBOLS_1_1: usize = 1;
     const INITIAL_SYMBOLS_CAPACITY: usize = 32; // TODO: Adjust this based ion_version?
 
     /// Constructs a new symbol table pre-populated with the system symbol prefix defined in the spec
@@ -103,10 +90,6 @@ impl SymbolTable {
     pub(crate) fn initialize_with_prefix_system_symbols(&mut self) {
         match self.ion_version {
             IonVersion::v1_0 => self.initialize_with_all_system_symbols(),
-            IonVersion::v1_1 => {
-                // Only gets $0
-                self.add_placeholder();
-            }
         }
     }
 
@@ -118,7 +101,6 @@ impl SymbolTable {
 
         let system_symbols = match self.ion_version {
             IonVersion::v1_0 => v1_0::SYSTEM_SYMBOLS,
-            IonVersion::v1_1 => v1_1::SYSTEM_SYMBOLS,
         };
 
         system_symbols.iter().copied().for_each(|text| {
@@ -164,7 +146,7 @@ impl SymbolTable {
     }
 
     /// Sets the symbol table's contents to the permanent prefix used by the current Ion version.
-    /// In Ion 1.0, this is the system symbol table (`$0`-`$10`). In Ion 1.1, it is only `$0`.
+    /// In Ion 1.0, this is the system symbol table (`$0`-`$10`).
     pub(crate) fn reset_to_prefix_only(&mut self) {
         match self.ion_version {
             IonVersion::v1_0 => {
@@ -174,13 +156,6 @@ impl SymbolTable {
                 // Remove any symbol text mappings that point to an address from userspace ($10+)
                 self.ids_by_text
                     .retain(|_symbol, address| *address < Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_0);
-            }
-            IonVersion::v1_1 => {
-                // Remove all symbols except for $0
-                self.symbols_by_id
-                    .truncate(Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_1);
-                // In Ion 1.1, there are no permanent-prefix system symbols with text.
-                self.ids_by_text.clear();
             }
         };
     }
@@ -256,12 +231,9 @@ impl SymbolTable {
     /// guaranteed to be system symbols.
     /// In Ion 1.0, the complete system symbol table always appears at the beginning of the
     /// active symbol table.
-    /// In Ion 1.1, only `$0` (the symbol with unknown text) is guaranteed to be present. Other
-    /// system symbols may be removed from the table.
     pub fn permanent_system_prefix_count(&self) -> usize {
         match self.ion_version {
             IonVersion::v1_0 => Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_0,
-            IonVersion::v1_1 => Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_1,
         }
     }
 

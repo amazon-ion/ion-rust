@@ -8,7 +8,7 @@ use crate::lazy::system_reader::SystemReader;
 use crate::lazy::value::LazyValue;
 use crate::read_config::ReadConfig;
 use crate::result::IonFailure;
-use crate::{IonError, IonResult, MacroTable, SymbolTable};
+use crate::{IonError, IonResult, SymbolTable};
 
 /// An Ion reader that only reads each value that it visits upon request (that is: lazily).
 ///
@@ -103,6 +103,9 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     }
 
     /// Like [`Self::next`], but returns an `IonError` if there are no more values in the stream.
+    // Only reachable from outside the crate when `experimental-reader-writer` is enabled; the
+    // library itself does not call it.
+    #[allow(dead_code)]
     pub fn expect_next(&mut self) -> IonResult<LazyValue<'_, Encoding>> {
         self.next()?
             .ok_or_else(|| IonError::decoding_error("expected another top-level value"))
@@ -111,11 +114,6 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
     #[allow(dead_code)]
     pub fn symbol_table(&self) -> &SymbolTable {
         self.system_reader.symbol_table()
-    }
-
-    #[allow(dead_code)]
-    pub fn macro_table(&self) -> &MacroTable {
-        self.system_reader.macro_table()
     }
 }
 
@@ -130,27 +128,6 @@ impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
 }
 
 use crate::lazy::expanded::lazy_element::LazyElement;
-use crate::lazy::{expanded::template::TemplateMacro, text::raw::v1_1::reader::MacroAddress};
-
-// TODO: The Reader is now able to understand encoding directives, so it would be good to
-//       conditionally compile these using `#[cfg(test)]`. However, these methods are still used by
-//       some of the benchmarks, which are not `cfg`-detectable. The benchmarks to be updated to
-//       include encoding directives in each data stream.
-#[allow(dead_code)]
-impl<Encoding: Decoder, Input: IonInput> Reader<Encoding, Input> {
-    // TODO: Remove this when the reader can understand 1.1 encoding directives.
-    pub fn register_template_src(&mut self, template_definition: &str) -> IonResult<MacroAddress> {
-        self.system_reader
-            .expanding_reader
-            .register_template_src(template_definition)
-    }
-
-    pub fn register_template(&mut self, template_macro: TemplateMacro) -> IonResult<MacroAddress> {
-        self.system_reader
-            .expanding_reader
-            .register_template(template_macro)
-    }
-}
 
 impl<Encoding: Decoder, Input: IonInput> Iterator for Reader<Encoding, Input> {
     type Item = IonResult<LazyElement<Encoding>>;
@@ -352,108 +329,5 @@ mod tests {
         assert!(s2.get("id1").is_none());
 
         Ok(())
-    }
-}
-
-#[cfg(all(test, feature = "experimental-ion-1-1"))]
-mod tests_1_1 {
-    use crate::lazy::text::raw::v1_1::reader::MacroAddress;
-    use crate::{v1_1, IonResult, MacroTable, Reader};
-
-    fn expand_macro_test(
-        macro_source: &str,
-        encode_macro_fn: impl FnOnce(MacroAddress) -> Vec<u8>,
-        test_fn: impl FnOnce(Reader<v1_1::Binary, &[u8]>) -> IonResult<()>,
-    ) -> IonResult<()> {
-        // Because readers do not yet understand encoding directives, we'll pre-calculate the
-        // macro ID that will be assigned.
-        let macro_address = MacroTable::FIRST_USER_MACRO_ID;
-        let opcode_byte = u8::try_from(macro_address).unwrap();
-        // Using that ID, encode a binary stream containing an invocation of the new macro.
-        // This function must add an IVM and the encoded e-expression ID, followed by any number
-        // of arguments that matches the provided signature.
-        let binary_ion = encode_macro_fn(opcode_byte as usize);
-        // Construct a reader for the encoded data.
-        let mut reader = Reader::new(v1_1::Binary, binary_ion.as_slice())?;
-        // Register the template definition, getting the same ID we used earlier.
-        let actual_address = reader.register_template_src(macro_source)?;
-        assert_eq!(
-            macro_address, actual_address,
-            "Assigned macro address did not match expected address."
-        );
-        // Use the provided test function to confirm that the data expands to the expected stream.
-        test_fn(reader)
-    }
-
-    #[test]
-    fn expand_binary_template_macro() -> IonResult<()> {
-        let macro_source = "(macro seventeen () 17)";
-        let encode_macro_fn = |address| vec![address as u8];
-        expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
-            assert_eq!(reader.expect_next()?.read()?.expect_i64()?, 17);
-            Ok(())
-        })
-    }
-
-    #[test]
-    fn expand_binary_template_macro_with_one_arg() -> IonResult<()> {
-        let macro_source = r#"
-            (macro greet (name)
-                (.make_string "Hello, " (%name) "!")
-            )
-        "#;
-        #[rustfmt::skip]
-        let encode_macro_fn = |address| vec![
-            // === Macro ID ===
-            address as u8,
-            // === Arg 1 ===
-            // 8-byte string
-            0x98,
-            // M     i     c     h     e     l     l     e
-            0x4D, 0x69, 0x63, 0x68, 0x65, 0x6C, 0x6C, 0x65,
-        ];
-        expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
-            assert_eq!(
-                reader.expect_next()?.read()?.expect_string()?,
-                "Hello, Michelle!"
-            );
-            Ok(())
-        })
-    }
-
-    #[test]
-    fn expand_binary_template_macro_with_multiple_outputs() -> IonResult<()> {
-        let macro_source = r#"
-            (macro questions (food)
-                (.values
-                    (.make_string "What color is a " (%food) "?")
-                    (.make_string "How much potassium is in a " (%food) "?")
-                    (.make_string "What wine should I pair with a " (%food) "?")))
-        "#;
-        #[rustfmt::skip]
-            let encode_macro_fn = |address| vec![
-            // === Macro ID ===
-            address as u8,
-            // === Arg 1 ===
-            // 6-byte string
-            0x96,
-            // b     a     n     a     n     a
-            0x62, 0x61, 0x6E, 0x61, 0x6E, 0x61
-        ];
-        expand_macro_test(macro_source, encode_macro_fn, |mut reader| {
-            assert_eq!(
-                reader.expect_next()?.read()?.expect_string()?,
-                "What color is a banana?"
-            );
-            assert_eq!(
-                reader.expect_next()?.read()?.expect_string()?,
-                "How much potassium is in a banana?"
-            );
-            assert_eq!(
-                reader.expect_next()?.read()?.expect_string()?,
-                "What wine should I pair with a banana?"
-            );
-            Ok(())
-        })
     }
 }

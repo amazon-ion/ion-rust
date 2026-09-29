@@ -59,10 +59,6 @@ pub struct LazyList<'top, D: Decoder> {
 }
 
 impl<'top, D: Decoder> LazyList<'top, D> {
-    pub(crate) fn new(expanded_list: LazyExpandedList<'top, D>) -> Self {
-        Self { expanded_list }
-    }
-
     /// Returns an iterator over the values in this sequence. See: [`LazyValue`].
     pub fn iter(&self) -> ListIterator<'top, D> {
         ListIterator {
@@ -76,14 +72,9 @@ impl<'top, D: Decoder> LazyList<'top, D> {
     }
 
     pub fn as_value(&self) -> LazyValue<'top, D> {
-        let expanded_value = match self.expanded_list.source {
-            ExpandedListSource::ValueLiteral(v) => {
-                LazyExpandedValue::from_literal(self.expanded_list.context, v.as_value())
-            }
-            ExpandedListSource::Template(env, element) => {
-                LazyExpandedValue::from_template(self.expanded_list.context, env, element)
-            }
-        };
+        let ExpandedListSource::ValueLiteral(v) = self.expanded_list.source;
+        let expanded_value =
+            LazyExpandedValue::from_literal(self.expanded_list.context, v.as_value());
         LazyValue::new(expanded_value)
     }
 
@@ -214,30 +205,15 @@ impl<D: Decoder> Debug for LazySExp<'_, D> {
 }
 
 impl<'top, D: Decoder> LazySExp<'top, D> {
-    pub(crate) fn new(expanded_sexp: LazyExpandedSExp<'top, D>) -> Self {
-        Self { expanded_sexp }
-    }
-
     #[cfg(feature = "experimental-tooling-apis")]
     pub fn expanded(&self) -> LazyExpandedSExp<'top, D> {
         self.expanded_sexp
     }
 
-    #[cfg(not(feature = "experimental-tooling-apis"))]
-    pub(crate) fn expanded(&self) -> LazyExpandedSExp<'top, D> {
-        self.expanded_sexp
-    }
-
     pub fn as_value(&self) -> LazyValue<'top, D> {
         let context = self.expanded_sexp.context;
-        let expanded_value = match self.expanded_sexp.source {
-            ExpandedSExpSource::ValueLiteral(v) => {
-                LazyExpandedValue::from_literal(context, v.as_value())
-            }
-            ExpandedSExpSource::Template(env, element) => {
-                LazyExpandedValue::from_template(context, env, element)
-            }
-        };
+        let ExpandedSExpSource::ValueLiteral(v) = self.expanded_sexp.source;
+        let expanded_value = LazyExpandedValue::from_literal(context, v.as_value());
         LazyValue::new(expanded_value)
     }
 

@@ -2,18 +2,11 @@
 
 use std::fmt::Debug;
 use std::io::Write;
-use std::sync::Arc;
 use value_writer::SequenceWriter;
 
-use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::encoding::Encoding;
-use crate::lazy::text::raw::v1_1::reader::{ModuleKind, QualifiedAddress};
-use crate::result::IonFailure;
-use crate::v1_1::Macro;
 use crate::write_config::WriteConfig;
-use crate::{
-    AnyEncoding, IonError, IonInput, IonResult, MacroDef, MacroTable, Reader, TemplateCompiler,
-};
+use crate::IonResult;
 
 pub mod annotate;
 pub mod annotation_seq;
@@ -149,15 +142,12 @@ pub(crate) fn cap_retained_buffer(buffer: &mut Vec<u8>) {
 /// ```
 ///
 /// Only the Ion 1.0 raw writers implement it, so only `Writer<BinaryEncoding_1_0, _>` and
-/// `Writer<TextEncoding_1_0, _>` can be reused. The Ion 1.1 encodings deliberately opt out: their
-/// writers own a macro table, and recycling one would have to discard the user macros it holds (and
-/// re-seed the 1.1 prologue), which is not implemented; letting a 1.1 writer be reused would silently
-/// produce documents that reference macros the stream never defines.
+/// `Writer<TextEncoding_1_0, _>` can be reused. An encoding whose writer carries state that
+/// `recycle` cannot reset must not implement it: reuse would then silently emit a document that
+/// depends on definitions the stream never makes.
 pub trait Reusable: private::Sealed + Recycle {}
 
 /// An Ion writer without a symbol table.
-// Because macro invocations require access to the macro's signature, raw writers own their
-// macro table.
 pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
     fn new(output: W) -> IonResult<Self>
     where
@@ -173,58 +163,6 @@ pub trait LazyRawWriter<W: Write>: SequenceWriter<Resources = W> {
     fn output_mut(&mut self) -> &mut W;
 
     fn write_version_marker(&mut self) -> IonResult<()>;
-
-    /// Returns a read-only reference to the current macro table.
-    // This avoids returning an Option<_> because reading from the macro table is on the hot path.
-    // In Ion 1.0 implementations, this returns an empty macro table.
-    fn macro_table(&self) -> &WriterMacroTable;
-
-    /// In Ion 1.0 implementations, this returns `None`.
-    // This returns an Option<_> because the macro table is written to much less frequently than
-    // it is read from. When it is written to, this forces the caller to verify that they're actually
-    // working with Ion 1.1.
-    fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable>;
-
-    /// Takes a TDL expression representing a macro definition and returns a `Macro` that can
-    /// later be invoked by passing it to [`ValueWriter::eexp_writer`](crate::ValueWriter::eexp_writer).
-    fn compile_macro(&mut self, source: impl IonInput) -> IonResult<Macro> {
-        let mut reader = Reader::new(AnyEncoding, source)?;
-        let macro_def_sexp = reader.expect_next()?.read()?.expect_sexp()?;
-
-        let template_macro = TemplateCompiler::compile_from_sexp(
-            self.macro_table(),
-            &MacroTable::empty(),
-            macro_def_sexp,
-        )?;
-
-        let address = self
-            .macro_table_mut()
-            .ok_or_else(|| IonError::illegal_operation("Ion 1.0 does not support macros"))?
-            .add_template_macro(template_macro)?;
-        let macro_def = self
-            .macro_table()
-            .clone_macro_with_address(address)
-            .expect("macro freshly placed at address is missing");
-        let macro_handle = Macro::new(
-            macro_def,
-            QualifiedAddress::new(ModuleKind::Default, address),
-        );
-        Ok(macro_handle)
-    }
-
-    /// Register a previously compiled `Macro` for use in this `Writer`.
-    fn register_macro(&mut self, macro_: &Arc<MacroDef>) -> IonResult<Macro> {
-        let arc_macro = Arc::clone(macro_);
-        let address = self
-            .macro_table_mut()
-            .ok_or_else(|| IonError::illegal_operation("Ion 1.0 does not support macros"))?
-            .add_macro(&arc_macro)?;
-
-        Ok(Macro::new(
-            arc_macro,
-            QualifiedAddress::new(ModuleKind::Default, address),
-        ))
-    }
 }
 
 #[cfg(test)]

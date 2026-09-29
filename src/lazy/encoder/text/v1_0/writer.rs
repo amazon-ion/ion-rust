@@ -7,10 +7,8 @@ use crate::lazy::encoder::text::v1_0::value_writer::TextValueWriter_1_0;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::writer::WriterMacroTable;
 use crate::lazy::encoder::{cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole};
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
-use crate::lazy::expanded::macro_table::EMPTY_MACRO_TABLE;
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::ParentType;
 use crate::write_config::WriteConfigKind;
@@ -145,14 +143,6 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
         &mut self.output
     }
 
-    fn macro_table(&self) -> &WriterMacroTable {
-        &EMPTY_MACRO_TABLE
-    }
-
-    fn macro_table_mut(&mut self) -> Option<&mut WriterMacroTable> {
-        None
-    }
-
     fn write_version_marker(&mut self) -> IonResult<()> {
         let space_between = self.whitespace_config.space_between_top_level_values;
         write!(self.output, "$ion_1_0{space_between}")?;
@@ -164,7 +154,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 mod tests {
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    use crate::{v1_1, Annotatable, IonData, IonResult, Reader, SequenceWriter};
+    use crate::{v1_0, Annotatable, IonData, IonResult, Reader, SequenceWriter};
 
     #[test]
     fn write_annotated_values() -> IonResult<()> {
@@ -187,10 +177,10 @@ mod tests {
             foo::bar::baz::4
         "#;
 
-        let mut reader = Reader::new(v1_1::Text, encoded_text)?;
+        let mut reader = Reader::new(v1_0::Text, encoded_text)?;
         let actual = reader.read_all_elements()?;
 
-        let mut reader = Reader::new(v1_1::Text, expected_ion)?;
+        let mut reader = Reader::new(v1_0::Text, expected_ion)?;
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));

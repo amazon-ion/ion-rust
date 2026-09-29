@@ -218,10 +218,9 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                 {
                     use crate::lazy::raw_stream_item::RawStreamItem::*;
                     match item {
-                        // Text containers and e-expressions have closing delimiters that allow us
-                        // to tell that they're complete.
+                        // Text containers have closing delimiters that allow us to tell that
+                        // they're complete.
                         Value(v) if v.ion_type().is_container() => {}
-                        EExp(_eexp) => {}
                         // IVMs (which look like symbols), scalar values, and the end of the
                         // stream are all cases where the reader looking at a fixed slice of the
                         // buffer may reach the wrong conclusion.

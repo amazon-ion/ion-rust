@@ -1,4 +1,3 @@
-use crate::lazy::text::raw::v1_1::reader::MacroIdLike;
 use std::fmt::Formatter;
 use std::io::Write;
 
@@ -12,9 +11,7 @@ use crate::lazy::encoder::value_writer::{
     delegate_value_writer_to, AnnotatableWriter, SequenceWriter, StructWriter, ValueWriter,
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::never::Never;
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::result::IonFailure;
 use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::{ContainerType, ParentType};
@@ -136,11 +133,6 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
                     write!(output, "::")
                 }
                 RawSymbolRef::SymbolId(sid) => write!(output, "${sid}::"),
-                RawSymbolRef::SystemSymbol_1_1(_symbol) => {
-                    return IonResult::encoding_error(
-                        "the Ion 1.0 text writer does not support encoding Ion 1.1 system symbols",
-                    )
-                }
             }?;
         }
 
@@ -484,9 +476,6 @@ impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_0<'va
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
 
-    // Ion 1.0 does not support macros
-    type EExpWriter = Never;
-
     delegate_value_writer_to!(fallible closure |self_: Self| self_.encode_annotations());
 }
 
@@ -514,9 +503,6 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     type ListWriter = TextListWriter_1_0<'value, W>;
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
-
-    // Ion 1.0 does not support macros
-    type EExpWriter = Never;
 
     fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
         use crate::IonType::*;
@@ -672,8 +658,5 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
             self.parent_type,
             self.value_delimiter,
         )
-    }
-    fn eexp_writer<'a>(self, _macro_id: impl MacroIdLike<'a>) -> IonResult<Self::EExpWriter> {
-        IonResult::encoding_error("macros are not supported in Ion 1.0")
     }
 }

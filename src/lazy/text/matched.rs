@@ -24,7 +24,7 @@ use std::str::FromStr;
 
 use crate::decimal::Coefficient;
 use crate::lazy::bytes_ref::BytesRef;
-use crate::lazy::decoder::{Decoder, LazyRawFieldExpr, LazyRawValueExpr};
+use crate::lazy::decoder::{Decoder, LazyRawFieldExpr};
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
 use crate::lazy::text::as_utf8::AsUtf8;
@@ -57,8 +57,8 @@ pub enum MatchedValue<'top, D: Decoder> {
     Symbol(MatchedSymbol),
     Blob(MatchedBlob),
     Clob(MatchedClob),
-    List(&'top [LazyRawValueExpr<'top, D>]),
-    SExp(&'top [LazyRawValueExpr<'top, D>]),
+    List(&'top [D::Value<'top>]),
+    SExp(&'top [D::Value<'top>]),
     Struct(&'top [LazyRawFieldExpr<'top, D>]),
 }
 

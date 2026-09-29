@@ -5,7 +5,7 @@ use crate::lazy::r#struct::LazyStruct;
 use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem};
 use crate::lazy::value::LazyValue;
 use crate::result::IonFailure;
-use crate::{ExpandedStreamItem, IonError, IonResult, LazySExp};
+use crate::{ExpandedStreamItem, IonError, IonResult};
 
 /// System stream elements that a SystemReader may encounter.
 #[non_exhaustive]
@@ -16,8 +16,6 @@ pub(crate) enum SystemStreamItem<'top, D: Decoder> {
     VersionMarker(D::VersionMarker<'top>),
     /// An Ion 1.0-style symbol table encoded as a struct annotated with `$ion_symbol_table`.
     SymbolTable(LazyStruct<'top, D>),
-    /// An Ion 1.1 encoding directive; an s-expression annotated with `$ion`.
-    EncodingDirective(LazySExp<'top, D>),
     /// An application-level Ion value
     Value(LazyValue<'top, D>),
     /// The end of the stream
@@ -37,7 +35,6 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         match self {
             VersionMarker(m) => ExpandedStreamItem::VersionMarker(*m),
             SymbolTable(s) => ExpandedStreamItem::SymbolTable(*s),
-            EncodingDirective(d) => ExpandedStreamItem::EncodingDirective(*d),
             Value(v) => ExpandedStreamItem::Value(*v),
             EndOfStream(e) => ExpandedStreamItem::EndOfStream(*e),
         }
@@ -99,32 +96,12 @@ impl<'top, D: Decoder> SystemStreamItem<'top, D> {
         }
     }
 
-    /// If this item is a symbol table, returns `Some(lazy_struct)`. Otherwise, returns `None`.
-    pub fn as_encoding_directive(self) -> Option<LazySExp<'top, D>> {
-        if let Self::EncodingDirective(sexp) = self {
-            Some(sexp)
-        } else {
-            None
-        }
-    }
-
-    /// Like [`Self::as_symbol_table`], but returns a [`IonError::Decoding`] if this item is not
-    /// a symbol table.
-    pub fn expect_encoding_directive(self) -> IonResult<LazySExp<'top, D>> {
-        if let Self::EncodingDirective(sexp) = self {
-            Ok(sexp)
-        } else {
-            IonResult::decoding_error(format!("expected encoding directive, found {self:?}"))
-        }
-    }
-
     pub fn raw_stream_item(&self) -> Option<LazyRawStreamItem<'top, D>> {
         let value = match self {
             SystemStreamItem::VersionMarker(marker) => {
                 return Some(RawStreamItem::VersionMarker(*marker))
             }
             SystemStreamItem::SymbolTable(symtab) => symtab.as_value(),
-            SystemStreamItem::EncodingDirective(directive) => directive.as_value(),
             SystemStreamItem::Value(value) => *value,
             SystemStreamItem::EndOfStream(end) => return Some(RawStreamItem::EndOfStream(*end)),
         };
@@ -139,7 +116,6 @@ impl<D: Decoder> Debug for SystemStreamItem<'_, D> {
                 write!(f, "version marker v{}.{}", marker.major(), marker.minor())
             }
             SystemStreamItem::SymbolTable(_) => write!(f, "a symbol table"),
-            SystemStreamItem::EncodingDirective(_) => write!(f, "an encoding directive"),
             SystemStreamItem::Value(value) => write!(f, "{}", value.ion_type()),
             SystemStreamItem::EndOfStream(_) => write!(f, "<nothing>"),
         }

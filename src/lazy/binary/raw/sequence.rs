@@ -5,9 +5,7 @@ use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator
 use crate::lazy::binary::raw::reader::DataSource;
 use crate::lazy::binary::raw::value::LazyRawBinaryValue_1_0;
 use crate::lazy::decoder::private::LazyContainerPrivate;
-use crate::lazy::decoder::{
-    Decoder, LazyRawContainer, LazyRawSequence, LazyRawValueExpr, RawValueExpr,
-};
+use crate::lazy::decoder::{Decoder, LazyRawContainer, LazyRawSequence};
 use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::{IonResult, IonType};
 use std::fmt::{Debug, Formatter};
@@ -107,7 +105,7 @@ impl<'top> LazyRawBinarySequence_1_0<'top> {
 }
 
 impl<'top> IntoIterator for &LazyRawBinarySequence_1_0<'top> {
-    type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_0>>;
+    type Item = IonResult<<BinaryEncoding_1_0 as Decoder>::Value<'top>>;
     type IntoIter = RawBinarySequenceIterator_1_0<'top>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -153,14 +151,14 @@ impl<'top> RawBinarySequenceIterator_1_0<'top> {
 }
 
 impl<'top> Iterator for RawBinarySequenceIterator_1_0<'top> {
-    type Item = IonResult<LazyRawValueExpr<'top, BinaryEncoding_1_0>>;
+    type Item = IonResult<<BinaryEncoding_1_0 as Decoder>::Value<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self
             .source
             .try_parse_next_value(BinaryBuffer::peek_sequence_value)
         {
-            Ok(Some(value)) => Some(Ok(RawValueExpr::ValueLiteral(value))),
+            Ok(Some(value)) => Some(Ok(value)),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
         }

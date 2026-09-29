@@ -195,6 +195,10 @@ impl IntData {
         }
     }
 
+    /// Returns the number of bytes required to represent this value as a two's complement
+    /// (signed) integer.
+    // Exercised by `int_byte_len` below; the library itself does not currently call it.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn byte_len(&self) -> usize {
         match &self.0 {
             SmallValue(small) => {
@@ -204,7 +208,7 @@ impl IntData {
                     small.leading_zeros()
                 };
                 let num_magnitude_bits = i128::BITS - sign_bits;
-                // Calculates ⌈ (num_magnitude_bits + 1) / 8 ⌉
+                // Calculates the ceiling of (num_magnitude_bits + 1) / 8
                 (num_magnitude_bits / 8 + 1) as usize
             }
             BigValue(big) => cold_path! {{
