@@ -26,8 +26,36 @@ jobs:
       - name: Install `cargo-llvm-cov`
         run: cargo install cargo-llvm-cov
       - name: Cargo test w/code coverage
-        run: cargo llvm-cov --verbose --workspace --all-features --no-fail-fast --codecov --output-path codecov.json
+        run: cargo llvm-cov --verbose --workspace --all-features --no-fail-fast --no-report
+      # Generate reports and upload them as artifacts even if tests failed, so coverage is available
+      # for inspection on forks and fork PRs where the Codecov upload is skipped.
+      - name: Generate coverage reports
+        if: ${{ !cancelled() }}
+        run: |
+          cargo llvm-cov report --codecov --output-path codecov.json
+          cargo llvm-cov report --lcov --output-path lcov.info
+          cargo llvm-cov report --html --output-dir coverage-html
+      - name: Upload coverage artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            codecov.json
+            lcov.info
+            coverage-html/
+          retention-days: 14
+      # Secrets are unavailable on forks and fork PRs, so skip the Codecov upload there. `secrets` can't
+      # be referenced in a step `if`, and a step's own `env` isn't visible to its `if`, so a separate
+      # step reports only whether the token is present. Keep the token step-scoped rather than in job
+      # `env`, which would expose it to every step (including dependency build scripts).
+      - name: Check for Codecov token
+        id: codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: echo "available=$([ -n "$CODECOV_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: Codecov upload
+        if: steps.codecov.outputs.available == 'true'
         uses: codecov/codecov-action@v4
         with:
           files: codecov.json
