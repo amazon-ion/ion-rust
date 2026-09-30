@@ -30,7 +30,11 @@ jobs:
             # for PRs, we need a fallback to check the repository owner.
           - use-codebuild: ${{ vars.CODEBUILD_PROJECT_NAME != '' || github.repository_owner == 'amazon-ion' }}
             codebuild-project-name: ${{ vars.CODEBUILD_PROJECT_NAME != '' && vars.CODEBUILD_PROJECT_NAME || 'ion-rust' }}
-            runs-on-names-cb: [ windows, macos, ubuntu, al2-x86, al2-arm ]
+            # al2-arm is Graviton, our primary deployment target, so it gets the full feature matrix
+            # alongside ubuntu. windows and macos run a single feature set (see the `exclude` in the
+            # build job) for toolchain/line-ending/platform sanity. al2-x86 is omitted as redundant
+            # with ubuntu (both x86_64-linux); the crate has no OS-specific code paths.
+            runs-on-names-cb: [ windows, macos, ubuntu, al2-arm ]
             runs-on-names: [ windows, macos, ubuntu ]
             runner-labels:
               windows: windows-latest
@@ -60,6 +64,21 @@ jobs:
         os: ${{ fromJSON(needs.setup.outputs.available-runners) }}
         # build and test for different and interesting crate features
         features: ['default', 'all', 'experimental-ion-hash', 'experimental']
+        # windows and macos only need to prove the toolchain/platform works; the crate has no
+        # OS-specific logic, so we run just the `all` feature set there rather than the full matrix.
+        exclude:
+          - os: windows
+            features: default
+          - os: windows
+            features: experimental-ion-hash
+          - os: windows
+            features: experimental
+          - os: macos
+            features: default
+          - os: macos
+            features: experimental-ion-hash
+          - os: macos
+            features: experimental
     permissions:
       checks: write
 
