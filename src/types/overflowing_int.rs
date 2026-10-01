@@ -49,7 +49,8 @@ use crate::types::decimal::Sign;
 use ice_code::ice as cold_path;
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
-use num_traits::{Pow, ToPrimitive};
+use num_traits::{Num, Pow, ToPrimitive};
+use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -164,6 +165,13 @@ impl Magnitude<'_> {
             Magnitude::Big(big) => cold_path! { big.to_string().len() as u32 },
         }
     }
+}
+
+/// Byte order for [`OverflowingInt::from_unsigned_bytes`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ByteOrder {
+    Little,
+    Big,
 }
 
 impl OverflowingInt {
@@ -398,6 +406,119 @@ impl OverflowingInt {
                 Sign::Positive => Sign::Negative,
             };
             self.with_sign(flipped)
+        }
+    }
+
+    // ===== Bytes and text =====
+
+    /// Decodes an unsigned magnitude. Leading zero bytes don't affect the result, and an empty
+    /// slice is zero.
+    pub(crate) fn from_unsigned_bytes(bytes: &[u8], order: ByteOrder) -> Self {
+        const WIDTH: usize = size_of::<u128>();
+        if bytes.len() <= WIDTH {
+            let mut buf = [0u8; WIDTH];
+            let magnitude = match order {
+                ByteOrder::Little => {
+                    buf[..bytes.len()].copy_from_slice(bytes);
+                    u128::from_le_bytes(buf)
+                }
+                ByteOrder::Big => {
+                    buf[WIDTH - bytes.len()..].copy_from_slice(bytes);
+                    u128::from_be_bytes(buf)
+                }
+            };
+            Self::from(magnitude)
+        } else {
+            cold_path! {{
+                let magnitude = match order {
+                    ByteOrder::Little => BigUint::from_bytes_le(bytes),
+                    ByteOrder::Big => BigUint::from_bytes_be(bytes),
+                };
+                Self::from(magnitude)
+            }}
+        }
+    }
+
+    /// Decodes a little-endian two's-complement value. An empty slice is zero.
+    pub(crate) fn from_le_signed_bytes(bytes: &[u8]) -> Self {
+        const WIDTH: usize = size_of::<i128>();
+        if bytes.len() <= WIDTH {
+            let pad = if bytes.last().is_some_and(|&b| b & 0x80 != 0) {
+                0xFF
+            } else {
+                0x00
+            };
+            let mut buf = [pad; WIDTH];
+            buf[..bytes.len()].copy_from_slice(bytes);
+            Self::from(i128::from_le_bytes(buf))
+        } else {
+            cold_path! { Self::from(BigInt::from_signed_bytes_le(bytes)) }
+        }
+    }
+
+    /// The magnitude as minimal big-endian bytes, ignoring the sign. Zero is `[0x00]`, so the
+    /// result is never empty. Inline magnitudes don't allocate.
+    pub(crate) fn magnitude_be_bytes(&self) -> SmallVec<[u8; 16]> {
+        match self.magnitude_ref() {
+            Magnitude::Small(magnitude) => {
+                // `| 1` keeps one byte for zero; it can't move a non-zero value's highest set bit.
+                let start = ((magnitude | 1).leading_zeros() / 8) as usize;
+                SmallVec::from_slice(&magnitude.to_be_bytes()[start..])
+            }
+            Magnitude::Big(big) => cold_path! { SmallVec::from_vec(big.to_bytes_be()) },
+        }
+    }
+
+    /// The magnitude as minimal little-endian bytes, ignoring the sign. Zero is `[0x00]`.
+    pub(crate) fn magnitude_le_bytes(&self) -> Vec<u8> {
+        let mut bytes = self.magnitude_be_bytes().into_vec();
+        bytes.reverse();
+        bytes
+    }
+
+    /// The value as minimal little-endian two's-complement bytes.
+    pub(crate) fn to_le_signed_bytes(&self) -> Vec<u8> {
+        match self.as_i128() {
+            Some(value) => {
+                let bytes = value.to_le_bytes();
+                let is_negative = value < 0;
+                let pad = if is_negative { 0xFF } else { 0x00 };
+                // Drop a top byte only while it is pure sign extension: the byte below it must
+                // still carry the sign in its high bit.
+                let mut len = bytes.len();
+                while len > 1
+                    && bytes[len - 1] == pad
+                    && (bytes[len - 2] & 0x80 != 0) == is_negative
+                {
+                    len -= 1;
+                }
+                bytes[..len].to_vec()
+            }
+            None => cold_path! { self.to_bigint().to_signed_bytes_le() },
+        }
+    }
+
+    /// The value as a `BigInt`. Allocates.
+    pub(crate) fn to_bigint(&self) -> BigInt {
+        let sign = match self.sign() {
+            Sign::Positive => num_bigint::Sign::Plus,
+            Sign::Negative => num_bigint::Sign::Minus,
+        };
+        // `from_biguint` turns a zero magnitude into `NoSign`, so `-0` becomes `0`.
+        BigInt::from_biguint(sign, self.magnitude_as_big())
+    }
+
+    /// Parses an unsigned magnitude written in `radix`. Returns `None` if `src` isn't a valid
+    /// unsigned number in that radix.
+    pub(crate) fn from_str_radix(src: &str, radix: u32) -> Option<Self> {
+        use std::num::IntErrorKind;
+        match u128::from_str_radix(src, radix) {
+            // `From<u128>` moves magnitudes of 2^126 and above to the heap.
+            Ok(magnitude) => Some(Self::from(magnitude)),
+            Err(e) if *e.kind() == IntErrorKind::PosOverflow => cold_path! {
+                BigUint::from_str_radix(src, radix).ok().map(Self::from)
+            },
+            Err(_) => None,
         }
     }
 
@@ -1324,6 +1445,182 @@ mod tests {
     )]
     fn bits_reports_magnitude_width(#[case] value: OverflowingInt, #[case] expected: u64) {
         assert_eq!(value.bits(), expected);
+    }
+
+    // ===== Bytes and text =====
+
+    #[rstest]
+    #[case::empty(&[], ByteOrder::Little, 0)]
+    #[case::empty_be(&[], ByteOrder::Big, 0)]
+    #[case::one_byte(&[0x42], ByteOrder::Big, 0x42)]
+    #[case::le(&[0x01, 0x00], ByteOrder::Little, 1)]
+    #[case::be(&[0x01, 0x00], ByteOrder::Big, 256)]
+    #[case::padded_le(&[42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ByteOrder::Little, 42)]
+    #[case::padded_be(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42], ByteOrder::Big, 42)]
+    fn from_unsigned_bytes_inline(
+        #[case] bytes: &[u8],
+        #[case] order: ByteOrder,
+        #[case] expected: u128,
+    ) {
+        let value = OverflowingInt::from_unsigned_bytes(bytes, order);
+        assert!(!is_heap(&value));
+        assert_eq!(value, OverflowingInt::from(expected));
+    }
+
+    #[test]
+    fn from_unsigned_bytes_heap() {
+        let max = OverflowingInt::from_unsigned_bytes(&[0xFF; 16], ByteOrder::Little);
+        assert!(is_heap(&max));
+        assert_eq!(max.as_u128(), Some(u128::MAX));
+
+        let mut le = [0u8; 17];
+        le[16] = 1;
+        let mut be = le;
+        be.reverse();
+        for value in [
+            OverflowingInt::from_unsigned_bytes(&le, ByteOrder::Little),
+            OverflowingInt::from_unsigned_bytes(&be, ByteOrder::Big),
+        ] {
+            assert_eq!(value, OverflowingInt::from(big(128)));
+        }
+    }
+
+    #[rstest]
+    #[case::empty(&[], 0)]
+    #[case::minus_one(&[0xFF], -1)]
+    #[case::minus_two(&[0xFE], -2)]
+    #[case::i8_max(&[0x7F], 127)]
+    #[case::i8_min(&[0x80], -128)]
+    #[case::positive_128(&[0x80, 0x00], 128)]
+    #[case::padded_minus_one(&[0xFF; 20], -1)]
+    fn from_le_signed_bytes_cases(#[case] bytes: &[u8], #[case] expected: i128) {
+        assert_eq!(
+            OverflowingInt::from_le_signed_bytes(bytes),
+            OverflowingInt::from(expected)
+        );
+    }
+
+    #[test]
+    fn from_le_signed_bytes_zero_is_positive() {
+        for bytes in [&[][..], &[0x00], &[0x00; 20]] {
+            let zero = OverflowingInt::from_le_signed_bytes(bytes);
+            assert!(zero.is_zero());
+            assert_eq!(zero.sign(), Sign::Positive);
+        }
+    }
+
+    #[test]
+    fn from_le_signed_bytes_heap() {
+        let mut bytes = [0u8; 18];
+        bytes[16] = 1;
+        let value = OverflowingInt::from_le_signed_bytes(&bytes);
+        assert_eq!(value, OverflowingInt::from(big(128)));
+    }
+
+    #[rstest]
+    #[case::zero(OverflowingInt::ZERO, &[0x00])]
+    #[case::negative_zero(OverflowingInt::NEGATIVE_ZERO, &[0x00])]
+    #[case::byte(OverflowingInt::from(255u128), &[0xFF])]
+    #[case::two_bytes(OverflowingInt::from(256u128), &[0x01, 0x00])]
+    #[case::sign_ignored(OverflowingInt::from(-256i128), &[0x01, 0x00])]
+    #[case::heap_u128_max(OverflowingInt::from(u128::MAX), &[0xFF; 16])]
+    #[case::heap_2_pow_128(
+        OverflowingInt::from(big(128)),
+        &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    )]
+    fn magnitude_be_bytes_cases(#[case] value: OverflowingInt, #[case] expected: &[u8]) {
+        let be = value.magnitude_be_bytes();
+        assert_eq!(be.as_slice(), expected);
+        let mut le = expected.to_vec();
+        le.reverse();
+        assert_eq!(value.magnitude_le_bytes(), le);
+    }
+
+    #[test]
+    fn magnitude_be_bytes_inline_does_not_allocate() {
+        assert!(!OverflowingInt::from(MAX_INLINE)
+            .magnitude_be_bytes()
+            .spilled());
+    }
+
+    #[rstest]
+    #[case::zero(0, &[0x00])]
+    #[case::i8_max(127, &[0x7F])]
+    #[case::i8_min(-128, &[0x80])]
+    #[case::positive_128(128, &[0x80, 0x00])]
+    #[case::positive_255(255, &[0xFF, 0x00])]
+    #[case::minus_one(-1, &[0xFF])]
+    #[case::minus_129(-129, &[0x7F, 0xFF])]
+    #[case::positive_2_pow_15(1 << 15, &[0x00, 0x80, 0x00])]
+    #[case::negative_2_pow_15(-(1 << 15), &[0x00, 0x80])]
+    fn to_le_signed_bytes_cases(#[case] value: i128, #[case] expected: &[u8]) {
+        let int = OverflowingInt::from(value);
+        assert_eq!(int.to_le_signed_bytes(), expected);
+        assert_eq!(OverflowingInt::from_le_signed_bytes(expected), int);
+    }
+
+    #[rstest]
+    #[case::i128_max(OverflowingInt::from(i128::MAX))]
+    #[case::i128_min(OverflowingInt::from(i128::MIN))]
+    #[case::u128_max(OverflowingInt::from(u128::MAX))]
+    #[case::heap_positive(OverflowingInt::from(big(200)))]
+    #[case::heap_negative(OverflowingInt::from_sign_and_big_magnitude(Sign::Negative, big(200)))]
+    fn to_le_signed_bytes_matches_bigint(#[case] value: OverflowingInt) {
+        let bytes = value.to_le_signed_bytes();
+        assert_eq!(bytes, value.to_bigint().to_signed_bytes_le());
+        assert_eq!(OverflowingInt::from_le_signed_bytes(&bytes), value);
+    }
+
+    #[test]
+    fn to_le_signed_bytes_heap_literals() {
+        let mut positive = vec![0u8; 16];
+        positive.push(0x01);
+        assert_eq!(
+            OverflowingInt::from(big(128)).to_le_signed_bytes(),
+            positive
+        );
+        let mut negative = vec![0u8; 16];
+        negative.push(0xFF);
+        assert_eq!(
+            OverflowingInt::from_sign_and_big_magnitude(Sign::Negative, big(128))
+                .to_le_signed_bytes(),
+            negative
+        );
+    }
+
+    #[test]
+    fn to_bigint_of_negative_zero_is_zero() {
+        assert_eq!(OverflowingInt::NEGATIVE_ZERO.to_bigint(), BigInt::from(0));
+    }
+
+    #[rstest]
+    #[case::zero("0", 10, 0)]
+    #[case::hex("ff", 16, 255)]
+    #[case::binary("101", 2, 5)]
+    #[case::max_inline("3fffffffffffffffffffffffffffffff", 16, MAX_INLINE)]
+    fn from_str_radix_inline(#[case] src: &str, #[case] radix: u32, #[case] expected: u128) {
+        let value = OverflowingInt::from_str_radix(src, radix).unwrap();
+        assert!(!is_heap(&value));
+        assert_eq!(value, OverflowingInt::from(expected));
+    }
+
+    #[test]
+    fn from_str_radix_promotes_to_heap() {
+        // Fits a `u128` but not inline: must not be truncated to its low 126 bits.
+        let max = OverflowingInt::from_str_radix("ffffffffffffffffffffffffffffffff", 16).unwrap();
+        assert!(is_heap(&max));
+        assert_eq!(max.as_u128(), Some(u128::MAX));
+        // Overflows `u128`.
+        let over = OverflowingInt::from_str_radix("340282366920938463463374607431768211456", 10);
+        assert_eq!(over, Some(OverflowingInt::from(big(128))));
+    }
+
+    #[rstest]
+    #[case::bad_digit("xyz")]
+    #[case::empty("")]
+    #[case::negative("-1")]
+    fn from_str_radix_rejects(#[case] src: &str) {
+        assert_eq!(OverflowingInt::from_str_radix(src, 10), None);
     }
 
     // ===== Drop soundness (validated under Miri) =====
