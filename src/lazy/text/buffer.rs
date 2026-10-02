@@ -248,11 +248,15 @@ impl<'top> TextBuffer<'top> {
         pub fn full_match_optional_comments_and_whitespace<'t>(
             input: &mut TextBuffer<'t>,
         ) -> IonMatchResult<'t> {
-            zero_or_more(alt((
-                TextBuffer::match_whitespace1,
-                TextBuffer::match_comment,
-            )))
-            .parse_next(input)
+            let start = *input;
+            loop {
+                input.match_whitespace0()?;
+                if input.bytes().first() != Some(&b'/')
+                    || opt(TextBuffer::match_comment).parse_next(input)?.is_none()
+                {
+                    return Ok(start.slice(0, input.offset() - start.offset()));
+                }
+            }
         }
 
         if let Some(&byte) = self.bytes().first() {
@@ -1698,6 +1702,47 @@ mod tests {
     use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::expanded::EncodingContext;
     use crate::{AnyEncoding, Reader};
+
+    #[test]
+    fn optional_comments_and_whitespace() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for (prefix, remaining) in [
+            ("", ""),
+            ("", "value"),
+            ("", "/+"),
+            (" \t\r\n\u{000b}\u{000c} ", "value"),
+            ("/**/", "value"),
+            (" /* first */\n// second\r\n", "value"),
+            ("/**//**/ \t", "/+"),
+            ("// /* comment */\n", "value"),
+        ] {
+            let text = format!("{prefix}{remaining}");
+            for is_final_data in [false, true] {
+                let mut input =
+                    TextBuffer::with_offset(context.get_ref(), 17, text.as_bytes(), is_final_data);
+                let matched = input.match_optional_comments_and_whitespace().unwrap();
+                assert_eq!(matched.bytes(), prefix.as_bytes(), "{text:?}");
+                assert_eq!(matched.offset(), 17);
+                assert_eq!(input.bytes(), remaining.as_bytes(), "{text:?}");
+                assert_eq!(input.offset(), 17 + prefix.len());
+            }
+        }
+    }
+
+    #[test]
+    fn incomplete_comments_and_whitespace() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for text in [" ", "/", "/*", "/*x*", "/*x*/", "//x", "//x\n", " /*x*/\n/"] {
+            let mut input = TextBuffer::with_offset(context.get_ref(), 0, text.as_bytes(), false);
+            assert!(
+                input
+                    .match_optional_comments_and_whitespace()
+                    .unwrap_err()
+                    .is_incomplete(),
+                "{text:?}"
+            );
+        }
+    }
 
     /// Returns a parser that discards the output and instead reports the number of bytes that matched.
     fn match_length<'data, P, Output>(
