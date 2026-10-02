@@ -1,6 +1,3 @@
-#[allow(dead_code, unused_imports, unused_macros)] // No longer referenced; removed next.
-mod big_small;
-
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
 use crate::types::decimal::Sign;
