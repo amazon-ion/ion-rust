@@ -39,12 +39,6 @@
 //! faithfully and never normalized away; deciding whether `-0` is *meaningful*
 //! belongs to the wrapper.
 
-// This type has no non-test consumer yet; the numeric wrapper types built on it
-// are added separately. `pub(crate)` items reachable only from tests still trip
-// `dead_code`, so the module carries a blanket allow until those consumers land,
-// at which point it is narrowed to per-item allows.
-#![allow(dead_code)]
-
 use crate::types::decimal::Sign;
 use ice_code::ice as cold_path;
 use num_bigint::{BigInt, BigUint};
@@ -369,8 +363,7 @@ impl OverflowingInt {
     }
 
     /// The bit width of the magnitude (`0` for zero). Allocation-free on both
-    /// arms, which is what lets the scaling guards and byte-length calculations
-    /// avoid a conversion.
+    /// arms, which is what lets the scaling guards avoid a conversion.
     pub(crate) fn bits(&self) -> u64 {
         if self.is_inline() {
             // SAFETY: the inline variant is active.
@@ -532,36 +525,6 @@ impl OverflowingInt {
     }
 
     // ===== Scaling by a power of ten =====
-
-    /// `self * 10^k`, preserving `self`'s sign. A zero receiver scales to zero
-    /// (keeping its sign) without materializing `10^k`. A non-zero product
-    /// promotes to the heap when it exceeds `u128` rather than panicking or
-    /// wrapping.
-    ///
-    /// **Unlike [`Self::div_rem_pow10`] and [`Self::cmp_magnitude_scaled`], this
-    /// is NOT hostile-`k`-safe.** A multiply's result genuinely has `~k` decimal
-    /// digits, so there is nothing to short-circuit: a large `k` materializes a
-    /// proportionally large `10^k`. The caller MUST bound `k` (e.g. by a decimal
-    /// exponent range). The consuming wrappers do — they reach a power of ten
-    /// only through the two guarded operations above, never through an untrusted
-    /// exponent here.
-    pub(crate) fn mul_pow10(&self, k: u64) -> Self {
-        if self.is_zero() {
-            // Zero magnitude: `0 * 10^k == 0`. Keep the sign and representation.
-            return self.clone();
-        }
-        let sign = self.sign();
-        if let Magnitude::Small(magnitude) = self.magnitude_ref() {
-            // Fast path: stay in `u128` when `10^k` and the product both fit.
-            if let Some(product) = pow10_u128(k).and_then(|p| magnitude.checked_mul(p)) {
-                return Self::from_sign_and_magnitude(sign, product);
-            }
-        }
-        cold_path! {{
-            let scaled = self.magnitude_as_big() * pow10_big(k);
-            Self::from_sign_and_big_magnitude(sign, scaled)
-        }}
-    }
 
     /// `(self / 10^k, self % 10^k)`, both carrying `self`'s sign (the remainder
     /// takes the dividend's sign, per decArith). Division by zero is unreachable
@@ -1230,55 +1193,6 @@ mod tests {
         );
     }
 
-    // ===== Scaling: mul_pow10 =====
-
-    #[rstest]
-    // A wide sweep of magnitudes and exponents. Firing late is fine; a wrong
-    // answer is the defect.
-    #[case(0, 0)]
-    #[case(1, 5)]
-    #[case(7, 12)]
-    #[case(999_999, 20)]
-    #[case(MAX_INLINE, 0)]
-    fn mul_pow10_matches_bigint(#[case] magnitude: u128, #[case] k: u64) {
-        let value = OverflowingInt::from_sign_and_magnitude(Sign::Positive, magnitude);
-        let scaled = value.mul_pow10(k);
-        let expected = BigUint::from(magnitude) * pow10_big(k);
-        assert_eq!(scaled.magnitude_as_big(), expected);
-        // Result must be canonical.
-        assert_eq!(is_heap(&scaled), expected >= big(126));
-    }
-
-    #[test]
-    fn mul_pow10_zero_scales_to_zero() {
-        // A zero magnitude scaled by a large `k` is still zero, without
-        // materializing `10^k`.
-        let scaled = OverflowingInt::ZERO.mul_pow10(u64::MAX);
-        assert!(scaled.is_zero());
-        // Sign is preserved.
-        let neg = OverflowingInt::NEGATIVE_ZERO.mul_pow10(1_000);
-        assert_eq!(neg, OverflowingInt::NEGATIVE_ZERO);
-    }
-
-    #[test]
-    fn mul_pow10_preserves_sign() {
-        let scaled = OverflowingInt::from(-3i128).mul_pow10(2);
-        assert_eq!(scaled, OverflowingInt::from(-300i128));
-    }
-
-    #[test]
-    fn mul_pow10_promotes_to_heap() {
-        // A 126-bit receiver at `k = 41`: `10^41` needs 136 bits, so the product
-        // exceeds `u128` and must promote to the heap rather than panic or wrap.
-        let receiver = OverflowingInt::from_sign_and_magnitude(Sign::Positive, MAX_INLINE);
-        let scaled = receiver.mul_pow10(41);
-        assert!(is_heap(&scaled));
-        assert_eq!(
-            scaled.magnitude_as_big(),
-            BigUint::from(MAX_INLINE) * pow10_big(41)
-        );
-    }
-
     #[test]
     fn scaling_result_demotes_when_it_fits() {
         // A heap receiver whose scaled-down result fits inline must demote.
@@ -1415,16 +1329,6 @@ mod tests {
         );
         let expected = (BigUint::from(a_mag) * pow10_big(1)).cmp(&BigUint::from(u128::MAX));
         assert_eq!(a.cmp_magnitude_scaled(1, &b), expected);
-    }
-
-    #[test]
-    fn mul_pow10_heap_receiver_stays_heap() {
-        // A heap receiver times 10^k stays heap and matches the BigUint product.
-        let receiver = OverflowingInt::from_sign_and_big_magnitude(Sign::Negative, big(200));
-        let scaled = receiver.mul_pow10(5);
-        assert!(is_heap(&scaled));
-        assert!(matches!(scaled.sign(), Sign::Negative));
-        assert_eq!(scaled.magnitude_as_big(), big(200) * pow10_big(5));
     }
 
     #[test]
