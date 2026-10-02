@@ -115,6 +115,29 @@ mod benchmark {
         });
         text_1_0_group.finish();
 
+        let mut whitespace_group = c.benchmark_group("text 1.0 whitespace");
+        for (name, data) in [
+            ("pretty records", pretty_data_1_0.clone()),
+            (
+                "commented records",
+                pretty_data_1_0.replace('\n', "\n/* field */"),
+            ),
+            ("compact lists", "[1,2,3]".repeat(num_values)),
+            ("spaced lists", "[ 1, 2, 3 ] ".repeat(num_values)),
+        ] {
+            whitespace_group.bench_function(name, |b| {
+                b.iter(|| {
+                    let mut reader = Reader::new(v1_0::Text, data.as_bytes()).unwrap();
+                    let mut num_values = 0usize;
+                    while let Some(item) = reader.next().unwrap() {
+                        num_values += count_value_and_children(&item).unwrap();
+                    }
+                    black_box(num_values);
+                })
+            });
+        }
+        whitespace_group.finish();
+
         let mut binary_1_0_group = c.benchmark_group("binary 1.0");
         binary_1_0_group.bench_function("scan all", |b| {
             b.iter(|| {
