@@ -11,7 +11,7 @@ use winnow::stream::{
     Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
     StreamIsPartial,
 };
-use winnow::token::{one_of, take_till, take_until, take_while};
+use winnow::token::{any, one_of, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0};
@@ -238,7 +238,7 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches zero or more whitespace characters.
     pub fn match_whitespace0(&mut self) -> IonMatchResult<'top> {
-        let result = take_while(0.., WHITESPACE_BYTES).parse_next(self)?;
+        let result = take_while(0.., |b: u8| matches!(b, b' ' | b'\t'..=b'\r')).parse_next(self)?;
         Ok(result)
     }
 
@@ -419,10 +419,19 @@ impl<'top> TextBuffer<'top> {
     /// * A symbol ID
     /// * A short-form string
     pub fn match_struct_field_name(&mut self) -> IonParseResult<'top, MatchedFieldName<'top>> {
-        alt((
-            Self::match_string.map(MatchedFieldNameSyntax::String),
-            Self::match_symbol.map(MatchedFieldNameSyntax::Symbol),
-        ))
+        dispatch! {
+            peek(any);
+            b'"' => Self::match_short_string.map(MatchedFieldNameSyntax::String),
+            b'\'' => alt((
+                Self::match_long_string.map(MatchedFieldNameSyntax::String),
+                Self::match_quoted_symbol.map(MatchedFieldNameSyntax::Symbol),
+            )),
+            byte if byte.is_ascii_alphabetic() || byte == b'_' => Self::match_identifier.map(MatchedFieldNameSyntax::Symbol),
+            _ => alt((
+                Self::match_string.map(MatchedFieldNameSyntax::String),
+                Self::match_symbol.map(MatchedFieldNameSyntax::Symbol),
+            )),
+        }
         .with_taken()
         .map(
             #[inline]
@@ -1040,54 +1049,18 @@ impl<'top> TextBuffer<'top> {
             .parse_next(self)
     }
 
-    /// Matches items that match the syntactic definition of an identifier but which have special
-    /// meaning. (`true`, `false`, `nan`, `null`)
-    pub(crate) fn match_keyword(&mut self) -> IonMatchResult<'top> {
-        terminated(
-            alt(("true", "false", "null", "nan")),
-            Self::identifier_terminator,
-        )
-        .parse_next(self)
-    }
-
     /// Matches an identifier (`foo`).
     pub(crate) fn match_identifier(&mut self) -> IonParseResult<'top, MatchedSymbol> {
         (
-            not(Self::match_keyword),
-            Self::identifier_initial_character,
-            Self::identifier_trailing_characters,
-            Self::identifier_terminator,
+            one_of(|b: u8| b.is_ascii_alphabetic() || b == b'_' || b == b'$'),
+            take_while(0.., |b: u8| {
+                b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+            }),
         )
+            .take()
+            .verify(|name: &Self| !matches!(name.bytes(), b"true" | b"false" | b"null" | b"nan"))
             .value(MatchedSymbol::Identifier)
             .parse_next(self)
-    }
-
-    fn identifier_terminator(&mut self) -> IonMatchResult<'top> {
-        not(Self::identifier_trailing_character)
-            .take()
-            .parse_next(self)
-    }
-
-    /// Matches any character that can appear at the start of an identifier.
-    fn identifier_initial_character(&mut self) -> IonParseResult<'top, Self> {
-        alt((one_of(b"$_"), one_of(|b: u8| b.is_ascii_alphabetic())))
-            .take()
-            .parse_next(self)
-    }
-
-    /// Matches any character that is legal in an identifier, though not necessarily at the beginning.
-    fn identifier_trailing_character(&mut self) -> IonParseResult<'top, Self> {
-        alt((one_of(b"$_"), one_of(|c: u8| c.is_ascii_alphanumeric())))
-            .take()
-            .parse_next(self)
-    }
-
-    /// Matches characters that are legal in an identifier, though not necessarily at the beginning.
-    fn identifier_trailing_characters(&mut self) -> IonParseResult<'top, Self> {
-        zero_or_more(one_of(|b: u8| {
-            b.is_ascii_alphanumeric() || b"$_".contains(&b)
-        }))
-        .parse_next(self)
     }
 
     /// Matches a quoted symbol (`'foo'`).
@@ -1744,6 +1717,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn incomplete_field_name_prefixes() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for text in [
+            "", " ", "/", "/*", "/*x*/ ", "//x", "'", "''", "'''x", "\"x", "$", "tru",
+        ] {
+            let mut input = TextBuffer::with_offset(context.get_ref(), 0, text.as_bytes(), false);
+            assert!(
+                input.match_struct_field_name().unwrap_err().is_incomplete(),
+                "{text:?}"
+            );
+        }
+    }
+
     /// Returns a parser that discards the output and instead reports the number of bytes that matched.
     fn match_length<'data, P, Output>(
         parser: P,
@@ -2062,6 +2049,14 @@ mod tests {
             "hello\"
             "#,
         ],
+    }
+
+    matcher_tests! {
+        match_identifier
+        expect_match: [
+            "true_", "false0", "null$", "nanosecond", "True", "n", "t", "f", "$null"
+        ],
+        expect_mismatch: ["true", "false", "null", "nan", "0name"]
     }
 
     matcher_tests! {
