@@ -181,7 +181,7 @@ impl OverflowingInt {
         words: [1 << TAG_BIT, 0],
     };
 
-    /// Negative zero. Meaningful to `Coefficient`; forbidden by `IntData`.
+    /// Negative zero. Meaningful to `Coefficient`; forbidden by `Int`.
     // Inline: tag = 1 (bit 63), sign = negative (bit 62 = 1), magnitude = 0.
     pub(crate) const NEGATIVE_ZERO: Self = Self {
         words: [(1 << TAG_BIT) | (1 << SIGN_BIT), 0],
@@ -357,6 +357,15 @@ impl OverflowingInt {
             return None;
         }
         self.magnitude_as_u128()
+    }
+
+    /// The value as the primitive integer `T` when it fits.
+    pub(crate) fn to_primitive<T: TryFrom<i128> + TryFrom<u128>>(&self) -> Option<T> {
+        match self.as_i128() {
+            Some(value) => T::try_from(value).ok(),
+            // Above `i128::MAX` (or below `i128::MIN`, where `as_u128` is `None`).
+            None => self.as_u128().and_then(|value| T::try_from(value).ok()),
+        }
     }
 
     /// The bit width of the magnitude (`0` for zero). Allocation-free on both
@@ -831,7 +840,7 @@ impl From<BigInt> for OverflowingInt {
         let (bigint_sign, magnitude) = value.into_parts();
         // A `BigInt`'s three-valued sign maps both `Plus` and `NoSign` to
         // positive; only `Minus` is negative. A `NoSign -> Negative` slip is
-        // exactly the `-0` that `IntData` forbids.
+        // exactly the `-0` that `Int` forbids.
         let sign = match bigint_sign {
             num_bigint::Sign::Minus => Sign::Negative,
             num_bigint::Sign::Plus | num_bigint::Sign::NoSign => Sign::Positive,

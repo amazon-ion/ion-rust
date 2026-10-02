@@ -18,7 +18,6 @@ use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
-use crate::types::integer::{AsBigOrSmallValue, UIntData};
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
@@ -133,20 +132,9 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     }
 
     pub fn write_int(mut self, value: &Int) -> IonResult<()> {
-        let magnitude = value.unsigned_abs().data;
         let type_descriptor: u8 = if value.is_negative() { 0x30 } else { 0x20 };
-        if let Some(mag) = magnitude.as_small_value() {
-            // Common case: the magnitude is stored inline, so it can be encoded on the stack with
-            // no heap allocation.
-            let (be, start) = UIntData::small_to_be_bytes(mag);
-            self.write_int_header_and_bytes(type_descriptor, &be[start..])
-        } else {
-            // Cold path: a BigUint magnitude, which has to be heap-allocated to be encoded.
-            cold_path! {{
-                let bytes_to_write = magnitude.to_be_bytes();
-                self.write_int_header_and_bytes(type_descriptor, &bytes_to_write)
-            }}
-        }
+        let magnitude = value.as_overflowing_int().magnitude_be_bytes();
+        self.write_int_header_and_bytes(type_descriptor, &magnitude)
     }
 
     #[inline]

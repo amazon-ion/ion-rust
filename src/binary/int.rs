@@ -1,8 +1,6 @@
 use crate::decimal::Coefficient;
 use crate::result::IonResult;
-use crate::types::integer::{AsBigOrSmallValue, UIntData};
 use crate::Int;
-use ice_code::ice as cold_path;
 use std::io::Write;
 
 const INT_NEGATIVE_ZERO: u8 = 0x80;
@@ -34,22 +32,8 @@ impl DecodedInt {
     /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     pub fn write<W: Write>(sink: &mut W, value: &Int) -> IonResult<usize> {
-        let is_negative = value.is_negative();
-        let magnitude = value.unsigned_abs();
-        // Common case: the magnitude is stored inline, so its big-endian bytes can be encoded on
-        // the stack with no heap allocation.
-        if let Some(mag) = magnitude.data.as_small_value() {
-            let (mut be, start) = UIntData::small_to_be_bytes(mag);
-            return Self::write_sign_and_magnitude(sink, &mut be[start..], is_negative);
-        }
-        // Cold path: a BigUint magnitude, which has to be heap-allocated to be encoded.
-        // `cold_path!` wraps its body in a closure, so `?` and `return` inside the block are scoped
-        // to that closure rather than to `write`. This block is `write`'s tail expression, so its
-        // value is the value of `write`.
-        cold_path! {{
-            let mut be = magnitude.data.to_be_bytes();
-            Self::write_sign_and_magnitude(sink, &mut be, is_negative)
-        }}
+        let mut be = value.as_overflowing_int().magnitude_be_bytes();
+        Self::write_sign_and_magnitude(sink, &mut be, value.is_negative())
     }
 
     /// Writes the sign bit followed by the minimal big-endian magnitude in `be` to `sink`,
@@ -60,8 +44,8 @@ impl DecodedInt {
     /// mutably so the sign bit can be set in place, avoiding a second write in the common case.
     ///
     /// `be` must be non-empty: it holds the minimal big-endian magnitude, which is at least one
-    /// byte (zero encodes as `[0x00]`). Both callers derive `be` from [`UIntData::small_to_be_bytes`]
-    /// or [`UIntData::to_be_bytes`], which guarantee this.
+    /// byte (zero encodes as `[0x00]`). Callers derive `be` from `OverflowingInt::magnitude_be_bytes`,
+    /// which guarantees this.
     fn write_sign_and_magnitude<W: Write>(
         sink: &mut W,
         be: &mut [u8],

@@ -63,11 +63,8 @@ where
                 }
                 None => {
                     cold_path! {{
-                        // Big value: get magnitude as BE bytes
-                        let magnitude = int.unsigned_abs();
-                        let be = magnitude.data.to_be_bytes();
-                        let start = be.iter().position(|&b| b != 0).unwrap_or(be.len().saturating_sub(1));
-                        self.update_escaping(&be[start..]);
+                        let magnitude = int.as_overflowing_int().magnitude_be_bytes();
+                        self.update_escaping(&magnitude);
                     }}
                 }
             }

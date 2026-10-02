@@ -1,46 +1,47 @@
+#[allow(dead_code, unused_imports, unused_macros)] // No longer referenced; removed next.
 mod big_small;
-mod int_data;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::IonFailure;
 use crate::types::decimal::Sign;
-use crate::types::overflowing_int::{Magnitude, OverflowingInt};
+use crate::types::overflowing_int::{ByteOrder, Magnitude, OverflowingInt};
 use crate::{IonError, IonResult};
-pub(crate) use big_small::AsBigOrSmallValue;
-pub(crate) use int_data::{IntData, UIntData};
+use ice_code::ice as cold_path;
 use num_bigint::BigInt;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem;
-use std::ops::Neg;
 
 /// Represents an unsigned integer of any size.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UInt {
-    pub(crate) data: UIntData,
+    // Never negative: every constructor takes an unsigned magnitude.
+    repr: OverflowingInt,
 }
 
 impl UInt {
     pub const ZERO: UInt = UInt {
-        data: UIntData::ZERO,
+        repr: OverflowingInt::ZERO,
     };
 
     #[inline]
-    pub(crate) fn new(data: impl Into<u128>) -> Self {
+    pub(crate) fn new(value: impl Into<u128>) -> Self {
         Self {
-            data: UIntData::from(data.into()),
+            repr: OverflowingInt::from(value.into()),
         }
     }
 
     pub(crate) fn from_str_radix(s: &str, radix: u32) -> IonResult<Self> {
-        let data = UIntData::from_str_radix(s, radix)?;
-        Ok(Self { data })
+        OverflowingInt::from_str_radix(s, radix)
+            .map(|repr| Self { repr })
+            .ok_or_else(|| IonError::decoding_error("Invalid UInt"))
     }
 
     pub(crate) fn from_be_bytes(bytes: &[u8]) -> UInt {
-        let data = UIntData::from_be_bytes(bytes);
-        Self { data }
+        Self {
+            repr: OverflowingInt::from_unsigned_bytes(bytes, ByteOrder::Big),
+        }
     }
 
     /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
@@ -84,34 +85,26 @@ impl UInt {
 
     /// Returns the number of digits in the base-10 representation of the UInteger.
     pub fn number_of_decimal_digits(&self) -> u32 {
-        self.data.count_decimal_digits()
+        self.repr.magnitude_ref().number_of_decimal_digits()
     }
 
     pub fn from_le_bytes(bytes: &[u8]) -> UInt {
-        UInt {
-            data: UIntData::from_le_bytes(bytes),
+        Self {
+            repr: OverflowingInt::from_unsigned_bytes(bytes, ByteOrder::Little),
         }
     }
 
     pub fn to_le_bytes(&self) -> Vec<u8> {
-        self.data.to_le_bytes()
+        self.repr.magnitude_le_bytes()
     }
 
     /// Returns `true` if this value is zero.
     pub fn is_zero(&self) -> bool {
-        self.data == UIntData::ZERO
-    }
-}
-
-impl From<UIntData> for UInt {
-    fn from(value: UIntData) -> Self {
-        UInt { data: value }
+        self.repr.is_zero()
     }
 }
 
 // This macro makes it possible to turn unsigned int primitives into a UInteger using `.into()`.
-// Note that it works for both signed and unsigned ints. The resulting UInteger will be the
-// absolute value of the integer being converted.
 macro_rules! impl_uint_from_unsigned_int_types {
     ($($t:ty),*) => ($(
         impl From<$t> for UInt {
@@ -158,7 +151,7 @@ macro_rules! impl_int_types_try_from_uint {
             type Error = IonError;
 
             fn try_from(value: &UInt) -> Result<Self, Self::Error> {
-                <$t>::try_from(value.clone().data).map_err(|_| {
+                value.repr.to_primitive().ok_or_else(|| {
                     IonError::decoding_error(
                             concat!("UInt was too large to fit in a ", stringify!($t))
                         )
@@ -171,14 +164,13 @@ macro_rules! impl_int_types_try_from_uint {
 impl_int_types_try_from_uint!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
 impl TryFrom<Int> for UInt {
-    // Returns the unit type if the input `Int` is negative.
     type Error = IonError;
 
     fn try_from(value: Int) -> Result<Self, Self::Error> {
-        if value.data.is_negative() {
+        if value.is_negative() {
             return IonResult::decoding_error("cannot convert negative Int to a UInt");
         }
-        Ok(value.data.unsigned_abs().into())
+        Ok(UInt { repr: value.repr })
     }
 }
 
@@ -208,7 +200,7 @@ macro_rules! impl_small_int_try_from_int {
             type Error = IonError;
 
             fn try_from(value: Int) -> Result<Self, Self::Error> {
-                <$t>::try_from(value.data).map_err(|_| {
+                value.repr.to_primitive().ok_or_else(|| {
                     IonError::decoding_error(concat!("Int was outside the range of a(n) ", stringify!($t)))
                 })
             }
@@ -225,7 +217,7 @@ macro_rules! impl_small_unsigned_int_try_from_uint {
             type Error = IonError;
 
             fn try_from(value: UInt) -> Result<Self, Self::Error> {
-                <$t>::try_from(value.data).map_err(|_| {
+                value.repr.to_primitive().ok_or_else(|| {
                     IonError::decoding_error(concat!("UInt was outside the range of a(n) ", stringify!($t)))
                 })
             }
@@ -257,25 +249,33 @@ impl_small_unsigned_int_try_from_uint!(u8, u16, u32, u64, u128, usize);
 /// # }
 /// ```
 pub struct Int {
-    pub(crate) data: IntData,
+    // Never `-0`: no constructor takes a sign, and `neg` uses `minus`, which maps zero to `+0`.
+    repr: OverflowingInt,
 }
 
 impl Int {
     pub const ZERO: Int = Int {
-        data: IntData::ZERO,
+        repr: OverflowingInt::ZERO,
     };
+
+    /// Borrows the underlying representation.
+    pub(crate) fn as_overflowing_int(&self) -> &OverflowingInt {
+        &self.repr
+    }
 
     /// Returns a [`UInt`] representing the unsigned magnitude of this `Int`.
     #[inline]
     pub fn unsigned_abs(&self) -> UInt {
-        self.data.unsigned_abs().into()
+        UInt {
+            repr: self.repr.abs(),
+        }
     }
 
     /// Returns `true` if this value is less than zero.
     /// If this value is greater than or equal to zero, returns `false`.
     #[inline]
     pub fn is_negative(&self) -> bool {
-        self.data.is_negative()
+        self.repr.sign() == Sign::Negative
     }
 
     /// If this value is small enough to fit in an `i64`, returns `Ok(i64)`. Otherwise,
@@ -290,7 +290,7 @@ impl Int {
 
     #[inline(always)]
     pub fn as_u32(&self) -> Option<u32> {
-        u32::try_from(&self.data).ok()
+        self.repr.to_primitive()
     }
 
     #[inline]
@@ -303,7 +303,7 @@ impl Int {
 
     #[inline(always)]
     pub fn as_u64(&self) -> Option<u64> {
-        u64::try_from(&self.data).ok()
+        self.repr.to_primitive()
     }
 
     #[inline]
@@ -316,7 +316,7 @@ impl Int {
 
     #[inline(always)]
     pub fn as_usize(&self) -> Option<usize> {
-        usize::try_from(&self.data).ok()
+        self.repr.to_primitive()
     }
 
     #[inline]
@@ -338,38 +338,40 @@ impl Int {
     /// If this value is small enough to fit in an `i64`, returns `Some(i64)`. Otherwise, returns
     /// `None`.
     pub fn as_i64(&self) -> Option<i64> {
-        i64::try_from(&self.data).ok()
+        self.repr.to_primitive()
     }
 
     /// If this value is small enough to fit in an `i128`, returns `Some(i128)`. Otherwise, returns
     /// `None`.
     pub fn as_i128(&self) -> Option<i128> {
-        i128::try_from(&self.data).ok()
+        self.repr.as_i128()
     }
 
     pub fn from_le_signed_bytes(bytes: &[u8]) -> Int {
         Int {
-            data: IntData::from_le_signed_bytes(bytes),
+            repr: OverflowingInt::from_le_signed_bytes(bytes),
         }
     }
 
     pub fn to_le_signed_bytes(&self) -> Vec<u8> {
-        self.data.to_le_bytes()
+        self.repr.to_le_signed_bytes()
     }
 
     pub(crate) fn to_bigint(&self) -> BigInt {
-        self.data.as_big_value().into_owned()
+        self.repr.to_bigint()
     }
 
     /// Returns `true` if this value is zero.
     pub fn is_zero(&self) -> bool {
-        self.data == IntData::ZERO
+        self.repr.is_zero()
     }
 
     /// Returns the negation of this value.
     #[allow(clippy::should_implement_trait)]
     pub fn neg(self) -> Self {
-        self.data.neg().into()
+        Int {
+            repr: self.repr.minus(),
+        }
     }
 }
 
@@ -393,28 +395,35 @@ impl IonDataHash for Int {
 
 impl Display for UInt {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.data)
+        write!(f, "{}", self.repr)
     }
 }
 
-impl<T> From<T> for Int
-where
-    T: Into<IntData>,
-{
-    fn from(value: T) -> Self {
-        Self { data: value.into() }
-    }
+macro_rules! impl_int_from_int_types {
+    ($wide:ty => $($t:ty),*) => ($(
+        impl From<$t> for Int {
+            #[inline]
+            fn from(value: $t) -> Int {
+                Int { repr: OverflowingInt::from(value as $wide) }
+            }
+        }
+    )*)
 }
 
-impl From<UInt> for IntData {
+impl_int_from_int_types!(i128 => i8, i16, i32, i64, i128, isize);
+impl_int_from_int_types!(u128 => u8, u16, u32, u64, u128, usize);
+
+impl From<UInt> for Int {
     fn from(value: UInt) -> Self {
-        value.data.into()
+        Int { repr: value.repr }
     }
 }
 
 impl From<&UInt> for Int {
     fn from(value: &UInt) -> Self {
-        IntData::from(value.data.clone()).into()
+        Int {
+            repr: value.repr.clone(),
+        }
     }
 }
 
@@ -425,7 +434,11 @@ impl From<Magnitude<'_>> for UInt {
     fn from(magnitude: Magnitude<'_>) -> Self {
         match magnitude {
             Magnitude::Small(magnitude) => UInt::from(magnitude),
-            Magnitude::Big(magnitude) => UInt::from(UIntData::from_big(magnitude.clone())),
+            Magnitude::Big(magnitude) => cold_path! {
+                UInt {
+                    repr: OverflowingInt::from(magnitude.clone()),
+                }
+            },
         }
     }
 }
@@ -434,10 +447,7 @@ impl From<Magnitude<'_>> for UInt {
 /// magnitude. An `Int` never carries a negative zero, so the sign is unambiguous.
 impl From<Int> for OverflowingInt {
     fn from(value: Int) -> Self {
-        match value.as_i128() {
-            Some(value) => OverflowingInt::from(value),
-            None => OverflowingInt::from(value.to_bigint()),
-        }
+        value.repr
     }
 }
 
@@ -447,25 +457,18 @@ impl TryFrom<&OverflowingInt> for Int {
     type Error = IonError;
 
     fn try_from(value: &OverflowingInt) -> Result<Self, Self::Error> {
-        let is_negative = value.sign() == Sign::Negative;
-        if is_negative && value.is_zero() {
+        if value.sign() == Sign::Negative && value.is_zero() {
             return IonResult::illegal_operation("cannot convert negative zero to Int");
         }
-        if let Some(value) = value.as_i128() {
-            return Ok(Int::from(value));
-        }
-        let magnitude = Int::from(UInt::from(value.magnitude_ref()));
-        Ok(if is_negative {
-            magnitude.neg()
-        } else {
-            magnitude
+        Ok(Int {
+            repr: value.clone(),
         })
     }
 }
 
 impl Display for Int {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.data)
+        write!(f, "{}", self.repr)
     }
 }
 
@@ -691,7 +694,7 @@ mod integer_tests {
     fn int_from_bytes_roundtrip() {
         for v in [0i128, 1, -1, 42, -42, i128::MAX, i128::MIN] {
             let int = Int::from(v);
-            let bytes = int.data.to_le_bytes();
+            let bytes = int.to_le_signed_bytes();
             let roundtripped = Int::from_le_signed_bytes(&bytes);
             assert_eq!(int, roundtripped, "roundtrip failed for {v}");
         }
@@ -782,5 +785,142 @@ mod integer_tests {
         let big = UInt::from_le_bytes(&bytes);
         assert!(small < big);
         assert!(big > small);
+    }
+
+    #[test]
+    fn layout() {
+        assert!(size_of::<Int>() <= 16 && align_of::<Int>() <= 8);
+        assert!(size_of::<UInt>() <= 16 && align_of::<UInt>() <= 8);
+    }
+
+    #[test]
+    fn int_neg() {
+        assert_eq!(Int::from(42).neg(), Int::from(-42));
+        assert_eq!(Int::from(-42).neg(), Int::from(42));
+        // `i128::MIN` negates past `i128::MAX`.
+        let neg_min = Int::from(i128::MIN).neg();
+        assert_eq!(neg_min.as_i128(), None);
+        assert_eq!(
+            u128::try_from(neg_min.clone()),
+            Ok(i128::MIN.unsigned_abs())
+        );
+        assert_eq!(neg_min.neg(), Int::from(i128::MIN));
+    }
+
+    #[test]
+    fn int_neg_zero_stays_positive() {
+        let neg_zero = Int::ZERO.neg();
+        assert!(!neg_zero.is_negative());
+        assert_eq!(neg_zero, Int::ZERO);
+        assert_eq!(hash_of(&neg_zero), hash_of(&Int::ZERO));
+        assert_eq!(neg_zero.to_le_signed_bytes(), vec![0x00]);
+    }
+
+    #[rstest]
+    #[case::two_pow_126("85070591730234615865843651857942052864", Int::from(1u128 << 126))]
+    #[case::two_pow_126_hex("0x40000000000000000000000000000000", Int::from(1u128 << 126))]
+    #[case::negative_two_pow_126(
+        "-85070591730234615865843651857942052864",
+        Int::from(1u128 << 126).neg()
+    )]
+    #[case::u128_max("340282366920938463463374607431768211455", Int::from(u128::MAX))]
+    fn read_over_inline_capacity_text_int(#[case] text: &str, #[case] expected: Int) {
+        let element = crate::Element::read_one(text).unwrap();
+        assert_eq!(element.expect_int().unwrap(), &expected);
+    }
+
+    #[test]
+    fn uint_from_str_radix() {
+        assert_eq!(UInt::from_str_radix("0", 10), Ok(UInt::ZERO));
+        assert_eq!(UInt::from_str_radix("FF", 16), Ok(UInt::from(255u8)));
+        assert_eq!(UInt::from_str_radix("11111111", 2), Ok(UInt::from(255u8)));
+        // Above the 2^126 inline limit, but within u128.
+        let max = UInt::from_str_radix(&u128::MAX.to_string(), 10).unwrap();
+        assert_eq!(max.as_u128(), Some(u128::MAX));
+        // Above u128.
+        let big = UInt::from_str_radix("340282366920938463463374607431768211456", 10).unwrap();
+        assert_eq!(big.as_u128(), None);
+        assert_eq!(big.to_string(), "340282366920938463463374607431768211456");
+        assert!(UInt::from_str_radix("xyz", 10).is_err());
+    }
+
+    #[test]
+    fn int_to_u128_above_i128_max() {
+        // Accepted on both sides of `i128::MAX`.
+        assert_eq!(u128::try_from(Int::from(i128::MAX)), Ok(i128::MAX as u128));
+        let above = Int::from(i128::MAX as u128 + 1);
+        assert_eq!(u128::try_from(above.clone()), Ok(i128::MAX as u128 + 1));
+        assert_eq!(above.as_i128(), None);
+        assert_eq!(u128::try_from(Int::from(u128::MAX)), Ok(u128::MAX));
+        assert!(u128::try_from(Int::from(-1)).is_err());
+    }
+
+    fn hash_of<T: Hash>(value: &T) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        let mut h = DefaultHasher::new();
+        value.hash(&mut h);
+        h.finish()
+    }
+
+    #[test]
+    fn padded_bytes_equal_unpadded() {
+        let mut padded = vec![0u8; 20];
+        padded[0] = 42;
+        let padded = UInt::from_le_bytes(&padded);
+        assert_eq!(padded, UInt::from(42u8));
+        assert_eq!(hash_of(&padded), hash_of(&UInt::from(42u8)));
+
+        let mut positive = vec![0u8; 17];
+        positive[0] = 42;
+        let mut negative = vec![0xFFu8; 17];
+        negative[0] = 0xD6; // -42
+        for (bytes, expected) in [(positive, Int::from(42)), (negative, Int::from(-42))] {
+            let padded = Int::from_le_signed_bytes(&bytes);
+            assert_eq!(padded, expected);
+            assert_eq!(hash_of(&padded), hash_of(&expected));
+        }
+    }
+
+    #[test]
+    fn uint_decimal_digits_at_inline_limit_and_on_heap() {
+        let inline_max = UInt::from((1u128 << 126) - 1); // 85070591730234615865843651857942052863
+        assert_eq!(inline_max.number_of_decimal_digits(), 38);
+        let heap_min = UInt::from(1u128 << 126); // 85070591730234615865843651857942052864
+        assert_eq!(heap_min.number_of_decimal_digits(), 38);
+        assert_eq!(UInt::from(u128::MAX).number_of_decimal_digits(), 39);
+        let above_u128 = UInt::from_str_radix(&format!("1{}", "0".repeat(40)), 10).unwrap();
+        assert_eq!(above_u128.number_of_decimal_digits(), 41);
+    }
+
+    #[test]
+    fn int_unsigned_abs() {
+        assert_eq!(Int::from(-5).unsigned_abs(), UInt::from(5u8));
+        assert_eq!(Int::from(5).unsigned_abs(), UInt::from(5u8));
+        let inline_max = (1u128 << 126) - 1;
+        let heap_min = 1u128 << 126;
+        assert_eq!(
+            Int::from(inline_max).neg().unsigned_abs(),
+            UInt::from(inline_max)
+        );
+        assert_eq!(
+            Int::from(heap_min).neg().unsigned_abs(),
+            UInt::from(heap_min)
+        );
+        assert_eq!(
+            Int::from(i128::MIN).unsigned_abs(),
+            UInt::from(i128::MIN.unsigned_abs())
+        );
+        let zero = Int::ZERO.unsigned_abs();
+        assert_eq!(zero, UInt::ZERO);
+        assert_eq!(hash_of(&zero), hash_of(&UInt::ZERO));
+    }
+
+    #[test]
+    fn uint_to_int_and_back() {
+        let uint = UInt::from(u128::MAX);
+        let int = Int::from(uint.clone());
+        assert!(!int.is_negative());
+        assert_eq!(UInt::try_from(int), Ok(uint));
+        assert!(UInt::try_from(Int::from(-1)).is_err());
     }
 }
