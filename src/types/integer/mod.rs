@@ -4,7 +4,6 @@ use crate::types::decimal::Sign;
 use crate::types::overflowing_int::{ByteOrder, Magnitude, OverflowingInt};
 use crate::{IonError, IonResult};
 use ice_code::ice as cold_path;
-use num_bigint::BigInt;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -44,40 +43,40 @@ impl UInt {
     /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
     /// returns `None`.
     pub fn as_usize(&self) -> Option<usize> {
-        usize::try_from(self).ok()
+        self.repr.to_primitive()
     }
 
     /// Attempts to convert this `UInt` to a `u64`. If the value is too large to fit,
     /// returns `None`.
     pub fn as_u64(&self) -> Option<u64> {
-        u64::try_from(self).ok()
+        self.repr.to_primitive()
     }
 
     /// Attempts to convert this `UInt` to a `u128`. If the value is too large to fit,
     /// returns `None`.
     pub fn as_u128(&self) -> Option<u128> {
-        u128::try_from(self).ok()
+        self.repr.as_u128()
     }
 
     /// Attempts to convert this `UInt` to a `usize`. If the value is too large to fit,
     /// returns an [`IonError`].
     pub fn expect_usize(&self) -> IonResult<usize> {
-        usize::try_from(self)
-            .map_err(|_| IonError::decoding_error("UInt was too large to convert to a usize"))
+        self.as_usize()
+            .ok_or_else(|| IonError::decoding_error("UInt was too large to convert to a usize"))
     }
 
     /// Attempts to convert this `UInt` to a `u64`. If the value is too large to fit,
     /// returns an [`IonError`].
     pub fn expect_u64(&self) -> IonResult<u64> {
-        u64::try_from(self)
-            .map_err(|_| IonError::decoding_error("UInt was too large to convert to a u64"))
+        self.as_u64()
+            .ok_or_else(|| IonError::decoding_error("UInt was too large to convert to a u64"))
     }
 
     /// Attempts to convert this `UInt` to a `u128`. If the value is too large to fit,
     /// returns an [`IonError`].
     pub fn expect_u128(&self) -> IonResult<u128> {
-        u128::try_from(self)
-            .map_err(|_| IonError::decoding_error("UInt was too large to convert to a u128"))
+        self.as_u128()
+            .ok_or_else(|| IonError::decoding_error("UInt was too large to convert to a u128"))
     }
 
     /// Returns the number of digits in the base-10 representation of the UInteger.
@@ -352,10 +351,6 @@ impl Int {
 
     pub fn to_le_signed_bytes(&self) -> Vec<u8> {
         self.repr.to_le_signed_bytes()
-    }
-
-    pub(crate) fn to_bigint(&self) -> BigInt {
-        self.repr.to_bigint()
     }
 
     /// Returns `true` if this value is zero.

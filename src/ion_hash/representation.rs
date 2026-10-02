@@ -8,14 +8,12 @@
 
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
-use crate::binary::{self};
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::result::IonResult;
 use crate::{Decimal, Int, IonType, Struct, Symbol, Timestamp};
 use crate::{Element, Sequence};
 use digest::{FixedOutput, Output, Reset, Update};
-use ice_code::ice as cold_path;
 
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {
@@ -54,19 +52,9 @@ where
 {
     fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()> {
         if let Some(int) = value {
-            match int.as_i128() {
-                Some(0) => {}
-                Some(i) => {
-                    let magnitude = i.unsigned_abs();
-                    let encoded = binary::uint::encode(magnitude);
-                    self.update_escaping(encoded.as_bytes());
-                }
-                None => {
-                    cold_path! {{
-                        let magnitude = int.as_overflowing_int().magnitude_be_bytes();
-                        self.update_escaping(&magnitude);
-                    }}
-                }
+            if !int.is_zero() {
+                let magnitude = int.as_overflowing_int().magnitude_be_bytes();
+                self.update_escaping(&magnitude);
             }
         }
 
