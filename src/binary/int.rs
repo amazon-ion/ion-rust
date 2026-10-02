@@ -147,8 +147,7 @@ mod tests {
         Ok(())
     }
 
-    /// Returns `2^128`, the smallest magnitude that `Int` cannot store inline. Encoding it takes
-    /// the `BigUint` cold path in [`DecodedInt::write`].
+    /// Returns `2^128`, the smallest magnitude wider than 16 bytes.
     fn two_pow_128() -> Int {
         let mut bytes = vec![0u8; 17];
         bytes[16] = 1;
@@ -185,12 +184,34 @@ mod tests {
         Int::from(i64::MIN),
         &[0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
     )]
-    // Sixteen-byte magnitudes: the widest that `Int` stores inline.
+    // Sixteen-byte magnitudes.
     #[case::max_i128(
         Int::from(i128::MAX),
         &[
             0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]
+    )]
+    // Either side of 2^126, where storage moves from inline to the heap; the bytes don't change.
+    #[case::two_pow_126_minus_one(
+        Int::from((1i128 << 126) - 1),
+        &[
+            0x3F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]
+    )]
+    #[case::two_pow_126(
+        Int::from(1i128 << 126),
+        &[
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    #[case::negative_two_pow_126(
+        Int::from(-(1i128 << 126)),
+        &[
+            0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
     #[case::min_i128(
@@ -200,9 +221,9 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
-    // A 16-byte magnitude whose leading byte's high bit is clear (`start == 0`): the sign bit is set
-    // in place in the first byte, with no leading sign-only byte. Guards the `be[0] |= 0x80` branch
-    // at the widest inline width.
+    // A 16-byte magnitude whose leading byte's high bit is clear: the sign bit is set in place in
+    // the first byte, with no leading sign-only byte. Guards the `be[0] |= 0x80` branch at the full
+    // 16-byte width.
     #[case::negative_two_pow_120(
         Int::from(-(1i128 << 120)),
         &[
@@ -210,9 +231,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
-    // `u128::MAX` is stored as a `BigInt` because it does not fit in an `i128`, but its *magnitude*
-    // fits in a `u128`, so `Int::unsigned_abs` normalizes it back to inline storage and it takes
-    // the stack-only path. This is the widest output that path can produce: 17 bytes.
+    // The widest 16-byte magnitude, which needs a leading sign-only byte: 17 bytes.
     #[case::max_u128_magnitude(
         Int::from(UInt::from(u128::MAX)),
         &[
@@ -227,7 +246,7 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         ]
     )]
-    // Just past the seam: a magnitude that exceeds `u128` and so takes the heap-allocating path.
+    // A 17-byte magnitude.
     #[case::two_pow_128(
         two_pow_128(),
         &[

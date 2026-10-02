@@ -534,8 +534,24 @@ mod tests {
             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
-    // `u128::MAX` is stored as a `BigInt`, but its magnitude fits in a `u128`, so it still takes
-    // the stack-only path. Sixteen magnitude bytes.
+    // 2^126: the smallest magnitude stored on the heap. Sixteen magnitude bytes.
+    #[case::two_pow_126(
+        Int::from(1u128 << 126),
+        &[
+            0x2E, 0x90,
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    #[case::negative_two_pow_126(
+        Int::from(1u128 << 126).neg(),
+        &[
+            0x3E, 0x90,
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    // `u128::MAX`: the largest sixteen-byte magnitude.
     #[case::max_u128_magnitude(
         Int::from(UInt::from(u128::MAX)),
         &[
@@ -544,7 +560,7 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         ]
     )]
-    // Just past the seam: a magnitude that exceeds `u128` and takes the cold `BigUint` path.
+    // 2^128: the smallest seventeen-byte magnitude.
     #[case::two_pow_128(
         two_pow_128(),
         &[

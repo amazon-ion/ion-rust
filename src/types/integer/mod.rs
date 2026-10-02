@@ -5,12 +5,12 @@ use crate::types::overflowing_int::{ByteOrder, Magnitude, OverflowingInt};
 use crate::{IonError, IonResult};
 use ice_code::ice as cold_path;
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem;
 
 /// Represents an unsigned integer of any size.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UInt {
     // Never negative: every constructor takes an unsigned magnitude.
     repr: OverflowingInt,
@@ -223,7 +223,7 @@ macro_rules! impl_small_unsigned_int_try_from_uint {
 
 impl_small_unsigned_int_try_from_uint!(u8, u16, u32, u64, u128, usize);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// A signed integer of arbitrary size.
 /// ```
 /// # use ion_rs::IonResult;
@@ -391,6 +391,12 @@ impl Display for UInt {
     }
 }
 
+impl Debug for UInt {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UInt({self})")
+    }
+}
+
 macro_rules! impl_int_from_int_types {
     ($wide:ty => $($t:ty),*) => ($(
         impl From<$t> for Int {
@@ -461,6 +467,12 @@ impl TryFrom<&OverflowingInt> for Int {
 impl Display for Int {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.repr)
+    }
+}
+
+impl Debug for Int {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Int({self})")
     }
 }
 
@@ -783,6 +795,16 @@ mod integer_tests {
     fn layout() {
         assert!(size_of::<Int>() <= 16 && align_of::<Int>() <= 8);
         assert!(size_of::<UInt>() <= 16 && align_of::<UInt>() <= 8);
+    }
+
+    #[test]
+    fn debug_prints_the_value() {
+        assert_eq!(format!("{:?}", Int::from(-42)), "Int(-42)");
+        assert_eq!(format!("{:?}", UInt::from(42u8)), "UInt(42)");
+        assert_eq!(
+            format!("{:?}", Int::from(u128::MAX)),
+            format!("Int({})", u128::MAX)
+        );
     }
 
     #[test]
