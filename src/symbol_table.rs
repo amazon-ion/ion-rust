@@ -1,10 +1,9 @@
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
-use std::sync::Arc;
 
 use hashbrown::HashTable;
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::FxHasher;
 
 use crate::constants::v1_0;
 use crate::lazy::any_encoding::IonVersion;
@@ -43,14 +42,13 @@ pub static SYSTEM_SYMBOLS_1_0: &SystemSymbolTable = &SystemSymbolTable {
     symbols_by_text: &v1_0::SYSTEM_SYMBOL_TEXT_TO_ID,
 };
 
-/// Stores mappings from Symbol IDs to text and vice-versa.
+/// Stores the mapping from Symbol IDs to text.
 // SymbolTable instances always have at least system symbols; they are never empty.
 #[allow(clippy::len_without_is_empty)]
 #[derive(Clone)]
 pub struct SymbolTable {
     ion_version: IonVersion,
     symbols_by_id: Vec<Symbol>,
-    ids_by_text: FxHashMap<Symbol, SymbolId>,
 }
 
 impl Default for SymbolTable {
@@ -71,7 +69,6 @@ impl SymbolTable {
         let mut symbol_table = SymbolTable {
             ion_version,
             symbols_by_id: Vec::with_capacity(Self::INITIAL_SYMBOLS_CAPACITY),
-            ids_by_text: FxHashMap::default(),
         };
         symbol_table.initialize_with_all_system_symbols();
         symbol_table
@@ -83,7 +80,6 @@ impl SymbolTable {
         let mut symbol_table = SymbolTable {
             ion_version,
             symbols_by_id: Vec::with_capacity(Self::INITIAL_SYMBOLS_CAPACITY),
-            ids_by_text: FxHashMap::default(),
         };
         symbol_table.initialize_with_prefix_system_symbols();
         symbol_table
@@ -98,24 +94,20 @@ impl SymbolTable {
 
     /// Adds **all** of the system symbols to the table, not just the permanent prefix symbols.
     pub(crate) fn initialize_with_all_system_symbols(&mut self) {
-        // TODO: Make thread local system symbol tables that are materialized (i.e. using Arc<str>)
-        //       so we can avoid doing new heap allocations each time
         self.add_placeholder(); // $0
 
         let system_symbols = match self.ion_version {
             IonVersion::v1_0 => v1_0::SYSTEM_SYMBOLS,
         };
 
-        system_symbols.iter().copied().for_each(|text| {
-            let _sid = self.add_symbol_for_text(text);
-        });
+        self.symbols_by_id
+            .extend(system_symbols.iter().copied().map(Symbol::static_text));
     }
 
     /// Sets the symbol table to the 'default' state used at the beginning of any stream of the
     /// current version, retaining the storage it has grown.
     pub(crate) fn reset_to_default(&mut self) {
         self.symbols_by_id.clear();
-        self.ids_by_text.clear();
         self.initialize_with_all_system_symbols()
     }
 
@@ -124,12 +116,9 @@ impl SymbolTable {
     pub(crate) fn reset_to_prefix_only(&mut self) {
         match self.ion_version {
             IonVersion::v1_0 => {
-                // Remove all symbols except for $0
+                // Remove all user symbols ($10+)
                 self.symbols_by_id
                     .truncate(Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_0);
-                // Remove any symbol text mappings that point to an address from userspace ($10+)
-                self.ids_by_text
-                    .retain(|_symbol, address| *address < Self::NUM_PREFIX_SYSTEM_SYMBOLS_1_0);
             }
         };
     }
@@ -139,17 +128,9 @@ impl SymbolTable {
         self.reset_to_default();
     }
 
-    /// adds `text` to the symbol table and returns the newly assigned [SymbolId].
-    pub(crate) fn add_symbol_for_text<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
-        let arc: Arc<str> = Arc::from(text.as_ref());
-        let symbol = Symbol::shared(arc);
-        self.add_symbol(symbol)
-    }
-
     pub(crate) fn add_symbol(&mut self, symbol: Symbol) -> SymbolId {
         let id = self.symbols_by_id.len();
-        self.symbols_by_id.push(symbol.clone());
-        self.ids_by_text.insert(symbol, id);
+        self.symbols_by_id.push(symbol);
         id
     }
 
@@ -161,9 +142,19 @@ impl SymbolTable {
         sid
     }
 
-    /// If defined, returns the Symbol ID associated with the provided text.
+    /// If defined, returns the Symbol ID associated with the provided text. If the text appears
+    /// more than once, returns the highest ID. User symbols with unknown text match `""`.
+    ///
+    /// This is a linear scan; readers resolve symbols by ID, not by text.
     pub fn sid_for<A: AsRef<str>>(&self, text: A) -> Option<SymbolId> {
-        self.ids_by_text.get(text.as_ref()).copied()
+        let text = text.as_ref();
+        self.symbols_by_id
+            .iter()
+            .enumerate()
+            .skip(1) // $0 is never resolved by text
+            .rev()
+            .find(|(_, symbol)| symbol.text().unwrap_or("") == text)
+            .map(|(sid, _)| sid)
     }
 
     /// If defined, returns the text associated with the provided Symbol ID.
@@ -467,6 +458,59 @@ impl Debug for SymbolTable {
             write!(f, "{}: {:?}, ", address, symbol.text())?;
         }
         write!(f, "}}")
+    }
+}
+
+#[cfg(test)]
+mod reader_symbol_table_tests {
+    use super::*;
+
+    #[test]
+    fn sid_for_returns_the_last_matching_sid() {
+        let mut table = SymbolTable::new(IonVersion::v1_0);
+        table.add_symbol(Symbol::owned("foo"));
+        table.add_symbol(Symbol::owned("name"));
+        table.add_symbol(Symbol::owned("foo"));
+
+        assert_eq!(table.sid_for("$ion"), Some(1));
+        assert_eq!(table.sid_for("name"), Some(11));
+        assert_eq!(table.sid_for("foo"), Some(12));
+        assert_eq!(table.sid_for("bar"), None);
+    }
+
+    #[test]
+    fn sid_for_empty_text_skips_sid_zero() {
+        let table = SymbolTable::new(IonVersion::v1_0);
+        assert_eq!(table.sid_for(""), None);
+    }
+
+    #[test]
+    fn sid_for_empty_text_matches_unknown_and_empty_symbols() {
+        let mut table = SymbolTable::new(IonVersion::v1_0);
+        table.add_symbol(Symbol::unknown_text());
+        assert_eq!(table.sid_for(""), Some(10));
+
+        table.add_symbol(Symbol::owned(""));
+        assert_eq!(table.sid_for(""), Some(11));
+
+        table.add_symbol(Symbol::unknown_text());
+        assert_eq!(table.sid_for(""), Some(12));
+    }
+
+    #[test]
+    fn reset_to_prefix_only_removes_user_symbols() {
+        let mut table = SymbolTable::new(IonVersion::v1_0);
+        table.add_symbol(Symbol::owned("foo"));
+        table.add_symbol(Symbol::owned("name"));
+
+        table.reset_to_prefix_only();
+        table.add_symbol(Symbol::owned("bar"));
+
+        assert_eq!(table.len(), 11);
+        assert_eq!(table.sid_for("foo"), None);
+        assert_eq!(table.sid_for("name"), Some(4));
+        assert_eq!(table.sid_for("bar"), Some(10));
+        assert_eq!(table.text_for(10), Some("bar"));
     }
 }
 
