@@ -111,6 +111,16 @@ impl Decimal {
         self.coefficient.is_zero()
     }
 
+    /// Returns `true` if this value is stored without a heap allocation.
+    ///
+    /// Coefficient magnitudes that fit in 126 bits are stored inline; larger magnitudes are
+    /// heap-allocated. This reflects the current in-memory representation, which may change.
+    #[cfg(feature = "experimental")]
+    #[inline]
+    pub fn is_inline(&self) -> bool {
+        self.coefficient.is_inline()
+    }
+
     /// Returns true if this Decimal's coefficient has a negative sign AND a magnitude greater than
     /// zero. Otherwise, returns false. (Negative zero returns false.)
     pub fn is_less_than_zero(&self) -> bool {
@@ -1040,5 +1050,20 @@ mod decimal_tests {
         // c = -2^128, d = -2^128 * 10, so c > d.
         assert_eq!(c.cmp(&d), Ordering::Greater);
         assert_eq!(d.cmp(&c), Ordering::Less);
+    }
+
+    #[cfg(feature = "experimental")]
+    #[rstest]
+    #[case::zero(Decimal::ZERO, true)]
+    #[case::negative_zero(Decimal::NEGATIVE_ZERO, true)]
+    #[case::small(Decimal::new(-123, -2), true)]
+    #[case::max_inline(Decimal::new((1u128 << 126) - 1, 5), true)]
+    #[case::smallest_heap(Decimal::new(1u128 << 126, 5), false)]
+    #[case::negative_smallest_heap(
+        Decimal::new(Coefficient::from_sign_and_value(Sign::Negative, 1u128 << 126), -5),
+        false
+    )]
+    fn decimal_is_inline(#[case] value: Decimal, #[case] expected: bool) {
+        assert_eq!(value.is_inline(), expected);
     }
 }

@@ -98,6 +98,16 @@ impl Coefficient {
         self.repr.is_zero()
     }
 
+    /// Returns `true` if this value is stored without a heap allocation.
+    ///
+    /// Magnitudes that fit in 126 bits are stored inline; larger magnitudes are heap-allocated.
+    /// This reflects the current in-memory representation, which may change.
+    #[cfg(feature = "experimental")]
+    #[inline]
+    pub fn is_inline(&self) -> bool {
+        self.repr.is_inline()
+    }
+
     /// Returns the coefficient as an `Int`, or `None` for negative zero.
     ///
     /// This is a **lossless** query, not a value query: an `Int` cannot represent negative zero,
@@ -331,5 +341,23 @@ mod coefficient_tests {
             format!("{c:?}"),
             "Coefficient(-340282366920938463463374607431768211456)"
         );
+    }
+
+    #[cfg(feature = "experimental")]
+    #[rstest::rstest]
+    #[case::zero(Coefficient::ZERO, true)]
+    #[case::negative_zero(Coefficient::NEGATIVE_ZERO, true)]
+    #[case::max_inline(Coefficient::new((1u128 << 126) - 1), true)]
+    #[case::negative_max_inline(
+        Coefficient::from_sign_and_value(Sign::Negative, (1u128 << 126) - 1),
+        true
+    )]
+    #[case::smallest_heap(Coefficient::new(1u128 << 126), false)]
+    #[case::negative_smallest_heap(
+        Coefficient::from_sign_and_value(Sign::Negative, 1u128 << 126),
+        false
+    )]
+    fn coefficient_is_inline(#[case] value: Coefficient, #[case] expected: bool) {
+        assert_eq!(value.is_inline(), expected);
     }
 }
