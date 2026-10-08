@@ -29,9 +29,12 @@
 //!    relies on drop glue and implements no `Drop` of its own, so there is
 //!    exactly one place that can free the heap allocation.
 //!
-//! The type is **immutable**: no `&mut self` method exists other than `Drop`,
-//! and no accessor lends out a `&mut` into the payload. That is what reduces the
-//! first two invariants to a construction-time obligation.
+//! The type is **immutable** apart from one in-place write: no `&mut self`
+//! method exists other than `Drop`, and no accessor lends out a `&mut` into the
+//! payload. The one write is [`OverflowingInt::with_sign`], which consumes
+//! `self` and rewrites only the sign bit of the offset-0 word, leaving the tag
+//! and magnitude untouched. That is what reduces the first two invariants to a
+//! construction-time obligation.
 //!
 //! Sign semantics follow the General Decimal Arithmetic Specification
 //! (<https://speleotrove.com/decimal/decarith.html>) reduced to an integer with
@@ -130,10 +133,11 @@ const _: () = assert!(std::mem::offset_of!(HeapValue, meta) == 0);
 impl HeapValue {
     /// Builds a heap payload with the tag clear (bit 63 == 0) and the sign in
     /// bit 62 — the same encoding as the inline word. This is the only place that
-    /// *computes* `meta` from a `Sign` (`Clone` copies an already-valid `meta`):
-    /// because the tag and sign are now adjacent, a stray shift here would make a
-    /// heap value read as inline (`is_inline` true), which is UB rather than a
-    /// wrong answer, so the invariant is checked on every construction.
+    /// *builds* `meta` from a `Sign` (`Clone` copies an already-valid `meta`, and
+    /// `with_sign` rewrites only bit 62 of an existing one): because the tag and
+    /// sign are now adjacent, a stray shift here would make a heap value read as
+    /// inline (`is_inline` true), which is UB rather than a wrong answer, so the
+    /// invariant is checked on every construction.
     #[inline]
     fn new(sign: Sign, value: Box<BigUint>) -> Self {
         let meta = sign_bit(sign) << SIGN_BIT;
