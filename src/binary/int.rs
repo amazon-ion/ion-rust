@@ -1,6 +1,9 @@
+use crate::binary::uint::minimal_be_bytes;
 use crate::decimal::Coefficient;
 use crate::result::IonResult;
+use crate::types::overflowing_int::Magnitude;
 use crate::Int;
+use ice_code::ice as cold_path;
 use std::io::Write;
 
 const INT_NEGATIVE_ZERO: u8 = 0x80;
@@ -32,8 +35,16 @@ impl DecodedInt {
     /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     pub fn write<W: Write>(sink: &mut W, value: &Int) -> IonResult<usize> {
-        let mut be = value.as_overflowing_int().magnitude_be_bytes();
-        Self::write_sign_and_magnitude(sink, &mut be, value.is_negative())
+        match value.as_overflowing_int().magnitude_ref() {
+            Magnitude::Small(small) => {
+                let (mut be, start) = minimal_be_bytes(small);
+                Self::write_sign_and_magnitude(sink, &mut be[start..], value.is_negative())
+            }
+            Magnitude::Big(big) => cold_path! {{
+                let mut be = big.to_bytes_be();
+                Self::write_sign_and_magnitude(sink, &mut be, value.is_negative())
+            }},
+        }
     }
 
     /// Writes the sign bit followed by the minimal big-endian magnitude in `be` to `sink`,
@@ -44,8 +55,8 @@ impl DecodedInt {
     /// mutably so the sign bit can be set in place, avoiding a second write in the common case.
     ///
     /// `be` must be non-empty: it holds the minimal big-endian magnitude, which is at least one
-    /// byte (zero encodes as `[0x00]`). Callers derive `be` from `OverflowingInt::magnitude_be_bytes`,
-    /// which guarantees this.
+    /// byte (zero encodes as `[0x00]`). [`minimal_be_bytes`] guarantees this, and a heap magnitude
+    /// is never zero.
     fn write_sign_and_magnitude<W: Write>(
         sink: &mut W,
         be: &mut [u8],

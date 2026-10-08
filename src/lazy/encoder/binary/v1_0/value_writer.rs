@@ -7,7 +7,7 @@ use ice_code::ice as cold_path;
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
 use crate::binary::uint;
-use crate::binary::uint::DecodedUInt;
+use crate::binary::uint::{minimal_be_bytes, DecodedUInt};
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_0::container_writers::{
@@ -18,6 +18,7 @@ use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
+use crate::types::overflowing_int::Magnitude;
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
@@ -133,8 +134,16 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
 
     pub fn write_int(mut self, value: &Int) -> IonResult<()> {
         let type_descriptor: u8 = if value.is_negative() { 0x30 } else { 0x20 };
-        let magnitude = value.as_overflowing_int().magnitude_be_bytes();
-        self.write_int_header_and_bytes(type_descriptor, &magnitude)
+        match value.as_overflowing_int().magnitude_ref() {
+            Magnitude::Small(small) => {
+                let (be, start) = minimal_be_bytes(small);
+                self.write_int_header_and_bytes(type_descriptor, &be[start..])
+            }
+            Magnitude::Big(big) => cold_path! {{
+                let be = big.to_bytes_be();
+                self.write_int_header_and_bytes(type_descriptor, &be)
+            }},
+        }
     }
 
     #[inline]

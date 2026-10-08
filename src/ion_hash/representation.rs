@@ -8,9 +8,11 @@
 
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
+use crate::binary::uint::minimal_be_bytes;
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::result::IonResult;
+use crate::types::overflowing_int::Magnitude;
 use crate::{Decimal, Int, IonType, Struct, Symbol, Timestamp};
 use crate::{Element, Sequence};
 use digest::{FixedOutput, Output, Reset, Update};
@@ -53,8 +55,13 @@ where
     fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()> {
         if let Some(int) = value {
             if !int.is_zero() {
-                let magnitude = int.as_overflowing_int().magnitude_be_bytes();
-                self.update_escaping(&magnitude);
+                match int.as_overflowing_int().magnitude_ref() {
+                    Magnitude::Small(small) => {
+                        let (be, start) = minimal_be_bytes(small);
+                        self.update_escaping(&be[start..]);
+                    }
+                    Magnitude::Big(big) => self.update_escaping(big.to_bytes_be()),
+                }
             }
         }
 

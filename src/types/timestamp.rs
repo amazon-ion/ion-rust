@@ -2038,8 +2038,9 @@ mod timestamp_tests {
             .build()?;
         assert_eq!(timestamp_3.nanoseconds(), 0);
 
-        // Big fractional coefficient (>18 digits) is rejected
-        let big_coefficient = Int::from(u128::MAX);
+        // Big fractional coefficient (>18 digits) is rejected. 2^129 is wider than `u128`, so this
+        // also reaches the saturating fallback.
+        let big_coefficient = Int::from_le_signed_bytes(&[&[0u8; 16][..], &[0x02]].concat());
         let result = Timestamp::with_ymd(2023, 1, 1)
             .with_hour_and_minute(0, 0)
             .with_second(0)
