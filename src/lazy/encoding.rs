@@ -1,14 +1,20 @@
 #![allow(non_camel_case_types)]
 
 use crate::lazy::any_encoding::{IonEncoding, IonVersion, LazyRawAnyValue};
+use crate::lazy::binary::binary_buffer::BinaryBuffer;
+use crate::lazy::binary::encoded_value::EncodedBinaryValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
 use crate::lazy::binary::raw::r#struct::{LazyRawBinaryFieldName_1_0, LazyRawBinaryStruct_1_0};
 use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
 use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0};
+use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
-use crate::lazy::decoder::Decoder;
+use crate::lazy::decoder::private::DetachableValue;
+use crate::lazy::decoder::{Decoder, LazyRawValue};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::Encoder;
+use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::span::Span;
 use crate::lazy::text::buffer::{whitespace_and_then, IonParser, TextBuffer};
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::MatchedValue;
@@ -26,10 +32,12 @@ use crate::lazy::text::value::{
 
 use crate::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, HasRange, IonError, IonResult,
-    LazyRawFieldExpr, SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
+    IonType, LazyRawFieldExpr, SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
 };
 use std::fmt::Debug;
 use std::io;
+use std::mem;
+use std::ops::Range;
 use winnow::combinator::{opt, separated_pair};
 use winnow::Parser;
 
@@ -274,7 +282,7 @@ impl TextEncoding for TextEncoding_1_0 {
     fn new_value<'a>(
         input: TextBuffer<'a>,
         encoded_text_value: EncodedTextValue<'a, Self>,
-    ) -> Self::Value<'a> {
+    ) -> <Self as Decoder>::Value<'a> {
         LazyRawTextValue_1_0::new(encoded_text_value, input)
     }
 
@@ -308,6 +316,51 @@ impl Decoder for BinaryEncoding_1_0 {
     type VersionMarker<'top> = LazyRawBinaryVersionMarker_1_0<'top>;
 }
 
+impl DetachableValue for BinaryEncoding_1_0 {
+    // A binary value is `EncodedBinaryValue<Header>`--pure offsets and metadata--plus a
+    // `BinaryBuffer<'top>`. Only the buffer is borrowed, and it can be rebuilt from bytes the caller
+    // owns, so detaching needs no lifetime erasure.
+    type DetachedValue = EncodedBinaryValue<Header>;
+
+    fn detach_value(value: <Self as Decoder>::Value<'_>, _span: Span<'_>) -> Self::DetachedValue {
+        // `EncodedBinaryValue` is `Copy` and holds no references; reattaching re-finds `_span`'s
+        // bytes from the offsets it carries.
+        value.encoded_value
+    }
+
+    fn detached_range(detached: &Self::DetachedValue) -> Range<usize> {
+        // The same range that `HasRange for &LazyRawBinaryValue_1_0` reports.
+        detached.annotated_value_range()
+    }
+
+    // The same fields `LazyRawValue for &LazyRawBinaryValue_1_0` reads, without rebuilding it.
+
+    fn detached_ion_type(detached: &Self::DetachedValue) -> IonType {
+        detached.ion_type()
+    }
+
+    fn detached_is_null(detached: &Self::DetachedValue) -> bool {
+        detached.header().is_null()
+    }
+
+    fn detached_has_annotations(detached: &Self::DetachedValue) -> bool {
+        detached.has_annotations()
+    }
+
+    fn reattach_value<'a>(
+        detached: &'a Self::DetachedValue,
+        context: EncodingContextRef<'a>,
+        span: Span<'a>,
+    ) -> <Self as Decoder>::Value<'a> {
+        // `detached`'s offsets are stream-relative, so the buffer must know its own position.
+        let input = BinaryBuffer::new_with_offset(context, span.bytes(), span.offset());
+        context.allocator().alloc_with(|| LazyRawBinaryValue_1_0 {
+            encoded_value: *detached,
+            input,
+        })
+    }
+}
+
 impl Decoder for TextEncoding_1_0 {
     const INITIAL_ENCODING_EXPECTED: IonEncoding = IonEncoding::Text_1_0;
     type Reader<'data> = LazyRawTextReader_1_0<'data>;
@@ -319,6 +372,114 @@ impl Decoder for TextEncoding_1_0 {
     type FieldName<'top> = LazyRawTextFieldName<'top, Self>;
     type AnnotationsIterator<'top> = RawTextAnnotationsIterator<'top>;
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_0<'top>;
+}
+
+impl TextEncoding_1_0 {
+    /// Re-points `value` at `span`'s bytes--which must hold the same bytes, at the same stream
+    /// offset, as `value`'s own span, but read from storage that outlives the reader--and erases the
+    /// result's lifetime.
+    ///
+    /// # Safety
+    ///
+    /// The `'static` lifetime on the returned value is a lie. The caller must keep `span`'s storage
+    /// alive for as long as the returned value is used, must not expose the `'static` lifetime
+    /// (shorten it again with
+    /// [`reattach_value_unchecked`](Self::reattach_value_unchecked) before handing the value out),
+    /// and must keep alive everything else the value borrows.
+    ///
+    /// That last requirement cannot be met today: the returned value retains an
+    /// `EncodingContextRef` borrowed from the reader. See the `XXX` note on
+    /// `impl DetachableValue for TextEncoding_1_0` below.
+    unsafe fn detach_value_unchecked(
+        value: LazyRawTextValue_1_0<'_>,
+        span: Span<'_>,
+    ) -> LazyRawTextValue_1_0<'static> {
+        // SAFETY: The caller has promised that `span`'s bytes outlive the reader; this widens that
+        //         to `'static`.
+        let bytes: &'static [u8] = unsafe { mem::transmute::<&[u8], &'static [u8]>(span.bytes()) };
+        // Re-point the value at `bytes` (which outlive the reader), reusing its `encoded_value`
+        // as-is. `span` must hold the same bytes at the same offset as the value's own span, or the
+        // reused `encoded_value` would silently decode the wrong bytes.
+        let relocated = LazyRawTextValue {
+            input: TextBuffer::from_span(
+                value.input.context(),
+                Span::with_offset(span.offset(), bytes),
+                true,
+            ),
+            ..value
+        };
+        // SAFETY: Per this method's contract, which the caller has accepted.
+        unsafe {
+            mem::transmute::<LazyRawTextValue_1_0<'_>, LazyRawTextValue_1_0<'static>>(relocated)
+        }
+    }
+
+    /// Shortens a detached value's `'static` lifetime to `'a`.
+    ///
+    /// # Safety
+    ///
+    /// `LazyRawTextValue_1_0` is immutable, so handing out a shorter lifetime would be sound on its
+    /// own--a plain coercion would do if the type were not lifetime-invariant. What is not sound is
+    /// that the value's contents may already be dangling; the caller must guarantee that everything
+    /// [`detach_value_unchecked`](Self::detach_value_unchecked) required to stay alive is still
+    /// alive.
+    unsafe fn reattach_value_unchecked<'a>(
+        detached: LazyRawTextValue_1_0<'static>,
+    ) -> LazyRawTextValue_1_0<'a> {
+        // SAFETY: Per this method's contract, which the caller has accepted.
+        unsafe {
+            mem::transmute::<LazyRawTextValue_1_0<'static>, LazyRawTextValue_1_0<'a>>(detached)
+        }
+    }
+}
+
+// A text value cannot be stored without a lifetime--`EncodedTextValue<'top>` is lifetime-invariant
+// and its container variants borrow the arena--so text keeps the historical approach of erasing it.
+//
+// XXX: That erasure is unsound. The detached value holds an `EncodingContextRef` (and a byte slice)
+//      borrowed from the reader and transmuted to `'static`; once the reader is dropped or advanced,
+//      that borrow dangles. This is a genuine use-after-free, not merely a Stacked/Tree Borrows
+//      model violation--base Miri flags it--and it survives in practice only because the freed
+//      storage still happens to hold the old bytes. Confining it here leaves the binary encoding
+//      sound; fixing text needs a lifetime-free `EncodedTextValue`, which is a larger change.
+impl DetachableValue for TextEncoding_1_0 {
+    type DetachedValue = LazyRawTextValue_1_0<'static>;
+
+    fn detach_value(value: <Self as Decoder>::Value<'_>, span: Span<'_>) -> Self::DetachedValue {
+        // SAFETY: `span` is the caller-owned copy of this value's bytes, as this method's contract
+        //         requires. The remaining requirements cannot be met; see the `XXX` note above.
+        unsafe { Self::detach_value_unchecked(value, span) }
+    }
+
+    fn detached_range(detached: &Self::DetachedValue) -> Range<usize> {
+        // The input buffer spans exactly the (possibly annotated) value.
+        detached.range()
+    }
+
+    // These read the detached value's inline `EncodedTextValue`, dereferencing none of its
+    // possibly-dangling references, so they add no exposure beyond the `XXX` note above.
+
+    fn detached_ion_type(detached: &Self::DetachedValue) -> IonType {
+        LazyRawValue::ion_type(detached)
+    }
+
+    fn detached_is_null(detached: &Self::DetachedValue) -> bool {
+        LazyRawValue::is_null(detached)
+    }
+
+    fn detached_has_annotations(detached: &Self::DetachedValue) -> bool {
+        detached.has_annotations() // Inherent impl; identical to the `LazyRawValue` method.
+    }
+
+    fn reattach_value<'a>(
+        detached: &'a Self::DetachedValue,
+        _context: EncodingContextRef<'a>,
+        _span: Span<'a>,
+    ) -> <Self as Decoder>::Value<'a> {
+        // SAFETY: See the `XXX` note above; the requirement that the detached value not already be
+        //         dangling cannot be met.
+        unsafe { Self::reattach_value_unchecked(*detached) }
+    }
 }
 
 /// Marker trait for types that represent value literals in an Ion stream of some encoding.
