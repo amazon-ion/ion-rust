@@ -247,7 +247,7 @@ impl OverflowingInt {
     }
 
     #[inline]
-    fn is_inline(&self) -> bool {
+    pub(crate) fn is_inline(&self) -> bool {
         (self.raw0() >> TAG_BIT) & 1 == 1
     }
 

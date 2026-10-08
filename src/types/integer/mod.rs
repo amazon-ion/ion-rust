@@ -106,6 +106,16 @@ impl UInt {
     pub fn is_zero(&self) -> bool {
         self.data.is_zero()
     }
+
+    /// Returns `true` if this value is stored without a heap allocation.
+    ///
+    /// Magnitudes that fit in 126 bits are stored inline; larger magnitudes are heap-allocated.
+    /// This reflects the current in-memory representation, which may change.
+    #[cfg(feature = "experimental")]
+    #[inline]
+    pub fn is_inline(&self) -> bool {
+        self.data.is_inline()
+    }
 }
 
 // This macro makes it possible to turn unsigned int primitives into a UInteger using `.into()`.
@@ -381,6 +391,16 @@ impl Int {
     /// Returns `true` if this value is zero.
     pub fn is_zero(&self) -> bool {
         self.data.is_zero()
+    }
+
+    /// Returns `true` if this value is stored without a heap allocation.
+    ///
+    /// Magnitudes that fit in 126 bits are stored inline; larger magnitudes are heap-allocated.
+    /// This reflects the current in-memory representation, which may change.
+    #[cfg(feature = "experimental")]
+    #[inline]
+    pub fn is_inline(&self) -> bool {
+        self.data.is_inline()
     }
 
     /// Returns the negation of this value.
@@ -1064,5 +1084,29 @@ mod integer_tests {
         assert!(!int.is_negative());
         assert_eq!(UInt::try_from(int), Ok(uint));
         assert!(UInt::try_from(Int::from(-1)).is_err());
+    }
+
+    #[cfg(feature = "experimental")]
+    #[rstest]
+    #[case::zero(Int::ZERO, true)]
+    #[case::max_inline(Int::from((1i128 << 126) - 1), true)]
+    #[case::min_inline(Int::from(-((1i128 << 126) - 1)), true)]
+    #[case::smallest_heap(Int::from(1i128 << 126), false)]
+    #[case::negative_smallest_heap(Int::from(-(1i128 << 126)), false)]
+    #[case::i128_min(Int::from(i128::MIN), false)]
+    #[case::beyond_u128(Int::from(UInt::from_le_bytes(&[0xFF; 17])), false)]
+    fn int_is_inline(#[case] value: Int, #[case] expected: bool) {
+        assert_eq!(value.is_inline(), expected);
+    }
+
+    #[cfg(feature = "experimental")]
+    #[rstest]
+    #[case::zero(UInt::ZERO, true)]
+    #[case::max_inline(UInt::from((1u128 << 126) - 1), true)]
+    #[case::smallest_heap(UInt::from(1u128 << 126), false)]
+    #[case::u128_max(UInt::from(u128::MAX), false)]
+    #[case::beyond_u128(UInt::from_le_bytes(&[0xFF; 17]), false)]
+    fn uint_is_inline(#[case] value: UInt, #[case] expected: bool) {
+        assert_eq!(value.is_inline(), expected);
     }
 }
