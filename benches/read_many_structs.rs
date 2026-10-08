@@ -75,9 +75,10 @@ mod benchmark {
         println!("Bin  Ion 1.0 data size: {} bytes", binary_1_0_data.len());
 
         // Before benchmarking, confirm that the generated stream can be read back in full.
-        let _seq_1_0 = Reader::new(v1_0::Text, text_1_0_data.as_slice())
+        let seq_1_0 = Reader::new(v1_0::Text, text_1_0_data.as_slice())
             .unwrap()
             .read_all_elements()?;
+        assert_eq!(seq_1_0.len(), num_values);
 
         let mut text_1_0_group = c.benchmark_group("text 1.0");
         // Visit each top level value in the stream without reading it.
@@ -114,6 +115,60 @@ mod benchmark {
             })
         });
         text_1_0_group.finish();
+
+        let mut whitespace_group = c.benchmark_group("text 1.0 whitespace");
+        // Pretty and commented records also exercise quoted field-name dispatch.
+        for (name, data, values_per_record) in [
+            ("pretty records", pretty_data_1_0.clone(), 13),
+            (
+                "commented records",
+                pretty_data_1_0.replace('\n', "\n/* field */"),
+                13,
+            ),
+            (
+                "line-commented records",
+                pretty_data_1_0.replace('\n', "\n// field\n"),
+                13,
+            ),
+            (
+                "compact unquoted records",
+                "{foo:1,bar:2,baz:3}".repeat(num_values),
+                4,
+            ),
+            (
+                "compact quoted records",
+                "{'foo':1,'bar':2,'baz':3}".repeat(num_values),
+                4,
+            ),
+            ("compact lists", "[1,2,3]".repeat(num_values), 4),
+            ("spaced lists", "[ 1, 2, 3 ] ".repeat(num_values), 4),
+        ] {
+            let mut reader = Reader::new(v1_0::Text, data.as_bytes())?;
+            let mut top_level_count = 0;
+            let mut total_count = 0;
+            while let Some(item) = reader.next()? {
+                top_level_count += 1;
+                total_count += count_value_and_children(&item)?;
+            }
+            assert_eq!(top_level_count, num_values, "{name}: top-level values");
+            assert_eq!(
+                total_count,
+                num_values * values_per_record,
+                "{name}: all values"
+            );
+
+            whitespace_group.bench_function(name, |b| {
+                b.iter(|| {
+                    let mut reader = Reader::new(v1_0::Text, data.as_bytes()).unwrap();
+                    let mut num_values = 0usize;
+                    while let Some(item) = reader.next().unwrap() {
+                        num_values += count_value_and_children(&item).unwrap();
+                    }
+                    black_box(num_values);
+                })
+            });
+        }
+        whitespace_group.finish();
 
         let mut binary_1_0_group = c.benchmark_group("binary 1.0");
         binary_1_0_group.bench_function("scan all", |b| {
