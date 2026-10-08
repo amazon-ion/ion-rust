@@ -7,7 +7,7 @@ use ice_code::ice as cold_path;
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
 use crate::binary::uint;
-use crate::binary::uint::DecodedUInt;
+use crate::binary::uint::{minimal_be_bytes, DecodedUInt};
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_0::container_writers::{
@@ -18,7 +18,7 @@ use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
-use crate::types::integer::{AsBigOrSmallValue, UIntData};
+use crate::types::overflowing_int::Magnitude;
 use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
@@ -133,19 +133,16 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     }
 
     pub fn write_int(mut self, value: &Int) -> IonResult<()> {
-        let magnitude = value.unsigned_abs().data;
         let type_descriptor: u8 = if value.is_negative() { 0x30 } else { 0x20 };
-        if let Some(mag) = magnitude.as_small_value() {
-            // Common case: the magnitude is stored inline, so it can be encoded on the stack with
-            // no heap allocation.
-            let (be, start) = UIntData::small_to_be_bytes(mag);
-            self.write_int_header_and_bytes(type_descriptor, &be[start..])
-        } else {
-            // Cold path: a BigUint magnitude, which has to be heap-allocated to be encoded.
-            cold_path! {{
-                let bytes_to_write = magnitude.to_be_bytes();
-                self.write_int_header_and_bytes(type_descriptor, &bytes_to_write)
-            }}
+        match value.as_overflowing_int().magnitude_ref() {
+            Magnitude::Small(small) => {
+                let (be, start) = minimal_be_bytes(small);
+                self.write_int_header_and_bytes(type_descriptor, &be[start..])
+            }
+            Magnitude::Big(big) => cold_path! {{
+                let be = big.to_bytes_be();
+                self.write_int_header_and_bytes(type_descriptor, &be)
+            }},
         }
     }
 
@@ -546,8 +543,24 @@ mod tests {
             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
-    // `u128::MAX` is stored as a `BigInt`, but its magnitude fits in a `u128`, so it still takes
-    // the stack-only path. Sixteen magnitude bytes.
+    // 2^126: the smallest magnitude stored on the heap. Sixteen magnitude bytes.
+    #[case::two_pow_126(
+        Int::from(1u128 << 126),
+        &[
+            0x2E, 0x90,
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    #[case::negative_two_pow_126(
+        Int::from(1u128 << 126).neg(),
+        &[
+            0x3E, 0x90,
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    // `u128::MAX`: the largest sixteen-byte magnitude.
     #[case::max_u128_magnitude(
         Int::from(UInt::from(u128::MAX)),
         &[
@@ -556,7 +569,7 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         ]
     )]
-    // Just past the seam: a magnitude that exceeds `u128` and takes the cold `BigUint` path.
+    // 2^128: the smallest seventeen-byte magnitude.
     #[case::two_pow_128(
         two_pow_128(),
         &[

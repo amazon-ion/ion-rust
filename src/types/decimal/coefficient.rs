@@ -105,7 +105,7 @@ impl Coefficient {
     /// `None` case to emit the negative-zero coefficient subfield, so this contract is
     /// load-bearing on the write path.
     pub(crate) fn as_int(&self) -> Option<Int> {
-        Int::try_from(&self.repr).ok()
+        Int::try_from(self.repr.clone()).ok()
     }
 
     /// Splits the coefficient at `10^k`, returning `(quotient, remainder)`.

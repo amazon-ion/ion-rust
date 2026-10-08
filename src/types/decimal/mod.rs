@@ -481,7 +481,10 @@ mod bigdecimal {
         /// converted is a special value (negative zero) or has a magnitude no representable as u128.
         fn try_into(self) -> Result<BigDecimal, Self::Error> {
             match self.coefficient().as_int() {
-                Some(coefficient) => Ok(BigDecimal::new(coefficient.to_bigint(), self.scale())),
+                Some(coefficient) => Ok(BigDecimal::new(
+                    coefficient.as_overflowing_int().to_bigint(),
+                    self.scale(),
+                )),
                 None => IonResult::illegal_operation("Cannot convert negative zero to BigDecimal."),
             }
         }

@@ -29,9 +29,12 @@
 //!    relies on drop glue and implements no `Drop` of its own, so there is
 //!    exactly one place that can free the heap allocation.
 //!
-//! The type is **immutable**: no `&mut self` method exists other than `Drop`,
-//! and no accessor lends out a `&mut` into the payload. That is what reduces the
-//! first two invariants to a construction-time obligation.
+//! The type is **immutable** apart from one in-place write: no `&mut self`
+//! method exists other than `Drop`, and no accessor lends out a `&mut` into the
+//! payload. The one write is [`OverflowingInt::with_sign`], which consumes
+//! `self` and rewrites only the sign bit of the offset-0 word, leaving the tag
+//! and magnitude untouched. That is what reduces the first two invariants to a
+//! construction-time obligation.
 //!
 //! Sign semantics follow the General Decimal Arithmetic Specification
 //! (<https://speleotrove.com/decimal/decarith.html>) reduced to an integer with
@@ -39,17 +42,11 @@
 //! faithfully and never normalized away; deciding whether `-0` is *meaningful*
 //! belongs to the wrapper.
 
-// This type has no non-test consumer yet; the numeric wrapper types built on it
-// are added separately. `pub(crate)` items reachable only from tests still trip
-// `dead_code`, so the module carries a blanket allow until those consumers land,
-// at which point it is narrowed to per-item allows.
-#![allow(dead_code)]
-
 use crate::types::decimal::Sign;
 use ice_code::ice as cold_path;
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
-use num_traits::{Pow, ToPrimitive};
+use num_traits::{Num, Pow, ToPrimitive};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -136,10 +133,11 @@ const _: () = assert!(std::mem::offset_of!(HeapValue, meta) == 0);
 impl HeapValue {
     /// Builds a heap payload with the tag clear (bit 63 == 0) and the sign in
     /// bit 62 — the same encoding as the inline word. This is the only place that
-    /// *computes* `meta` from a `Sign` (`Clone` copies an already-valid `meta`):
-    /// because the tag and sign are now adjacent, a stray shift here would make a
-    /// heap value read as inline (`is_inline` true), which is UB rather than a
-    /// wrong answer, so the invariant is checked on every construction.
+    /// *builds* `meta` from a `Sign` (`Clone` copies an already-valid `meta`, and
+    /// `with_sign` rewrites only bit 62 of an existing one): because the tag and
+    /// sign are now adjacent, a stray shift here would make a heap value read as
+    /// inline (`is_inline` true), which is UB rather than a wrong answer, so the
+    /// invariant is checked on every construction.
     #[inline]
     fn new(sign: Sign, value: Box<BigUint>) -> Self {
         let meta = sign_bit(sign) << SIGN_BIT;
@@ -173,7 +171,7 @@ impl OverflowingInt {
         words: [1 << TAG_BIT, 0],
     };
 
-    /// Negative zero. Meaningful to `Coefficient`; forbidden by `IntData`.
+    /// Negative zero. Meaningful to `Coefficient`; forbidden by `Int`.
     // Inline: tag = 1 (bit 63), sign = negative (bit 62 = 1), magnitude = 0.
     pub(crate) const NEGATIVE_ZERO: Self = Self {
         words: [(1 << TAG_BIT) | (1 << SIGN_BIT), 0],
@@ -224,24 +222,16 @@ impl OverflowingInt {
         }}
     }
 
-    /// Returns a copy of `self` with the given sign, preserving the
-    /// representation and never normalizing a zero. This is the one operation
-    /// that *sets* a sign rather than deriving one from a magnitude; the wrapper
-    /// that must not produce `-0` guards zero at its own call site.
-    pub(crate) fn with_sign(&self, sign: Sign) -> Self {
-        if self.is_inline() {
-            // SAFETY: the inline variant is active (tag bit == 1).
-            let magnitude = unsafe { self.inline_magnitude() };
-            Self::from_inline(sign, magnitude)
-        } else {
-            cold_path! {{
-                // SAFETY: the heap variant is active (tag bit == 0).
-                let heap = unsafe { self.heap_ref() };
-                Self {
-                    heap: ManuallyDrop::new(HeapValue::new(sign, heap.value.clone())),
-                }
-            }}
-        }
+    /// Returns `self` with the given sign, preserving the representation and
+    /// never normalizing a zero. This is the one operation that *sets* a sign
+    /// rather than deriving one from a magnitude; the wrapper that must not
+    /// produce `-0` guards zero at its own call site.
+    pub(crate) fn with_sign(mut self, sign: Sign) -> Self {
+        // The sign is bit 62 of the offset-0 word in both variants, so only that
+        // bit changes. The tag and the magnitude are untouched, so the value stays
+        // canonical, and a heap value keeps its `Box` without cloning it.
+        self.tag = (self.raw0() & !(1 << SIGN_BIT)) | (sign_bit(sign) << SIGN_BIT);
+        self
     }
 
     // ===== Raw layout access =====
@@ -352,8 +342,7 @@ impl OverflowingInt {
     }
 
     /// The bit width of the magnitude (`0` for zero). Allocation-free on both
-    /// arms, which is what lets the scaling guards and byte-length calculations
-    /// avoid a conversion.
+    /// arms, which is what lets the scaling guards avoid a conversion.
     pub(crate) fn bits(&self) -> u64 {
         if self.is_inline() {
             // SAFETY: the inline variant is active.
@@ -383,13 +372,13 @@ impl OverflowingInt {
 
     /// The absolute value: `+0` for either zero (decArith `abs`).
     pub(crate) fn abs(&self) -> Self {
-        self.with_sign(Sign::Positive)
+        self.clone().with_sign(Sign::Positive)
     }
 
     /// Unary negation, defined by decArith as `subtract('0', x)`: negating
     /// **either** zero yields `+0`, and negating a non-zero value flips the sign.
     /// This is **not** a bare sign flip.
-    pub(crate) fn minus(&self) -> Self {
+    pub(crate) fn negate(self) -> Self {
         if self.is_zero() {
             self.with_sign(Sign::Positive)
         } else {
@@ -401,37 +390,76 @@ impl OverflowingInt {
         }
     }
 
-    // ===== Scaling by a power of ten =====
+    // ===== Bytes and text =====
 
-    /// `self * 10^k`, preserving `self`'s sign. A zero receiver scales to zero
-    /// (keeping its sign) without materializing `10^k`. A non-zero product
-    /// promotes to the heap when it exceeds `u128` rather than panicking or
-    /// wrapping.
-    ///
-    /// **Unlike [`Self::div_rem_pow10`] and [`Self::cmp_magnitude_scaled`], this
-    /// is NOT hostile-`k`-safe.** A multiply's result genuinely has `~k` decimal
-    /// digits, so there is nothing to short-circuit: a large `k` materializes a
-    /// proportionally large `10^k`. The caller MUST bound `k` (e.g. by a decimal
-    /// exponent range). The consuming wrappers do — they reach a power of ten
-    /// only through the two guarded operations above, never through an untrusted
-    /// exponent here.
-    pub(crate) fn mul_pow10(&self, k: u64) -> Self {
-        if self.is_zero() {
-            // Zero magnitude: `0 * 10^k == 0`. Keep the sign and representation.
-            return self.clone();
+    /// Decodes a little-endian unsigned magnitude. Trailing zero bytes don't affect the result,
+    /// and an empty slice is zero.
+    pub(crate) fn from_unsigned_le_bytes(bytes: &[u8]) -> Self {
+        const WIDTH: usize = size_of::<u128>();
+        if bytes.len() <= WIDTH {
+            let mut buf = [0u8; WIDTH];
+            buf[..bytes.len()].copy_from_slice(bytes);
+            Self::from(u128::from_le_bytes(buf))
+        } else {
+            cold_path! { Self::from(BigUint::from_bytes_le(bytes)) }
         }
-        let sign = self.sign();
-        if let Magnitude::Small(magnitude) = self.magnitude_ref() {
-            // Fast path: stay in `u128` when `10^k` and the product both fit.
-            if let Some(product) = pow10_u128(k).and_then(|p| magnitude.checked_mul(p)) {
-                return Self::from_sign_and_magnitude(sign, product);
-            }
-        }
-        cold_path! {{
-            let scaled = self.magnitude_as_big() * pow10_big(k);
-            Self::from_sign_and_big_magnitude(sign, scaled)
-        }}
     }
+
+    /// Decodes a big-endian unsigned magnitude. Leading zero bytes don't affect the result, and
+    /// an empty slice is zero.
+    pub(crate) fn from_unsigned_be_bytes(bytes: &[u8]) -> Self {
+        const WIDTH: usize = size_of::<u128>();
+        if bytes.len() <= WIDTH {
+            let mut buf = [0u8; WIDTH];
+            buf[WIDTH - bytes.len()..].copy_from_slice(bytes);
+            Self::from(u128::from_be_bytes(buf))
+        } else {
+            cold_path! { Self::from(BigUint::from_bytes_be(bytes)) }
+        }
+    }
+
+    /// Decodes a little-endian two's-complement value. An empty slice is zero.
+    pub(crate) fn from_le_signed_bytes(bytes: &[u8]) -> Self {
+        const WIDTH: usize = size_of::<i128>();
+        if bytes.len() <= WIDTH {
+            let pad = if bytes.last().is_some_and(|&b| b & 0x80 != 0) {
+                0xFF
+            } else {
+                0x00
+            };
+            let mut buf = [pad; WIDTH];
+            buf[..bytes.len()].copy_from_slice(bytes);
+            Self::from(i128::from_le_bytes(buf))
+        } else {
+            cold_path! { Self::from(BigInt::from_signed_bytes_le(bytes)) }
+        }
+    }
+
+    /// The value as a `BigInt`. Allocates.
+    pub(crate) fn to_bigint(&self) -> BigInt {
+        let sign = match self.sign() {
+            Sign::Positive => num_bigint::Sign::Plus,
+            Sign::Negative => num_bigint::Sign::Minus,
+        };
+        // `from_biguint` turns a zero magnitude into `NoSign`, so `-0` becomes `0`.
+        BigInt::from_biguint(sign, self.magnitude_as_big())
+    }
+
+    /// Parses an unsigned magnitude written in `radix`. Returns `None` if `src` isn't a valid
+    /// unsigned number in that radix.
+    pub(crate) fn from_str_radix(src: &str, radix: u32) -> Option<Self> {
+        use std::num::IntErrorKind;
+        match u128::from_str_radix(src, radix) {
+            // `From<u128>` moves magnitudes of 2^126 and above to the heap.
+            Ok(magnitude) => Some(Self::from(magnitude)),
+            Err(e) if *e.kind() == IntErrorKind::PosOverflow => cold_path! {
+                BigUint::from_str_radix(src, radix).ok().map(Self::from)
+            },
+            Err(_) => None,
+        }
+    }
+
+    // ===== Scaling by a power of ten =====
 
     /// `(self / 10^k, self % 10^k)`, both carrying `self`'s sign (the remainder
     /// takes the dividend's sign, per decArith). Division by zero is unreachable
@@ -710,7 +738,7 @@ impl From<BigInt> for OverflowingInt {
         let (bigint_sign, magnitude) = value.into_parts();
         // A `BigInt`'s three-valued sign maps both `Plus` and `NoSign` to
         // positive; only `Minus` is negative. A `NoSign -> Negative` slip is
-        // exactly the `-0` that `IntData` forbids.
+        // exactly the `-0` that `Int` forbids.
         let sign = match bigint_sign {
             num_bigint::Sign::Minus => Sign::Negative,
             num_bigint::Sign::Plus | num_bigint::Sign::NoSign => Sign::Positive,
@@ -1073,79 +1101,43 @@ mod tests {
         assert_eq!(neg_zero, OverflowingInt::NEGATIVE_ZERO);
     }
 
-    // ===== abs / minus of zeros =====
+    // ===== abs / negate of zeros =====
 
     #[rstest]
     #[case(OverflowingInt::ZERO)]
     #[case(OverflowingInt::NEGATIVE_ZERO)]
-    fn abs_and_minus_of_zero_are_positive(#[case] zero: OverflowingInt) {
-        // decArith: `abs` and `minus` (which is `subtract('0', x)`, not a sign
+    fn abs_and_negate_of_zero_are_positive(#[case] zero: OverflowingInt) {
+        // decArith: `abs` and `minus` (`negate`, which is `subtract('0', x)`, not a sign
         // flip) both yield `+0` for either zero. The `-0` operand exists only
         // here; the wrappers expose no route to build one.
         assert_eq!(zero.abs(), OverflowingInt::ZERO);
         assert!(matches!(zero.abs().sign(), Sign::Positive));
-        assert_eq!(zero.minus(), OverflowingInt::ZERO);
-        assert!(matches!(zero.minus().sign(), Sign::Positive));
+        assert_eq!(zero.clone().negate(), OverflowingInt::ZERO);
+        assert!(matches!(zero.negate().sign(), Sign::Positive));
     }
 
     #[test]
-    fn minus_flips_non_zero() {
+    fn negate_heap_value_keeps_magnitude() {
+        let value = OverflowingInt::from_sign_and_big_magnitude(Sign::Positive, big(200));
+        let negated = value.negate();
+        assert!(is_heap(&negated));
+        assert!(matches!(negated.sign(), Sign::Negative));
+        assert_eq!(negated.magnitude_as_big(), big(200));
         assert_eq!(
-            OverflowingInt::from(5i128).minus(),
+            negated.negate(),
+            OverflowingInt::from_sign_and_big_magnitude(Sign::Positive, big(200))
+        );
+    }
+
+    #[test]
+    fn negate_flips_non_zero() {
+        assert_eq!(
+            OverflowingInt::from(5i128).negate(),
             OverflowingInt::from(-5i128)
         );
         assert_eq!(
-            OverflowingInt::from(-5i128).minus(),
+            OverflowingInt::from(-5i128).negate(),
             OverflowingInt::from(5i128)
-        );
-    }
-
-    // ===== Scaling: mul_pow10 =====
-
-    #[rstest]
-    // A wide sweep of magnitudes and exponents. Firing late is fine; a wrong
-    // answer is the defect.
-    #[case(0, 0)]
-    #[case(1, 5)]
-    #[case(7, 12)]
-    #[case(999_999, 20)]
-    #[case(MAX_INLINE, 0)]
-    fn mul_pow10_matches_bigint(#[case] magnitude: u128, #[case] k: u64) {
-        let value = OverflowingInt::from_sign_and_magnitude(Sign::Positive, magnitude);
-        let scaled = value.mul_pow10(k);
-        let expected = BigUint::from(magnitude) * pow10_big(k);
-        assert_eq!(scaled.magnitude_as_big(), expected);
-        // Result must be canonical.
-        assert_eq!(is_heap(&scaled), expected >= big(126));
-    }
-
-    #[test]
-    fn mul_pow10_zero_scales_to_zero() {
-        // A zero magnitude scaled by a large `k` is still zero, without
-        // materializing `10^k`.
-        let scaled = OverflowingInt::ZERO.mul_pow10(u64::MAX);
-        assert!(scaled.is_zero());
-        // Sign is preserved.
-        let neg = OverflowingInt::NEGATIVE_ZERO.mul_pow10(1_000);
-        assert_eq!(neg, OverflowingInt::NEGATIVE_ZERO);
-    }
-
-    #[test]
-    fn mul_pow10_preserves_sign() {
-        let scaled = OverflowingInt::from(-3i128).mul_pow10(2);
-        assert_eq!(scaled, OverflowingInt::from(-300i128));
-    }
-
-    #[test]
-    fn mul_pow10_promotes_to_heap() {
-        // A 126-bit receiver at `k = 41`: `10^41` needs 136 bits, so the product
-        // exceeds `u128` and must promote to the heap rather than panic or wrap.
-        let receiver = OverflowingInt::from_sign_and_magnitude(Sign::Positive, MAX_INLINE);
-        let scaled = receiver.mul_pow10(41);
-        assert!(is_heap(&scaled));
-        assert_eq!(
-            scaled.magnitude_as_big(),
-            BigUint::from(MAX_INLINE) * pow10_big(41)
         );
     }
 
@@ -1288,16 +1280,6 @@ mod tests {
     }
 
     #[test]
-    fn mul_pow10_heap_receiver_stays_heap() {
-        // A heap receiver times 10^k stays heap and matches the BigUint product.
-        let receiver = OverflowingInt::from_sign_and_big_magnitude(Sign::Negative, big(200));
-        let scaled = receiver.mul_pow10(5);
-        assert!(is_heap(&scaled));
-        assert!(matches!(scaled.sign(), Sign::Negative));
-        assert_eq!(scaled.magnitude_as_big(), big(200) * pow10_big(5));
-    }
-
-    #[test]
     fn div_rem_pow10_heap_quotient_and_remainder() {
         // A heap dividend whose quotient stays heap; assert both parts and signs.
         let value = OverflowingInt::from_sign_and_big_magnitude(Sign::Negative, big(200));
@@ -1324,6 +1306,111 @@ mod tests {
     )]
     fn bits_reports_magnitude_width(#[case] value: OverflowingInt, #[case] expected: u64) {
         assert_eq!(value.bits(), expected);
+    }
+
+    // ===== Bytes and text =====
+
+    #[rstest]
+    #[case::empty(&[], OverflowingInt::from_unsigned_le_bytes, 0)]
+    #[case::empty_be(&[], OverflowingInt::from_unsigned_be_bytes, 0)]
+    #[case::one_byte(&[0x42], OverflowingInt::from_unsigned_be_bytes, 0x42)]
+    #[case::le(&[0x01, 0x00], OverflowingInt::from_unsigned_le_bytes, 1)]
+    #[case::be(&[0x01, 0x00], OverflowingInt::from_unsigned_be_bytes, 256)]
+    #[case::padded_le(&[42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], OverflowingInt::from_unsigned_le_bytes, 42)]
+    #[case::padded_be(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42], OverflowingInt::from_unsigned_be_bytes, 42)]
+    fn from_unsigned_bytes_inline(
+        #[case] bytes: &[u8],
+        #[case] decode: fn(&[u8]) -> OverflowingInt,
+        #[case] expected: u128,
+    ) {
+        let value = decode(bytes);
+        assert!(!is_heap(&value));
+        assert_eq!(value, OverflowingInt::from(expected));
+    }
+
+    #[test]
+    fn from_unsigned_bytes_heap() {
+        let max = OverflowingInt::from_unsigned_le_bytes(&[0xFF; 16]);
+        assert!(is_heap(&max));
+        assert_eq!(max.as_u128(), Some(u128::MAX));
+
+        let mut le = [0u8; 17];
+        le[16] = 1;
+        let mut be = le;
+        be.reverse();
+        for value in [
+            OverflowingInt::from_unsigned_le_bytes(&le),
+            OverflowingInt::from_unsigned_be_bytes(&be),
+        ] {
+            assert_eq!(value, OverflowingInt::from(big(128)));
+        }
+    }
+
+    #[rstest]
+    #[case::empty(&[], 0)]
+    #[case::minus_one(&[0xFF], -1)]
+    #[case::minus_two(&[0xFE], -2)]
+    #[case::i8_max(&[0x7F], 127)]
+    #[case::i8_min(&[0x80], -128)]
+    #[case::positive_128(&[0x80, 0x00], 128)]
+    #[case::padded_minus_one(&[0xFF; 20], -1)]
+    fn from_le_signed_bytes_cases(#[case] bytes: &[u8], #[case] expected: i128) {
+        assert_eq!(
+            OverflowingInt::from_le_signed_bytes(bytes),
+            OverflowingInt::from(expected)
+        );
+    }
+
+    #[test]
+    fn from_le_signed_bytes_zero_is_positive() {
+        for bytes in [&[][..], &[0x00], &[0x00; 20]] {
+            let zero = OverflowingInt::from_le_signed_bytes(bytes);
+            assert!(zero.is_zero());
+            assert_eq!(zero.sign(), Sign::Positive);
+        }
+    }
+
+    #[test]
+    fn from_le_signed_bytes_heap() {
+        let mut bytes = [0u8; 18];
+        bytes[16] = 1;
+        let value = OverflowingInt::from_le_signed_bytes(&bytes);
+        assert_eq!(value, OverflowingInt::from(big(128)));
+    }
+
+    #[test]
+    fn to_bigint_of_negative_zero_is_zero() {
+        assert_eq!(OverflowingInt::NEGATIVE_ZERO.to_bigint(), BigInt::from(0));
+    }
+
+    #[rstest]
+    #[case::zero("0", 10, 0)]
+    #[case::hex("ff", 16, 255)]
+    #[case::binary("101", 2, 5)]
+    #[case::max_inline("3fffffffffffffffffffffffffffffff", 16, MAX_INLINE)]
+    fn from_str_radix_inline(#[case] src: &str, #[case] radix: u32, #[case] expected: u128) {
+        let value = OverflowingInt::from_str_radix(src, radix).unwrap();
+        assert!(!is_heap(&value));
+        assert_eq!(value, OverflowingInt::from(expected));
+    }
+
+    #[test]
+    fn from_str_radix_promotes_to_heap() {
+        // Fits a `u128` but not inline: must not be truncated to its low 126 bits.
+        let max = OverflowingInt::from_str_radix("ffffffffffffffffffffffffffffffff", 16).unwrap();
+        assert!(is_heap(&max));
+        assert_eq!(max.as_u128(), Some(u128::MAX));
+        // Overflows `u128`.
+        let over = OverflowingInt::from_str_radix("340282366920938463463374607431768211456", 10);
+        assert_eq!(over, Some(OverflowingInt::from(big(128))));
+    }
+
+    #[rstest]
+    #[case::bad_digit("xyz")]
+    #[case::empty("")]
+    #[case::negative("-1")]
+    fn from_str_radix_rejects(#[case] src: &str) {
+        assert_eq!(OverflowingInt::from_str_radix(src, 10), None);
     }
 
     // ===== Drop soundness (validated under Miri) =====
