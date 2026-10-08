@@ -2,6 +2,7 @@ use crate::lazy::any_encoding::IonEncoding;
 use crate::lazy::decoder::{Decoder, LazyRawReader};
 use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_stream_item::LazyRawStreamItem;
+use crate::lazy::text::container_boundary::TextContainerBoundary;
 use crate::location::SourceLocationState;
 use crate::{IonError, IonResult, LazyRawValue, Span};
 use std::cell::{OnceCell, UnsafeCell};
@@ -134,6 +135,10 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
         // If the input is a stream, we assume there may be more data available.
         // If it's a fixed slice, we know it's already complete.
         let mut input_source_exhausted = !Input::DataSource::IS_STREAMING;
+        let mut boundary: Option<TextContainerBoundary> = None;
+        let mut boundary_checked = false;
+        let mut next_parse_size = 0;
+        let mut pending_io_error = None;
         loop {
             // If the input buffer is empty, try to pull more data from the source before proceeding.
             // It's important that we do this _before_ reading from the buffer; any item returned
@@ -153,6 +158,25 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             //         read from in the same loop iteration afterward, since it may refer to a buffer
             //         that has been dropped.
             let available_bytes = unsafe { &*self.input.get() }.buffer();
+            // Retry at a closing delimiter or when the input doubles. Small refills otherwise
+            // rebuild the same nested-value caches repeatedly, using quadratic time and memory.
+            if !input_source_exhausted && available_bytes.len() < next_parse_size {
+                if let Some(scan) = &mut boundary {
+                    if scan.needs_parse(available_bytes) {
+                        boundary = None;
+                    } else {
+                        match self.pull_more_data_from_source() {
+                            Ok(0) => input_source_exhausted = true,
+                            Ok(_) => {}
+                            Err(error) => {
+                                boundary = None;
+                                pending_io_error = Some(error);
+                            }
+                        }
+                        continue;
+                    }
+                }
+            }
             let state = RawReaderState::new(
                 available_bytes,
                 self.stream_position,
@@ -167,6 +191,12 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
             let old_encoding = slice_reader.encoding();
 
             let result = slice_reader.next();
+            if let Some(error) = pending_io_error.take() {
+                return match result {
+                    Err(IonError::Decoding(_)) => result,
+                    _ => Err(error),
+                };
+            }
 
             let new_encoding = slice_reader.encoding();
             let end_position = slice_reader.position();
@@ -181,6 +211,17 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
                 if input_source_exhausted {
                     // There's no more data, so the result is final.
                 } else {
+                    if !boundary_checked
+                        && available_bytes.len() < next_parse_size
+                        && old_encoding.is_text()
+                        && matches!(result, Err(IonError::Incomplete(_)))
+                    {
+                        // Reads that fill the growing buffer already amortize parsing. Start
+                        // scanning only after an incomplete value receives a smaller refill.
+                        boundary = TextContainerBoundary::new(available_bytes);
+                        boundary_checked = true;
+                    }
+                    next_parse_size = available_bytes.len().saturating_mul(2);
                     // ...more data may be available, so try to pull from the data source.
                     if self.pull_more_data_from_source()? == 0 {
                         input_source_exhausted = true;
