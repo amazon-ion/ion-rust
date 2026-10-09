@@ -17,7 +17,7 @@ use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::result::{EncodingError, IonFailure};
+use crate::result::{cold_error, EncodingError};
 use crate::types::overflowing_int::Magnitude;
 use crate::{v1_0, Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
@@ -222,9 +222,10 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
     pub fn write_symbol<A: AsRawSymbolRef>(self, value: A) -> IonResult<()> {
         match value.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => self.write_symbol_id(sid),
-            other => IonResult::illegal_operation(format!(
+            other => cold_error!(
+                illegal_operation,
                 "the Ion 1.0 raw binary writer only supports symbol ID values; received: {other:?})"
-            )),
+            ),
         }
     }
 
