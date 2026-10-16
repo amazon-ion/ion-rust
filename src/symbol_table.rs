@@ -1,7 +1,8 @@
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Range;
+use std::num::NonZeroU32;
 
+use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
 use rustc_hash::FxHasher;
 
@@ -143,7 +144,7 @@ impl SymbolTable {
     }
 
     /// If defined, returns the Symbol ID associated with the provided text. If the text appears
-    /// more than once, returns the highest ID. User symbols with unknown text match `""`.
+    /// more than once, returns the lowest ID, as the Ion spec requires.
     ///
     /// This is a linear scan; readers resolve symbols by ID, not by text.
     pub fn sid_for<A: AsRef<str>>(&self, text: A) -> Option<SymbolId> {
@@ -151,9 +152,7 @@ impl SymbolTable {
         self.symbols_by_id
             .iter()
             .enumerate()
-            .skip(1) // $0 is never resolved by text
-            .rev()
-            .find(|(_, symbol)| symbol.text().unwrap_or("") == text)
+            .find(|(_, symbol)| symbol.text() == Some(text))
             .map(|(sid, _)| sid)
     }
 
@@ -236,54 +235,67 @@ fn symbol_text_hash(text: &str) -> u64 {
     hasher.finish()
 }
 
-/// Resolves a writer symbol ID using the static system table or the user-symbol arena.
-fn writer_text_for<'a>(
-    system_symbols: &'static SystemSymbolTable,
-    text_arena: &'a str,
-    text_ranges: &'a [Range<usize>],
-    sid: SymbolId,
-) -> Option<&'a str> {
-    if sid == 0 {
-        return None;
-    }
-    if sid < system_symbols.len() {
-        return system_symbols.text_for_address(sid);
-    }
-    let range = text_ranges.get(sid - system_symbols.len())?;
-    Some(&text_arena[range.clone()])
+/// Symbol text stored back to back in one `String`, addressed by symbol ID.
+struct SymbolTexts {
+    arena: String,
+    /// Each symbol's `(start, end)` byte range in `arena`, or `None` if its text is unknown.
+    ranges: Vec<Option<(u32, NonZeroU32)>>,
 }
 
-/// Like [`writer_text_for`], but returns bytes, which skips the UTF-8 boundary checks of `str`
-/// slicing on the lookup hot path. SIDs without text yield no bytes; they are never indexed.
-fn writer_bytes_for<'a>(
-    system_symbols: &'static SystemSymbolTable,
-    text_arena: &'a str,
-    text_ranges: &'a [Range<usize>],
-    sid: SymbolId,
-) -> &'a [u8] {
-    if sid == 0 {
-        return &[];
+impl SymbolTexts {
+    fn with_capacity(num_symbols: usize, num_text_bytes: usize) -> Self {
+        Self {
+            arena: String::with_capacity(num_text_bytes),
+            ranges: Vec::with_capacity(num_symbols),
+        }
     }
-    if sid < system_symbols.len() {
-        return system_symbols
-            .text_for_address(sid)
-            .map_or(&[], str::as_bytes);
-    }
-    text_ranges
-        .get(sid - system_symbols.len())
-        .and_then(|range| text_arena.as_bytes().get(range.clone()))
-        .unwrap_or(&[])
-}
 
-/// Rehashes an SID already in the index. Only `seed_system_symbols` and `get_or_add` insert into
-/// the index, and both insert SIDs that have text, so the empty-text fallback is never taken.
-fn indexed_sid_hash(
-    system_symbols: &'static SystemSymbolTable,
-    text_arena: &str,
-    text_ranges: &[Range<usize>],
-    sid: SymbolId,
-) -> u64 {
-    symbol_text_hash(writer_text_for(system_symbols, text_arena, text_ranges, sid).unwrap_or(""))
+    fn len(&self) -> usize {
+        self.ranges.len()
+    }
+
+    fn get(&self, sid: SymbolId) -> Option<&str> {
+        let (start, end) = (*self.ranges.get(sid)?)?;
+        Some(&self.arena[start as usize..end.get() as usize])
+    }
+
+    fn get_bytes(&self, sid: SymbolId) -> Option<&[u8]> {
+        let (start, end) = (*self.ranges.get(sid)?)?;
+        Some(&self.arena.as_bytes()[start as usize..end.get() as usize])
+    }
+
+    /// Appends `text` and returns its symbol ID.
+    fn insert(&mut self, text: &str) -> SymbolId {
+        let sid = self.ranges.len();
+        let start = self.arena.len() as u32;
+        self.arena.push_str(text);
+        // The system symbols are inserted first and have non-empty text, so `end` is never 0.
+        let end = u32::try_from(self.arena.len())
+            .ok()
+            .and_then(NonZeroU32::new)
+            .expect("symbol text exceeds 4 GiB");
+        self.ranges.push(Some((start, end)));
+        sid
+    }
+
+    /// Assigns unknown text to the next symbol ID and returns it.
+    fn insert_unknown_text(&mut self) -> SymbolId {
+        let sid = self.ranges.len();
+        self.ranges.push(None);
+        sid
+    }
+
+    /// Keeps the first `num_symbols` symbols and their text.
+    fn truncate(&mut self, num_symbols: usize) {
+        self.ranges.truncate(num_symbols);
+        let text_len = self
+            .ranges
+            .iter()
+            .rev()
+            .find_map(|range| *range)
+            .map_or(0, |(_, end)| end.get() as usize);
+        self.arena.truncate(text_len);
+    }
 }
 
 /// The symbol table a writer uses to assign symbol IDs to text.
@@ -291,8 +303,7 @@ fn indexed_sid_hash(
 #[allow(clippy::len_without_is_empty)]
 pub struct WriterSymbolTable {
     ion_version: IonVersion,
-    text_arena: String,
-    text_ranges: Vec<Range<usize>>,
+    texts: SymbolTexts,
     ids_by_text: HashTable<SymbolId>,
     num_pending: usize,
 }
@@ -302,68 +313,72 @@ impl WriterSymbolTable {
     const INITIAL_TEXT_CAPACITY: usize = 256;
 
     pub(crate) fn new(ion_version: IonVersion) -> Self {
-        let system_symbol_count = ion_version.system_symbol_table().len();
+        let num_system_symbols = ion_version.system_symbol_table().len();
         let mut table = Self {
             ion_version,
-            text_arena: String::with_capacity(Self::INITIAL_TEXT_CAPACITY),
-            text_ranges: Vec::with_capacity(Self::INITIAL_USER_SYMBOL_CAPACITY),
+            texts: SymbolTexts::with_capacity(
+                num_system_symbols + Self::INITIAL_USER_SYMBOL_CAPACITY,
+                Self::INITIAL_TEXT_CAPACITY,
+            ),
             ids_by_text: HashTable::with_capacity(
-                system_symbol_count + Self::INITIAL_USER_SYMBOL_CAPACITY,
+                num_system_symbols + Self::INITIAL_USER_SYMBOL_CAPACITY,
             ),
             num_pending: 0,
         };
-        table.seed_system_symbols();
+        table.texts.insert_unknown_text(); // $0
+        for text in ion_version.system_symbol_table().symbols_by_address {
+            table.texts.insert(text);
+        }
+        table.index_system_symbols();
         table
     }
 
-    fn seed_system_symbols(&mut self) {
-        let system_symbols = self.ion_version.system_symbol_table();
-        // SID 0 has unknown text, so it is valid but is not part of the text lookup index.
-        for (index, text) in system_symbols.symbols_by_address.iter().enumerate() {
+    fn num_system_symbols(&self) -> usize {
+        self.ion_version.system_symbol_table().len()
+    }
+
+    /// Adds the system symbols, which are already in `texts`, to the empty text lookup index.
+    fn index_system_symbols(&mut self) {
+        let texts = &self.texts;
+        // SID 0 has unknown text, so it is not part of the text lookup index.
+        for sid in 1..self.num_system_symbols() {
+            let text = texts.get(sid).unwrap_or("");
             self.ids_by_text
-                .insert_unique(symbol_text_hash(text), index + 1, |sid| {
-                    indexed_sid_hash(system_symbols, "", &[], *sid)
+                .insert_unique(symbol_text_hash(text), sid, |sid| {
+                    symbol_text_hash(texts.get(*sid).unwrap_or(""))
                 });
         }
     }
 
-    /// Returns the existing SID for `text`, or interns the text and assigns it a new SID.
+    /// Returns the SID for `text`, interning the text and assigning it a new SID if needed.
+    ///
+    /// The Ion spec requires the lowest SID when more than one maps to the same text. This table
+    /// never assigns a second SID to text it already holds, so the only matching SID is the lowest.
     pub(crate) fn get_or_add(&mut self, text: impl AsRef<str>) -> SymbolId {
         let text = text.as_ref();
-        let hash = symbol_text_hash(text);
-        let system_symbols = self.ion_version.system_symbol_table();
-
-        let text_arena = self.text_arena.as_str();
-        let text_ranges = self.text_ranges.as_slice();
-        if let Some(sid) = self.ids_by_text.find(hash, |sid| {
-            writer_bytes_for(system_symbols, text_arena, text_ranges, *sid) == text.as_bytes()
-        }) {
-            return *sid;
+        let texts = &self.texts;
+        match self.ids_by_text.entry(
+            symbol_text_hash(text),
+            |sid| texts.get_bytes(*sid) == Some(text.as_bytes()),
+            |sid| symbol_text_hash(texts.get(*sid).unwrap_or("")),
+        ) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => {
+                let sid = self.texts.insert(text);
+                entry.insert(sid);
+                self.num_pending += 1;
+                sid
+            }
         }
-
-        let start = self.text_arena.len();
-        self.text_arena.push_str(text);
-        let end = self.text_arena.len();
-        self.text_ranges.push(start..end);
-        let sid = system_symbols.len() + self.text_ranges.len() - 1;
-        let (text_arena, text_ranges) = (self.text_arena.as_str(), self.text_ranges.as_slice());
-        // Reuses `hash`, so the new text is not hashed a second time.
-        self.ids_by_text.insert_unique(hash, sid, |sid| {
-            indexed_sid_hash(system_symbols, text_arena, text_ranges, *sid)
-        });
-        self.num_pending += 1;
-        sid
     }
 
-    /// If defined, returns the Symbol ID associated with the provided text.
+    /// If defined, returns the lowest Symbol ID associated with the provided text, as the Ion spec
+    /// requires. This table never assigns two SIDs to the same text, so there is only one match.
     pub fn sid_for(&self, text: impl AsRef<str>) -> Option<SymbolId> {
         let text = text.as_ref();
-        let hash = symbol_text_hash(text);
-        let system_symbols = self.ion_version.system_symbol_table();
         self.ids_by_text
-            .find(hash, |sid| {
-                writer_bytes_for(system_symbols, &self.text_arena, &self.text_ranges, *sid)
-                    == text.as_bytes()
+            .find(symbol_text_hash(text), |sid| {
+                self.texts.get_bytes(*sid) == Some(text.as_bytes())
             })
             .copied()
     }
@@ -371,12 +386,7 @@ impl WriterSymbolTable {
     /// If defined, returns the text associated with the provided Symbol ID.
     #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
     pub fn text_for(&self, sid: SymbolId) -> Option<&str> {
-        writer_text_for(
-            self.ion_version.system_symbol_table(),
-            self.text_arena.as_str(),
-            self.text_ranges.as_slice(),
-            sid,
-        )
+        self.texts.get(sid)
     }
 
     /// Returns true if `sid` is in the range defined by this table.
@@ -386,7 +396,7 @@ impl WriterSymbolTable {
 
     /// Returns the number of symbol addresses defined by this table, including SID 0.
     pub fn len(&self) -> usize {
-        self.ion_version.system_symbol_table().len() + self.text_ranges.len()
+        self.texts.len()
     }
 
     #[cfg_attr(not(feature = "experimental-reader-writer"), allow(dead_code))]
@@ -403,51 +413,50 @@ impl WriterSymbolTable {
     }
 
     pub(crate) fn pending_texts(&self) -> impl Iterator<Item = &str> {
-        debug_assert!(self.num_pending <= self.text_ranges.len());
-        let first_pending = self.text_ranges.len() - self.num_pending;
-        self.text_ranges[first_pending..]
-            .iter()
-            .map(|range| &self.text_arena[range.clone()])
+        debug_assert!(self.num_pending <= self.len() - self.num_system_symbols());
+        let first_pending = self.len() - self.num_pending;
+        (first_pending..self.len()).map(|sid| self.texts.get(sid).unwrap_or(""))
     }
 
-    /// Clears all user symbols while retaining ordinary working capacity and the system index.
+    /// Clears all user symbols while retaining ordinary working capacity and the system symbols.
     /// Oversized entry storage and text storage are capped independently.
     pub(crate) fn reset_for_reuse(
         &mut self,
         max_retained_symbols: usize,
         max_retained_text_bytes: usize,
     ) {
-        self.text_arena.clear();
-        self.text_ranges.clear();
+        let num_system_symbols = self.num_system_symbols();
+        self.texts.truncate(num_system_symbols);
+        self.texts.arena.shrink_to(max_retained_text_bytes);
+        self.texts.ranges.shrink_to(max_retained_symbols);
         self.num_pending = 0;
 
-        if self.text_arena.capacity() > max_retained_text_bytes {
-            self.text_arena = String::with_capacity(Self::INITIAL_TEXT_CAPACITY);
+        // `retain` would leave tombstones that skew `capacity`, so clear and re-index instead.
+        let oversized = self.ids_by_text.capacity() > max_retained_symbols;
+        self.ids_by_text.clear();
+        if oversized {
+            // The table is empty, so the hasher is never called.
+            self.ids_by_text.shrink_to(
+                num_system_symbols + Self::INITIAL_USER_SYMBOL_CAPACITY,
+                |_| 0,
+            );
         }
-        if self.text_ranges.capacity() > max_retained_symbols {
-            self.text_ranges = Vec::with_capacity(Self::INITIAL_USER_SYMBOL_CAPACITY);
-        }
-
-        let system_symbol_count = self.ion_version.system_symbol_table().len();
-        if self.ids_by_text.capacity() > max_retained_symbols {
-            self.ids_by_text =
-                HashTable::with_capacity(system_symbol_count + Self::INITIAL_USER_SYMBOL_CAPACITY);
-            self.seed_system_symbols();
-        } else {
-            self.ids_by_text.retain(|sid| *sid < system_symbol_count);
-        }
+        self.index_system_symbols();
     }
 
     /// The number of symbol entries this table can retain without reallocating.
     #[cfg(test)]
     pub(crate) fn retained_capacity(&self) -> usize {
-        self.text_ranges.capacity().max(self.ids_by_text.capacity())
+        self.texts
+            .ranges
+            .capacity()
+            .max(self.ids_by_text.capacity())
     }
 
     /// The number of symbol-text bytes this table can retain without reallocating.
     #[cfg(test)]
     pub(crate) fn retained_text_capacity(&self) -> usize {
-        self.text_arena.capacity()
+        self.texts.arena.capacity()
     }
 }
 
@@ -466,35 +475,35 @@ mod reader_symbol_table_tests {
     use super::*;
 
     #[test]
-    fn sid_for_returns_the_last_matching_sid() {
+    fn sid_for_returns_the_lowest_matching_sid() {
         let mut table = SymbolTable::new(IonVersion::v1_0);
         table.add_symbol(Symbol::owned("foo"));
         table.add_symbol(Symbol::owned("name"));
         table.add_symbol(Symbol::owned("foo"));
 
         assert_eq!(table.sid_for("$ion"), Some(1));
-        assert_eq!(table.sid_for("name"), Some(11));
-        assert_eq!(table.sid_for("foo"), Some(12));
+        assert_eq!(table.sid_for("name"), Some(4));
+        assert_eq!(table.sid_for("foo"), Some(10));
         assert_eq!(table.sid_for("bar"), None);
     }
 
     #[test]
-    fn sid_for_empty_text_skips_sid_zero() {
+    fn sid_for_empty_text_does_not_match_sid_zero() {
         let table = SymbolTable::new(IonVersion::v1_0);
         assert_eq!(table.sid_for(""), None);
     }
 
     #[test]
-    fn sid_for_empty_text_matches_unknown_and_empty_symbols() {
+    fn sid_for_empty_text_matches_only_empty_symbols() {
         let mut table = SymbolTable::new(IonVersion::v1_0);
         table.add_symbol(Symbol::unknown_text());
-        assert_eq!(table.sid_for(""), Some(10));
+        assert_eq!(table.sid_for(""), None);
 
         table.add_symbol(Symbol::owned(""));
         assert_eq!(table.sid_for(""), Some(11));
 
         table.add_symbol(Symbol::unknown_text());
-        assert_eq!(table.sid_for(""), Some(12));
+        assert_eq!(table.sid_for(""), Some(11));
     }
 
     #[test]
@@ -541,7 +550,7 @@ mod writer_symbol_table_tests {
         assert_eq!(table.get_or_add("foo"), foo_sid);
         assert_eq!(table.sid_for("bar"), Some(bar_sid));
         assert_eq!(table.text_for(foo_sid), Some("foo"));
-        assert_eq!(table.text_arena, "foobar");
+        assert!(table.texts.arena.ends_with("foobar"));
         assert_eq!(table.num_pending(), 2);
         assert_eq!(table.pending_texts().collect::<Vec<_>>(), ["foo", "bar"]);
     }

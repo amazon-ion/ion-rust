@@ -1105,11 +1105,10 @@ mod reuse_tests {
             directive_capacity,
             "detach replaced an under-cap directive buffer instead of keeping it warm"
         );
-        let retained_symbol_capacity = idle.symbols.retained_capacity();
-        assert!(
-            retained_symbol_capacity > fresh_symbol_capacity
-                && retained_symbol_capacity <= symbol_capacity,
-            "detach did not keep the under-cap symbol table warm: before={symbol_capacity}, after={retained_symbol_capacity}, fresh={fresh_symbol_capacity}"
+        assert_eq!(
+            idle.symbols.retained_capacity(),
+            symbol_capacity,
+            "detach replaced an under-cap symbol table instead of keeping it warm"
         );
         assert_eq!(
             idle.symbols.retained_text_capacity(),
