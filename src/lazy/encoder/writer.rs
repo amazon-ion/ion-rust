@@ -1,7 +1,6 @@
 use delegate::delegate;
 use ice_code::ice as cold_path;
 use std::io::Write;
-use std::ops::Deref;
 
 use crate::constants::v1_0::system_symbol_ids;
 use crate::element::element_writer::ElementWriter;
@@ -14,66 +13,17 @@ use crate::lazy::encoder::value_writer_config::{
     AnnotationsEncoding, FieldNameEncoding, SymbolValueEncoding, ValueWriterConfig,
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::{LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_SYMBOL_RETAIN_CAP};
+use crate::lazy::encoder::{
+    LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_RETAIN_CAP, IDLE_SYMBOL_RETAIN_CAP,
+};
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::IonFailure;
+use crate::symbol_table::WriterSymbolTable;
 use crate::write_config::WriteConfig;
 use crate::{
-    ContextWriter, Decimal, Element, Int, IonResult, IonType, RawSymbolRef, Symbol, SymbolId,
-    SymbolTable, Timestamp, Value,
+    ContextWriter, Decimal, Element, Int, IonResult, IonType, RawSymbolRef, Timestamp, Value,
 };
-
-/// A thin wrapper around a `SymbolTable` that tracks the number of symbols whose definition has
-/// not yet been written to output.
-pub(crate) struct WriterSymbolTable {
-    symbols: SymbolTable,
-    num_pending: usize,
-}
-
-impl WriterSymbolTable {
-    pub fn reset_num_pending(&mut self) {
-        self.num_pending = 0;
-    }
-
-    /// Returns this table to the default state used at the beginning of a stream so that the writer
-    /// can encode a fresh, independent document: the symbols added for the previous document are
-    /// discarded, as is the pending-symbol bookkeeping for any of them whose definition was never
-    /// written. Also bounds the capacity the table retains -- see [`IDLE_SYMBOL_RETAIN_CAP`].
-    pub(crate) fn reset_for_reuse(&mut self) {
-        self.symbols.reset_to_default_capped(IDLE_SYMBOL_RETAIN_CAP);
-        self.num_pending = 0;
-    }
-
-    pub fn num_pending(&self) -> usize {
-        self.num_pending
-    }
-
-    pub fn pending(&self) -> &[Symbol] {
-        self.symbols.symbols_tail(self.num_pending)
-    }
-
-    pub fn add_symbol_for_text<A: AsRef<str>>(&mut self, text: A) -> SymbolId {
-        self.num_pending += 1;
-        self.symbols.add_symbol_for_text(text)
-    }
-
-    pub fn new(symbols: SymbolTable) -> Self {
-        Self {
-            symbols,
-            num_pending: 0,
-        }
-    }
-}
-
-// Read-only methods on the underlying SymbolTable can be invoked directly.
-impl Deref for WriterSymbolTable {
-    type Target = SymbolTable;
-
-    fn deref(&self) -> &Self::Target {
-        &self.symbols
-    }
-}
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
 // Note: the struct itself is generic over `Output` WITHOUT an `Output: Write` bound so that a
@@ -117,7 +67,7 @@ fn build_parts<E: Encoding>(config: WriteConfig<E>) -> IonResult<WriterParts<E>>
     // Erase the IVM that's created by default; only the directive writer carries the prologue.
     data_writer.output_mut().clear();
     // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
-    let symbols = WriterSymbolTable::new(SymbolTable::new(E::ion_version()));
+    let symbols = WriterSymbolTable::new(E::ion_version());
     Ok(WriterParts {
         symbols,
         data_writer,
@@ -202,7 +152,8 @@ where
     pub fn detach(mut self) -> (Writer<E, ()>, Output) {
         // Forget the previous document's symbols (including any whose definition was still pending)
         // so the reused writer encodes a NEW, independent document.
-        self.symbols.reset_for_reuse();
+        self.symbols
+            .reset_for_reuse(IDLE_SYMBOL_RETAIN_CAP, IDLE_RETAIN_CAP);
 
         // Only the system role re-seeds the construction prologue; emitting one on the data writer
         // would corrupt the next document. Nothing is written to `output` -- that is `flush`'s job.
@@ -302,13 +253,13 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
     #[cfg(feature = "experimental-reader-writer")]
     #[inline]
-    pub fn symbol_table(&self) -> &SymbolTable {
+    pub fn symbol_table(&self) -> &WriterSymbolTable {
         &self.symbols
     }
 
     #[cfg(not(feature = "experimental-reader-writer"))]
     #[inline]
-    pub(crate) fn symbol_table(&self) -> &SymbolTable {
+    pub(crate) fn symbol_table(&self) -> &WriterSymbolTable {
         &self.symbols
     }
 
@@ -330,9 +281,7 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
 
         let mut new_symbol_list = lst.field_writer(system_symbol_ids::SYMBOLS).list_writer()?;
 
-        let pending_symbols = symbols.pending().iter().map(Symbol::text);
-
-        new_symbol_list.write_all(pending_symbols)?;
+        new_symbol_list.write_all(symbols.pending_texts())?;
         new_symbol_list.close()?;
 
         lst.close()
@@ -389,13 +338,13 @@ impl<'a, V: ValueWriter> ApplicationValueWriter<'a, V> {
 
     #[cfg(feature = "experimental-reader-writer")]
     #[inline]
-    pub fn symbol_table(&self) -> &SymbolTable {
+    pub fn symbol_table(&self) -> &WriterSymbolTable {
         self.symbols
     }
 
     #[cfg(not(feature = "experimental-reader-writer"))]
     #[inline]
-    pub(crate) fn symbol_table(&self) -> &SymbolTable {
+    pub(crate) fn symbol_table(&self) -> &WriterSymbolTable {
         self.symbols
     }
 }
@@ -457,17 +406,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
-                    let sid = match self.symbol_table().sid_for(text) {
-                        Some(sid) => {
-                            //...that was already in the symbol table.
-                            sid
-                        }
-                        None => {
-                            // ...that we need to add to the symbol table.
-                            self.symbols.add_symbol_for_text(text)
-                        }
-                    };
-                    *annotation = RawSymbolRef::SymbolId(sid);
+                    *annotation = RawSymbolRef::SymbolId(self.symbols.get_or_add(text));
                 }
             };
         }
@@ -578,15 +517,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             }
             Text(text) => {
                 match value_writer_config.symbol_value_encoding() {
-                    SymbolIds => {
-                        // Map the text to a symbol ID.
-                        match symbols.sid_for(text) {
-                            // If it's already in the symbol table, use that SID.
-                            Some(symbol_id) => SymbolId(symbol_id),
-                            // Otherwise, add it to the symbol table.
-                            None => SymbolId(symbols.add_symbol_for_text(text)),
-                        }
-                    }
+                    SymbolIds => SymbolId(symbols.get_or_add(text)),
                     NewSymbolsAsInlineText => {
                         // If the text is in the symbol table, use the symbol ID. Otherwise, use the text itself.
                         match symbols.sid_for(text) {
@@ -703,20 +634,15 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
             return self.raw_struct_writer.encode_field_name(text);
         }
 
-        // Otherwise, see if the symbol is already in the symbol table.
-        let token: RawSymbolRef<'_> = match self.symbols.sid_for(text) {
-            // If so, use the existing ID.
-            Some(sid) => sid.into(),
-            // If it's not but the struct writer is configured to intern new text, add it to the
-            // symbol table.
-            None if self.value_writer_config.field_name_encoding()
-                == FieldNameEncoding::SymbolIds =>
-            {
-                self.symbols.add_symbol_for_text(text).into()
-            }
-            // Otherwise, we'll write the text as-is.
-            None => text.into(),
-        };
+        let token: RawSymbolRef<'_> =
+            if self.value_writer_config.field_name_encoding() == FieldNameEncoding::SymbolIds {
+                self.symbols.get_or_add(text).into()
+            } else {
+                match self.symbols.sid_for(text) {
+                    Some(sid) => sid.into(),
+                    None => text.into(),
+                }
+            };
 
         // Finally, encode the field name using the selected token representation
         self.raw_struct_writer.encode_field_name(token)
@@ -1070,7 +996,42 @@ mod reuse_tests {
         Ok(())
     }
 
-    /// The flip side of the three cap tests, and the premise the whole API rests on: for a document
+    /// A single very large symbol grows the byte arena without growing the entry count, so the
+    /// arena needs its own retention cap independent of `IDLE_SYMBOL_RETAIN_CAP`.
+    #[test]
+    fn detach_caps_retained_symbol_text_arena() -> IonResult<()> {
+        let huge_symbol = "x".repeat(IDLE_RETAIN_CAP * 2);
+        let mut writer = idle_binary_writer()?.attach(Vec::new());
+        writer.symbols.get_or_add(&huge_symbol);
+        assert!(
+            writer.symbols.retained_text_capacity() > IDLE_RETAIN_CAP,
+            "symbol text arena did not exceed the retain cap: {} bytes",
+            writer.symbols.retained_text_capacity()
+        );
+
+        let (idle, _bytes) = writer.detach();
+        assert!(
+            idle.symbols.retained_text_capacity() <= IDLE_RETAIN_CAP,
+            "detach retained an oversized symbol text arena: {} bytes",
+            idle.symbols.retained_text_capacity()
+        );
+        assert_eq!(idle.symbols.sid_for(&huge_symbol), None);
+        assert_eq!(idle.symbols.sid_for("$ion"), Some(1));
+
+        let doc = Element::read_one(r#"{ a: 1, b: [2, 3], c: sym_c }"#)?;
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        writer.flush()?;
+        let (_idle, bytes) = writer.detach();
+        assert_eq!(
+            bytes,
+            encode_fresh(v1_0::Binary, &doc)?,
+            "reuse after a symbol text arena cap is not byte-identical to fresh"
+        );
+        Ok(())
+    }
+
+    /// The flip side of the four cap tests, and the premise the whole API rests on: for a document
     /// whose arena, buffers, and symbol table all stay UNDER their caps, `detach` must leave that warm
     /// memory exactly as it found it. A regression that reallocated any of it on every `detach` would
     /// still encode correct documents -- and would make pooling pointless -- so only this test would
@@ -1086,7 +1047,9 @@ mod reuse_tests {
             .collect::<Vec<_>>()
             .join(", ");
         let doc = Element::read_one(format!("{{ {fields} }}"))?;
-        let fresh_symbol_capacity = idle_binary_writer()?.symbols.retained_capacity();
+        let fresh_writer = idle_binary_writer()?;
+        let fresh_symbol_capacity = fresh_writer.symbols.retained_capacity();
+        let fresh_symbol_text_capacity = fresh_writer.symbols.retained_text_capacity();
 
         let mut writer = idle_binary_writer()?.attach(Vec::new());
         writer.write(&doc)?;
@@ -1099,9 +1062,11 @@ mod reuse_tests {
         let data_capacity = writer.data_writer.output().capacity();
         let directive_capacity = writer.directive_writer.output().capacity();
         let symbol_capacity = writer.symbol_table().retained_capacity();
-        // Preconditions: this document really did leave each of the four warmer than a fresh writer's,
-        // and left none of them past the cap that would (correctly) release it. Without these, the
-        // assertions below could pass by measuring memory that was never warm to begin with.
+        let symbol_text_capacity = writer.symbol_table().retained_text_capacity();
+        // Preconditions: this document really did leave each retained allocation warmer than a
+        // fresh writer's, and left none past the cap that would (correctly) release it. Without
+        // these, the assertions below could pass by measuring memory that was never warm to begin
+        // with.
         assert!(
             arena_bytes > fresh_arena_bytes() && arena_bytes <= IDLE_RETAIN_CAP,
             "the document did not leave the arena warm and under the cap: {arena_bytes} bytes"
@@ -1117,6 +1082,11 @@ mod reuse_tests {
         assert!(
             symbol_capacity > fresh_symbol_capacity && symbol_capacity <= IDLE_SYMBOL_RETAIN_CAP,
             "the document did not leave the symbol table warm and under the cap: {symbol_capacity} entries"
+        );
+        assert!(
+            symbol_text_capacity > fresh_symbol_text_capacity
+                && symbol_text_capacity <= IDLE_RETAIN_CAP,
+            "the document did not leave the symbol text arena warm and under the cap: {symbol_text_capacity} bytes"
         );
 
         let (idle, _bytes) = writer.detach();
@@ -1135,10 +1105,16 @@ mod reuse_tests {
             directive_capacity,
             "detach replaced an under-cap directive buffer instead of keeping it warm"
         );
+        let retained_symbol_capacity = idle.symbols.retained_capacity();
+        assert!(
+            retained_symbol_capacity > fresh_symbol_capacity
+                && retained_symbol_capacity <= symbol_capacity,
+            "detach did not keep the under-cap symbol table warm: before={symbol_capacity}, after={retained_symbol_capacity}, fresh={fresh_symbol_capacity}"
+        );
         assert_eq!(
-            idle.symbols.retained_capacity(),
-            symbol_capacity,
-            "detach replaced an under-cap symbol table instead of keeping it warm"
+            idle.symbols.retained_text_capacity(),
+            symbol_text_capacity,
+            "detach replaced an under-cap symbol text arena instead of keeping it warm"
         );
 
         // ...and the writer whose warm state was kept still encodes a correct document.

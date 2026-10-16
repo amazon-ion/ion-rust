@@ -227,7 +227,7 @@ macro_rules! v1_x_reader_writer {
             lazy::encoder::writer::Writer,
             lazy::reader::Reader,
             raw_symbol_ref::RawSymbolRef,
-            symbol_table::SymbolTable,
+            symbol_table::{SymbolTable, WriterSymbolTable},
             lazy::value::LazyValue,
             lazy::value_ref::ValueRef,
             lazy::r#struct::{LazyStruct, LazyField},
