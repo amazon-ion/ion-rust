@@ -84,6 +84,11 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         //
         // The bytes come from the range the detached value itself reports, so the two cannot
         // disagree; a disagreement would decode unrelated bytes as this value.
+        //
+        // For binary, `reattach_value` allocates the rebuilt value in `self.context`'s arena on
+        // every call, regardless of the value's type, and that allocation lives as long as the
+        // arena does. Methods that only need header information should use the `detached_*`
+        // accessors instead of calling this.
         let span = self
             .io_buffer
             .span_for_stream_range(Encoding::detached_range(&self.detached_value));
@@ -129,6 +134,10 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
     // the return value depends on to continue living for the same duration as the return value itself.
 
     /// Reads the value portion of this `LazyElement`.
+    ///
+    /// For binary Ion, each call allocates in this element's arena, as does iterating a container's
+    /// children. That memory is not reclaimed until the arena is dropped, so reading the same
+    /// element repeatedly grows memory; see [`LazyElement`].
     pub fn read(&self) -> IonResult<LazyResource<'_, Encoding, ValueRef<'_, Encoding>>> {
         let value = self.as_lazy_value();
         let resource = value.read()?;
@@ -137,6 +146,10 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
     }
 
     /// Returns an iterator over the annotations on this `LazyElement`.
+    ///
+    /// For binary Ion, each call allocates in this element's arena; see [`read`](Self::read). To
+    /// check whether annotations are present without allocating, use
+    /// [`has_annotations`](Self::has_annotations).
     pub fn annotations(
         &self,
     ) -> IonResult<LazyResource<'_, Encoding, AnnotationsIterator<'_, Encoding>>> {
@@ -253,9 +266,10 @@ mod tests {
     // ===== Binary =====
     //
     // The binary path erases no lifetimes, so these are expected to be Miri-clean under both
-    // aliasing models; the text tests above stay out because text still erases lifetimes. Keep this
-    // module's name in sync with `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`, which selects
-    // these tests by module path.
+    // aliasing models; the text tests above stay out because text still erases lifetimes (see
+    // https://github.com/amazon-ion/ion-rust/issues/1050). Keep this module's name in sync with
+    // `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`, which selects these tests by module
+    // path.
     mod binary_soundness_tests {
         use super::test_data;
         use crate::lazy::binary::test_utilities::to_binary_ion;

@@ -442,6 +442,8 @@ impl TextEncoding_1_0 {
 //      model violation--base Miri flags it--and it survives in practice only because the freed
 //      storage still happens to hold the old bytes. Confining it here leaves the binary encoding
 //      sound; fixing text needs a lifetime-free `EncodedTextValue`, which is a larger change.
+//      Because `DetachableValue`'s methods are safe, nothing at their call sites signals this.
+//      Tracked in https://github.com/amazon-ion/ion-rust/issues/1050.
 impl DetachableValue for TextEncoding_1_0 {
     type DetachedValue = LazyRawTextValue_1_0<'static>;
 
