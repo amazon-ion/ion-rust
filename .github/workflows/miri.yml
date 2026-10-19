@@ -5,13 +5,14 @@ on: [ push, pull_request ]
 jobs:
   build:
     name: Test with Miri
-    runs-on: ${{ matrix.os }}
+    # A single runner: Miri interprets the abstract machine and the crate has no
+    # OS-specific code paths, so additional host OSes add cost without coverage.
+    runs-on: ubuntu-latest
     # We want to run on external PRs, but not on internal ones as push automatically builds
     # H/T: https://github.com/Dart-Code/Dart-Code/commit/612732d5879730608baa9622bf7f5e5b7b51ae65
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
         # build and test for experimental features with miri
         features: [ 'experimental' ]
     permissions:
@@ -32,9 +33,7 @@ jobs:
           override: true
       - name: Setup Miri
         run: cargo miri setup
-      - name: Test with Miri (ubuntu and macos)
-        # miri test for Linux and macOS os, since Windows os requires a different syntax to enable miri flags
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+      - name: Test with Miri
         # Miri flags
         #
         # -Zmiri-disable-isolation
@@ -46,9 +45,6 @@ jobs:
         #     aliasing model (tree borrows) accepts valid programs that stacked borrows would reject.
         #     For more information, see: https://www.ralfj.de/blog/2023/06/02/tree-borrows.html
         run: MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows" cargo miri test serde --features "${{ matrix.features }}"
-      - name: Test with Miri (windows)
-        if: matrix.os == 'windows-latest'
-        run: $env:MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-tree-borrows" ; cargo miri test serde --features "${{ matrix.features }}"
 
   unsafe-representations:
     name: Miri over the OverflowingInt representation

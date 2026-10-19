@@ -468,10 +468,36 @@ impl core::convert::From<&ion_rs::Int> for ion_rs::Int
 pub fn ion_rs::Int::from(&ion_rs::Int) -> Self
 impl core::convert::From<&ion_rs::UInt> for ion_rs::Int
 pub fn ion_rs::Int::from(&ion_rs::UInt) -> Self
+impl core::convert::From<i128> for ion_rs::Int
+pub fn ion_rs::Int::from(i128) -> ion_rs::Int
+impl core::convert::From<i16> for ion_rs::Int
+pub fn ion_rs::Int::from(i16) -> ion_rs::Int
+impl core::convert::From<i32> for ion_rs::Int
+pub fn ion_rs::Int::from(i32) -> ion_rs::Int
+impl core::convert::From<i64> for ion_rs::Int
+pub fn ion_rs::Int::from(i64) -> ion_rs::Int
+impl core::convert::From<i8> for ion_rs::Int
+pub fn ion_rs::Int::from(i8) -> ion_rs::Int
 impl core::convert::From<ion_rs::Int> for ion_rs::Decimal
 pub fn ion_rs::Decimal::from(ion_rs::Int) -> Self
 impl core::convert::From<ion_rs::Int> for ion_rs::decimal::Coefficient
 pub fn ion_rs::decimal::Coefficient::from(ion_rs::Int) -> ion_rs::decimal::Coefficient
+impl core::convert::From<ion_rs::UInt> for ion_rs::Int
+pub fn ion_rs::Int::from(ion_rs::UInt) -> Self
+impl core::convert::From<isize> for ion_rs::Int
+pub fn ion_rs::Int::from(isize) -> ion_rs::Int
+impl core::convert::From<u128> for ion_rs::Int
+pub fn ion_rs::Int::from(u128) -> ion_rs::Int
+impl core::convert::From<u16> for ion_rs::Int
+pub fn ion_rs::Int::from(u16) -> ion_rs::Int
+impl core::convert::From<u32> for ion_rs::Int
+pub fn ion_rs::Int::from(u32) -> ion_rs::Int
+impl core::convert::From<u64> for ion_rs::Int
+pub fn ion_rs::Int::from(u64) -> ion_rs::Int
+impl core::convert::From<u8> for ion_rs::Int
+pub fn ion_rs::Int::from(u8) -> ion_rs::Int
+impl core::convert::From<usize> for ion_rs::Int
+pub fn ion_rs::Int::from(usize) -> ion_rs::Int
 impl core::convert::TryFrom<&ion_rs::Int> for ion_rs::UInt
 pub type ion_rs::UInt::Error = ion_rs::IonError
 pub fn ion_rs::UInt::try_from(&ion_rs::Int) -> core::result::Result<Self, Self::Error>
@@ -520,10 +546,10 @@ pub fn usize::try_from(ion_rs::Int) -> core::result::Result<Self, Self::Error>
 impl core::convert::TryFrom<ion_rs::decimal::Coefficient> for ion_rs::Int
 pub type ion_rs::Int::Error = ion_rs::IonError
 pub fn ion_rs::Int::try_from(ion_rs::decimal::Coefficient) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for ion_rs::Int
+pub fn ion_rs::Int::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for ion_rs::Int
 pub fn ion_rs::Int::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::result::Result<(), core::fmt::Error>
-impl<T> core::convert::From<T> for ion_rs::Int where T: core::convert::Into<int_data::IntData>
-pub fn ion_rs::Int::from(T) -> Self
 pub struct ion_rs::IonData<T>(_)
 impl<T: ion_rs::ion_data::ion_eq::IonEq> ion_rs::IonData<T>
 pub fn ion_rs::IonData<T>::eq<R: core::ops::deref::Deref<Target = T>>(R, R) -> bool
@@ -831,6 +857,8 @@ impl core::convert::From<&ion_rs::UInt> for ion_rs::Int
 pub fn ion_rs::Int::from(&ion_rs::UInt) -> Self
 impl core::convert::From<&ion_rs::UInt> for ion_rs::UInt
 pub fn ion_rs::UInt::from(&ion_rs::UInt) -> Self
+impl core::convert::From<ion_rs::UInt> for ion_rs::Int
+pub fn ion_rs::Int::from(ion_rs::UInt) -> Self
 impl core::convert::From<ion_rs::UInt> for ion_rs::decimal::Coefficient
 pub fn ion_rs::decimal::Coefficient::from(ion_rs::UInt) -> ion_rs::decimal::Coefficient
 impl core::convert::From<u128> for ion_rs::UInt
@@ -929,6 +957,8 @@ pub fn ion_rs::UInt::try_from(ion_rs::decimal::Coefficient) -> core::result::Res
 impl core::convert::TryFrom<isize> for ion_rs::UInt
 pub type ion_rs::UInt::Error = ion_rs::IonError
 pub fn ion_rs::UInt::try_from(isize) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for ion_rs::UInt
+pub fn ion_rs::UInt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for ion_rs::UInt
 pub fn ion_rs::UInt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::result::Result<(), core::fmt::Error>
 pub struct ion_rs::WriteConfig<E: ion_rs::lazy::encoding::Encoding>

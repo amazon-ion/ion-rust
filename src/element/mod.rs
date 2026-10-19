@@ -397,6 +397,21 @@ pub struct Element {
     location: SourceLocation,
 }
 
+// Keeps `Element` within a single 64-byte cache line on a 64-bit target; a change that grows it
+// fails to compile here rather than silently.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(std::mem::size_of::<Element>() <= 64);
+    assert!(std::mem::align_of::<Element>() <= 8);
+};
+
+// The 32-bit counterpart, so `wasm32`/`i686` check something rather than skipping.
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(std::mem::size_of::<Element>() <= 48);
+    assert!(std::mem::align_of::<Element>() <= 8);
+};
+
 impl std::fmt::Debug for Element {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         <Element as Display>::fmt(self, f)
