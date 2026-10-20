@@ -71,12 +71,15 @@ pub macro ion_rs::ion_seq!
 pub macro ion_rs::ion_sexp!
 pub macro ion_rs::ion_struct!
 #[non_exhaustive] pub enum ion_rs::IonError
+pub ion_rs::IonError::Application(ion_rs::ApplicationError)
 pub ion_rs::IonError::Conversion(ion_rs::result::conversion::ConversionError)
 pub ion_rs::IonError::Decoding(ion_rs::result::decoding_error::DecodingError)
 pub ion_rs::IonError::Encoding(ion_rs::result::encoding_error::EncodingError)
 pub ion_rs::IonError::IllegalOperation(ion_rs::result::illegal_operation::IllegalOperation)
 pub ion_rs::IonError::Incomplete(ion_rs::result::incomplete::IncompleteError)
 pub ion_rs::IonError::Io(ion_rs::result::io_error::IoError)
+impl ion_rs::IonError
+pub fn ion_rs::IonError::application(impl core::convert::Into<alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>>) -> Self
 impl core::convert::From<core::fmt::Error> for ion_rs::IonError
 pub fn ion_rs::IonError::from(core::fmt::Error) -> Self
 impl core::convert::From<core::io::error::ErrorKind> for ion_rs::IonError
@@ -193,6 +196,15 @@ pub type &'a ion_rs::Annotations::Item = &'a ion_rs::Symbol
 pub fn &'a ion_rs::Annotations::into_iter(self) -> Self::IntoIter
 impl<S: core::convert::Into<ion_rs::Symbol>> core::iter::traits::collect::FromIterator<S> for ion_rs::Annotations
 pub fn ion_rs::Annotations::from_iter<T: core::iter::traits::collect::IntoIterator<Item = S>>(T) -> Self
+pub struct ion_rs::ApplicationError
+impl ion_rs::ApplicationError
+pub fn ion_rs::ApplicationError::downcast_ref<E: core::error::Error + 'static>(&self) -> core::option::Option<&E>
+impl core::cmp::PartialEq for ion_rs::ApplicationError
+pub fn ion_rs::ApplicationError::eq(&self, &Self) -> bool
+impl core::error::Error for ion_rs::ApplicationError
+pub fn ion_rs::ApplicationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for ion_rs::ApplicationError
+pub fn ion_rs::ApplicationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct ion_rs::Blob(pub ion_rs::Bytes)
 impl ion_rs::Blob
 pub fn ion_rs::Blob::as_slice(&self) -> &[u8]

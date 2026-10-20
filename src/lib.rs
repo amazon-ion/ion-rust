@@ -150,7 +150,9 @@ pub use lazy::streaming_raw_reader::IonInput;
 pub use location::SourceLocation;
 
 #[doc(inline)]
-pub use result::{ConversionOperationError, ConversionOperationResult, IonError, IonResult};
+pub use result::{
+    ApplicationError, ConversionOperationError, ConversionOperationResult, IonError, IonResult,
+};
 #[cfg(feature = "experimental-reader-writer")]
 pub use shared_symbol_table::SharedSymbolTable;
 pub use symbol_ref::SymbolRef;

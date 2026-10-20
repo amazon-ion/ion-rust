@@ -5,11 +5,13 @@ use std::convert::From;
 use std::fmt::{Debug, Error};
 use std::{fmt, io};
 
+use ice_code::ice as cold_path;
 use thiserror::Error;
 
 #[cfg(feature = "experimental-serde")]
 use serde::{de, ser};
 
+mod application_error;
 mod conversion;
 mod decoding_error;
 mod encoding_error;
@@ -17,6 +19,7 @@ mod illegal_operation;
 mod incomplete;
 mod io_error;
 
+pub use application_error::ApplicationError;
 pub use conversion::ConversionOperationError;
 pub use conversion::ConversionOperationResult;
 pub use conversion::IonTypeExpectation;
@@ -64,6 +67,77 @@ pub enum IonError {
     /// not trivially convertable.
     #[error("{0}")]
     Conversion(#[from] ConversionError),
+
+    /// Returned when application code (for example, a `WriteAsIon`
+    /// implementation) raises its own error. See [`IonError::application`].
+    // `transparent` so that `source()` is the application's error rather than the
+    // `ApplicationError` wrapper.
+    #[error(transparent)]
+    Application(#[from] ApplicationError),
+}
+
+impl IonError {
+    /// Converts an error raised by application code into an `IonError`, wrapping it in a new
+    /// [`ApplicationError`] unless it is already an `IonError` or an `ApplicationError`.
+    ///
+    /// A wrapped error is reachable through [`source`](std::error::Error::source) and, if it was
+    /// passed in as a concrete error type, recoverable with [`ApplicationError::downcast_ref`]; see
+    /// [`ApplicationError`] for the payloads that cannot be downcast.
+    ///
+    /// If `error` is itself an `IonError` (directly or in a `Box<dyn Error + Send + Sync>`), it is
+    /// returned unchanged so that it keeps its original variant. An `ApplicationError` is returned
+    /// as an `IonError::Application` without being wrapped again, so its payload stays
+    /// downcastable. An `IonError` held inside any other type, such as an application error enum
+    /// with an `Ion(IonError)` case or an `anyhow::Error`, is not unwrapped; extract or downcast it
+    /// to `IonError` first rather than passing the whole value to this function.
+    ///
+    /// ```
+    /// use ion_rs::{IonError, IonResult};
+    ///
+    /// #[derive(Debug, thiserror::Error)]
+    /// #[error("account {0} is closed")]
+    /// struct AccountClosed(u64);
+    ///
+    /// impl From<AccountClosed> for IonError {
+    ///     fn from(error: AccountClosed) -> Self {
+    ///         IonError::application(error)
+    ///     }
+    /// }
+    ///
+    /// fn ensure_open(id: u64, closed: bool) -> Result<(), AccountClosed> {
+    ///     if closed {
+    ///         return Err(AccountClosed(id));
+    ///     }
+    ///     Ok(())
+    /// }
+    ///
+    /// fn write_account(id: u64, closed: bool) -> IonResult<()> {
+    ///     ensure_open(id, closed)?;
+    ///     // ... write the account ...
+    ///     Ok(())
+    /// }
+    ///
+    /// let error = write_account(42, true).unwrap_err();
+    /// let IonError::Application(application_error) = &error else {
+    ///     panic!("expected an application error");
+    /// };
+    /// let account_closed = application_error.downcast_ref::<AccountClosed>().unwrap();
+    /// assert_eq!(account_closed.0, 42);
+    /// assert_eq!(error.to_string(), "account 42 is closed");
+    /// ```
+    pub fn application(
+        error: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        cold_path! {
+            application_error => match error.into().downcast::<IonError>() {
+                Ok(ion_error) => *ion_error,
+                Err(error) => match error.downcast::<ApplicationError>() {
+                    Ok(wrapped) => (*wrapped).into(),
+                    Err(error) => ApplicationError::new(error).into(),
+                },
+            }
+        }
+    }
 }
 
 impl From<io::Error> for IonError {
@@ -178,9 +252,21 @@ impl<T> IonFailure for IonResult<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{IonError, IonFailure};
+    use super::{ApplicationError, IonError, IonFailure};
     use crate::position::Position;
+    use std::error::Error;
     use std::mem::{align_of, size_of};
+
+    #[derive(Debug, thiserror::Error, PartialEq)]
+    #[error("account {0} is closed")]
+    struct AccountClosed(u64);
+
+    fn application_error(error: &IonError) -> &ApplicationError {
+        match error {
+            IonError::Application(application_error) => application_error,
+            other => panic!("expected IonError::Application, found {other:?}"),
+        }
+    }
 
     /// `IonError` is returned (inside `IonResult`) from nearly every read/write operation, so its
     /// size directly inflates the size of `Result<T, IonError>` on hot paths. The largest inline
@@ -216,5 +302,85 @@ mod tests {
             incomplete.to_string(),
             "ran out of input while reading a value at offset 42"
         );
+    }
+
+    #[test]
+    fn ion_error_is_send_sync_static() {
+        fn assert_send_sync_static<T: Send + Sync + 'static>() {}
+        assert_send_sync_static::<IonError>();
+    }
+
+    #[test]
+    fn application_error_downcasts_to_original() {
+        let error = IonError::application(AccountClosed(42));
+        let wrapped = application_error(&error).downcast_ref::<AccountClosed>();
+        assert_eq!(wrapped, Some(&AccountClosed(42)));
+        assert!(application_error(&error)
+            .downcast_ref::<std::fmt::Error>()
+            .is_none());
+    }
+
+    #[test]
+    fn application_error_displays_original() {
+        let error = IonError::application(AccountClosed(42));
+        assert_eq!(error.to_string(), "account 42 is closed");
+    }
+
+    #[test]
+    fn application_error_source_is_original() {
+        let error = IonError::application(AccountClosed(42));
+        let source = error
+            .source()
+            .and_then(|e| e.downcast_ref::<AccountClosed>());
+        assert_eq!(source, Some(&AccountClosed(42)));
+    }
+
+    #[test]
+    fn application_error_accepts_string_message() {
+        let error = IonError::application("something went wrong");
+        assert_eq!(error.to_string(), "something went wrong");
+    }
+
+    #[test]
+    fn application_returns_ion_error_unchanged() {
+        let original = IonError::encoding_error("bad value");
+        let error = IonError::application(original.clone());
+        assert_eq!(error, original);
+    }
+
+    #[test]
+    fn application_returns_boxed_ion_error_unchanged() {
+        let original = IonError::encoding_error("bad value");
+        let boxed = Box::new(original.clone()) as Box<dyn Error + Send + Sync>;
+        let error = IonError::application(boxed);
+        assert_eq!(error, original);
+    }
+
+    #[test]
+    fn application_does_not_rewrap_application_error() {
+        let original = IonError::application(AccountClosed(42));
+        let error = IonError::application(application_error(&original).clone());
+        assert_eq!(error, original);
+    }
+
+    #[test]
+    fn application_error_downcasts_boxed_original() {
+        let boxed = Box::new(AccountClosed(42)) as Box<dyn Error + Send + Sync>;
+        let error = IonError::application(boxed);
+        let wrapped = application_error(&error).downcast_ref::<AccountClosed>();
+        assert_eq!(wrapped, Some(&AccountClosed(42)));
+    }
+
+    #[test]
+    fn application_error_equals_its_clone() {
+        let error = IonError::application(AccountClosed(42));
+        assert_eq!(error, error.clone());
+    }
+
+    #[test]
+    fn separately_constructed_application_errors_are_not_equal() {
+        let a = IonError::application(AccountClosed(42));
+        let b = IonError::application(AccountClosed(42));
+        assert_ne!(a, b);
     }
 }
