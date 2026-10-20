@@ -91,6 +91,7 @@ pub struct EncodingContext {
 }
 
 impl Clone for EncodingContext {
+    #[inline]
     fn clone(&self) -> Self {
         // If this EncodingContext previously held a (now dying) reference to the current input,
         // we need to give it its own IoBuffer to guarantee the bytes are available as long as it is.

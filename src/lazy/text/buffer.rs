@@ -19,7 +19,7 @@ use crate::lazy::raw_stream_item::{EndPosition, LazyRawStreamItem, RawStreamItem
 use crate::lazy::text::encoded_value::EncodedTextValue;
 use crate::lazy::text::matched::{
     MatchedBlob, MatchedClob, MatchedDecimal, MatchedFieldName, MatchedFieldNameSyntax,
-    MatchedFloat, MatchedInt, MatchedString, MatchedSymbol, MatchedTimestamp,
+    MatchedFloat, MatchedInt, MatchedScalar, MatchedString, MatchedSymbol, MatchedTimestamp,
     MatchedTimestampOffset, MatchedValue,
 };
 use crate::lazy::text::parse_result::IonParseError;
@@ -37,7 +37,7 @@ use winnow::ascii::{digit0, digit1};
 macro_rules! scalar_value_matchers {
     ($($parser:expr =>  $variant:ident => $new_parser:ident),*$(,)?) => {
         $(fn $new_parser<E: TextEncoding>(&mut self) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
-            $parser.map(|matched| EncodedTextValue::new(MatchedValue::$variant(matched))).parse_next(self)
+            $parser.map(|matched| EncodedTextValue::new(MatchedValue::Scalar(MatchedScalar::$variant(matched)))).parse_next(self)
         })*
     };
 }
@@ -1003,7 +1003,9 @@ impl<'top> TextBuffer<'top> {
         one_or_more(one_of(b"!#%&*+-./;<=>?@^`|~"))
             .map(|text: TextBuffer<'_>| LazyRawTextValue {
                 input: text,
-                encoded_value: EncodedTextValue::new(MatchedValue::Symbol(MatchedSymbol::Operator)),
+                encoded_value: EncodedTextValue::new(MatchedValue::Scalar(MatchedScalar::Symbol(
+                    MatchedSymbol::Operator,
+                ))),
             })
             .parse_next(self)
     }

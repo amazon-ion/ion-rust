@@ -266,9 +266,8 @@ pub(crate) mod private {
         /// A lifetime-free representation of a `Decoder::Value`.
         type DetachedValue: 'static + Debug;
 
-        /// Copies the metadata needed to re-create `value` later. `span` holds the same bytes and
-        /// offset as `value`'s span, but from storage that outlives the reader.
-        fn detach_value(value: <Self as Decoder>::Value<'_>, span: Span<'_>) -> Self::DetachedValue
+        /// Copies the metadata needed to re-create `value` later.
+        fn detach_value(value: <Self as Decoder>::Value<'_>) -> Self::DetachedValue
         where
             Self: Decoder;
 
@@ -284,13 +283,17 @@ pub(crate) mod private {
         fn detached_is_null(detached: &Self::DetachedValue) -> bool;
         fn detached_has_annotations(detached: &Self::DetachedValue) -> bool;
 
-        /// Re-creates a detached value, borrowing from storage the caller owns. `span` must be the
-        /// bytes at [`detached_range`](Self::detached_range); nothing is re-parsed.
+        /// Re-creates a detached value.
+        ///
+        /// `span` must be the bytes at [`detached_range`](Self::detached_range). `context` must
+        /// hold the same bytes, because an encoding may re-parse the value from it. The result
+        /// borrows from `context` and `span`, or from storage that `detached` keeps alive. Returns
+        /// an error if a re-parse fails.
         fn reattach_value<'a>(
             detached: &'a Self::DetachedValue,
             context: EncodingContextRef<'a>,
             span: Span<'a>,
-        ) -> <Self as Decoder>::Value<'a>
+        ) -> IonResult<<Self as Decoder>::Value<'a>>
         where
             Self: Decoder;
     }

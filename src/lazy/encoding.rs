@@ -10,14 +10,16 @@ use crate::lazy::binary::raw::sequence::{LazyRawBinaryList_1_0, LazyRawBinarySEx
 use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::private::DetachableValue;
-use crate::lazy::decoder::{Decoder, LazyRawValue};
+use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::Encoder;
-use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::span::Span;
+use crate::lazy::streaming_raw_reader::IoBuffer;
 use crate::lazy::text::buffer::{whitespace_and_then, IonParser, TextBuffer};
-use crate::lazy::text::encoded_value::EncodedTextValue;
+use crate::lazy::text::encoded_value::{EncodedTextScalar, EncodedTextValue};
 use crate::lazy::text::matched::MatchedValue;
+use crate::lazy::text::parse_result::WithContext;
 use crate::lazy::text::raw::r#struct::{
     LazyRawTextFieldName, LazyRawTextStruct, RawTextStructIterator,
 };
@@ -34,10 +36,12 @@ use crate::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, HasRange, IonError, IonResult,
     IonType, LazyRawFieldExpr, SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
 };
+use std::cell::OnceCell;
 use std::fmt::Debug;
 use std::io;
-use std::mem;
 use std::ops::Range;
+use std::ptr::NonNull;
+use std::rc::Rc;
 use winnow::combinator::{opt, separated_pair};
 use winnow::Parser;
 
@@ -322,8 +326,8 @@ impl DetachableValue for BinaryEncoding_1_0 {
     // owns, so detaching needs no lifetime erasure.
     type DetachedValue = EncodedBinaryValue<Header>;
 
-    fn detach_value(value: <Self as Decoder>::Value<'_>, _span: Span<'_>) -> Self::DetachedValue {
-        // `EncodedBinaryValue` is `Copy` and holds no references; reattaching re-finds `_span`'s
+    fn detach_value(value: <Self as Decoder>::Value<'_>) -> Self::DetachedValue {
+        // `EncodedBinaryValue` is `Copy` and holds no references; reattaching finds the value's
         // bytes from the offsets it carries.
         value.encoded_value
     }
@@ -351,13 +355,13 @@ impl DetachableValue for BinaryEncoding_1_0 {
         detached: &'a Self::DetachedValue,
         context: EncodingContextRef<'a>,
         span: Span<'a>,
-    ) -> <Self as Decoder>::Value<'a> {
+    ) -> IonResult<<Self as Decoder>::Value<'a>> {
         // `detached`'s offsets are stream-relative, so the buffer must know its own position.
         let input = BinaryBuffer::new_with_offset(context, span.bytes(), span.offset());
-        context.allocator().alloc_with(|| LazyRawBinaryValue_1_0 {
+        Ok(context.allocator().alloc_with(|| LazyRawBinaryValue_1_0 {
             encoded_value: *detached,
             input,
-        })
+        }))
     }
 }
 
@@ -374,113 +378,188 @@ impl Decoder for TextEncoding_1_0 {
     type VersionMarker<'top> = LazyRawTextVersionMarker_1_0<'top>;
 }
 
-impl TextEncoding_1_0 {
-    /// Re-points `value` at `span`'s bytes--which must hold the same bytes, at the same stream
-    /// offset, as `value`'s own span, but read from storage that outlives the reader--and erases the
-    /// result's lifetime.
-    ///
-    /// # Safety
-    ///
-    /// The `'static` lifetime on the returned value is a lie. The caller must keep `span`'s storage
-    /// alive for as long as the returned value is used, must not expose the `'static` lifetime
-    /// (shorten it again with
-    /// [`reattach_value_unchecked`](Self::reattach_value_unchecked) before handing the value out),
-    /// and must keep alive everything else the value borrows.
-    ///
-    /// That last requirement cannot be met today: the returned value retains an
-    /// `EncodingContextRef` borrowed from the reader. See the `XXX` note on
-    /// `impl DetachableValue for TextEncoding_1_0` below.
-    unsafe fn detach_value_unchecked(
-        value: LazyRawTextValue_1_0<'_>,
-        span: Span<'_>,
-    ) -> LazyRawTextValue_1_0<'static> {
-        // SAFETY: The caller has promised that `span`'s bytes outlive the reader; this widens that
-        //         to `'static`.
-        let bytes: &'static [u8] = unsafe { mem::transmute::<&[u8], &'static [u8]>(span.bytes()) };
-        // Re-point the value at `bytes` (which outlive the reader), reusing its `encoded_value`
-        // as-is. `span` must hold the same bytes at the same offset as the value's own span, or the
-        // reused `encoded_value` would silently decode the wrong bytes.
-        let relocated = LazyRawTextValue {
-            input: TextBuffer::from_span(
-                value.input.context(),
-                Span::with_offset(span.offset(), bytes),
-                true,
-            ),
-            ..value
-        };
-        // SAFETY: Per this method's contract, which the caller has accepted.
-        unsafe {
-            mem::transmute::<LazyRawTextValue_1_0<'_>, LazyRawTextValue_1_0<'static>>(relocated)
-        }
-    }
+/// The lifetime-free form of a [`LazyRawTextValue_1_0`]; see
+/// [`DetachableValue::DetachedValue`].
+#[derive(Debug)]
+pub struct DetachedTextValue {
+    // The stream offsets of the value, annotations included.
+    range: Range<usize>,
+    kind: DetachedTextKind,
+}
 
-    /// Shortens a detached value's `'static` lifetime to `'a`.
-    ///
-    /// # Safety
-    ///
-    /// `LazyRawTextValue_1_0` is immutable, so handing out a shorter lifetime would be sound on its
-    /// own--a plain coercion would do if the type were not lifetime-invariant. What is not sound is
-    /// that the value's contents may already be dangling; the caller must guarantee that everything
-    /// [`detach_value_unchecked`](Self::detach_value_unchecked) required to stay alive is still
-    /// alive.
-    unsafe fn reattach_value_unchecked<'a>(
-        detached: LazyRawTextValue_1_0<'static>,
-    ) -> LazyRawTextValue_1_0<'a> {
-        // SAFETY: Per this method's contract, which the caller has accepted.
-        unsafe {
-            mem::transmute::<LazyRawTextValue_1_0<'static>, LazyRawTextValue_1_0<'a>>(detached)
-        }
+#[derive(Debug)]
+enum DetachedTextKind {
+    // A scalar's encoding borrows nothing, so it is stored as-is and rebuilt without re-parsing.
+    // This also keeps s-expression operators (e.g. `+` in `(+ 1)`) readable; they only match
+    // inside an s-expression, so re-parsing one on its own would fail.
+    Scalar(EncodedTextScalar),
+    // A container's encoding borrows its children from the reader's arena, so it is re-parsed
+    // from the stored bytes on first read and cached.
+    Container {
+        ion_type: IonType,
+        has_annotations: bool,
+        parsed: OnceCell<ParsedTextContainer>,
+    },
+}
+
+/// A container re-parsed from a `LazyElement`'s bytes.
+///
+/// `value` and its children reference only allocations `owner` keeps alive: its encoding context,
+/// that context's arena, and the bytes behind its `io_buffer` (a heap `Rc<[u8]>`). Moving the
+/// struct moves none of them. The value is held through a raw pointer rather than inline so that
+/// no reference into that storage is stored in the struct: a `LazyElement` passed by value would
+/// otherwise have those references protected for the duration of a call that may drop it, which
+/// Stacked and Tree Borrows reject.
+#[derive(Debug)]
+struct ParsedTextContainer {
+    // Never read; owns the storage `value` points into. `Rc` rather than `Box` because moving a
+    // `Box` asserts unique access to its pointee, which would invalidate the references the parsed
+    // tree holds into it.
+    #[allow(dead_code)]
+    owner: Rc<ParsedTextOwner>,
+    value: NonNull<LazyRawTextValue_1_0<'static>>,
+}
+
+/// The storage a [`ParsedTextContainer`]'s value points into.
+#[derive(Debug)]
+struct ParsedTextOwner {
+    context: EncodingContext,
+    // A handle to the same bytes `context` captured. It pins them independently of `context`'s
+    // `UnsafeCell<IoBufferSource>`, which `EncodingContext::set_io_buffer_handle` can overwrite
+    // through a shared reference.
+    io_buffer: IoBuffer,
+}
+
+impl ParsedTextContainer {
+    /// Re-parses the container at `detached`'s range from a clone of `context` and its bytes.
+    fn parse(context: EncodingContextRef<'_>, detached: &DetachedTextValue) -> IonResult<Self> {
+        let context = context.context.clone();
+        let io_buffer = context.save_io_buffer();
+        let owner = Rc::new(ParsedTextOwner { context, io_buffer });
+        let owner_ptr = Rc::as_ptr(&owner);
+        // SAFETY: Both references point into heap allocations that the returned struct keeps alive
+        //         through `owner` and that are not freed, mutably borrowed, or written while it
+        //         lives. No other `Rc` owns `owner`'s pointee, so nothing frees it or obtains
+        //         `&mut` to it. Its context's `io_buffer_source` is written only by a reader, on
+        //         the reader's own context (`EncodingContext::set_io_buffer_handle`,
+        //         `ExpandingReader::between_top_level_expressions`), never on a clone such as this
+        //         one. The bytes are `io_buffer`'s `Rc<[u8]>`, which the reader copies on write
+        //         rather than mutating while shared. The symbol table reached through `context_ref`
+        //         is copied rather than mutated while shared (`EncodingContext::symbol_table_mut`).
+        //         The arena is shared with the reader and with other `LazyElement`s, which allocate
+        //         in it, but it is never reset while shared (`EncodingContext::make_allocator_mut`
+        //         installs a fresh one), so allocations made in it, including this parse's, are not
+        //         overwritten or freed while `owner` lives. The `'static` lifetime reaches callers
+        //         only through `value`; an error returned below is owned and retains neither
+        //         reference.
+        let (context_ref, bytes): (EncodingContextRef<'static>, &'static [u8]) = unsafe {
+            (
+                EncodingContextRef::new(&(*owner_ptr).context),
+                (*owner_ptr)
+                    .io_buffer
+                    .bytes_for_stream_range(detached.range.clone()),
+            )
+        };
+        let start = TextBuffer::from_span(
+            context_ref,
+            Span::with_offset(detached.range.start, bytes),
+            true,
+        );
+        let mut input = start;
+        let value = input
+            .match_annotated_value::<TextEncoding_1_0>()
+            .with_context("re-reading a stored text container", start)?;
+        debug_assert!(
+            input.is_empty(),
+            "re-parsing a stored text container left {} bytes unread",
+            input.len()
+        );
+        debug_assert_eq!(
+            TextEncoding_1_0::detached_ion_type(detached),
+            value.encoded_value.ion_type()
+        );
+        debug_assert_eq!(
+            TextEncoding_1_0::detached_has_annotations(detached),
+            value.has_annotations()
+        );
+        let value = NonNull::from(context_ref.allocator().alloc(value));
+        Ok(Self { owner, value })
     }
 }
 
-// A text value cannot be stored without a lifetime--`EncodedTextValue<'top>` is lifetime-invariant
-// and its container variants borrow the arena--so text keeps the historical approach of erasing it.
-//
-// XXX: That erasure is unsound. The detached value holds an `EncodingContextRef` (and a byte slice)
-//      borrowed from the reader and transmuted to `'static`; once the reader is dropped or advanced,
-//      that borrow dangles. This is a genuine use-after-free, not merely a Stacked/Tree Borrows
-//      model violation--base Miri flags it--and it survives in practice only because the freed
-//      storage still happens to hold the old bytes. Confining it here leaves the binary encoding
-//      sound; fixing text needs a lifetime-free `EncodedTextValue`, which is a larger change.
-//      Because `DetachableValue`'s methods are safe, nothing at their call sites signals this.
-//      Tracked in https://github.com/amazon-ion/ion-rust/issues/1050.
 impl DetachableValue for TextEncoding_1_0 {
-    type DetachedValue = LazyRawTextValue_1_0<'static>;
+    type DetachedValue = DetachedTextValue;
 
-    fn detach_value(value: <Self as Decoder>::Value<'_>, span: Span<'_>) -> Self::DetachedValue {
-        // SAFETY: `span` is the caller-owned copy of this value's bytes, as this method's contract
-        //         requires. The remaining requirements cannot be met; see the `XXX` note above.
-        unsafe { Self::detach_value_unchecked(value, span) }
+    fn detach_value(value: <Self as Decoder>::Value<'_>) -> Self::DetachedValue {
+        let kind = match value.encoded_value.as_scalar() {
+            Some(scalar) => DetachedTextKind::Scalar(scalar),
+            None => DetachedTextKind::Container {
+                ion_type: value.encoded_value.ion_type(),
+                has_annotations: value.has_annotations(),
+                parsed: OnceCell::new(),
+            },
+        };
+        DetachedTextValue {
+            range: value.range(),
+            kind,
+        }
     }
 
     fn detached_range(detached: &Self::DetachedValue) -> Range<usize> {
-        // The input buffer spans exactly the (possibly annotated) value.
-        detached.range()
+        detached.range.clone()
     }
 
-    // These read the detached value's inline `EncodedTextValue`, dereferencing none of its
-    // possibly-dangling references, so they add no exposure beyond the `XXX` note above.
-
     fn detached_ion_type(detached: &Self::DetachedValue) -> IonType {
-        LazyRawValue::ion_type(detached)
+        match &detached.kind {
+            DetachedTextKind::Scalar(scalar) => scalar.ion_type(),
+            DetachedTextKind::Container { ion_type, .. } => *ion_type,
+        }
     }
 
     fn detached_is_null(detached: &Self::DetachedValue) -> bool {
-        LazyRawValue::is_null(detached)
+        match &detached.kind {
+            DetachedTextKind::Scalar(scalar) => scalar.is_null(),
+            DetachedTextKind::Container { .. } => false,
+        }
     }
 
     fn detached_has_annotations(detached: &Self::DetachedValue) -> bool {
-        detached.has_annotations() // Inherent impl; identical to the `LazyRawValue` method.
+        match &detached.kind {
+            DetachedTextKind::Scalar(scalar) => scalar.has_annotations(),
+            DetachedTextKind::Container {
+                has_annotations, ..
+            } => *has_annotations,
+        }
     }
 
     fn reattach_value<'a>(
         detached: &'a Self::DetachedValue,
-        _context: EncodingContextRef<'a>,
-        _span: Span<'a>,
-    ) -> <Self as Decoder>::Value<'a> {
-        // SAFETY: See the `XXX` note above; the requirement that the detached value not already be
-        //         dangling cannot be met.
-        unsafe { Self::reattach_value_unchecked(*detached) }
+        context: EncodingContextRef<'a>,
+        span: Span<'a>,
+    ) -> IonResult<<Self as Decoder>::Value<'a>> {
+        // Scalars are rebuilt over `span` without re-parsing. A container is re-parsed once, from
+        // `context`'s bytes, into the cache in `detached`.
+        let parsed = match &detached.kind {
+            DetachedTextKind::Scalar(scalar) => {
+                let input = TextBuffer::from_span(context, span, true);
+                return Ok(LazyRawTextValue::new(scalar.to_encoded_value(), input));
+            }
+            DetachedTextKind::Container { parsed, .. } => match parsed.get() {
+                Some(parsed) => parsed,
+                None => {
+                    let container = ParsedTextContainer::parse(context, detached)?;
+                    parsed.get_or_init(|| container)
+                }
+            },
+        };
+        // SAFETY: `parsed.value` was allocated in `parsed.owner`'s context's arena and references
+        //         only allocations `parsed.owner` keeps alive: that context, its arena, and the
+        //         bytes behind its `io_buffer`. The allocation `value` points to and the bytes it
+        //         references are never written or freed while `parsed` lives: the arena only grows
+        //         (the reader installs a fresh arena rather than resetting a shared one; see
+        //         `EncodingContext::make_allocator_mut`), and the bytes are copied on write while
+        //         shared. `parsed` lives in `detached`, which is borrowed for `'a`.
+        Ok(unsafe { *parsed.value.cast::<LazyRawTextValue_1_0<'a>>().as_ptr() })
     }
 }
 

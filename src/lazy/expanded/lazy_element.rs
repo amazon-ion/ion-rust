@@ -46,9 +46,17 @@ impl<Encoding: Decoder, Resource> Deref for LazyResource<'_, Encoding, Resource>
 /// This requires a small amount of bookkeeping overhead, but eliminates the need for lifetimes.
 /// `LazyElement` instances can be stored indefinitely and read any number of times.
 ///
-/// Storing one keeps those resources (input bytes, symbol table, bump arena) alive, and each read
-/// rebuilds the value in the arena without reclaiming it, so reading the *same* element many times
-/// accumulates memory; convert it to an owned [`Element`] instead.
+/// Storing one keeps those resources (input bytes, symbol table, bump arena) alive. Reading it
+/// allocates in that arena, which reclaims nothing until it is dropped:
+///
+/// * Binary Ion rebuilds the value on every read.
+/// * Text Ion re-parses a container's subtree once, on its first read. Storing and reading every
+///   level of a text tree this way costs parse work and arena space proportional to its size times
+///   its depth.
+/// * Text Ion also allocates on every read that decodes an escaped or multi-segment string, an
+///   escaped symbol, a blob, or a clob.
+///
+/// To read the *same* element many times, convert it to an owned [`Element`] instead.
 pub struct LazyElement<Encoding: Decoder = AnyEncoding> {
     // Cloned from the reader's context; keeps its symbol table and arena alive.
     context: EncodingContext,
@@ -60,8 +68,8 @@ pub struct LazyElement<Encoding: Decoder = AnyEncoding> {
 }
 
 impl<Encoding: Decoder> LazyElement<Encoding> {
-    /// `io_buffer` must hold the same input bytes as `context`, which must be a clone of the
-    /// reader's.
+    /// `context` must be a clone of the reader's, and `io_buffer` a handle to that clone's own
+    /// `IoBuffer` (`context.save_io_buffer()`), so that both hold the same bytes.
     pub(crate) fn new(
         context: EncodingContext,
         io_buffer: IoBuffer,
@@ -74,13 +82,14 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         }
     }
 
-    pub(crate) fn as_lazy_value<'top>(&'top self) -> LazyValue<'top, Encoding> {
+    pub(crate) fn as_lazy_value<'top>(&'top self) -> IonResult<LazyValue<'top, Encoding>> {
         let context = self.context.get_ref();
-        // Rebuild a value that borrows from this `LazyElement` rather than from the reader; nothing
-        // is re-parsed, only the backing byte slice. This happens per call rather than once at
-        // construction because the rebuilt value borrows `self.context`, which lives inline in this
-        // struct; a `LazyElement` that was moved (into a `Vec`, say) would leave a cached value
-        // pointing at the old address.
+        // Rebuild a value that borrows from this `LazyElement` rather than from the reader. This
+        // happens per call rather than once at construction because the rebuilt value borrows
+        // `self.context`, which lives inline in this struct; a `LazyElement` that was moved (into a
+        // `Vec`, say) would leave a cached value pointing at the old address. Scalars are not
+        // re-parsed. A text container is re-parsed once, into a cache in `detached_value` that
+        // owns its storage on the heap and so survives moves.
         //
         // The bytes come from the range the detached value itself reports, so the two cannot
         // disagree; a disagreement would decode unrelated bytes as this value.
@@ -89,15 +98,15 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         // every call, regardless of the value's type, and that allocation lives as long as the
         // arena does. Methods that only need header information should use the `detached_*`
         // accessors instead of calling this.
-        let span = self
-            .io_buffer
-            .span_for_stream_range(Encoding::detached_range(&self.detached_value));
-        let value = Encoding::reattach_value(&self.detached_value, context, span);
+        let range = Encoding::detached_range(&self.detached_value);
+        let span = self.io_buffer.span_for_stream_range(range.clone());
+        debug_assert_eq!(range, span.range());
+        let value = Encoding::reattach_value(&self.detached_value, context, span)?;
         let expanded: LazyExpandedValue<'top, Encoding> = LazyExpandedValue {
             context,
             source: ExpandedValueSource::ValueLiteral(value),
         };
-        LazyValue::new(expanded)
+        Ok(LazyValue::new(expanded))
     }
 }
 
@@ -136,10 +145,12 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
     /// Reads the value portion of this `LazyElement`.
     ///
     /// For binary Ion, each call allocates in this element's arena, as does iterating a container's
-    /// children. That memory is not reclaimed until the arena is dropped, so reading the same
-    /// element repeatedly grows memory; see [`LazyElement`].
+    /// children. For text Ion, the first method that reads a container re-parses it into the
+    /// arena, and reading an escaped or multi-segment string, an escaped symbol, a blob, or a clob
+    /// allocates; see [`LazyElement`]. That memory is not reclaimed until the arena is dropped, so
+    /// reading the same element repeatedly can grow memory; see [`LazyElement`].
     pub fn read(&self) -> IonResult<LazyResource<'_, Encoding, ValueRef<'_, Encoding>>> {
-        let value = self.as_lazy_value();
+        let value = self.as_lazy_value()?;
         let resource = value.read()?;
 
         Ok(LazyResource { value, resource })
@@ -147,13 +158,13 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
 
     /// Returns an iterator over the annotations on this `LazyElement`.
     ///
-    /// For binary Ion, each call allocates in this element's arena; see [`read`](Self::read). To
-    /// check whether annotations are present without allocating, use
-    /// [`has_annotations`](Self::has_annotations).
+    /// For binary Ion, each call allocates in this element's arena; for a text container, the first
+    /// method that reads it re-parses it. See [`read`](Self::read). To check whether annotations
+    /// are present without allocating, use [`has_annotations`](Self::has_annotations).
     pub fn annotations(
         &self,
     ) -> IonResult<LazyResource<'_, Encoding, AnnotationsIterator<'_, Encoding>>> {
-        let value = self.as_lazy_value();
+        let value = self.as_lazy_value()?;
         let resource = value.annotations();
 
         Ok(LazyResource { value, resource })
@@ -161,11 +172,11 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
 
     /// Returns the encoding context that this `LazyElement` uses to read its data.
     #[allow(dead_code)]
-    pub(crate) fn context(&self) -> LazyResource<'_, Encoding, EncodingContextRef<'_>> {
-        let value = self.as_lazy_value();
+    pub(crate) fn context(&self) -> IonResult<LazyResource<'_, Encoding, EncodingContextRef<'_>>> {
+        let value = self.as_lazy_value()?;
         let resource = value.context();
 
-        LazyResource { value, resource }
+        Ok(LazyResource { value, resource })
     }
 }
 
@@ -179,7 +190,7 @@ impl<Encoding: Decoder> TryFrom<LazyElement<Encoding>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_element: LazyElement<Encoding>) -> Result<Self, Self::Error> {
-        lazy_element.as_lazy_value().try_into()
+        lazy_element.as_lazy_value()?.try_into()
     }
 }
 
@@ -187,14 +198,17 @@ impl<Encoding: Decoder> TryFrom<&LazyElement<Encoding>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_element: &LazyElement<Encoding>) -> Result<Self, Self::Error> {
-        lazy_element.as_lazy_value().try_into()
+        lazy_element.as_lazy_value()?.try_into()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::lazy::expanded::lazy_element::LazyElement;
-    use crate::{AnyEncoding, Element, IonResult, Reader, Sequence};
+    use crate::read_config::ReadConfig;
+    use crate::{
+        AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader, Sequence, ValueRef,
+    };
 
     fn test_data() -> String {
         let test_data = r#"
@@ -263,22 +277,116 @@ mod tests {
         Ok(())
     }
 
+    // ===== Helpers for the soundness tests =====
+
+    /// The reader owns its input, so dropping it frees the bytes it parsed from.
+    fn store_elements_then_drop_reader<E: Decoder + Into<ReadConfig<E>>>(
+        encoding: E,
+        ion_data: impl Into<Vec<u8>>,
+    ) -> IonResult<Vec<LazyElement<E>>> {
+        let mut reader = Reader::new(encoding, ion_data.into())?;
+        let elements = (&mut reader).collect::<IonResult<Vec<LazyElement<E>>>>()?;
+        drop(reader);
+        Ok(elements)
+    }
+
+    /// Appends the `IonType` of `value` and its descendants to `types`, exercising stored
+    /// containers' lazy child iterators directly.
+    fn collect_ion_types<E: Decoder>(
+        value: LazyValue<'_, E>,
+        types: &mut Vec<IonType>,
+    ) -> IonResult<()> {
+        types.push(value.ion_type());
+        match value.read()? {
+            ValueRef::List(list) => {
+                for child in list.iter() {
+                    collect_ion_types(child?, types)?;
+                }
+            }
+            ValueRef::SExp(sexp) => {
+                for child in sexp.iter() {
+                    collect_ion_types(child?, types)?;
+                }
+            }
+            ValueRef::Struct(fields) => {
+                for field in fields.iter() {
+                    collect_ion_types(field?.value(), types)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// The `IonType`s of `elements` and their descendants, in depth-first order.
+    fn traverse_all<E: Decoder>(elements: &[LazyElement<E>]) -> IonResult<Vec<IonType>> {
+        let mut types = Vec::new();
+        for element in elements {
+            collect_ion_types(element.as_lazy_value()?, &mut types)?;
+        }
+        Ok(types)
+    }
+
+    fn assert_elements_match_text(
+        text: &str,
+        elements: &[LazyElement<impl Decoder>],
+    ) -> IonResult<()> {
+        let expected = Element::read_all(text)?;
+        assert_eq!(
+            expected.len(),
+            elements.len(),
+            "stored a different number of values than `Element::read_all` found"
+        );
+        let actual = elements
+            .iter()
+            .map(Element::try_from)
+            .collect::<IonResult<Vec<Element>>>()?;
+        assert!(expected.iter().eq(&actual));
+        Ok(())
+    }
+
+    /// Checks each element's header accessors against those of its `LazyValue`.
+    fn assert_header_accessors_match_lazy_value(
+        elements: &[LazyElement<impl Decoder>],
+    ) -> IonResult<()> {
+        for (index, element) in elements.iter().enumerate() {
+            let value = element.as_lazy_value()?;
+            let context = format!("value #{index} ({:?})", value.ion_type());
+            assert_eq!(value.ion_type(), element.ion_type(), "ion_type: {context}");
+            assert_eq!(value.is_null(), element.is_null(), "is_null: {context}");
+            assert_eq!(
+                value.is_container(),
+                element.is_container(),
+                "is_container: {context}"
+            );
+            assert_eq!(
+                value.is_scalar(),
+                element.is_scalar(),
+                "is_scalar: {context}"
+            );
+            assert_eq!(
+                value.has_annotations(),
+                element.has_annotations(),
+                "has_annotations: {context}"
+            );
+        }
+        Ok(())
+    }
+
     // ===== Binary =====
     //
-    // The binary path erases no lifetimes, so these are expected to be Miri-clean under both
-    // aliasing models; the text tests above stay out because text still erases lifetimes (see
-    // https://github.com/amazon-ion/ion-rust/issues/1050). Keep this module's name in sync with
-    // `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`, which selects these tests by module
-    // path.
+    // Keep this module's name in sync with `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`,
+    // which selects these tests by module path.
     mod binary_soundness_tests {
-        use super::test_data;
+        use super::{
+            assert_elements_match_text, assert_header_accessors_match_lazy_value,
+            collect_ion_types, store_elements_then_drop_reader, test_data,
+        };
         use crate::lazy::binary::test_utilities::to_binary_ion;
         use crate::lazy::encoding::BinaryEncoding_1_0;
         use crate::lazy::expanded::lazy_element::LazyElement;
         use crate::read_config::ReadConfig;
-        use crate::{
-            AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader, ValueRef,
-        };
+        use crate::{AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader};
         use rstest::rstest;
         use std::io::{BufReader, Cursor};
 
@@ -305,62 +413,6 @@ mod tests {
                 SExp, Symbol, SExp, Int, Int, Struct, Int, // annotated::[11]
                 List, Int,
             ]
-        }
-
-        fn store_elements_then_drop_reader<E: Decoder + Into<ReadConfig<E>>>(
-            encoding: E,
-            ion_data: Vec<u8>,
-        ) -> IonResult<Vec<LazyElement<E>>> {
-            let mut reader = Reader::new(encoding, ion_data)?;
-            let elements = (&mut reader).collect::<IonResult<Vec<LazyElement<E>>>>()?;
-            drop(reader);
-            Ok(elements)
-        }
-
-        /// Appends the `IonType` of `value` and its descendants to `types`, exercising stored
-        /// containers' lazy child iterators directly.
-        fn collect_ion_types<E: Decoder>(
-            value: LazyValue<'_, E>,
-            types: &mut Vec<IonType>,
-        ) -> IonResult<()> {
-            types.push(value.ion_type());
-            match value.read()? {
-                ValueRef::List(list) => {
-                    for child in list.iter() {
-                        collect_ion_types(child?, types)?;
-                    }
-                }
-                ValueRef::SExp(sexp) => {
-                    for child in sexp.iter() {
-                        collect_ion_types(child?, types)?;
-                    }
-                }
-                ValueRef::Struct(fields) => {
-                    for field in fields.iter() {
-                        collect_ion_types(field?.value(), types)?;
-                    }
-                }
-                _ => {}
-            }
-            Ok(())
-        }
-
-        fn assert_elements_match_text(
-            text: &str,
-            elements: &[LazyElement<impl Decoder>],
-        ) -> IonResult<()> {
-            let expected = Element::read_all(text)?;
-            assert_eq!(
-                expected.len(),
-                elements.len(),
-                "stored a different number of values than `Element::read_all` found"
-            );
-            let actual = elements
-                .iter()
-                .map(Element::try_from)
-                .collect::<IonResult<Vec<Element>>>()?;
-            assert!(expected.iter().eq(&actual));
-            Ok(())
         }
 
         /// Checks the materialized values and the header accessors of one equivalence class against
@@ -412,14 +464,14 @@ mod tests {
 
             let mut actual = Vec::new();
             for element in &elements {
-                collect_ion_types(element.as_lazy_value(), &mut actual)?;
+                collect_ion_types(element.as_lazy_value()?, &mut actual)?;
             }
             assert_eq!(expected_container_ion_types(), actual);
 
             // Reading a stored value is not one-shot; a second traversal sees the same data.
             let mut actual_again = Vec::new();
             for element in &elements {
-                collect_ion_types(element.as_lazy_value(), &mut actual_again)?;
+                collect_ion_types(element.as_lazy_value()?, &mut actual_again)?;
             }
             assert_eq!(actual, actual_again);
 
@@ -500,8 +552,9 @@ mod tests {
         }
 
         /// Values stored from a streaming (`Read`) input, whose window slides--and, pinned by a
-        /// stored element, copies itself--as the reader advances. The only test where
-        /// `bytes_for_stream_range` subtracts a non-zero offset; the rest read from a `Vec<u8>`.
+        /// stored element, copies itself--as the reader advances. With its text twin, one of the
+        /// two tests where `bytes_for_stream_range` subtracts a non-zero offset; the rest read
+        /// from a `Vec<u8>`.
         #[test]
         fn values_survive_a_shifting_stream_window() -> IonResult<()> {
             // Exceed `IonStream`'s 4 KiB window so the reader must shift while elements are stored.
@@ -603,28 +656,7 @@ mod tests {
             let elements =
                 store_elements_then_drop_reader(encoding, to_binary_ion(header_test_data())?)?;
             assert_eq!(6, elements.len(), "unexpected number of top-level values");
-            for (index, element) in elements.iter().enumerate() {
-                let value = element.as_lazy_value();
-                let context = format!("value #{index} ({:?})", value.ion_type());
-                assert_eq!(value.ion_type(), element.ion_type(), "ion_type: {context}");
-                assert_eq!(value.is_null(), element.is_null(), "is_null: {context}");
-                assert_eq!(
-                    value.is_container(),
-                    element.is_container(),
-                    "is_container: {context}"
-                );
-                assert_eq!(
-                    value.is_scalar(),
-                    element.is_scalar(),
-                    "is_scalar: {context}"
-                );
-                assert_eq!(
-                    value.has_annotations(),
-                    element.has_annotations(),
-                    "has_annotations: {context}"
-                );
-            }
-            Ok(())
+            assert_header_accessors_match_lazy_value(&elements)
         }
 
         /// The header accessors must not rebuild the value in the arena: a `LazyElement` never
@@ -663,12 +695,250 @@ mod tests {
 
             // Confirm the measurement is sensitive: that many `as_lazy_value()` calls do grow it.
             for _ in 0..ITERATIONS {
-                let _ = element.as_lazy_value();
+                let _ = element.as_lazy_value()?;
             }
             assert!(
                 allocated_bytes() > bytes_before,
                 "rebuilding the value {ITERATIONS} times did not grow the arena, so this test \
                  could not have detected an allocation in the accessors"
+            );
+            Ok(())
+        }
+    }
+    // ===== Text =====
+    //
+    // A stored text container is re-parsed once, on first read, into a cache that owns the storage
+    // it borrows from. These exercise that cache, and the scalar path, under Miri. Keep this
+    // module's name in sync with `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`.
+    mod text_soundness_tests {
+        use super::{
+            assert_elements_match_text, assert_header_accessors_match_lazy_value,
+            store_elements_then_drop_reader, traverse_all,
+        };
+        use crate::lazy::encoding::TextEncoding_1_0;
+        use crate::lazy::expanded::lazy_element::LazyElement;
+        use crate::read_config::ReadConfig;
+        use crate::{AnyEncoding, Decoder, Element, IonResult, LazyValue, Reader};
+        use rstest::rstest;
+        use std::io::{BufReader, Cursor};
+
+        /// Scalars and containers of each type: nested, annotated with interstitial comments,
+        /// holding escapes (decoded into the arena), and holding s-expression operators.
+        const TEXT: &str = r#"
+            foo
+            ann:: /* comment */ 5
+            null.list
+            [1, two, "th\nree", [4, 5]]
+            {a: 1, b: [2, 3], c: {d: four}, 'e\'s': (5 + 6)}
+            outer:: /* comment */ inner::(six (7 8) {nine: 10})
+            []
+        "#;
+
+        #[rstest]
+        fn values_survive_after_reader_drops<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+        ) -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(encoding, TEXT)?;
+            assert_elements_match_text(TEXT, &elements)
+        }
+
+        #[rstest]
+        fn cached_containers_survive_repeat_reads<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+        ) -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(encoding, TEXT)?;
+            let first = traverse_all(&elements)?;
+            let second = traverse_all(&elements)?;
+            assert_eq!(first, second);
+            assert_elements_match_text(TEXT, &elements)
+        }
+
+        /// `TryFrom<LazyElement>` takes the element by value and drops it inside the call, with
+        /// the cache populated either beforehand or inside that same call.
+        #[rstest]
+        fn consuming_conversion_drops_the_element_inside_the_call<
+            E: Decoder + Into<ReadConfig<E>>,
+        >(
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+            #[values(true, false)] populate_first: bool,
+        ) -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(encoding, TEXT)?;
+            if populate_first {
+                traverse_all(&elements)?;
+            }
+            let actual = elements
+                .into_iter()
+                .map(Element::try_from)
+                .collect::<IonResult<Vec<Element>>>()?;
+            let expected: Vec<Element> = Element::read_all(TEXT)?.into_iter().collect();
+            assert_eq!(expected, actual);
+            Ok(())
+        }
+
+        #[test]
+        fn cached_containers_survive_moves() -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(TextEncoding_1_0, TEXT)?;
+            let before = traverse_all(&elements)?;
+            // Push one at a time so each element moves into `moved`'s buffer and the original
+            // buffer is freed; `collect` could reuse the original allocation in place.
+            let mut moved = Vec::new();
+            for element in elements {
+                moved.push(element);
+            }
+            assert_eq!(before, traverse_all(&moved)?);
+            assert_elements_match_text(TEXT, &moved)
+        }
+
+        /// The cache is populated in the arena the reader is still using; advancing the reader
+        /// must swap in a new arena instead of resetting that one. The later values allocate in
+        /// the arena (container children, an escaped string), so a reset would overwrite the
+        /// cached tree.
+        #[test]
+        fn cached_containers_survive_the_reader_advancing() -> IonResult<()> {
+            let mut reader = Reader::new(
+                TextEncoding_1_0,
+                br#"[1, [2, "x"]] [3, [4, "y"]] "a\nb" [5, {c: 6}]"#.to_vec(),
+            )?;
+            let first = reader.expect_next()?.to_owned();
+            let expected = Element::read_one(r#"[1, [2, "x"]]"#)?;
+            assert_eq!(expected, Element::try_from(&first)?);
+            for _ in 0..3 {
+                Element::try_from(reader.expect_next()?)?;
+            }
+            assert_eq!(expected, Element::try_from(&first)?);
+            drop(reader);
+            assert_eq!(expected, Element::try_from(first)?);
+            Ok(())
+        }
+
+        /// Operators only match inside an s-expression, so a stored operator must not be
+        /// re-parsed on its own.
+        #[test]
+        fn stored_operators_survive_after_reader_drops() -> IonResult<()> {
+            let mut reader = Reader::new(TextEncoding_1_0, b"(+ 1 -)".to_vec())?;
+            let children = reader
+                .expect_next()?
+                .read()?
+                .expect_sexp()?
+                .iter()
+                .map(|child| child.map(LazyValue::to_owned))
+                .collect::<IonResult<Vec<_>>>()?;
+            drop(reader);
+            let actual = children
+                .into_iter()
+                .map(Element::try_from)
+                .collect::<IonResult<Vec<Element>>>()?;
+            let expected = vec![Element::symbol("+"), Element::from(1), Element::symbol("-")];
+            assert_eq!(expected, actual);
+            Ok(())
+        }
+
+        /// A container child stored from a cached container re-parses through its own handle to
+        /// the bytes, and every child outlives the parent.
+        #[test]
+        fn children_of_a_cached_container_outlive_it() -> IonResult<()> {
+            let elements =
+                store_elements_then_drop_reader(TextEncoding_1_0, "{a: [1, (2 +)], b: x}")?;
+            let [parent] = elements.as_slice() else {
+                panic!("expected one top-level value, found {}", elements.len());
+            };
+            let children = parent
+                .as_lazy_value()?
+                .read()?
+                .expect_struct()?
+                .iter()
+                .map(|field| field.map(|field| field.value().to_owned()))
+                .collect::<IonResult<Vec<_>>>()?;
+            drop(elements);
+            assert_elements_match_text("[1, (2 +)] x", &children)
+        }
+
+        /// Values stored from a streaming input whose window slides as the reader advances. With
+        /// `read_while_live`, each element's cache is populated as soon as it is stored, so the
+        /// window then shifts (copying the bytes the cache borrows) under populated caches.
+        #[rstest]
+        fn values_survive_a_shifting_stream_window(
+            #[values(false, true)] read_while_live: bool,
+        ) -> IonResult<()> {
+            const VALUE_COUNT: usize = 10;
+            let text = (0..VALUE_COUNT)
+                .map(|index| format!("{{index: {index}, filler: \"{}\"}}", "x".repeat(500)))
+                .collect::<Vec<String>>()
+                .join("\n");
+            assert!(
+                text.len() > 4 * 1024,
+                "test data is too small to shift the window"
+            );
+
+            let mut reader = Reader::new(
+                TextEncoding_1_0,
+                BufReader::new(Cursor::new(text.clone().into_bytes())),
+            )?;
+            let mut elements = Vec::new();
+            for element in &mut reader {
+                let element: LazyElement<TextEncoding_1_0> = element?;
+                if read_while_live {
+                    Element::try_from(&element)?;
+                }
+                elements.push(element);
+            }
+
+            let max_stream_offset = elements
+                .iter()
+                .map(|element| element.io_buffer.stream_offset())
+                .max()
+                .unwrap_or(0);
+            assert!(
+                max_stream_offset > 0,
+                "no stored element saw a shifted window"
+            );
+            if read_while_live {
+                assert_elements_match_text(&text, &elements)?;
+            }
+            drop(reader);
+            traverse_all(&elements)?;
+            assert_elements_match_text(&text, &elements)
+        }
+
+        /// One of each header fact the accessors report, including a container of each type, a
+        /// null container, and annotated containers.
+        const HEADER_TEST_DATA: &str =
+            "null.string 5 annotated::foo [1] (2) {a: 3} null.list ann::[4] ann:: /*c*/ (5)";
+
+        /// The header accessors bypass `as_lazy_value()`, so check them against `LazyValue`'s.
+        #[rstest]
+        fn header_accessors_match_lazy_value<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+        ) -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(encoding, HEADER_TEST_DATA)?;
+            assert_eq!(9, elements.len(), "unexpected number of top-level values");
+            assert_header_accessors_match_lazy_value(&elements)
+        }
+
+        /// After the first call, `as_lazy_value` on a stored container is served from its cache;
+        /// calling it again neither re-parses nor allocates.
+        #[test]
+        fn repeated_reads_of_a_cached_container_do_not_grow_the_arena() -> IonResult<()> {
+            let elements =
+                store_elements_then_drop_reader(TextEncoding_1_0, "[1, [2, \"three\"], {a: 4}]")?;
+            let [element] = elements.as_slice() else {
+                panic!("expected one top-level value, found {}", elements.len());
+            };
+            // Populates the cache.
+            element.as_lazy_value()?;
+
+            // `allocated_bytes()` reports chunk capacity, so it only moves when the arena acquires
+            // one; `binary_soundness_tests::header_accessors_do_not_grow_the_arena` shows this many
+            // allocating calls is enough to move it.
+            let allocated_bytes = || element.context.get_ref().allocator().allocated_bytes();
+            let bytes_before = allocated_bytes();
+            for _ in 0..1_000 {
+                element.as_lazy_value()?;
+            }
+            assert_eq!(
+                bytes_before,
+                allocated_bytes(),
+                "re-reading a cached container grew the arena"
             );
             Ok(())
         }

@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::lazy::encoding::TextEncoding;
-use crate::lazy::text::matched::MatchedValue;
+use crate::lazy::text::matched::{MatchedScalar, MatchedValue};
 use crate::IonType;
 
 /// Represents the type, offset, and length metadata of the various components of an encoded value
@@ -62,16 +62,7 @@ impl<'top, E: TextEncoding> EncodedTextValue<'top, E> {
 
     pub fn ion_type(&self) -> IonType {
         match self.matched_value {
-            MatchedValue::Null(ion_type) => ion_type,
-            MatchedValue::Bool(_) => IonType::Bool,
-            MatchedValue::Int(_) => IonType::Int,
-            MatchedValue::Float(_) => IonType::Float,
-            MatchedValue::Decimal(_) => IonType::Decimal,
-            MatchedValue::Timestamp(_) => IonType::Timestamp,
-            MatchedValue::String(_) => IonType::String,
-            MatchedValue::Symbol(_) => IonType::Symbol,
-            MatchedValue::Blob(_) => IonType::Blob,
-            MatchedValue::Clob(_) => IonType::Clob,
+            MatchedValue::Scalar(scalar) => scalar.ion_type(),
             MatchedValue::List(_) => IonType::List,
             MatchedValue::SExp(_) => IonType::SExp,
             MatchedValue::Struct(_) => IonType::Struct,
@@ -79,7 +70,7 @@ impl<'top, E: TextEncoding> EncodedTextValue<'top, E> {
     }
 
     pub fn is_null(&self) -> bool {
-        matches!(self.matched_value, MatchedValue::Null(_))
+        matches!(self.matched_value, MatchedValue::Scalar(scalar) if scalar.is_null())
     }
 
     pub fn data_offset(&self) -> usize {
@@ -99,5 +90,44 @@ impl<'top, E: TextEncoding> EncodedTextValue<'top, E> {
 
     pub fn matched(&self) -> MatchedValue<'top, E> {
         self.matched_value
+    }
+
+    /// Returns this value's encoding without its lifetime if it is a scalar.
+    pub(crate) fn as_scalar(&self) -> Option<EncodedTextScalar> {
+        match self.matched_value {
+            MatchedValue::Scalar(scalar) => Some(EncodedTextScalar {
+                data_offset: self.data_offset,
+                scalar,
+            }),
+            MatchedValue::List(_) | MatchedValue::SExp(_) | MatchedValue::Struct(_) => None,
+        }
+    }
+}
+
+/// The [`EncodedTextValue`] of a scalar, which borrows nothing and so has no lifetime.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct EncodedTextScalar {
+    data_offset: u16,
+    scalar: MatchedScalar,
+}
+
+impl EncodedTextScalar {
+    pub fn ion_type(&self) -> IonType {
+        self.scalar.ion_type()
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.scalar.is_null()
+    }
+
+    pub fn has_annotations(&self) -> bool {
+        self.data_offset > 0
+    }
+
+    pub fn to_encoded_value<'top, E: TextEncoding>(self) -> EncodedTextValue<'top, E> {
+        EncodedTextValue {
+            data_offset: self.data_offset,
+            matched_value: MatchedValue::Scalar(self.scalar),
+        }
     }
 }
