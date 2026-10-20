@@ -147,15 +147,6 @@ impl<'top> LazyRawValue<'top, BinaryEncoding_1_0> for &'top LazyRawBinaryValue_1
         Span::with_offset(range.start, &self.input.bytes()[local_range])
     }
 
-    fn with_backing_data(&self, span: Span<'top>) -> Self {
-        let buffer = BinaryBuffer::new_with_offset(self.context(), span.bytes(), span.offset());
-        let allocator = self.context().allocator();
-        allocator.alloc_with(move || LazyRawBinaryValue_1_0 {
-            input: buffer,
-            ..**self
-        })
-    }
-
     fn encoding(&self) -> IonEncoding {
         IonEncoding::Binary_1_0
     }
