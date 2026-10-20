@@ -223,13 +223,6 @@ impl<'top, Encoding: TextEncoding> LazyRawValue<'top, Encoding>
         self.value_span() // Inherent impl
     }
 
-    fn with_backing_data(&self, span: Span<'top>) -> Self {
-        Self {
-            input: TextBuffer::from_span(self.input.context(), span, true),
-            ..*self
-        }
-    }
-
     fn encoding(&self) -> IonEncoding {
         match <Encoding as Decoder>::INITIAL_ENCODING_EXPECTED.version() {
             IonVersion::v1_0 => IonEncoding::Text_1_0,
