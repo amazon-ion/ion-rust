@@ -8,8 +8,9 @@ use rustc_hash::FxHasher;
 
 use crate::constants::v1_0;
 use crate::lazy::any_encoding::IonVersion;
+use crate::result::IonFailure;
 use crate::types::SymbolAddress;
-use crate::{Symbol, SymbolId};
+use crate::{IonError, IonResult, Symbol, SymbolId};
 
 /// Immutable system symbol tables defined by each version of the Ion specification.
 
@@ -264,18 +265,20 @@ impl SymbolTexts {
         Some(&self.arena.as_bytes()[start as usize..end.get() as usize])
     }
 
-    /// Appends `text` and returns its symbol ID.
-    fn insert(&mut self, text: &str) -> SymbolId {
-        let sid = self.ranges.len();
-        let start = self.arena.len() as u32;
-        self.arena.push_str(text);
+    /// Appends `text` and returns its symbol ID, or returns an `Err` if the arena would exceed
+    /// `u32::MAX` bytes.
+    fn insert(&mut self, text: &str) -> IonResult<SymbolId> {
+        let start = self.arena.len();
         // The system symbols are inserted first and have non-empty text, so `end` is never 0.
-        let end = u32::try_from(self.arena.len())
-            .ok()
+        let end = start
+            .checked_add(text.len())
+            .and_then(|end| u32::try_from(end).ok())
             .and_then(NonZeroU32::new)
-            .expect("symbol text exceeds 4 GiB");
-        self.ranges.push(Some((start, end)));
-        sid
+            .ok_or_else(|| IonError::encoding_error("symbol table text exceeds 4 GiB"))?;
+        let sid = self.ranges.len();
+        self.arena.push_str(text);
+        self.ranges.push(Some((start as u32, end)));
+        Ok(sid)
     }
 
     /// Assigns unknown text to the next symbol ID and returns it.
@@ -327,7 +330,10 @@ impl WriterSymbolTable {
         };
         table.texts.insert_unknown_text(); // $0
         for text in ion_version.system_symbol_table().symbols_by_address {
-            table.texts.insert(text);
+            table
+                .texts
+                .insert(text)
+                .expect("system symbol text fits in the arena");
         }
         table.index_system_symbols();
         table
@@ -342,10 +348,10 @@ impl WriterSymbolTable {
         let texts = &self.texts;
         // SID 0 has unknown text, so it is not part of the text lookup index.
         for sid in 1..self.num_system_symbols() {
-            let text = texts.get(sid).unwrap_or("");
+            let text = texts.get(sid).expect("system symbols after $0 have text");
             self.ids_by_text
                 .insert_unique(symbol_text_hash(text), sid, |sid| {
-                    symbol_text_hash(texts.get(*sid).unwrap_or(""))
+                    symbol_text_hash(texts.get(*sid).expect("indexed SIDs have text"))
                 });
         }
     }
@@ -354,20 +360,20 @@ impl WriterSymbolTable {
     ///
     /// The Ion spec requires the lowest SID when more than one maps to the same text. This table
     /// never assigns a second SID to text it already holds, so the only matching SID is the lowest.
-    pub(crate) fn get_or_add(&mut self, text: impl AsRef<str>) -> SymbolId {
+    pub(crate) fn get_or_add(&mut self, text: impl AsRef<str>) -> IonResult<SymbolId> {
         let text = text.as_ref();
         let texts = &self.texts;
         match self.ids_by_text.entry(
             symbol_text_hash(text),
             |sid| texts.get_bytes(*sid) == Some(text.as_bytes()),
-            |sid| symbol_text_hash(texts.get(*sid).unwrap_or("")),
+            |sid| symbol_text_hash(texts.get(*sid).expect("indexed SIDs have text")),
         ) {
-            Entry::Occupied(entry) => *entry.get(),
+            Entry::Occupied(entry) => Ok(*entry.get()),
             Entry::Vacant(entry) => {
-                let sid = self.texts.insert(text);
+                let sid = self.texts.insert(text)?;
                 entry.insert(sid);
                 self.num_pending += 1;
-                sid
+                Ok(sid)
             }
         }
     }
@@ -412,10 +418,11 @@ impl WriterSymbolTable {
         self.num_pending = 0;
     }
 
-    pub(crate) fn pending_texts(&self) -> impl Iterator<Item = &str> {
+    /// Returns the text of each pending symbol, or `None` if its text is unknown.
+    pub(crate) fn pending_texts(&self) -> impl Iterator<Item = Option<&str>> {
         debug_assert!(self.num_pending <= self.len() - self.num_system_symbols());
         let first_pending = self.len() - self.num_pending;
-        (first_pending..self.len()).map(|sid| self.texts.get(sid).unwrap_or(""))
+        (first_pending..self.len()).map(|sid| self.texts.get(sid))
     }
 
     /// Clears all user symbols while retaining ordinary working capacity and the system symbols.
@@ -540,47 +547,53 @@ mod writer_symbol_table_tests {
     }
 
     #[test]
-    fn user_symbols_are_arena_backed_and_deduplicated() {
+    fn user_symbols_are_arena_backed_and_deduplicated() -> IonResult<()> {
         let mut table = WriterSymbolTable::new(IonVersion::v1_0);
-        let foo_sid = table.get_or_add("foo");
-        let bar_sid = table.get_or_add("bar");
+        let foo_sid = table.get_or_add("foo")?;
+        let bar_sid = table.get_or_add("bar")?;
 
         assert_eq!(foo_sid, 10);
         assert_eq!(bar_sid, 11);
-        assert_eq!(table.get_or_add("foo"), foo_sid);
+        assert_eq!(table.get_or_add("foo")?, foo_sid);
         assert_eq!(table.sid_for("bar"), Some(bar_sid));
         assert_eq!(table.text_for(foo_sid), Some("foo"));
         assert!(table.texts.arena.ends_with("foobar"));
         assert_eq!(table.num_pending(), 2);
-        assert_eq!(table.pending_texts().collect::<Vec<_>>(), ["foo", "bar"]);
+        assert_eq!(
+            table.pending_texts().collect::<Vec<_>>(),
+            [Some("foo"), Some("bar")]
+        );
+        Ok(())
     }
 
     #[test]
-    fn empty_text_is_a_regular_user_symbol() {
+    fn empty_text_is_a_regular_user_symbol() -> IonResult<()> {
         let mut table = WriterSymbolTable::new(IonVersion::v1_0);
         assert_eq!(table.sid_for(""), None);
-        let sid = table.get_or_add("");
+        let sid = table.get_or_add("")?;
         assert_eq!(sid, 10);
         assert_eq!(table.sid_for(""), Some(sid));
         assert_eq!(table.text_for(sid), Some(""));
+        Ok(())
     }
 
     #[test]
-    fn pending_symbols_begin_after_the_last_reset() {
+    fn pending_symbols_begin_after_the_last_reset() -> IonResult<()> {
         let mut table = WriterSymbolTable::new(IonVersion::v1_0);
-        table.get_or_add("foo");
+        table.get_or_add("foo")?;
         table.reset_num_pending();
-        table.get_or_add("foo");
-        table.get_or_add("bar");
+        table.get_or_add("foo")?;
+        table.get_or_add("bar")?;
 
         assert_eq!(table.num_pending(), 1);
-        assert_eq!(table.pending_texts().collect::<Vec<_>>(), ["bar"]);
+        assert_eq!(table.pending_texts().collect::<Vec<_>>(), [Some("bar")]);
+        Ok(())
     }
 
     #[test]
-    fn reset_for_reuse_keeps_system_symbols_and_discards_user_symbols() {
+    fn reset_for_reuse_keeps_system_symbols_and_discards_user_symbols() -> IonResult<()> {
         let mut table = WriterSymbolTable::new(IonVersion::v1_0);
-        table.get_or_add("foo");
+        table.get_or_add("foo")?;
         let entry_capacity = table.retained_capacity();
         let text_capacity = table.retained_text_capacity();
 
@@ -592,6 +605,7 @@ mod writer_symbol_table_tests {
         assert_eq!(table.num_pending(), 0);
         assert_eq!(table.retained_capacity(), entry_capacity);
         assert_eq!(table.retained_text_capacity(), text_capacity);
+        Ok(())
     }
 
     #[rstest]
@@ -604,15 +618,15 @@ mod writer_symbol_table_tests {
         #[case] long_text_len: usize,
         #[case] expect_symbols_released: bool,
         #[case] expect_text_released: bool,
-    ) {
+    ) -> IonResult<()> {
         const MAX_SYMBOLS: usize = 64;
         const MAX_TEXT_BYTES: usize = 1024;
         let mut table = WriterSymbolTable::new(IonVersion::v1_0);
         for i in 0..short_symbols {
-            table.get_or_add(format!("s{i}"));
+            table.get_or_add(format!("s{i}"))?;
         }
         if long_text_len > 0 {
-            table.get_or_add("x".repeat(long_text_len));
+            table.get_or_add("x".repeat(long_text_len))?;
         }
         let symbol_capacity = table.retained_capacity();
         let text_capacity = table.retained_text_capacity();
@@ -633,6 +647,7 @@ mod writer_symbol_table_tests {
         }
         assert_eq!(table.sid_for("$ion"), Some(1));
         assert_eq!(table.len(), 10);
-        assert_eq!(table.get_or_add("foo"), 10);
+        assert_eq!(table.get_or_add("foo")?, 10);
+        Ok(())
     }
 }

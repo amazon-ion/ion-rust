@@ -406,7 +406,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 }
                 // The token is text...
                 RawSymbolRef::Text(text) => {
-                    *annotation = RawSymbolRef::SymbolId(self.symbols.get_or_add(text));
+                    *annotation = RawSymbolRef::SymbolId(self.symbols.get_or_add(text)?);
                 }
             };
         }
@@ -517,7 +517,7 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             }
             Text(text) => {
                 match value_writer_config.symbol_value_encoding() {
-                    SymbolIds => SymbolId(symbols.get_or_add(text)),
+                    SymbolIds => SymbolId(symbols.get_or_add(text)?),
                     NewSymbolsAsInlineText => {
                         // If the text is in the symbol table, use the symbol ID. Otherwise, use the text itself.
                         match symbols.sid_for(text) {
@@ -636,7 +636,7 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
 
         let token: RawSymbolRef<'_> =
             if self.value_writer_config.field_name_encoding() == FieldNameEncoding::SymbolIds {
-                self.symbols.get_or_add(text).into()
+                self.symbols.get_or_add(text)?.into()
             } else {
                 match self.symbols.sid_for(text) {
                     Some(sid) => sid.into(),
@@ -1002,7 +1002,7 @@ mod reuse_tests {
     fn detach_caps_retained_symbol_text_arena() -> IonResult<()> {
         let huge_symbol = "x".repeat(IDLE_RETAIN_CAP * 2);
         let mut writer = idle_binary_writer()?.attach(Vec::new());
-        writer.symbols.get_or_add(&huge_symbol);
+        writer.symbols.get_or_add(&huge_symbol)?;
         assert!(
             writer.symbols.retained_text_capacity() > IDLE_RETAIN_CAP,
             "symbol text arena did not exceed the retain cap: {} bytes",
