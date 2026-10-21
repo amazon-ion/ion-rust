@@ -81,7 +81,67 @@ mod benchmark {
         println!("\nencoded 1.0 '{label}' document size: {encoded_len} bytes\n");
     }
 
+    // A document of `n` records, each with `fields` field names unique to document `doc_id`.
+    fn make_symbol_heavy_doc(doc_id: usize, n: usize, fields: usize) -> String {
+        let mut s = String::from("[");
+        for record in 0..n {
+            s.push('{');
+            for field in 0..fields {
+                let name = format!("doc{doc_id}_field{}", record * fields + field);
+                s.push_str(&format!("{name}: {name},"));
+            }
+            s.push_str("},");
+        }
+        s.push(']');
+        s
+    }
+
+    // Encodes a different document on each iteration, so no document's symbols are already in a
+    // reused writer's table.
+    fn bench_rotating_docs(c: &mut Criterion, label: &str, docs: &[Element]) {
+        let mut group = c.benchmark_group(format!("binary 1.0 encode rotating/{label}"));
+
+        group.bench_function("fresh_writer_per_doc", |b| {
+            let mut buf = Vec::with_capacity(64 * 1024);
+            let mut docs = docs.iter().cycle();
+            b.iter(|| {
+                buf.clear();
+                let mut w = v1_0::BinaryWriter::new(v1_0::Binary, &mut buf).unwrap();
+                w.write(black_box(docs.next().unwrap())).unwrap();
+                w.close().unwrap();
+                black_box(buf.len());
+            });
+        });
+
+        group.bench_function("reused_writer", |b| {
+            let mut buf = Vec::with_capacity(64 * 1024);
+            let mut docs = docs.iter().cycle();
+            let mut idle = Some(v1_0::BinaryWriter::<()>::idle(v1_0::Binary).unwrap());
+            b.iter(|| {
+                buf.clear();
+                let mut w = idle.take().unwrap().attach(&mut buf);
+                w.write(black_box(docs.next().unwrap())).unwrap();
+                w.flush().unwrap();
+                let (next_idle, _sink) = w.detach();
+                idle = Some(next_idle);
+                black_box(buf.len());
+            });
+        });
+
+        group.finish();
+    }
+
     pub fn criterion_benchmark(c: &mut Criterion) {
+        // (label, records per document, fields per record): 100 and 1,000 distinct symbols.
+        for (label, n, fields) in [("100 symbols", 10usize, 10usize), ("1000 symbols", 100, 10)] {
+            let docs = (0..8)
+                .map(|doc_id| {
+                    Element::read_one(make_symbol_heavy_doc(doc_id, n, fields).as_str()).unwrap()
+                })
+                .collect::<Vec<_>>();
+            bench_rotating_docs(c, label, &docs);
+        }
+
         // (label, record count) chosen to land near ~100 B, ~1 KB, ~10 KB, ~100 KB, ~1 MB encoded.
         let sizes = [
             ("~100B", 1usize),
