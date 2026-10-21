@@ -10,7 +10,7 @@ use std::io;
 use std::io::{BufReader, Read, StdinLock};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
-use std::ops::DerefMut;
+use std::ops::{DerefMut, Range};
 use std::rc::Rc;
 
 /// Wraps an implementation of [`IonDataSource`] and reads one top level value at a time from the input.
@@ -470,6 +470,33 @@ impl IoBuffer {
         &self.bytes[..self.local_end]
     }
 
+    /// Returns the slice of this buffer's bytes that holds the stream offsets in `stream_range`.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a clear message if `stream_range` is not fully contained in the portion of the
+    /// stream this buffer holds. The checked arithmetic is deliberate: an out-of-range value would
+    /// otherwise wrap in release builds (overflow checks are off) and either yield the wrong bytes
+    /// or panic with an opaque slice-index message.
+    pub(crate) fn bytes_for_stream_range(&self, stream_range: Range<usize>) -> &[u8] {
+        let local_start = stream_range
+            .start
+            .checked_sub(self.stream_offset)
+            .expect("stream range starts before the buffer's stream offset");
+        let local_end = local_start
+            .checked_add(stream_range.len())
+            .expect("stream range length overflows the buffer");
+        &self.all_bytes()[local_start..local_end]
+    }
+
+    /// Returns a [`Span`] pairing the bytes at `stream_range` with the offset at which they were
+    /// found, making the two impossible to mismatch downstream. Panics under the same conditions as
+    /// [`bytes_for_stream_range`](Self::bytes_for_stream_range).
+    pub(crate) fn span_for_stream_range(&self, stream_range: Range<usize>) -> Span<'_> {
+        let offset = stream_range.start;
+        Span::with_offset(offset, self.bytes_for_stream_range(stream_range))
+    }
+
     pub fn remaining_bytes(&self) -> &[u8] {
         &self.bytes[self.local_offset..self.local_end]
     }
@@ -537,7 +564,7 @@ impl IoBuffer {
         mut_ref.deref_mut().fill(MaybeUninit::new(0u8));
         // SAFETY: Now that the slice is full of zeroes (which are valid `u8`s),
         //         we can treat it like a regular Rc<[u8]>.
-        unsafe { std::mem::transmute(memory) }
+        unsafe { memory.assume_init() }
     }
 
     /// Moves all of the bytes in the range `self.position..self.limit` to the beginning of the buffer,

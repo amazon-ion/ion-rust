@@ -8,14 +8,14 @@
 
 use crate::binary::decimal::DecimalBinaryEncoder;
 use crate::binary::timestamp::TimestampBinaryEncoder;
-use crate::binary::{self};
+use crate::binary::uint::minimal_be_bytes;
 use crate::ion_hash::element_hasher::ElementHasher;
 use crate::ion_hash::type_qualifier::type_qualifier_symbol;
 use crate::result::IonResult;
+use crate::types::overflowing_int::Magnitude;
 use crate::{Decimal, Int, IonType, Struct, Symbol, Timestamp};
 use crate::{Element, Sequence};
 use digest::{FixedOutput, Output, Reset, Update};
-use ice_code::ice as cold_path;
 
 pub(crate) trait RepresentationEncoder {
     fn update_with_representation(&mut self, elem: &Element) -> IonResult<()> {
@@ -54,21 +54,13 @@ where
 {
     fn write_repr_integer(&mut self, value: Option<&Int>) -> IonResult<()> {
         if let Some(int) = value {
-            match int.as_i128() {
-                Some(0) => {}
-                Some(i) => {
-                    let magnitude = i.unsigned_abs();
-                    let encoded = binary::uint::encode(magnitude);
-                    self.update_escaping(encoded.as_bytes());
-                }
-                None => {
-                    cold_path! {{
-                        // Big value: get magnitude as BE bytes
-                        let magnitude = int.unsigned_abs();
-                        let be = magnitude.data.to_be_bytes();
-                        let start = be.iter().position(|&b| b != 0).unwrap_or(be.len().saturating_sub(1));
+            if !int.is_zero() {
+                match int.as_overflowing_int().magnitude_ref() {
+                    Magnitude::Small(small) => {
+                        let (be, start) = minimal_be_bytes(small);
                         self.update_escaping(&be[start..]);
-                    }}
+                    }
+                    Magnitude::Big(big) => self.update_escaping(big.to_bytes_be()),
                 }
             }
         }

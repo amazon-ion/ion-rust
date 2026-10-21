@@ -119,9 +119,29 @@ pub fn encode(magnitude: impl Into<u128>) -> EncodedUInt {
     }
 }
 
+/// The minimal big-endian bytes of `magnitude`, and the index of the first byte to write. Unlike
+/// [`encode`], zero keeps one byte.
+pub(crate) fn minimal_be_bytes(magnitude: u128) -> ([u8; size_of::<u128>()], usize) {
+    // `| 1` keeps one byte for zero; it can't move a non-zero value's highest set bit.
+    let start = ((magnitude | 1).leading_zeros() / 8) as usize;
+    (magnitude.to_be_bytes(), start)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::zero(0, &[0x00])]
+    #[case::one_byte(0xFF, &[0xFF])]
+    #[case::two_bytes(0x100, &[0x01, 0x00])]
+    #[case::u128_max(u128::MAX, &[0xFF; 16])]
+    fn minimal_be_bytes_cases(#[case] magnitude: u128, #[case] expected: &[u8]) {
+        let (be, start) = minimal_be_bytes(magnitude);
+        assert_eq!(&be[start..], expected);
+    }
+
     const WRITE_ERROR_MESSAGE: &str = "Writing a UInt to the provided sink failed.";
 
     #[test]

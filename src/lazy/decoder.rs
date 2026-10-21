@@ -51,7 +51,10 @@ impl HasRange for Range<usize> {
 // However, many types are generic over some `D: LazyDecoder`, and having this trait
 // extend 'static, Sized, Debug, Clone and Copy means that those types can #[derive(...)]
 // those traits themselves without boilerplate `where` clauses.
-pub trait Decoder: 'static + Sized + Debug + Clone + Copy {
+//
+// `private::DetachableValue` is a supertrait rather than members on `Decoder` so that its
+// crate-private (and, for text, `unsafe`) seam stays off this trait's public surface.
+pub trait Decoder: 'static + Sized + Debug + Clone + Copy + private::DetachableValue {
     /// The Ion encoding that this decoder expects to read at the outset of the stream.
     /// This determines how the encoding context is initialized.
     /// The version may change if an Ion version marker is encountered.
@@ -242,7 +245,10 @@ impl<D: Decoder> HasRange for LazyRawFieldExpr<'_, D> {
 pub(crate) mod private {
     use crate::lazy::expanded::r#struct::FieldExpr;
     use crate::lazy::expanded::EncodingContextRef;
-    use crate::{try_next, IonResult, LazyExpandedValue, LazyRawFieldName};
+    use crate::lazy::span::Span;
+    use crate::{try_next, IonResult, IonType, LazyExpandedValue, LazyRawFieldName};
+    use std::fmt::Debug;
+    use std::ops::Range;
 
     use super::{Decoder, LazyRawFieldExpr, LazyRawStruct};
 
@@ -250,6 +256,43 @@ pub(crate) mod private {
         /// Constructs a new lazy raw container from a lazy raw value that has been confirmed to be
         /// of the correct type.
         fn from_value(value: D::Value<'top>) -> Self;
+    }
+
+    /// Lets a `LazyElement` hold a value after its reader has moved on: it stores the
+    /// [`DetachedValue`](Self::DetachedValue) form plus shared ownership of the bytes and encoding
+    /// context, then re-derives a `Value<'_>` on demand. The `where Self: Decoder` clauses avoid a
+    /// supertrait cycle with [`Decoder`].
+    pub trait DetachableValue: Sized {
+        /// A lifetime-free representation of a `Decoder::Value`.
+        type DetachedValue: 'static + Debug;
+
+        /// Copies the metadata needed to re-create `value` later. `span` holds the same bytes and
+        /// offset as `value`'s span, but from storage that outlives the reader.
+        fn detach_value(value: <Self as Decoder>::Value<'_>, span: Span<'_>) -> Self::DetachedValue
+        where
+            Self: Decoder;
+
+        /// The stream offsets `detached` occupies, annotations included, whose bytes
+        /// [`reattach_value`](Self::reattach_value) expects. Deriving this from the detached value
+        /// rather than storing it separately keeps the two from disagreeing; a mismatch would
+        /// silently decode the wrong bytes.
+        fn detached_range(detached: &Self::DetachedValue) -> Range<usize>;
+
+        // These let a `LazyElement` answer header questions without `reattach_value`, which for some
+        // encodings allocates in an arena it never reclaims. Each must agree with `LazyRawValue`'s.
+        fn detached_ion_type(detached: &Self::DetachedValue) -> IonType;
+        fn detached_is_null(detached: &Self::DetachedValue) -> bool;
+        fn detached_has_annotations(detached: &Self::DetachedValue) -> bool;
+
+        /// Re-creates a detached value, borrowing from storage the caller owns. `span` must be the
+        /// bytes at [`detached_range`](Self::detached_range); nothing is re-parsed.
+        fn reattach_value<'a>(
+            detached: &'a Self::DetachedValue,
+            context: EncodingContextRef<'a>,
+            span: Span<'a>,
+        ) -> <Self as Decoder>::Value<'a>
+        where
+            Self: Decoder;
     }
 
     pub struct RawStructFieldExprIterator<'top, D: Decoder> {
@@ -406,13 +449,6 @@ pub trait LazyRawValue<'top, D: Decoder>:
     fn annotations_span(&self) -> Span<'top>;
 
     fn value_span(&self) -> Span<'top>;
-
-    /// Returns a copy of the `LazyRawValue` whose backing data—the slice of bytes representing the
-    /// serialized value—has been replaced by `span`.
-    ///
-    /// This method is used when converting a `LazyValue` (which may be backed by a slice of the
-    /// input buffer) to a `LazyElement` (which needs to be backed by heap data).
-    fn with_backing_data(&self, span: Span<'top>) -> Self;
 
     fn encoding(&self) -> IonEncoding;
 }

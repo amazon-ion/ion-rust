@@ -9,7 +9,7 @@ use crate::lazy::binary::raw::sequence::{
     LazyRawBinaryList_1_0, LazyRawBinarySExp_1_0, RawBinarySequenceIterator_1_0,
 };
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
-use crate::lazy::decoder::private::LazyContainerPrivate;
+use crate::lazy::decoder::private::{DetachableValue, LazyContainerPrivate};
 use crate::lazy::decoder::{
     Decoder, HasRange, HasSpan, LazyRawContainer, LazyRawFieldExpr, LazyRawFieldName,
     LazyRawReader, LazyRawSequence, LazyRawStruct, LazyRawValue, RawVersionMarker,
@@ -53,6 +53,73 @@ impl Decoder for AnyEncoding {
     type FieldName<'top> = LazyRawAnyFieldName<'top>;
     type AnnotationsIterator<'top> = RawAnyAnnotationsIterator<'top>;
     type VersionMarker<'top> = LazyRawAnyVersionMarker<'top>;
+}
+
+impl DetachableValue for AnyEncoding {
+    type DetachedValue = DetachedAnyValue;
+
+    fn detach_value(value: <Self as Decoder>::Value<'_>, span: Span<'_>) -> Self::DetachedValue {
+        match value.kind() {
+            LazyRawValueKind::Text_1_0(v) => {
+                DetachedAnyValue::Text_1_0(TextEncoding_1_0::detach_value(v, span))
+            }
+            LazyRawValueKind::Binary_1_0(v) => {
+                DetachedAnyValue::Binary_1_0(BinaryEncoding_1_0::detach_value(v, span))
+            }
+        }
+    }
+
+    fn detached_range(detached: &Self::DetachedValue) -> Range<usize> {
+        match detached {
+            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_range(v),
+            DetachedAnyValue::Binary_1_0(v) => BinaryEncoding_1_0::detached_range(v),
+        }
+    }
+
+    fn detached_ion_type(detached: &Self::DetachedValue) -> IonType {
+        match detached {
+            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_ion_type(v),
+            DetachedAnyValue::Binary_1_0(v) => BinaryEncoding_1_0::detached_ion_type(v),
+        }
+    }
+
+    fn detached_is_null(detached: &Self::DetachedValue) -> bool {
+        match detached {
+            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_is_null(v),
+            DetachedAnyValue::Binary_1_0(v) => BinaryEncoding_1_0::detached_is_null(v),
+        }
+    }
+
+    fn detached_has_annotations(detached: &Self::DetachedValue) -> bool {
+        match detached {
+            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_has_annotations(v),
+            DetachedAnyValue::Binary_1_0(v) => BinaryEncoding_1_0::detached_has_annotations(v),
+        }
+    }
+
+    fn reattach_value<'a>(
+        detached: &'a Self::DetachedValue,
+        context: EncodingContextRef<'a>,
+        span: Span<'a>,
+    ) -> <Self as Decoder>::Value<'a> {
+        match detached {
+            DetachedAnyValue::Text_1_0(v) => {
+                TextEncoding_1_0::reattach_value(v, context, span).into()
+            }
+            DetachedAnyValue::Binary_1_0(v) => {
+                BinaryEncoding_1_0::reattach_value(v, context, span).into()
+            }
+        }
+    }
+}
+
+/// The lifetime-free form of a [`LazyRawAnyValue`]; see [`DetachableValue::DetachedValue`]. The
+/// binary variant is a pure copy of the value's encoding metadata; the text variant erases a
+/// lifetime (see the `XXX` note on `impl DetachableValue for TextEncoding_1_0`).
+#[derive(Debug)]
+pub enum DetachedAnyValue {
+    Text_1_0(<TextEncoding_1_0 as DetachableValue>::DetachedValue),
+    Binary_1_0(<BinaryEncoding_1_0 as DetachableValue>::DetachedValue),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -562,19 +629,6 @@ impl<'top> LazyRawValue<'top, AnyEncoding> for LazyRawAnyValue<'top> {
         match &self.encoding {
             LazyRawValueKind::Text_1_0(v) => v.value_span(),
             LazyRawValueKind::Binary_1_0(v) => v.value_span(),
-        }
-    }
-
-    fn with_backing_data(&self, span: Span<'top>) -> Self {
-        Self {
-            encoding: match &self.encoding {
-                LazyRawValueKind::Text_1_0(v) => {
-                    LazyRawValueKind::Text_1_0(v.with_backing_data(span))
-                }
-                LazyRawValueKind::Binary_1_0(v) => {
-                    LazyRawValueKind::Binary_1_0(v.with_backing_data(span))
-                }
-            },
         }
     }
 

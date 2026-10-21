@@ -8,10 +8,9 @@ use winnow::combinator::{
 };
 use winnow::error::Needed;
 use winnow::stream::{
-    Accumulate, CompareResult, ContainsToken, FindSlice, Location, SliceLen, Stream,
-    StreamIsPartial,
+    Accumulate, CompareResult, FindSlice, Location, SliceLen, Stream, StreamIsPartial,
 };
-use winnow::token::{one_of, take_till, take_until, take_while};
+use winnow::token::{any, one_of, take_till, take_until, take_while};
 use winnow::{dispatch, Parser};
 
 use crate::lazy::encoding::{TextEncoding, TextEncoding_1_0};
@@ -70,16 +69,11 @@ impl Debug for TextBuffer<'_> {
     }
 }
 
-/// The Ion specification's enumeration of whitespace characters.
-///
-/// ' ',    Space
-/// '\t',   Tab
-/// '\r',   Carriage return
-/// '\n',   Newline
-/// '\x09', Horizontal tab
-/// '\x0B', Vertical tab
-/// '\x0C', Form feed
-pub(crate) const WHITESPACE_BYTES: &[u8] = b" \t\r\n\x09\x0B\x0C";
+/// Ion whitespace: space, horizontal tab, newline, vertical tab, form feed, and carriage return.
+#[inline]
+const fn is_ion_whitespace(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t'..=b'\r')
+}
 
 /// A slice of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a text Ion stream.
@@ -230,15 +224,9 @@ impl<'top> TextBuffer<'top> {
         empty.take().parse_next(self)
     }
 
-    /// Matches one or more whitespace characters.
-    pub fn match_whitespace1(&mut self) -> IonMatchResult<'top> {
-        let result = take_while(1.., WHITESPACE_BYTES).parse_next(self)?;
-        Ok(result)
-    }
-
     /// Matches zero or more whitespace characters.
     pub fn match_whitespace0(&mut self) -> IonMatchResult<'top> {
-        let result = take_while(0.., WHITESPACE_BYTES).parse_next(self)?;
+        let result = take_while(0.., is_ion_whitespace).parse_next(self)?;
         Ok(result)
     }
 
@@ -248,15 +236,22 @@ impl<'top> TextBuffer<'top> {
         pub fn full_match_optional_comments_and_whitespace<'t>(
             input: &mut TextBuffer<'t>,
         ) -> IonMatchResult<'t> {
-            zero_or_more(alt((
-                TextBuffer::match_whitespace1,
-                TextBuffer::match_comment,
-            )))
-            .parse_next(input)
+            let start = *input;
+            // Hand-written (whitespace0, repeat(0.., (comment, whitespace0))) for speed.
+            loop {
+                input.match_whitespace0()?;
+                if input.bytes().first() != Some(&b'/') {
+                    break;
+                }
+                if opt(TextBuffer::match_comment).parse_next(input)?.is_none() {
+                    break;
+                }
+            }
+            Ok(start.slice(0, input.offset() - start.offset()))
         }
 
         if let Some(&byte) = self.bytes().first() {
-            if WHITESPACE_BYTES.contains_token(byte) || byte == b'/' {
+            if is_ion_whitespace(byte) || byte == b'/' {
                 return full_match_optional_comments_and_whitespace
                     .context("reading whitespace/comments")
                     .parse_next(self);
@@ -415,10 +410,24 @@ impl<'top> TextBuffer<'top> {
     /// * A symbol ID
     /// * A short-form string
     pub fn match_struct_field_name(&mut self) -> IonParseResult<'top, MatchedFieldName<'top>> {
-        alt((
-            Self::match_string.map(MatchedFieldNameSyntax::String),
-            Self::match_symbol.map(MatchedFieldNameSyntax::Symbol),
-        ))
+        // Double quotes can only start short strings; letters and '_' can only start identifiers.
+        // A single quote can start a long string or a quoted symbol: try long strings first so
+        // '''a''' is not read as the empty symbol ''. Leave '$' to match_symbol so $10 is a
+        // symbol ID, even though match_identifier also accepts '$' as an initial character.
+        dispatch! {
+            peek(any);
+            b'"' => Self::match_short_string.map(MatchedFieldNameSyntax::String),
+            b'\'' => alt((
+                Self::match_long_string.map(MatchedFieldNameSyntax::String),
+                Self::match_quoted_symbol.map(MatchedFieldNameSyntax::Symbol),
+            )),
+            b'a'..=b'z' | b'A'..=b'Z' | b'_' => Self::match_identifier.map(MatchedFieldNameSyntax::Symbol),
+            // Retain the original alternatives for other prefixes to preserve their error output.
+            _ => alt((
+                Self::match_string.map(MatchedFieldNameSyntax::String),
+                Self::match_symbol.map(MatchedFieldNameSyntax::Symbol),
+            )),
+        }
         .with_taken()
         .map(
             #[inline]
@@ -1036,54 +1045,22 @@ impl<'top> TextBuffer<'top> {
             .parse_next(self)
     }
 
-    /// Matches items that match the syntactic definition of an identifier but which have special
-    /// meaning. (`true`, `false`, `nan`, `null`)
-    pub(crate) fn match_keyword(&mut self) -> IonMatchResult<'top> {
-        terminated(
-            alt(("true", "false", "null", "nan")),
-            Self::identifier_terminator,
-        )
-        .parse_next(self)
-    }
-
     /// Matches an identifier (`foo`).
+    /// Ion keywords (`true`, `false`, `null`, and `nan`) have identifier syntax but are not
+    /// identifiers. Compare the whole scanned token so that `true_` still matches.
+    /// On partial input, `take_while` must return `Incomplete` before keyword verification
+    /// when the token reaches the buffer's end: the next chunk may continue the identifier.
     pub(crate) fn match_identifier(&mut self) -> IonParseResult<'top, MatchedSymbol> {
         (
-            not(Self::match_keyword),
-            Self::identifier_initial_character,
-            Self::identifier_trailing_characters,
-            Self::identifier_terminator,
+            one_of(|b: u8| b.is_ascii_alphabetic() || b == b'_' || b == b'$'),
+            take_while(0.., |b: u8| {
+                b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+            }),
         )
+            .take()
+            .verify(|name: &Self| !matches!(name.bytes(), b"true" | b"false" | b"null" | b"nan"))
             .value(MatchedSymbol::Identifier)
             .parse_next(self)
-    }
-
-    fn identifier_terminator(&mut self) -> IonMatchResult<'top> {
-        not(Self::identifier_trailing_character)
-            .take()
-            .parse_next(self)
-    }
-
-    /// Matches any character that can appear at the start of an identifier.
-    fn identifier_initial_character(&mut self) -> IonParseResult<'top, Self> {
-        alt((one_of(b"$_"), one_of(|b: u8| b.is_ascii_alphabetic())))
-            .take()
-            .parse_next(self)
-    }
-
-    /// Matches any character that is legal in an identifier, though not necessarily at the beginning.
-    fn identifier_trailing_character(&mut self) -> IonParseResult<'top, Self> {
-        alt((one_of(b"$_"), one_of(|c: u8| c.is_ascii_alphanumeric())))
-            .take()
-            .parse_next(self)
-    }
-
-    /// Matches characters that are legal in an identifier, though not necessarily at the beginning.
-    fn identifier_trailing_characters(&mut self) -> IonParseResult<'top, Self> {
-        zero_or_more(one_of(|b: u8| {
-            b.is_ascii_alphanumeric() || b"$_".contains(&b)
-        }))
-        .parse_next(self)
     }
 
     /// Matches a quoted symbol (`'foo'`).
@@ -1166,7 +1143,7 @@ impl<'top> TextBuffer<'top> {
                 .context("reading a string")
                 .cut();
         }
-        if !WHITESPACE_BYTES.contains(&byte) {
+        if !is_ion_whitespace(byte) {
             return self
                 .slice_to_end(index)
                 .invalid(format!("unescaped control characters are not allowed in text literals; byte {byte:02X}"))
@@ -1512,7 +1489,7 @@ impl<'top> TextBuffer<'top> {
         // "characters >= 0x20", but that excludes lots of whitespace characters that are < 0x20.
         // Some say "displayable ASCII", but DEL (0x7F) is shown to be legal in one of the ion-tests.
         // The definition used here has largely been inferred from the contents of `ion-tests`.
-        b.is_ascii() && (u32::from(b) >= 0x20 || WHITESPACE_BYTES.contains(&b))
+        b.is_ascii() && (u32::from(b) >= 0x20 || is_ion_whitespace(b))
     }
     /// Matches the base64 content within a blob. Ion allows the base64 content to be broken up with
     /// whitespace, so the matched input region may need to be stripped of whitespace before
@@ -1698,6 +1675,141 @@ mod tests {
     use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::expanded::EncodingContext;
     use crate::{AnyEncoding, Reader};
+
+    #[test]
+    fn optional_comments_and_whitespace() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for (prefix, remaining) in [
+            ("", ""),
+            ("", "value"),
+            ("", "/+"),
+            (" \t\r\n\u{000b}\u{000c} ", "value"),
+            ("/**/", "value"),
+            (" /* first */\n// second\r\n", "value"),
+            ("/**//**/ \t", "/+"),
+            ("// /* comment */\n", "value"),
+        ] {
+            let text = format!("{prefix}{remaining}");
+            for is_final_data in [false, true] {
+                let mut input =
+                    TextBuffer::with_offset(context.get_ref(), 17, text.as_bytes(), is_final_data);
+                let matched = input.match_optional_comments_and_whitespace().unwrap();
+                assert_eq!(matched.bytes(), prefix.as_bytes(), "{text:?}");
+                assert_eq!(matched.offset(), 17);
+                assert_eq!(input.bytes(), remaining.as_bytes(), "{text:?}");
+                assert_eq!(input.offset(), 17 + prefix.len());
+            }
+        }
+    }
+
+    #[test]
+    fn comments_and_whitespace_at_end_of_buffer() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for (text, complete_length) in [
+            (" ", 1),
+            ("/", 0),
+            ("/*", 0),
+            ("/*x*", 0),
+            ("/*x*/", 5),
+            ("//x", 3),
+            ("//x\n", 4),
+            (" /*x*/\n/", 7),
+        ] {
+            for is_final_data in [false, true] {
+                let mut input =
+                    TextBuffer::with_offset(context.get_ref(), 17, text.as_bytes(), is_final_data);
+                let result = input.match_optional_comments_and_whitespace();
+                if is_final_data {
+                    let matched = result.unwrap();
+                    assert_eq!(
+                        matched.bytes(),
+                        &text.as_bytes()[..complete_length],
+                        "{text:?}"
+                    );
+                    assert_eq!(matched.offset(), 17);
+                    assert_eq!(
+                        input.bytes(),
+                        &text.as_bytes()[complete_length..],
+                        "{text:?}"
+                    );
+                    assert_eq!(input.offset(), 17 + complete_length);
+                } else {
+                    assert!(result.unwrap_err().is_incomplete(), "{text:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn incomplete_field_name_prefixes() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for text in [
+            "", " ", "/", "/*", "/*x*/ ", "//x", "'", "''", "'''x", "\"x", "$", "tru",
+        ] {
+            let mut input = TextBuffer::with_offset(context.get_ref(), 0, text.as_bytes(), false);
+            assert!(
+                whitespace_and_then(TextBuffer::match_struct_field_name)
+                    .parse_next(&mut input)
+                    .unwrap_err()
+                    .is_incomplete(),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn field_name_dispatch_preserves_symbol_ids_and_long_strings() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for is_final_data in [false, true] {
+            let mut input = TextBuffer::with_offset(context.get_ref(), 0, b"$10:", is_final_data);
+            let matched = input.match_struct_field_name().unwrap();
+            assert_eq!(
+                matched.syntax(),
+                MatchedFieldNameSyntax::Symbol(MatchedSymbol::SymbolId)
+            );
+            assert_eq!(matched.range(), 0..3);
+            assert_eq!(input.bytes(), b":");
+
+            let mut input =
+                TextBuffer::with_offset(context.get_ref(), 0, b"'''a''':", is_final_data);
+            let matched = input.match_struct_field_name().unwrap();
+            assert!(matches!(
+                matched.syntax(),
+                MatchedFieldNameSyntax::String(_)
+            ));
+            assert_eq!(matched.range(), 0..7);
+            assert_eq!(input.bytes(), b":");
+        }
+    }
+
+    #[test]
+    fn partial_identifiers_need_a_delimiter_before_rejecting_keywords() {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        for keyword in ["true", "false", "null", "nan"] {
+            let mut input =
+                TextBuffer::with_offset(context.get_ref(), 0, keyword.as_bytes(), false);
+            assert!(
+                input.match_identifier().unwrap_err().is_incomplete(),
+                "{keyword}"
+            );
+
+            let text = format!("{keyword}:");
+            let mut input = TextBuffer::with_offset(context.get_ref(), 0, text.as_bytes(), false);
+            assert!(
+                matches!(
+                    input.match_identifier(),
+                    Err(winnow::error::ErrMode::Backtrack(_))
+                ),
+                "{text}"
+            );
+
+            let text = format!("{keyword}_:");
+            let mut input = TextBuffer::with_offset(context.get_ref(), 0, text.as_bytes(), false);
+            assert_eq!(input.match_identifier().unwrap(), MatchedSymbol::Identifier);
+            assert_eq!(input.offset(), keyword.len() + 1);
+            assert_eq!(input.bytes(), b":");
+        }
+    }
 
     /// Returns a parser that discards the output and instead reports the number of bytes that matched.
     fn match_length<'data, P, Output>(
@@ -2017,6 +2129,14 @@ mod tests {
             "hello\"
             "#,
         ],
+    }
+
+    matcher_tests! {
+        match_identifier
+        expect_match: [
+            "true_", "false0", "null$", "nanosecond", "True", "n", "t", "f", "$null", "$", "_"
+        ],
+        expect_mismatch: ["true", "false", "null", "nan", "0name"]
     }
 
     matcher_tests! {
