@@ -1,6 +1,5 @@
 use std::io;
 use std::marker::PhantomData;
-use std::num::NonZeroU8;
 
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
@@ -14,8 +13,7 @@ use crate::{IonResult, TextFormat};
 #[derive(Clone, Debug)]
 pub struct WriteConfig<E: Encoding> {
     kind: WriteConfigKind,
-    // `None` means the default limit of `u16::MAX` levels of nested containers.
-    max_depth: Option<NonZeroU8>,
+    max_depth: u16,
     phantom_data: PhantomData<E>,
 }
 
@@ -31,21 +29,28 @@ impl<E: Encoding> WriteConfig<E> {
     /// [`Sequence::encode_to`](crate::Sequence::encode_to). Top-level values are at depth 0 and a
     /// container's children are one level deeper than the container, so in `[[1]]` the inner list
     /// is at depth 1 and `1` is at depth 2. This permits at most `max_depth` levels of nested
-    /// containers. Typed nulls such as `null.list` are not opened as containers, so they are
-    /// accepted at any depth. By default, at most `u16::MAX` levels of containers may be nested.
+    /// containers; a `max_depth` of 0 permits only scalars. Typed nulls such as `null.list` are
+    /// not opened as containers, so they are accepted at any depth. By default, `max_depth` is
+    /// `u16::MAX`.
     ///
     /// Opening a container whose children would be deeper than `max_depth` returns an encoding
     /// error, even if the container is empty.
+    ///
+    /// Choose a limit a little above the deepest nesting your data legitimately contains; most
+    /// data models need only a few dozen levels. Encoding a value recurses at least once per level
+    /// of nesting, so a value nested hundreds or thousands of levels deep can exhaust a thread's
+    /// stack long before reaching the default limit. When encoding values whose depth you do not
+    /// control, such as recursive data built from untrusted input, set a limit low enough that the
+    /// writing thread's stack can accommodate it.
     ///
     /// Raw writers built from this configuration do not enforce the limit.
     ///
     /// ```
     ///# use ion_rs::IonResult;
     ///# fn main() -> IonResult<()> {
-    /// use std::num::NonZeroU8;
     /// use ion_rs::{v1_0, Element, IonError, WriteConfig};
     ///
-    /// let config = WriteConfig::<v1_0::Binary>::new().with_max_depth(NonZeroU8::new(2).unwrap());
+    /// let config = WriteConfig::<v1_0::Binary>::new().with_max_depth(2);
     /// assert!(Element::read_one("[[1]]")?.encode_as(config.clone()).is_ok());
     /// assert!(matches!(
     ///     Element::read_one("[[[1]]]")?.encode_as(config),
@@ -54,18 +59,15 @@ impl<E: Encoding> WriteConfig<E> {
     ///# Ok(())
     ///# }
     /// ```
-    pub fn with_max_depth(mut self, max_depth: NonZeroU8) -> Self {
-        self.max_depth = Some(max_depth);
+    pub fn with_max_depth(mut self, max_depth: u16) -> Self {
+        self.max_depth = max_depth;
         self
     }
 
     /// Returns the configuration for the top-level value writer of a managed writer using this
     /// configuration.
     pub(crate) fn value_writer_config(&self) -> ValueWriterConfig {
-        let remaining_depth = self
-            .max_depth
-            .map_or(u16::MAX, |depth| u16::from(depth.get()));
-        E::default_value_writer_config().with_remaining_depth(remaining_depth)
+        E::default_value_writer_config().with_remaining_depth(self.max_depth)
     }
 
     pub(crate) fn encode<V: WriteAsIon>(&self, value: V) -> IonResult<E::Output> {
@@ -106,7 +108,7 @@ impl WriteConfig<TextEncoding_1_0> {
     pub fn new(text_kind: TextFormat) -> Self {
         Self {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
-            max_depth: None,
+            max_depth: u16::MAX,
             phantom_data: Default::default(),
         }
     }
@@ -116,7 +118,7 @@ impl WriteConfig<BinaryEncoding_1_0> {
     pub fn new() -> Self {
         Self {
             kind: WriteConfigKind::Binary(BinaryWriteConfig),
-            max_depth: None,
+            max_depth: u16::MAX,
             phantom_data: Default::default(),
         }
     }

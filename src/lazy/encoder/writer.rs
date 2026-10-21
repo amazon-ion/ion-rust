@@ -880,7 +880,6 @@ mod reuse_tests {
     use crate::{v1_0, Element, Encoding, IonData, IonResult, TextFormat, WriteConfig};
     use bumpalo::Bump as BumpAllocator;
     use rstest::rstest;
-    use std::num::NonZeroU8;
 
     /// Encodes a single document with a fresh managed writer (the non-reused baseline).
     fn encode_fresh<E: Encoding>(
@@ -1234,8 +1233,7 @@ mod reuse_tests {
         let at_max = Element::read_one("[0]")?;
         let past_max = Element::read_one("[[0]]")?;
 
-        let mut writer = Writer::<E, ()>::idle(config.with_max_depth(NonZeroU8::new(1).unwrap()))?
-            .attach(Vec::new());
+        let mut writer = Writer::<E, ()>::idle(config.with_max_depth(1))?.attach(Vec::new());
         assert_depth_error(writer.write(&past_max));
         let (idle, _discarded) = writer.detach();
 
@@ -1256,7 +1254,7 @@ mod reuse_tests {
     fn set_config_lifts_the_max_depth() -> IonResult<()> {
         let doc = Element::read_one("[[0]]")?;
         let mut idle = Writer::<BinaryEncoding_1_0, ()>::idle(
-            WriteConfig::<BinaryEncoding_1_0>::new().with_max_depth(NonZeroU8::new(1).unwrap()),
+            WriteConfig::<BinaryEncoding_1_0>::new().with_max_depth(1),
         )?;
         idle.set_config(WriteConfig::<BinaryEncoding_1_0>::new());
         let mut writer = idle.attach(Vec::new());
@@ -1270,9 +1268,7 @@ mod reuse_tests {
     fn set_config_imposes_a_max_depth() -> IonResult<()> {
         let doc = Element::read_one("[[0]]")?;
         let mut idle = idle_binary_writer()?;
-        idle.set_config(
-            WriteConfig::<BinaryEncoding_1_0>::new().with_max_depth(NonZeroU8::new(1).unwrap()),
-        );
+        idle.set_config(WriteConfig::<BinaryEncoding_1_0>::new().with_max_depth(1));
         let mut writer = idle.attach(Vec::new());
         assert_depth_error(writer.write(&doc));
         Ok(())
@@ -1324,7 +1320,6 @@ mod tests {
     use crate::{v1_0, Element, Encoding, IonError, IonResult, TextFormat, WriteConfig, Writer};
     use rstest::rstest;
     use std::io::BufWriter;
-    use std::num::NonZeroU8;
 
     #[test]
     fn flush_underlying_sink() -> IonResult<()> {
@@ -1371,16 +1366,16 @@ mod tests {
     /// `Some` and otherwise using the default limit.
     fn encode_with_max_depth(
         format: Format,
-        max_depth: Option<u8>,
+        max_depth: Option<u16>,
         values: &[Element],
     ) -> IonResult<Vec<u8>> {
         fn encode<E: Encoding>(
             config: WriteConfig<E>,
-            max_depth: Option<u8>,
+            max_depth: Option<u16>,
             values: &[Element],
         ) -> IonResult<Vec<u8>> {
             let config = match max_depth {
-                Some(max_depth) => config.with_max_depth(NonZeroU8::new(max_depth).unwrap()),
+                Some(max_depth) => config.with_max_depth(max_depth),
                 None => config,
             };
             config.encode_all_to(Vec::new(), values)
@@ -1398,7 +1393,7 @@ mod tests {
     /// Asserts that `values` encode under `max_depth` and read back unchanged.
     fn assert_round_trips(
         format: Format,
-        max_depth: Option<u8>,
+        max_depth: Option<u16>,
         values: &[Element],
     ) -> IonResult<()> {
         let bytes = encode_with_max_depth(format, max_depth, values)?;
@@ -1450,7 +1445,7 @@ mod tests {
         #[values(Format::Text, Format::Binary)] format: Format,
         #[values(Container::List, Container::SExp, Container::Struct)] container: Container,
         #[values(false, true)] annotated: bool,
-        #[values(2, 4)] max_depth: u8,
+        #[values(2, 4)] max_depth: u16,
     ) -> IonResult<()> {
         let value = nested(container, annotated, usize::from(max_depth))?;
         assert_round_trips(format, Some(max_depth), &[value])
@@ -1461,15 +1456,35 @@ mod tests {
         #[values(Format::Text, Format::Binary)] format: Format,
         #[values(Container::List, Container::SExp, Container::Struct)] container: Container,
         #[values(false, true)] annotated: bool,
-        #[values(2, 4)] max_depth: u8,
+        #[values(2, 4)] max_depth: u16,
     ) -> IonResult<()> {
         let value = nested(container, annotated, usize::from(max_depth) + 1)?;
         assert_depth_error(encode_with_max_depth(format, Some(max_depth), &[value]));
         Ok(())
     }
 
-    /// With a limit of 1, scalars and a single level of containers are accepted. Typed nulls such as
-    /// `null.list` are not opened as containers, so they are accepted at any depth.
+    /// With a limit of 0, scalars and typed nulls are accepted.
+    #[rstest]
+    fn max_depth_of_zero_accepts_scalars(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values("0", "x::sym", "null.list", "null.struct")] text: &str,
+    ) -> IonResult<()> {
+        assert_round_trips(format, Some(0), &[Element::read_one(text)?])
+    }
+
+    /// With a limit of 0, any container is rejected, even an empty one.
+    #[rstest]
+    fn max_depth_of_zero_rejects_any_container(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values("[]", "()", "{}", "x::[0]")] text: &str,
+    ) -> IonResult<()> {
+        let value = Element::read_one(text)?;
+        assert_depth_error(encode_with_max_depth(format, Some(0), &[value]));
+        Ok(())
+    }
+
+    /// With a limit of 1, scalars and a single level of containers are accepted. Typed nulls such
+    /// as `null.list` are not opened as containers, so they are accepted at any depth.
     #[rstest]
     fn max_depth_of_one_accepts_a_single_level_of_containers(
         #[values(Format::Text, Format::Binary)] format: Format,
@@ -1533,16 +1548,17 @@ mod tests {
         assert_round_trips(format, Some(2), &values)
     }
 
+    /// A limit above the `u8` range is enforced exactly.
     #[rstest]
-    fn largest_max_depth_is_enforced(
+    fn max_depth_above_u8_range_is_enforced(
         #[values(Format::Text, Format::Binary)] format: Format,
     ) -> IonResult<()> {
         on_large_stack(|| {
-            let at_max = nested(Container::List, false, 255)?;
-            assert_round_trips(format, Some(u8::MAX), &[at_max])?;
+            let at_max = nested(Container::List, false, 300)?;
+            assert_round_trips(format, Some(300), &[at_max])?;
 
-            let past_max = nested(Container::List, false, 256)?;
-            assert_depth_error(encode_with_max_depth(format, Some(u8::MAX), &[past_max]));
+            let past_max = nested(Container::List, false, 301)?;
+            assert_depth_error(encode_with_max_depth(format, Some(300), &[past_max]));
             Ok(())
         })
     }
