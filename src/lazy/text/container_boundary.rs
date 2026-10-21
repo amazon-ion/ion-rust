@@ -119,10 +119,10 @@ impl TextContainerBoundary {
                         }
                         self.delimiters.push(b'}');
                     }
-                    b']' | b'}' | b')' => {
-                        if self.delimiters.pop() != Some(byte) || self.delimiters.is_empty() {
-                            return true;
-                        }
+                    b']' | b'}' | b')'
+                        if self.delimiters.pop() != Some(byte) || self.delimiters.is_empty() =>
+                    {
+                        return true;
                     }
                     _ => {}
                 },
