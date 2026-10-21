@@ -296,6 +296,23 @@ pub(crate) mod private {
         ) -> IonResult<<Self as Decoder>::Value<'a>>
         where
             Self: Decoder;
+
+        /// Returns an iterator over a detached value's annotations, with the same requirements on
+        /// `context` and `span` as [`reattach_value`](Self::reattach_value). It must yield what
+        /// `reattach_value(..)?.annotations()` would, without necessarily rebuilding the value.
+        fn reattach_annotations<'a>(
+            detached: &'a Self::DetachedValue,
+            context: EncodingContextRef<'a>,
+            span: Span<'a>,
+        ) -> IonResult<<Self as Decoder>::AnnotationsIterator<'a>>
+        where
+            Self: Decoder;
+
+        /// Whether `detached` holds a re-parsed container.
+        #[cfg(test)]
+        fn detached_is_parsed(_detached: &Self::DetachedValue) -> bool {
+            false
+        }
     }
 
     pub struct RawStructFieldExprIterator<'top, D: Decoder> {

@@ -111,6 +111,30 @@ impl DetachableValue for AnyEncoding {
             }
         }
     }
+
+    fn reattach_annotations<'a>(
+        detached: &'a Self::DetachedValue,
+        context: EncodingContextRef<'a>,
+        span: Span<'a>,
+    ) -> IonResult<<Self as Decoder>::AnnotationsIterator<'a>> {
+        let encoding = match detached {
+            DetachedAnyValue::Text_1_0(v) => RawAnnotationsIteratorKind::Text_1_0(
+                TextEncoding_1_0::reattach_annotations(v, context, span)?,
+            ),
+            DetachedAnyValue::Binary_1_0(v) => RawAnnotationsIteratorKind::Binary_1_0(
+                BinaryEncoding_1_0::reattach_annotations(v, context, span)?,
+            ),
+        };
+        Ok(RawAnyAnnotationsIterator { encoding })
+    }
+
+    #[cfg(test)]
+    fn detached_is_parsed(detached: &Self::DetachedValue) -> bool {
+        match detached {
+            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_is_parsed(v),
+            DetachedAnyValue::Binary_1_0(_) => false,
+        }
+    }
 }
 
 /// The lifetime-free form of a [`LazyRawAnyValue`]; see [`DetachableValue::DetachedValue`].

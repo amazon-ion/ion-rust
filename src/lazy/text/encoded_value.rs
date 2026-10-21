@@ -77,6 +77,11 @@ impl<'top, E: TextEncoding> EncodedTextValue<'top, E> {
         self.data_offset as usize
     }
 
+    /// [`data_offset`](Self::data_offset) at its stored width.
+    pub(crate) fn data_offset_u16(&self) -> u16 {
+        self.data_offset
+    }
+
     pub fn annotations_range(&self) -> Option<Range<usize>> {
         if self.data_offset == 0 {
             return None;
@@ -112,6 +117,10 @@ pub(crate) struct EncodedTextScalar {
 }
 
 impl EncodedTextScalar {
+    pub fn data_offset(&self) -> usize {
+        self.data_offset as usize
+    }
+
     pub fn ion_type(&self) -> IonType {
         self.scalar.ion_type()
     }

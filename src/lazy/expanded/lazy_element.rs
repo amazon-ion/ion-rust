@@ -1,32 +1,35 @@
-use crate::lazy::expanded::EncodingContextRef;
+use crate::lazy::expanded::{
+    EncodingContextRef, ExpandedAnnotationsIterator, ExpandedAnnotationsSource,
+};
+use crate::lazy::span::Span;
 use crate::lazy::streaming_raw_reader::IoBuffer;
 use crate::lazy::value::AnnotationsIterator;
 use crate::{
     AnyEncoding, Decoder, Element, EncodingContext, ExpandedValueSource, IonError, IonResult,
     IonType, LazyExpandedValue, LazyValue, ValueRef,
 };
+use std::marker::PhantomData;
 use std::ops::Deref;
 
-/// A (`LazyValue`, `Resource`) pair, in which the `Resource` is a value that depends on
-/// the `LazyValue`.
-///
-/// `LazyElement` implements many of its methods by first converting itself to a `LazyValue`
-/// with a fixed lifetime and then delegating the method call to the `LazyValue`. However,
-/// this means that the result of that method call may be borrowed from the `LazyValue`.
-///
-/// In order to offer an ergonomic API that does not require callers to manually convert the
-/// `LazyElement` to a `LazyValue`, `LazyElement` methods return a `LazyResource`.
+/// A `Resource` that borrows from a [`LazyElement`], such as the [`ValueRef`] returned by
+/// [`LazyElement::read`].
 ///
 /// `LazyResource` implements `Deref`, allowing the inner `Resource`'s methods to be invoked
 /// directly.
-///
-/// See [`LazyElement::read`] for an example.
 pub struct LazyResource<'a, Encoding: Decoder, Resource> {
-    // This field is never read from, so the compiler considers it dead code.
-    // However, it is necessary to keep the `LazyValue` alive while the `Resource` is borrowed.
-    #[allow(dead_code)]
-    value: LazyValue<'a, Encoding>,
+    // Gives `'a` and `Encoding` the variance and auto traits of a `LazyValue<'a, Encoding>`; the
+    // resource itself borrows the `LazyElement` for `'a`.
+    spooky: PhantomData<LazyValue<'a, Encoding>>,
     resource: Resource,
+}
+
+impl<Encoding: Decoder, Resource> LazyResource<'_, Encoding, Resource> {
+    fn new(resource: Resource) -> Self {
+        Self {
+            spooky: PhantomData,
+            resource,
+        }
+    }
 }
 
 impl<Encoding: Decoder, Resource> Deref for LazyResource<'_, Encoding, Resource> {
@@ -63,7 +66,7 @@ pub struct LazyElement<Encoding: Decoder = AnyEncoding> {
     // A second handle to the same input bytes `context` captured.
     io_buffer: IoBuffer,
     // What `Encoding::Value<'_>` is re-derived from, and the only record of which bytes this value
-    // occupies; see `as_lazy_value`.
+    // occupies; see `span`.
     detached_value: Encoding::DetachedValue,
 }
 
@@ -82,6 +85,15 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         }
     }
 
+    /// The bytes this value occupies. They come from the range the detached value itself reports,
+    /// so the two cannot disagree; a disagreement would decode unrelated bytes as this value.
+    fn span(&self) -> Span<'_> {
+        let range = Encoding::detached_range(&self.detached_value);
+        let span = self.io_buffer.span_for_stream_range(range.clone());
+        debug_assert_eq!(range, span.range());
+        span
+    }
+
     pub(crate) fn as_lazy_value<'top>(&'top self) -> IonResult<LazyValue<'top, Encoding>> {
         let context = self.context.get_ref();
         // Rebuild a value that borrows from this `LazyElement` rather than from the reader. This
@@ -91,17 +103,11 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         // re-parsed. A text container is re-parsed once, into a cache in `detached_value` that
         // owns its storage on the heap and so survives moves.
         //
-        // The bytes come from the range the detached value itself reports, so the two cannot
-        // disagree; a disagreement would decode unrelated bytes as this value.
-        //
         // For binary, `reattach_value` allocates the rebuilt value in `self.context`'s arena on
         // every call, regardless of the value's type, and that allocation lives as long as the
-        // arena does. Methods that only need header information should use the `detached_*`
-        // accessors instead of calling this.
-        let range = Encoding::detached_range(&self.detached_value);
-        let span = self.io_buffer.span_for_stream_range(range.clone());
-        debug_assert_eq!(range, span.range());
-        let value = Encoding::reattach_value(&self.detached_value, context, span)?;
+        // arena does. Methods that only need header information or annotations should use the
+        // `detached_*` accessors or `reattach_annotations` instead of calling this.
+        let value = Encoding::reattach_value(&self.detached_value, context, self.span())?;
         let expanded: LazyExpandedValue<'top, Encoding> = LazyExpandedValue {
             context,
             source: ExpandedValueSource::ValueLiteral(value),
@@ -111,9 +117,9 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
 }
 
 impl<Encoding: Decoder> LazyElement<Encoding> {
-    // These five deliberately do NOT go through `as_lazy_value()`: rebuilding a binary value
-    // allocates in an arena the `LazyElement` never reclaims, so delegating would grow memory
-    // without bound. Each must still agree with `LazyValue`'s equivalent method.
+    // These five, and `annotations()` below, deliberately do NOT go through `as_lazy_value()`:
+    // rebuilding a binary value allocates in an arena the `LazyElement` never reclaims, so
+    // delegating would grow memory without bound. Each must still agree with `LazyValue`'s equivalent method.
 
     pub fn ion_type(&self) -> IonType {
         Encoding::detached_ion_type(&self.detached_value)
@@ -138,36 +144,41 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         Encoding::detached_has_annotations(&self.detached_value)
     }
 
-    // The methods below return values with a lifetime. As such, we need to wrap the
-    // return value in a `LazyResource`. This allows the (otherwise temporary) `LazyValue` that
-    // the return value depends on to continue living for the same duration as the return value itself.
+    // The methods below return values that borrow this `LazyElement`, wrapped in a `LazyResource`.
 
     /// Reads the value portion of this `LazyElement`.
     ///
     /// For binary Ion, each call allocates in this element's arena, as does iterating a container's
-    /// children. For text Ion, the first method that reads a container re-parses it into the
-    /// arena, and reading an escaped or multi-segment string, an escaped symbol, a blob, or a clob
-    /// allocates; see [`LazyElement`]. That memory is not reclaimed until the arena is dropped, so
-    /// reading the same element repeatedly can grow memory; see [`LazyElement`].
+    /// children. For text Ion, the first call to this method or conversion to an [`Element`] on a
+    /// container re-parses it into the arena, and reading an escaped or multi-segment string, an
+    /// escaped symbol, a blob, or a clob allocates. That memory is not reclaimed until the arena is
+    /// dropped, so reading the same element repeatedly can grow memory; see [`LazyElement`].
     pub fn read(&self) -> IonResult<LazyResource<'_, Encoding, ValueRef<'_, Encoding>>> {
         let value = self.as_lazy_value()?;
         let resource = value.read()?;
 
-        Ok(LazyResource { value, resource })
+        Ok(LazyResource::new(resource))
     }
 
     /// Returns an iterator over the annotations on this `LazyElement`.
     ///
-    /// For binary Ion, each call allocates in this element's arena; for a text container, the first
-    /// method that reads it re-parses it. See [`read`](Self::read). To check whether annotations
+    /// For text Ion, the annotations are read from the bytes that precede the value without
+    /// re-parsing it, though iterating escaped annotations allocates. To check whether annotations
     /// are present without allocating, use [`has_annotations`](Self::has_annotations).
     pub fn annotations(
         &self,
     ) -> IonResult<LazyResource<'_, Encoding, AnnotationsIterator<'_, Encoding>>> {
-        let value = self.as_lazy_value()?;
-        let resource = value.annotations();
+        let context = self.context.get_ref();
+        let raw_annotations =
+            Encoding::reattach_annotations(&self.detached_value, context, self.span())?;
+        let resource = AnnotationsIterator {
+            expanded_annotations: ExpandedAnnotationsIterator::new(
+                ExpandedAnnotationsSource::ValueLiteral(raw_annotations),
+            ),
+            context,
+        };
 
-        Ok(LazyResource { value, resource })
+        Ok(LazyResource::new(resource))
     }
 
     /// Returns the encoding context that this `LazyElement` uses to read its data.
@@ -176,7 +187,7 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         let value = self.as_lazy_value()?;
         let resource = value.context();
 
-        Ok(LazyResource { value, resource })
+        Ok(LazyResource::new(resource))
     }
 }
 
@@ -327,6 +338,55 @@ mod tests {
         Ok(types)
     }
 
+    /// Annotations on scalars and on each container type, including quoted, escaped,
+    /// comment-separated, and symbol ID ones (`$4` is `name`; `$0` has no text), alongside
+    /// unannotated values.
+    const ANNOTATED: &str = r#"
+        a::1
+        'b c'::'d\'e':: /* comment */ "f"
+        g:: /* comment */ h::[1, 2]
+        i::(j k)
+        'l\nm'::{n: o::p}
+        [q]
+        r::null.struct
+        s
+        $4::5
+        $0::t
+        $4::$0::[u]
+    "#;
+
+    fn annotation_texts<E: Decoder>(element: &LazyElement<E>) -> IonResult<Vec<Option<String>>> {
+        // `LazyResource` only derefs, so take the iterator out of it to consume it.
+        element
+            .annotations()?
+            .resource
+            .map(|annotation| Ok(annotation?.text().map(str::to_owned)))
+            .collect()
+    }
+
+    /// Checks each stored element's annotations against `Element::read_all(text)`'s.
+    fn assert_annotations_match_text(
+        text: &str,
+        elements: &[LazyElement<impl Decoder>],
+    ) -> IonResult<()> {
+        let expected: Vec<Vec<Option<String>>> = Element::read_all(text)?
+            .iter()
+            .map(|element| {
+                element
+                    .annotations()
+                    .iter()
+                    .map(|annotation| annotation.text().map(str::to_owned))
+                    .collect()
+            })
+            .collect();
+        let actual = elements
+            .iter()
+            .map(annotation_texts)
+            .collect::<IonResult<Vec<_>>>()?;
+        assert_eq!(expected, actual);
+        Ok(())
+    }
+
     fn assert_elements_match_text(
         text: &str,
         elements: &[LazyElement<impl Decoder>],
@@ -379,8 +439,9 @@ mod tests {
     // which selects these tests by module path.
     mod binary_soundness_tests {
         use super::{
-            assert_elements_match_text, assert_header_accessors_match_lazy_value,
-            collect_ion_types, store_elements_then_drop_reader, test_data,
+            assert_annotations_match_text, assert_elements_match_text,
+            assert_header_accessors_match_lazy_value, collect_ion_types,
+            store_elements_then_drop_reader, test_data, ANNOTATED,
         };
         use crate::lazy::binary::test_utilities::to_binary_ion;
         use crate::lazy::encoding::BinaryEncoding_1_0;
@@ -453,6 +514,14 @@ mod tests {
             let text = test_data();
             let elements = store_elements_then_drop_reader(encoding, to_binary_ion(&text)?)?;
             assert_elements_match_text(&text, &elements)
+        }
+
+        #[rstest]
+        fn stored_annotations_match_elements<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
+        ) -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(ANNOTATED)?)?;
+            assert_annotations_match_text(ANNOTATED, &elements)
         }
 
         #[rstest]
@@ -548,7 +617,8 @@ mod tests {
             assert!(annotated_int.has_annotations());
             assert!(!unannotated_struct.has_annotations());
             // Materializing resolves the annotation text, which lives in those leading bytes.
-            assert_elements_match_text("a::1 {b: c::three}", &children)
+            assert_elements_match_text("a::1 {b: c::three}", &children)?;
+            assert_annotations_match_text("a::1 {b: c::three}", &children)
         }
 
         /// Values stored from a streaming (`Read`) input, whose window slides--and, pinned by a
@@ -659,14 +729,14 @@ mod tests {
             assert_header_accessors_match_lazy_value(&elements)
         }
 
-        /// The header accessors must not rebuild the value in the arena: a `LazyElement` never
-        /// reclaims it, so allocating per call would grow memory without bound.
-        #[test]
-        fn header_accessors_do_not_grow_the_arena() -> IonResult<()> {
-            let elements = store_elements_then_drop_reader(
-                BinaryEncoding_1_0,
-                to_binary_ion("ann::[1, 2, 3]")?,
-            )?;
+        /// The header accessors and `annotations()` must not rebuild the value in the arena: a
+        /// `LazyElement` never reclaims it, so allocating per call would grow memory without bound.
+        #[rstest]
+        fn header_accessors_do_not_grow_the_arena<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
+        ) -> IonResult<()> {
+            let elements =
+                store_elements_then_drop_reader(encoding, to_binary_ion("ann::[1, 2, 3]")?)?;
             let [element] = elements.as_slice() else {
                 panic!(
                     "expected exactly one top-level value, found {}",
@@ -686,11 +756,12 @@ mod tests {
                 assert!(element.is_container());
                 assert!(!element.is_scalar());
                 assert!(element.has_annotations());
+                assert_eq!(1, element.annotations()?.resource.count());
             }
             assert_eq!(
                 bytes_before,
                 allocated_bytes(),
-                "the header accessors grew the arena"
+                "the header accessors or `annotations()` grew the arena"
             );
 
             // Confirm the measurement is sensitive: that many `as_lazy_value()` calls do grow it.
@@ -712,13 +783,14 @@ mod tests {
     // module's name in sync with `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`.
     mod text_soundness_tests {
         use super::{
-            assert_elements_match_text, assert_header_accessors_match_lazy_value,
-            store_elements_then_drop_reader, traverse_all,
+            annotation_texts, assert_annotations_match_text, assert_elements_match_text,
+            assert_header_accessors_match_lazy_value, store_elements_then_drop_reader,
+            traverse_all, ANNOTATED,
         };
         use crate::lazy::encoding::TextEncoding_1_0;
         use crate::lazy::expanded::lazy_element::LazyElement;
         use crate::read_config::ReadConfig;
-        use crate::{AnyEncoding, Decoder, Element, IonResult, LazyValue, Reader};
+        use crate::{AnyEncoding, Decoder, Element, IonResult, LazyValue, Reader, ValueRef};
         use rstest::rstest;
         use std::io::{BufReader, Cursor};
 
@@ -740,6 +812,110 @@ mod tests {
         ) -> IonResult<()> {
             let elements = store_elements_then_drop_reader(encoding, TEXT)?;
             assert_elements_match_text(TEXT, &elements)
+        }
+
+        #[rstest]
+        fn stored_annotations_match_elements<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+            #[values(false, true)] populate_first: bool,
+        ) -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(encoding, ANNOTATED)?;
+            if populate_first {
+                traverse_all(&elements)?;
+            }
+            assert_annotations_match_text(ANNOTATED, &elements)
+        }
+
+        /// Symbol ID annotations resolve against the symbol table active when each value was
+        /// stored, even after a later one redefines the same ID.
+        #[rstest]
+        fn stored_annotations_keep_their_symbol_table<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+            #[values(false, true)] populate_first: bool,
+        ) -> IonResult<()> {
+            const REDEFINED: &str = r#"
+                $ion_symbol_table::{symbols: ["x"]}
+                $10::[1]
+                $10::2
+                $ion_symbol_table::{symbols: ["y"]}
+                $10::[3]
+                $10::4
+            "#;
+            let elements = store_elements_then_drop_reader(encoding, REDEFINED)?;
+            if populate_first {
+                traverse_all(&elements)?;
+            }
+            assert_annotations_match_text(REDEFINED, &elements)
+        }
+
+        /// The stored children of a container: its field values, or its child values.
+        fn store_children<E: Decoder>(parent: LazyValue<'_, E>) -> IonResult<Vec<LazyElement<E>>> {
+            match parent.read()? {
+                ValueRef::List(list) => list.iter().map(|c| c.map(LazyValue::to_owned)).collect(),
+                ValueRef::SExp(sexp) => sexp.iter().map(|c| c.map(LazyValue::to_owned)).collect(),
+                ValueRef::Struct(fields) => fields
+                    .iter()
+                    .map(|field| field.map(|field| field.value().to_owned()))
+                    .collect(),
+                _ => panic!("expected a container, found {:?}", parent.ion_type()),
+            }
+        }
+
+        /// A stored child's range excludes its field name and separators, whether the child was
+        /// stored from the reader's parse or from a stored parent's re-parse.
+        #[rstest]
+        #[case::struct_fields(
+            r#"{a: x:: /*c*/ y::1, 'b': 'e\nf'::[2], c: (z::3), d: 4}"#,
+            r#"x::y::1 'e\nf'::[2] (z::3) 4"#
+        )]
+        #[case::list_children(
+            r#"[x:: /*c*/ y::1, 'e\nf'::[2], w::(z::3), 4]"#,
+            r#"x::y::1 'e\nf'::[2] w::(z::3) 4"#
+        )]
+        #[case::sexp_children(
+            r#"(x:: /*c*/ y::1 'e\nf'::{g: 2} + 4)"#,
+            r#"x::y::1 'e\nf'::{g: 2} '+' 4"#
+        )]
+        fn stored_child_annotations_match_elements(
+            #[case] parent_text: &str,
+            #[case] children_text: &str,
+            #[values(false, true)] from_stored_parent: bool,
+        ) -> IonResult<()> {
+            let children = if from_stored_parent {
+                let elements = store_elements_then_drop_reader(TextEncoding_1_0, parent_text)?;
+                let [parent] = elements.as_slice() else {
+                    panic!("expected one top-level value, found {}", elements.len());
+                };
+                store_children(parent.as_lazy_value()?)?
+            } else {
+                let mut reader = Reader::new(TextEncoding_1_0, parent_text.as_bytes().to_vec())?;
+                store_children(reader.expect_next()?)?
+            };
+            assert_annotations_match_text(children_text, &children)
+        }
+
+        /// A stored container's annotations are read from its leading bytes, leaving its cache empty.
+        #[rstest]
+        fn annotations_do_not_parse_a_stored_container<E: Decoder + Into<ReadConfig<E>>>(
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+        ) -> IonResult<()> {
+            let elements =
+                store_elements_then_drop_reader(encoding, "g:: /* comment */ h::[1, 2]")?;
+            let [element] = elements.as_slice() else {
+                panic!("expected one top-level value, found {}", elements.len());
+            };
+            assert_eq!(
+                vec![Some("g".to_owned()), Some("h".to_owned())],
+                annotation_texts(element)?
+            );
+            assert!(
+                !E::detached_is_parsed(&element.detached_value),
+                "reading the annotations re-parsed the container"
+            );
+            // Confirm the probe sees the cache once it is filled.
+            element.as_lazy_value()?;
+            assert!(E::detached_is_parsed(&element.detached_value));
+            Ok(())
         }
 
         #[rstest]

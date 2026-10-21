@@ -363,6 +363,20 @@ impl DetachableValue for BinaryEncoding_1_0 {
             input,
         }))
     }
+
+    fn reattach_annotations<'a>(
+        detached: &'a Self::DetachedValue,
+        context: EncodingContextRef<'a>,
+        span: Span<'a>,
+    ) -> IonResult<<Self as Decoder>::AnnotationsIterator<'a>> {
+        // The iterator borrows only `input`, so the value need not live in the arena.
+        let input = BinaryBuffer::new_with_offset(context, span.bytes(), span.offset());
+        let value = LazyRawBinaryValue_1_0 {
+            encoded_value: *detached,
+            input,
+        };
+        Ok(value.annotations())
+    }
 }
 
 impl Decoder for TextEncoding_1_0 {
@@ -394,10 +408,11 @@ enum DetachedTextKind {
     // inside an s-expression, so re-parsing one on its own would fail.
     Scalar(EncodedTextScalar),
     // A container's encoding borrows its children from the reader's arena, so it is re-parsed
-    // from the stored bytes on first read and cached.
+    // from the stored bytes on first read and cached. Its annotations are read from the bytes
+    // before `data_offset` without re-parsing.
     Container {
         ion_type: IonType,
-        has_annotations: bool,
+        data_offset: u16,
         parsed: OnceCell<ParsedTextContainer>,
     },
 }
@@ -478,10 +493,9 @@ impl ParsedTextContainer {
             TextEncoding_1_0::detached_ion_type(detached),
             value.encoded_value.ion_type()
         );
-        debug_assert_eq!(
-            TextEncoding_1_0::detached_has_annotations(detached),
-            value.has_annotations()
-        );
+        if let DetachedTextKind::Container { data_offset, .. } = &detached.kind {
+            debug_assert_eq!(*data_offset, value.encoded_value.data_offset_u16());
+        }
         let value = NonNull::from(context_ref.allocator().alloc(value));
         Ok(Self { owner, value })
     }
@@ -495,7 +509,7 @@ impl DetachableValue for TextEncoding_1_0 {
             Some(scalar) => DetachedTextKind::Scalar(scalar),
             None => DetachedTextKind::Container {
                 ion_type: value.encoded_value.ion_type(),
-                has_annotations: value.has_annotations(),
+                data_offset: value.encoded_value.data_offset_u16(),
                 parsed: OnceCell::new(),
             },
         };
@@ -526,9 +540,7 @@ impl DetachableValue for TextEncoding_1_0 {
     fn detached_has_annotations(detached: &Self::DetachedValue) -> bool {
         match &detached.kind {
             DetachedTextKind::Scalar(scalar) => scalar.has_annotations(),
-            DetachedTextKind::Container {
-                has_annotations, ..
-            } => *has_annotations,
+            DetachedTextKind::Container { data_offset, .. } => *data_offset > 0,
         }
     }
 
@@ -560,6 +572,26 @@ impl DetachableValue for TextEncoding_1_0 {
         //         `EncodingContext::make_allocator_mut`), and the bytes are copied on write while
         //         shared. `parsed` lives in `detached`, which is borrowed for `'a`.
         Ok(unsafe { *parsed.value.cast::<LazyRawTextValue_1_0<'a>>().as_ptr() })
+    }
+
+    fn reattach_annotations<'a>(
+        detached: &'a Self::DetachedValue,
+        context: EncodingContextRef<'a>,
+        span: Span<'a>,
+    ) -> IonResult<<Self as Decoder>::AnnotationsIterator<'a>> {
+        // The annotations are the bytes before `data_offset`, so reading them needs neither a
+        // rebuilt value nor a container's cache.
+        let data_offset = match &detached.kind {
+            DetachedTextKind::Scalar(scalar) => scalar.data_offset(),
+            DetachedTextKind::Container { data_offset, .. } => usize::from(*data_offset),
+        };
+        let input = TextBuffer::from_span(context, span, true);
+        Ok(RawTextAnnotationsIterator::new(input.slice(0, data_offset)))
+    }
+
+    #[cfg(test)]
+    fn detached_is_parsed(detached: &Self::DetachedValue) -> bool {
+        matches!(&detached.kind, DetachedTextKind::Container { parsed, .. } if parsed.get().is_some())
     }
 }
 
