@@ -256,8 +256,9 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
     /// rather than borrowing them from the reader.
     ///
     /// The first read of a text `LazyElement` holding a container re-parses that container's
-    /// subtree into the shared arena. Converting and reading every level of a text tree this way
-    /// therefore costs parse work and arena space proportional to its size times its depth.
+    /// subtree into the shared arena, unless this value was itself read from a stored container's
+    /// parsed subtree, in which case the new element shares that parse, at the cost of copying the
+    /// value into the arena.
     pub fn to_owned(self) -> LazyElement<D> {
         // Cloning the context bumps its resources' reference counts and captures a shared handle to
         // the reader's input buffer, keeping this value's bytes available; `save_io_buffer` takes a

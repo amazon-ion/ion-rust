@@ -11,12 +11,13 @@
 //! unresolved. Leaving symbol tokens unresolved is an optimization; annotations, field names, and
 //! symbol values that are ignored by the reader do not incur the cost of symbol table resolution.
 
+use crate::lazy::encoding::ParsedTextOwner;
 use bumpalo::Bump as BumpAllocator;
 use sequence::{LazyExpandedList, LazyExpandedSExp};
 use std::cell::UnsafeCell;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use crate::catalog::Catalog;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion};
@@ -88,6 +89,12 @@ pub struct EncodingContext {
     pub(crate) allocator: Rc<BumpAllocator>,
 
     pub(crate) io_buffer_source: UnsafeCell<IoBufferSource>,
+
+    // Set only on the context inside a text `ParsedTextOwner`, pointing back at that owner so that
+    // a container read from its parsed tree can share it (`ParsedTextContainer::share`). It lives
+    // here because a raw text value reaches nothing else of its owner except this context; `None`
+    // on every other context, including clones of that one.
+    pub(crate) parsed_text_owner: Option<Weak<ParsedTextOwner>>,
 }
 
 impl Clone for EncodingContext {
@@ -100,6 +107,7 @@ impl Clone for EncodingContext {
             symbol_table: self.symbol_table.clone(),
             allocator: self.allocator.clone(),
             io_buffer_source: IoBufferSource::IoBuffer(io_buffer).into(),
+            parsed_text_owner: None,
         }
     }
 }
@@ -122,6 +130,7 @@ impl EncodingContext {
             symbol_table: Rc::new(symbol_table),
             allocator: Rc::new(allocator),
             io_buffer_source: IoBufferSource::None.into(),
+            parsed_text_owner: None,
         }
     }
 

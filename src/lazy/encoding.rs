@@ -36,10 +36,12 @@ use crate::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, HasRange, IonError, IonResult,
     IonType, LazyRawFieldExpr, SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
 };
+use ice_code::ice as cold_path;
 use std::cell::OnceCell;
 use std::fmt::Debug;
 use std::io;
 use std::ops::Range;
+use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use winnow::combinator::{opt, separated_pair};
@@ -407,9 +409,11 @@ enum DetachedTextKind {
     // This also keeps s-expression operators (e.g. `+` in `(+ 1)`) readable; they only match
     // inside an s-expression, so re-parsing one on its own would fail.
     Scalar(EncodedTextScalar),
-    // A container's encoding borrows its children from the reader's arena, so it is re-parsed
-    // from the stored bytes on first read and cached. Its annotations are read from the bytes
-    // before `data_offset` without re-parsing.
+    // A container's encoding borrows its children from an arena, so it is re-parsed from the
+    // stored bytes on first read and cached, unless it was read from another container's cache,
+    // in which case `detach_value` fills `parsed` with one that shares it
+    // (`ParsedTextContainer::share`). Its annotations are read from the bytes before
+    // `data_offset` without re-parsing.
     Container {
         ion_type: IonType,
         data_offset: u16,
@@ -417,7 +421,9 @@ enum DetachedTextKind {
     },
 }
 
-/// A container re-parsed from a `LazyElement`'s bytes.
+/// A parsed text container: either re-parsed from a `LazyElement`'s bytes
+/// ([`parse`](Self::parse)), or a node of another container's parsed tree that shares its owner
+/// ([`share`](Self::share)).
 ///
 /// `value` and its children reference only allocations `owner` keeps alive: its encoding context,
 /// that context's arena, and the bytes behind its `io_buffer` (a heap `Rc<[u8]>`). Moving the
@@ -427,17 +433,28 @@ enum DetachedTextKind {
 /// Stacked and Tree Borrows reject.
 #[derive(Debug)]
 struct ParsedTextContainer {
-    // Never read; owns the storage `value` points into. `Rc` rather than `Box` because moving a
-    // `Box` asserts unique access to its pointee, which would invalidate the references the parsed
-    // tree holds into it.
+    // Read only by a test probe; owns the storage `value` points into. `Rc` rather than `Box`
+    // because moving a `Box` asserts unique access to its pointee, which would invalidate the
+    // references the parsed tree holds into it.
     #[allow(dead_code)]
     owner: Rc<ParsedTextOwner>,
     value: NonNull<LazyRawTextValue_1_0<'static>>,
 }
 
 /// The storage a [`ParsedTextContainer`]'s value points into.
+///
+/// `context`'s `parsed_text_owner` points back here, so that a container read from the parsed
+/// tree can be stored as a [`ParsedTextContainer`] that shares this owner rather than re-parsing
+/// (see [`ParsedTextContainer::share`]). Only `parse` builds a `TextBuffer` over this `context`,
+/// from `io_buffer`'s bytes, and every value carrying it is matched from that buffer or a slice of
+/// it. A container's `encoded_value` is matched, with its `input`'s context, from bytes inside its
+/// `input` (`apply_annotations` widens `input` over the annotations after the match), so its
+/// children reference only this context's arena and `io_buffer`'s bytes. `share` asserts the
+/// context and bytes of the value it copies but not that pairing, so code that pairs a container's
+/// `encoded_value` with an unrelated `input` breaks `share`. A scalar's `encoded_value` borrows
+/// nothing, so its pairing does not matter.
 #[derive(Debug)]
-struct ParsedTextOwner {
+pub(crate) struct ParsedTextOwner {
     context: EncodingContext,
     // A handle to the same bytes `context` captured. It pins them independently of `context`'s
     // `UnsafeCell<IoBufferSource>`, which `EncodingContext::set_io_buffer_handle` can overwrite
@@ -448,15 +465,22 @@ struct ParsedTextOwner {
 impl ParsedTextContainer {
     /// Re-parses the container at `detached`'s range from a clone of `context` and its bytes.
     fn parse(context: EncodingContextRef<'_>, detached: &DetachedTextValue) -> IonResult<Self> {
-        let context = context.context.clone();
-        let io_buffer = context.save_io_buffer();
-        let owner = Rc::new(ParsedTextOwner { context, io_buffer });
+        let owner = Rc::new_cyclic(|this| {
+            let mut context = context.context.clone();
+            context.parsed_text_owner = Some(this.clone());
+            let io_buffer = context.save_io_buffer();
+            ParsedTextOwner { context, io_buffer }
+        });
         let owner_ptr = Rc::as_ptr(&owner);
-        // SAFETY: Both references point into heap allocations that the returned struct keeps alive
-        //         through `owner` and that are not freed, mutably borrowed, or written while it
-        //         lives. No other `Rc` owns `owner`'s pointee, so nothing frees it or obtains
-        //         `&mut` to it. Its context's `io_buffer_source` is written only by a reader, on
-        //         the reader's own context (`EncodingContext::set_io_buffer_handle`,
+        // SAFETY: Both references point into heap allocations that `owner` keeps alive and that
+        //         are not freed, mutably borrowed, or written while any strong `Rc` to `owner`
+        //         lives. Copies of them reach other containers only through
+        //         `ParsedTextContainer::share`, and each such container holds its own `Rc` to
+        //         `owner`. Other strong `Rc`s exist only briefly, in `detach_value`, while the
+        //         container being read holds one. None obtains `&mut` to the pointee, and the
+        //         pointee holds only a `Weak` to itself. Its context's `io_buffer_source` is
+        //         written only by a reader, on the reader's own context
+        //         (`EncodingContext::set_io_buffer_handle`,
         //         `ExpandingReader::between_top_level_expressions`), never on a clone such as this
         //         one. The bytes are `io_buffer`'s `Rc<[u8]>`, which the reader copies on write
         //         rather than mutating while shared. The symbol table reached through `context_ref`
@@ -465,8 +489,8 @@ impl ParsedTextContainer {
         //         in it, but it is never reset while shared (`EncodingContext::make_allocator_mut`
         //         installs a fresh one), so allocations made in it, including this parse's, are not
         //         overwritten or freed while `owner` lives. The `'static` lifetime reaches callers
-        //         only through `value`; an error returned below is owned and retains neither
-        //         reference.
+        //         only through `value` and the copies `share` makes of its descendants; an error
+        //         returned below is owned and retains neither reference.
         let (context_ref, bytes): (EncodingContextRef<'static>, &'static [u8]) = unsafe {
             (
                 EncodingContextRef::new(&(*owner_ptr).context),
@@ -499,6 +523,56 @@ impl ParsedTextContainer {
         let value = NonNull::from(context_ref.allocator().alloc(value));
         Ok(Self { owner, value })
     }
+
+    /// Returns the cache for a container being detached: one that shares the parsed tree `value`
+    /// was read from, if any, and otherwise an empty one that `reattach_value` fills.
+    // Sharing is outlined with `cold_path!` so that `detach_value`, which `LazyValue::to_owned`
+    // inlines for every encoding through `AnyEncoding`, stays small; inlining it measurably slowed
+    // binary `to_owned`.
+    fn cache_for(value: LazyRawTextValue_1_0<'_>) -> OnceCell<Self> {
+        match value.input.context.parsed_text_owner.as_ref() {
+            None => OnceCell::new(),
+            Some(owner) => cold_path! {
+                match owner.upgrade() {
+                    Some(owner) => OnceCell::from(Self::share(owner, value)),
+                    None => OnceCell::new(),
+                }
+            },
+        }
+    }
+
+    /// Returns a cache for `value`, a container read from `owner`'s parsed tree, that shares
+    /// `owner` rather than re-parsing `value`'s bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value`'s context is not `owner`'s or its bytes are empty or not in `owner`'s
+    /// buffer, which the invariant on [`ParsedTextOwner`] rules out. Such a value's stored range
+    /// would not locate it in the stored element's bytes, so there is no correct fallback, and
+    /// copying it would extend a borrow `owner` does not keep alive.
+    fn share(owner: Rc<ParsedTextOwner>, value: LazyRawTextValue_1_0<'_>) -> Self {
+        let owner_bytes = owner.io_buffer.all_bytes().as_ptr_range();
+        let value_bytes = value.input.bytes().as_ptr_range();
+        // `detach_value` upgrades `owner` from `value`'s context, so the context comparison holds
+        // by construction; it guards other ways of obtaining `owner`. The byte comparison is the
+        // one a broken invariant fails. A container's input includes its delimiters, so it is
+        // never empty; requiring that makes the containment check conclusive.
+        assert!(
+            ptr::eq(value.input.context.context, &owner.context)
+                && !value.input.is_empty()
+                && owner_bytes.start <= value_bytes.start
+                && value_bytes.end <= owner_bytes.end,
+            "a container carrying a parsed text owner's context is not from that owner's parse"
+        );
+        // `value`'s context and bytes are `owner`'s, and a container's children are matched from
+        // inside its input into its input context's arena (see `ParsedTextOwner`), so the copy
+        // made here references only storage `owner` keeps alive. The `'static` lifetime given to
+        // it reaches callers only through `Self::value` and the copies `share` makes of its
+        // descendants, as in `parse`.
+        let value = NonNull::from(owner.context.allocator().alloc(value))
+            .cast::<LazyRawTextValue_1_0<'static>>();
+        Self { owner, value }
+    }
 }
 
 impl DetachableValue for TextEncoding_1_0 {
@@ -510,7 +584,7 @@ impl DetachableValue for TextEncoding_1_0 {
             None => DetachedTextKind::Container {
                 ion_type: value.encoded_value.ion_type(),
                 data_offset: value.encoded_value.data_offset_u16(),
-                parsed: OnceCell::new(),
+                parsed: ParsedTextContainer::cache_for(value),
             },
         };
         DetachedTextValue {
@@ -549,8 +623,8 @@ impl DetachableValue for TextEncoding_1_0 {
         context: EncodingContextRef<'a>,
         span: Span<'a>,
     ) -> IonResult<<Self as Decoder>::Value<'a>> {
-        // Scalars are rebuilt over `span` without re-parsing. A container is re-parsed once, from
-        // `context`'s bytes, into the cache in `detached`.
+        // Scalars are rebuilt over `span` without re-parsing. A container's cache is filled when it
+        // is stored from another cache, or else re-parsed once, from `context`'s bytes.
         let parsed = match &detached.kind {
             DetachedTextKind::Scalar(scalar) => {
                 let input = TextBuffer::from_span(context, span, true);
@@ -566,7 +640,10 @@ impl DetachableValue for TextEncoding_1_0 {
         };
         // SAFETY: `parsed.value` was allocated in `parsed.owner`'s context's arena and references
         //         only allocations `parsed.owner` keeps alive: that context, its arena, and the
-        //         bytes behind its `io_buffer`. The allocation `value` points to and the bytes it
+        //         bytes behind its `io_buffer`. `parsed` is built either by
+        //         `ParsedTextContainer::parse` or by `ParsedTextContainer::share`, which asserts
+        //         that the value's context and bytes are `parsed.owner`'s; see the invariant on
+        //         `ParsedTextOwner`. The allocation `value` points to and the bytes it
         //         references are never written or freed while `parsed` lives: the arena only grows
         //         (the reader installs a fresh arena rather than resetting a shared one; see
         //         `EncodingContext::make_allocator_mut`), and the bytes are copied on write while
@@ -590,8 +667,13 @@ impl DetachableValue for TextEncoding_1_0 {
     }
 
     #[cfg(test)]
-    fn detached_is_parsed(detached: &Self::DetachedValue) -> bool {
-        matches!(&detached.kind, DetachedTextKind::Container { parsed, .. } if parsed.get().is_some())
+    fn detached_parse_owner(detached: &Self::DetachedValue) -> Option<*const ()> {
+        match &detached.kind {
+            DetachedTextKind::Container { parsed, .. } => {
+                parsed.get().map(|p| Rc::as_ptr(&p.owner).cast())
+            }
+            DetachedTextKind::Scalar(_) => None,
+        }
     }
 }
 
@@ -613,12 +695,72 @@ impl RawValueLiteral for LazyRawAnyValue<'_> {}
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Weak;
+
     use rstest::rstest;
 
+    use super::{ParsedTextContainer, TextEncoding_1_0};
     use crate::lazy::encoding::TextEncoding;
+    use crate::lazy::expanded::lazy_element::LazyElement;
+    use crate::lazy::expanded::ExpandedValueSource;
+    use crate::lazy::span::Span;
+    use crate::lazy::text::buffer::TextBuffer;
+    use crate::lazy::text::value::LazyRawTextValue_1_0;
     use crate::{
-        ion_list, ion_seq, ion_sexp, ion_struct, v1_0, IonResult, Sequence, TextFormat, WriteConfig,
+        ion_list, ion_seq, ion_sexp, ion_struct, v1_0, IonResult, Reader, Sequence, TextFormat,
+        WriteConfig,
     };
+
+    /// `share` rejects a container that is not from its owner's parse rather than extending a
+    /// borrow the owner does not keep alive. Each case breaks one of its two conditions.
+    #[rstest]
+    #[case::same_bytes_other_parse(false)]
+    #[case::owner_context_foreign_bytes(true)]
+    #[should_panic(expected = "is not from that owner's parse")]
+    fn share_rejects_a_value_from_another_parse(#[case] foreign_bytes: bool) {
+        fn first_child(element: &LazyElement<TextEncoding_1_0>) -> LazyRawTextValue_1_0<'_> {
+            let list = element
+                .as_lazy_value()
+                .unwrap()
+                .read()
+                .unwrap()
+                .expect_list()
+                .unwrap();
+            let child = list.iter().next().unwrap().unwrap();
+            let ExpandedValueSource::ValueLiteral(raw) = child.expanded_value.source;
+            raw
+        }
+        let mut reader = Reader::new(TextEncoding_1_0, b"[[1]] [[2]]".to_vec()).unwrap();
+        let a = reader.expect_next().unwrap().to_owned();
+        // A second reader's input is a separate allocation, so its bytes are not in `a`'s
+        // owner's buffer; the first reader's second value shares that buffer but not the parse.
+        let mut other = Reader::new(TextEncoding_1_0, b"[[2]]".to_vec()).unwrap();
+        let b = if foreign_bytes {
+            &mut other
+        } else {
+            &mut reader
+        }
+        .expect_next()
+        .unwrap()
+        .to_owned();
+        let a_child = first_child(&a);
+        let mut b_child = first_child(&b);
+        let owner = a_child
+            .input
+            .context
+            .parsed_text_owner
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .expect("reading `a` fills its cache");
+        if foreign_bytes {
+            b_child.input = TextBuffer::from_span(
+                a_child.input.context,
+                Span::with_offset(b_child.input.offset(), b_child.input.bytes()),
+                true,
+            );
+        }
+        let _ = ParsedTextContainer::share(owner, b_child);
+    }
 
     #[rstest]
     #[case::pretty_v1_0(

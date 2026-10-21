@@ -308,10 +308,17 @@ pub(crate) mod private {
         where
             Self: Decoder;
 
-        /// Whether `detached` holds a re-parsed container.
+        /// Whether `detached` holds a parsed container, re-parsed or shared.
         #[cfg(test)]
-        fn detached_is_parsed(_detached: &Self::DetachedValue) -> bool {
-            false
+        fn detached_is_parsed(detached: &Self::DetachedValue) -> bool {
+            Self::detached_parse_owner(detached).is_some()
+        }
+
+        /// The address of the storage that owns `detached`'s parsed container, if it holds one.
+        /// Containers that share a parse have the same owner.
+        #[cfg(test)]
+        fn detached_parse_owner(_detached: &Self::DetachedValue) -> Option<*const ()> {
+            None
         }
     }
 

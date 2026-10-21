@@ -129,10 +129,10 @@ impl DetachableValue for AnyEncoding {
     }
 
     #[cfg(test)]
-    fn detached_is_parsed(detached: &Self::DetachedValue) -> bool {
+    fn detached_parse_owner(detached: &Self::DetachedValue) -> Option<*const ()> {
         match detached {
-            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_is_parsed(v),
-            DetachedAnyValue::Binary_1_0(_) => false,
+            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_parse_owner(v),
+            DetachedAnyValue::Binary_1_0(_) => None,
         }
     }
 }

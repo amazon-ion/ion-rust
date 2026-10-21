@@ -22,6 +22,8 @@ use std::ops::Range;
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Copy, Clone)]
 pub struct LazyRawTextValue<'top, Encoding: TextEncoding> {
+    // For a container, matched with `input`'s context from bytes inside `input`;
+    // `ParsedTextContainer::share` relies on it (see `ParsedTextOwner`).
     pub(crate) encoded_value: EncodedTextValue<'top, Encoding>,
     pub(crate) input: TextBuffer<'top>,
 }

@@ -49,13 +49,13 @@ impl<Encoding: Decoder, Resource> Deref for LazyResource<'_, Encoding, Resource>
 /// This requires a small amount of bookkeeping overhead, but eliminates the need for lifetimes.
 /// `LazyElement` instances can be stored indefinitely and read any number of times.
 ///
-/// Storing one keeps those resources (input bytes, symbol table, bump arena) alive. Reading it
-/// allocates in that arena, which reclaims nothing until it is dropped:
+/// Storing one keeps those resources (input bytes, symbol table, bump arena) alive. Storing or
+/// reading it allocates in that arena, which reclaims nothing until it is dropped:
 ///
 /// * Binary Ion rebuilds the value on every read.
-/// * Text Ion re-parses a container's subtree once, on its first read. Storing and reading every
-///   level of a text tree this way costs parse work and arena space proportional to its size times
-///   its depth.
+/// * Text Ion re-parses a container's subtree once, on its first read. A container stored from a
+///   stored container's parsed subtree shares that parse instead; storing it copies its raw value
+///   (at most 72 bytes on 64-bit targets) into the arena.
 /// * Text Ion also allocates on every read that decodes an escaped or multi-segment string, an
 ///   escaped symbol, a blob, or a clob.
 ///
@@ -100,8 +100,8 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
         // happens per call rather than once at construction because the rebuilt value borrows
         // `self.context`, which lives inline in this struct; a `LazyElement` that was moved (into a
         // `Vec`, say) would leave a cached value pointing at the old address. Scalars are not
-        // re-parsed. A text container is re-parsed once, into a cache in `detached_value` that
-        // owns its storage on the heap and so survives moves.
+        // re-parsed. A text container is parsed at most once, into a cache in `detached_value`
+        // whose storage is on the heap and so survives moves.
         //
         // For binary, `reattach_value` allocates the rebuilt value in `self.context`'s arena on
         // every call, regardless of the value's type, and that allocation lives as long as the
@@ -150,9 +150,10 @@ impl<Encoding: Decoder> LazyElement<Encoding> {
     ///
     /// For binary Ion, each call allocates in this element's arena, as does iterating a container's
     /// children. For text Ion, the first call to this method or conversion to an [`Element`] on a
-    /// container re-parses it into the arena, and reading an escaped or multi-segment string, an
-    /// escaped symbol, a blob, or a clob allocates. That memory is not reclaimed until the arena is
-    /// dropped, so reading the same element repeatedly can grow memory; see [`LazyElement`].
+    /// container re-parses it into the arena, unless the container was stored from a stored
+    /// container's parsed subtree. Reading an escaped or multi-segment string, an escaped symbol, a
+    /// blob, or a clob also allocates. That memory is not reclaimed until the arena is dropped, so
+    /// reading the same element repeatedly can grow memory; see [`LazyElement`].
     pub fn read(&self) -> IonResult<LazyResource<'_, Encoding, ValueRef<'_, Encoding>>> {
         let value = self.as_lazy_value()?;
         let resource = value.read()?;
@@ -779,14 +780,16 @@ mod tests {
     // ===== Text =====
     //
     // A stored text container is re-parsed once, on first read, into a cache that owns the storage
-    // it borrows from. These exercise that cache, and the scalar path, under Miri. Keep this
-    // module's name in sync with `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`.
+    // it borrows from; one stored from another container's cache shares it. These exercise that
+    // cache, and the scalar path, under Miri. Keep this module's name in sync with
+    // `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`.
     mod text_soundness_tests {
         use super::{
             annotation_texts, assert_annotations_match_text, assert_elements_match_text,
             assert_header_accessors_match_lazy_value, store_elements_then_drop_reader,
             traverse_all, ANNOTATED,
         };
+        use crate::lazy::decoder::private::DetachableValue;
         use crate::lazy::encoding::TextEncoding_1_0;
         use crate::lazy::expanded::lazy_element::LazyElement;
         use crate::read_config::ReadConfig;
@@ -891,6 +894,7 @@ mod tests {
                 let mut reader = Reader::new(TextEncoding_1_0, parent_text.as_bytes().to_vec())?;
                 store_children(reader.expect_next()?)?
             };
+            assert_elements_match_text(children_text, &children)?;
             assert_annotations_match_text(children_text, &children)
         }
 
@@ -1009,8 +1013,72 @@ mod tests {
             Ok(())
         }
 
-        /// A container child stored from a cached container re-parses through its own handle to
-        /// the bytes, and every child outlives the parent.
+        /// A container stored from a cached container shares that cache's parse, at every level,
+        /// and it outlives every ancestor. A container stored straight from the reader is not
+        /// parsed until it is read. Each case's second child holds only `z::[3, d::4]`.
+        #[rstest]
+        #[case::struct_parent(
+            "{a: x:: /*c*/ [1, (2 +)], b: y::{c: z::[3, d::4]}}",
+            "x::[1, (2 +)] y::{c: z::[3, d::4]}"
+        )]
+        #[case::list_parent(
+            "[x:: /*c*/ [1, (2 +)], y::[z::[3, d::4]]]",
+            "x::[1, (2 +)] y::[z::[3, d::4]]"
+        )]
+        #[case::sexp_parent("(x:: /*c*/ (2 +) y::(z::[3, d::4]))", "x::(2 +) y::(z::[3, d::4])")]
+        fn containers_stored_from_a_cache_share_it<E: Decoder + Into<ReadConfig<E>>>(
+            #[case] text: &str,
+            #[case] children_text: &str,
+            #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
+        ) -> IonResult<()> {
+            let elements = store_elements_then_drop_reader(encoding, text)?;
+            let [parent] = elements.as_slice() else {
+                panic!("expected one top-level value, found {}", elements.len());
+            };
+            assert!(
+                !E::detached_is_parsed(&parent.detached_value),
+                "a container stored from the reader was parsed before it was read"
+            );
+
+            let children = store_children(parent.as_lazy_value()?)?;
+            let Some(owner) = E::detached_parse_owner(&parent.detached_value) else {
+                panic!("reading the parent did not fill its cache");
+            };
+            let [_, second] = children.as_slice() else {
+                panic!("expected two children, found {}", children.len());
+            };
+            for child in &children {
+                assert_eq!(
+                    Some(owner),
+                    E::detached_parse_owner(&child.detached_value),
+                    "a container stored from a cached parent does not share the parent's parse"
+                );
+            }
+
+            let grandchildren = store_children(second.as_lazy_value()?)?;
+            let [grandchild] = grandchildren.as_slice() else {
+                panic!("expected one grandchild, found {}", grandchildren.len());
+            };
+            assert_eq!(
+                Some(owner),
+                E::detached_parse_owner(&grandchild.detached_value),
+                "a container stored from a shared cache does not share that parse"
+            );
+            drop(elements);
+            assert_elements_match_text(children_text, &children)?;
+            drop(children);
+            // The grandchild now holds the last `Rc` to the parse, which the consuming conversion
+            // drops inside the call.
+            let actual = grandchildren
+                .into_iter()
+                .map(Element::try_from)
+                .collect::<IonResult<Vec<Element>>>()?;
+            let expected: Vec<Element> = Element::read_all("z::[3, d::4]")?.into_iter().collect();
+            assert_eq!(expected, actual);
+            Ok(())
+        }
+
+        /// Every child stored from a cached container outlives the parent.
         #[test]
         fn children_of_a_cached_container_outlive_it() -> IonResult<()> {
             let elements =
@@ -1018,27 +1086,23 @@ mod tests {
             let [parent] = elements.as_slice() else {
                 panic!("expected one top-level value, found {}", elements.len());
             };
-            let children = parent
-                .as_lazy_value()?
-                .read()?
-                .expect_struct()?
-                .iter()
-                .map(|field| field.map(|field| field.value().to_owned()))
-                .collect::<IonResult<Vec<_>>>()?;
+            let children = store_children(parent.as_lazy_value()?)?;
             drop(elements);
             assert_elements_match_text("[1, (2 +)] x", &children)
         }
 
         /// Values stored from a streaming input whose window slides as the reader advances. With
         /// `read_while_live`, each element's cache is populated as soon as it is stored, so the
-        /// window then shifts (copying the bytes the cache borrows) under populated caches.
+        /// window then shifts (copying the bytes the cache borrows) under populated caches, and
+        /// each element's children are stored sharing that cache.
         #[rstest]
         fn values_survive_a_shifting_stream_window(
             #[values(false, true)] read_while_live: bool,
         ) -> IonResult<()> {
             const VALUE_COUNT: usize = 10;
+            let filler = "x".repeat(500);
             let text = (0..VALUE_COUNT)
-                .map(|index| format!("{{index: {index}, filler: \"{}\"}}", "x".repeat(500)))
+                .map(|index| format!("{{index: {index}, inner: ann::{{filler: \"{filler}\"}}}}"))
                 .collect::<Vec<String>>()
                 .join("\n");
             assert!(
@@ -1051,10 +1115,22 @@ mod tests {
                 BufReader::new(Cursor::new(text.clone().into_bytes())),
             )?;
             let mut elements = Vec::new();
+            let mut children = Vec::new();
             for element in &mut reader {
                 let element: LazyElement<TextEncoding_1_0> = element?;
                 if read_while_live {
-                    Element::try_from(&element)?;
+                    let stored = store_children(element.as_lazy_value()?)?;
+                    let [_, inner] = stored.as_slice() else {
+                        panic!("expected two fields, found {}", stored.len());
+                    };
+                    let owner = TextEncoding_1_0::detached_parse_owner(&element.detached_value);
+                    assert!(owner.is_some(), "reading a record did not fill its cache");
+                    assert_eq!(
+                        owner,
+                        TextEncoding_1_0::detached_parse_owner(&inner.detached_value),
+                        "a container stored from a cached record does not share its parse"
+                    );
+                    children.extend(stored);
                 }
                 elements.push(element);
             }
@@ -1073,7 +1149,17 @@ mod tests {
             }
             drop(reader);
             traverse_all(&elements)?;
-            assert_elements_match_text(&text, &elements)
+            assert_elements_match_text(&text, &elements)?;
+            drop(elements);
+            if read_while_live {
+                let children_text = (0..VALUE_COUNT)
+                    .map(|index| format!("{index} ann::{{filler: \"{filler}\"}}"))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                assert_elements_match_text(&children_text, &children)?;
+                assert_annotations_match_text(&children_text, &children)?;
+            }
+            Ok(())
         }
 
         /// One of each header fact the accessors report, including a container of each type, a
