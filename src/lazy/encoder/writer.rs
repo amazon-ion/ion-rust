@@ -76,6 +76,9 @@ impl Deref for WriterSymbolTable {
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
+///
+/// Unless a method states otherwise, a writer that has returned an error may have incomplete data
+/// buffered. Flushing it is not guaranteed to produce a valid Ion stream.
 // Note: the struct itself is generic over `Output` WITHOUT an `Output: Write` bound so that a
 // sink-less `Writer<E, ()>` can be parked in a pool (e.g. thread-local) between uses, retaining its
 // warm sub-writers and their scratch arenas. All encoding methods live in `impl<E, Output: Write>`;
@@ -102,16 +105,19 @@ struct WriterParts<E: Encoding> {
     symbols: WriterSymbolTable,
     data_writer: E::Writer<Vec<u8>>,
     directive_writer: E::Writer<Vec<u8>>,
+    value_writer_config: ValueWriterConfig,
 }
 
-/// Builds the sink-independent parts of a managed writer -- a fresh symbol table and the two
-/// `Vec<u8>`-backed sub-writers -- in the state a freshly constructed writer is in before its first
-/// `flush`: the `directive_writer` holds the encoding's construction prologue (an IVM for binary,
-/// nothing for text) and the `data_writer`'s has been erased.
+/// Builds the sink-independent parts of a managed writer -- a fresh symbol table, the two
+/// `Vec<u8>`-backed sub-writers, and the configuration for top-level values -- in the state a
+/// freshly constructed writer is in before its first `flush`: the `directive_writer` holds the
+/// encoding's construction prologue (an IVM for binary, nothing for text) and the `data_writer`'s
+/// IVM has been erased.
 ///
 /// [`Writer::new`] and [`Writer::idle`] differ only in the sink they bind (and, for `new`, the initial
 /// `flush`), so they share this rather than each spelling the fields out and risking divergence.
 fn build_parts<E: Encoding>(config: WriteConfig<E>) -> IonResult<WriterParts<E>> {
+    let value_writer_config = config.value_writer_config();
     let directive_writer = E::Writer::build(config.clone(), vec![])?;
     let mut data_writer = E::Writer::build(config, vec![])?;
     // Erase the IVM that's created by default; only the directive writer carries the prologue.
@@ -122,6 +128,7 @@ fn build_parts<E: Encoding>(config: WriteConfig<E>) -> IonResult<WriterParts<E>>
         symbols,
         data_writer,
         directive_writer,
+        value_writer_config,
     })
 }
 
@@ -150,26 +157,27 @@ where
             symbols,
             data_writer,
             directive_writer,
+            value_writer_config,
         } = build_parts(config.into())?;
         Ok(Writer {
             symbols,
             data_writer,
             directive_writer,
             output: (),
-            value_writer_config: E::default_value_writer_config(),
+            value_writer_config,
         })
     }
 
     /// Re-configures this idle writer, which is otherwise fixed to the configuration it was built
     /// with. A pooled writer built for one caller's [`WriteConfig`] can then be handed to another's:
     /// call this before [`Self::attach`] so the next document honors the caller's configuration
-    /// (e.g. `Pretty` rather than `Compact` text).
+    /// (e.g. `Pretty` rather than `Compact` text). This also replaces the maximum depth, so call it
+    /// even for binary writers, which have no text format to change.
     pub fn set_config(&mut self, config: impl Into<WriteConfig<E>>) {
         let config = config.into();
         self.directive_writer.apply_config(&config);
         self.data_writer.apply_config(&config);
-        // Not derived from `config` today; this is the state `new`/`idle` would produce.
-        self.value_writer_config = E::default_value_writer_config();
+        self.value_writer_config = config.value_writer_config();
     }
 
     /// Binds `output` to this idle writer and returns an active writer ready to encode.
@@ -247,13 +255,14 @@ impl<E: Encoding, Output: Write> Writer<E, Output> {
             symbols,
             data_writer,
             directive_writer,
+            value_writer_config,
         } = build_parts(config.into())?;
         let mut writer = Writer {
             symbols,
             data_writer,
             directive_writer,
             output,
-            value_writer_config: E::default_value_writer_config(),
+            value_writer_config,
         };
         writer.flush()?;
         Ok(writer)
@@ -437,7 +446,23 @@ impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
     }
 }
 
+/// The description of the encoding error raised when opening a container whose children would be
+/// deeper than the maximum depth.
+const MAX_DEPTH_EXCEEDED: &str = "container nesting exceeds the configured maximum depth";
+
 impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
+    /// Returns the configuration for the children of a container this writer is about to open. If
+    /// they would exceed the maximum depth, returns an `Err` before `self.raw_value_writer` opens
+    /// the container; field names and enclosing containers that the raw writer already encoded
+    /// are not rolled back.
+    #[inline]
+    fn nested_container_config(&self) -> IonResult<ValueWriterConfig> {
+        match self.value_writer_config.enter_container() {
+            Some(config) => Ok(config),
+            None => cold_path!(IonResult::encoding_error(MAX_DEPTH_EXCEEDED)),
+        }
+    }
+
     /// Converts each annotation in `annotations` to a symbol ID, adding symbols to the symbol table
     /// as necessary. If one of the annotations is a symbol ID that is not in the symbol table,
     /// returns an `Err`.
@@ -604,23 +629,25 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
+        let config = self.nested_container_config()?;
         Ok(ApplicationListWriter::new(
             self.symbols,
-            self.value_writer_config,
+            config,
             self.raw_value_writer.list_writer()?,
         ))
     }
 
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
+        let config = self.nested_container_config()?;
         Ok(ApplicationSExpWriter::new(
             self.symbols,
-            self.value_writer_config,
+            config,
             self.raw_value_writer.sexp_writer()?,
         ))
     }
 
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
-        let config = self.value_writer_config;
+        let config = self.nested_container_config()?;
         Ok(ApplicationStructWriter::new(
             self.symbols,
             config,
@@ -841,6 +868,7 @@ impl<S: SequenceWriter> ElementWriter for S {
 
 #[cfg(test)]
 mod reuse_tests {
+    use super::tests::assert_depth_error;
     use super::Writer;
     // `DEFAULT_BUMP_SIZE` is the binary writer's arena size, imported here (and only here) so the
     // arena tests can derive their sizes from the real arena rather than hardcoding them.
@@ -1191,6 +1219,61 @@ mod reuse_tests {
         Ok(())
     }
 
+    /// A writer built by `idle` with a maximum depth enforces it in every document it encodes,
+    /// including after a `detach`/`attach` cycle.
+    #[rstest]
+    #[case::binary_1_0(v1_0::Binary)]
+    #[case::text_1_0(v1_0::Text)]
+    fn idle_applies_the_max_depth<E>(#[case] encoding: E) -> IonResult<()>
+    where
+        E: Encoding + Into<WriteConfig<E>>,
+        E::Writer<Vec<u8>>: Reusable,
+    {
+        let config: WriteConfig<E> = encoding.into();
+        let at_max = Element::read_one("[0]")?;
+        let past_max = Element::read_one("[[0]]")?;
+
+        let mut writer = Writer::<E, ()>::idle(config.with_max_depth(1))?.attach(Vec::new());
+        assert_depth_error(writer.write(&past_max));
+        let (idle, _discarded) = writer.detach();
+
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&at_max)?;
+        writer.flush()?;
+        let (idle, bytes) = writer.detach();
+        assert_eq!(Element::read_one(bytes)?, at_max);
+
+        let mut writer = idle.attach(Vec::new());
+        assert_depth_error(writer.write(&past_max));
+        Ok(())
+    }
+
+    /// `set_config` replaces the maximum depth along with the rest of the configuration, so it can
+    /// lift the limit a writer was built with.
+    #[test]
+    fn set_config_lifts_the_max_depth() -> IonResult<()> {
+        let doc = Element::read_one("[[0]]")?;
+        let mut idle = Writer::<BinaryEncoding_1_0, ()>::idle(
+            WriteConfig::<BinaryEncoding_1_0>::new().with_max_depth(1),
+        )?;
+        idle.set_config(WriteConfig::<BinaryEncoding_1_0>::new());
+        let mut writer = idle.attach(Vec::new());
+        writer.write(&doc)?;
+        assert_eq!(Element::read_one(writer.close()?)?, doc);
+        Ok(())
+    }
+
+    /// `set_config` can also impose a maximum depth on a writer built without one.
+    #[test]
+    fn set_config_imposes_a_max_depth() -> IonResult<()> {
+        let doc = Element::read_one("[[0]]")?;
+        let mut idle = idle_binary_writer()?;
+        idle.set_config(WriteConfig::<BinaryEncoding_1_0>::new().with_max_depth(1));
+        let mut writer = idle.attach(Vec::new());
+        assert_depth_error(writer.write(&doc));
+        Ok(())
+    }
+
     /// A parked writer built for one `WriteConfig` must be able to adopt another's, in place: a pool
     /// hands whichever writer it has to whichever caller asks next.
     #[test]
@@ -1232,7 +1315,10 @@ mod reuse_tests {
 
 #[cfg(test)]
 mod tests {
-    use crate::{v1_0, IonResult, Writer};
+    use super::MAX_DEPTH_EXCEEDED;
+    use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+    use crate::{v1_0, Element, Encoding, IonError, IonResult, TextFormat, WriteConfig, Writer};
+    use rstest::rstest;
     use std::io::BufWriter;
 
     #[test]
@@ -1255,5 +1341,235 @@ mod tests {
         // Make sure that this caused the encoded bytes to reach the `Vec<u8>`.
         assert!(writer.output().get_ref().len() > len_before_flush);
         Ok(())
+    }
+
+    /// Asserts that `result` is the encoding error raised for a container that would exceed the
+    /// maximum depth.
+    #[track_caller]
+    pub(super) fn assert_depth_error<T>(result: IonResult<T>) {
+        let result = result.map(|_| ());
+        assert!(
+            matches!(&result, Err(IonError::Encoding(e)) if e.to_string() == MAX_DEPTH_EXCEEDED),
+            "expected a depth encoding error, got {result:?}"
+        );
+    }
+
+    /// The encodings the depth tests cover. An enum rather than a generic `E: Encoding` so that
+    /// rstest `#[values]` can vary the encoding alongside the other parameters.
+    #[derive(Copy, Clone, Debug)]
+    enum Format {
+        Text,
+        Binary,
+    }
+
+    /// Encodes `values` as one stream with a fresh managed writer, limited to `max_depth` if it is
+    /// `Some` and otherwise using the default limit.
+    fn encode_with_max_depth(
+        format: Format,
+        max_depth: Option<u16>,
+        values: &[Element],
+    ) -> IonResult<Vec<u8>> {
+        fn encode<E: Encoding>(
+            config: WriteConfig<E>,
+            max_depth: Option<u16>,
+            values: &[Element],
+        ) -> IonResult<Vec<u8>> {
+            let config = match max_depth {
+                Some(max_depth) => config.with_max_depth(max_depth),
+                None => config,
+            };
+            config.encode_all_to(Vec::new(), values)
+        }
+        match format {
+            Format::Text => encode(
+                WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact),
+                max_depth,
+                values,
+            ),
+            Format::Binary => encode(WriteConfig::<BinaryEncoding_1_0>::new(), max_depth, values),
+        }
+    }
+
+    /// Asserts that `values` encode under `max_depth` and read back unchanged.
+    fn assert_round_trips(
+        format: Format,
+        max_depth: Option<u16>,
+        values: &[Element],
+    ) -> IonResult<()> {
+        let bytes = encode_with_max_depth(format, max_depth, values)?;
+        let read_back: Vec<Element> = Element::read_all(bytes)?.into_iter().collect();
+        assert_eq!(read_back, values);
+        Ok(())
+    }
+
+    #[derive(Copy, Clone, Debug)]
+    enum Container {
+        List,
+        SExp,
+        Struct,
+    }
+
+    /// Returns a value made of `containers` levels of nested `container`s around the integer `0`,
+    /// each container optionally annotated. The integer is at depth `containers`.
+    fn nested(container: Container, annotated: bool, containers: usize) -> IonResult<Element> {
+        let (open, close) = match container {
+            Container::List => ("[", "]"),
+            Container::SExp => ("(", ")"),
+            Container::Struct => ("{a:", "}"),
+        };
+        let annotation = if annotated { "x::" } else { "" };
+        let text = format!(
+            "{}0{}",
+            format!("{annotation}{open}").repeat(containers),
+            close.repeat(containers)
+        );
+        Element::read_one(text)
+    }
+
+    /// Runs `f` on a thread with a stack large enough for the recursive reading and writing of
+    /// values nested hundreds of levels deep in unoptimized builds.
+    fn on_large_stack<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+        std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(64 * 1024 * 1024)
+                .spawn_scoped(scope, f)
+                .unwrap()
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        })
+    }
+
+    // The `#[values]` matrices of this test and the next are kept in sync.
+    #[rstest]
+    fn nesting_at_max_depth_round_trips(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values(Container::List, Container::SExp, Container::Struct)] container: Container,
+        #[values(false, true)] annotated: bool,
+        #[values(2, 4)] max_depth: u16,
+    ) -> IonResult<()> {
+        let value = nested(container, annotated, usize::from(max_depth))?;
+        assert_round_trips(format, Some(max_depth), &[value])
+    }
+
+    #[rstest]
+    fn nesting_past_max_depth_is_an_encoding_error(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values(Container::List, Container::SExp, Container::Struct)] container: Container,
+        #[values(false, true)] annotated: bool,
+        #[values(2, 4)] max_depth: u16,
+    ) -> IonResult<()> {
+        let value = nested(container, annotated, usize::from(max_depth) + 1)?;
+        assert_depth_error(encode_with_max_depth(format, Some(max_depth), &[value]));
+        Ok(())
+    }
+
+    /// With a limit of 0, scalars and typed nulls are accepted.
+    #[rstest]
+    fn max_depth_of_zero_accepts_scalars(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values("0", "x::sym", "null.list", "null.struct")] text: &str,
+    ) -> IonResult<()> {
+        assert_round_trips(format, Some(0), &[Element::read_one(text)?])
+    }
+
+    /// With a limit of 0, any container is rejected, even an empty one.
+    #[rstest]
+    fn max_depth_of_zero_rejects_any_container(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values("[]", "()", "{}", "x::[0]")] text: &str,
+    ) -> IonResult<()> {
+        let value = Element::read_one(text)?;
+        assert_depth_error(encode_with_max_depth(format, Some(0), &[value]));
+        Ok(())
+    }
+
+    /// With a limit of 1, scalars and a single level of containers are accepted. Typed nulls such
+    /// as `null.list` are not opened as containers, so they are accepted at any depth.
+    #[rstest]
+    fn max_depth_of_one_accepts_a_single_level_of_containers(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values(
+            "0",
+            "x::sym",
+            "null.list",
+            "null.sexp",
+            "null.struct",
+            "[]",
+            "[0]",
+            "(0)",
+            "{a: 0}",
+            "x::[0]",
+            "[null.list]",
+            "{a: null.struct}"
+        )]
+        text: &str,
+    ) -> IonResult<()> {
+        assert_round_trips(format, Some(1), &[Element::read_one(text)?])
+    }
+
+    /// A container inside a container is rejected even if the inner container is empty.
+    #[rstest]
+    fn max_depth_of_one_rejects_a_nested_container(
+        #[values(Format::Text, Format::Binary)] format: Format,
+        #[values("[[0]]", "[[]]", "[()]", "[{}]", "(())", "{a: []}", "x::[x::[]]")] text: &str,
+    ) -> IonResult<()> {
+        let value = Element::read_one(text)?;
+        assert_depth_error(encode_with_max_depth(format, Some(1), &[value]));
+        Ok(())
+    }
+
+    /// Lists, s-expressions, and structs all count toward the same depth.
+    #[rstest]
+    fn container_types_share_one_depth_budget(
+        #[values(Format::Text, Format::Binary)] format: Format,
+    ) -> IonResult<()> {
+        let value = Element::read_one("[(x::{a: [0]})]")?;
+        assert_round_trips(format, Some(4), std::slice::from_ref(&value))?;
+        assert_depth_error(encode_with_max_depth(format, Some(3), &[value]));
+        Ok(())
+    }
+
+    /// Each sibling container gets the full depth remaining at its level.
+    #[rstest]
+    fn sibling_containers_each_get_the_remaining_depth(
+        #[values(Format::Text, Format::Binary)] format: Format,
+    ) -> IonResult<()> {
+        assert_round_trips(format, Some(2), &[Element::read_one("[[0], (0), {a: 0}]")?])
+    }
+
+    /// Each top-level value written through one writer gets the full maximum depth.
+    #[rstest]
+    fn each_top_level_value_gets_the_max_depth(
+        #[values(Format::Text, Format::Binary)] format: Format,
+    ) -> IonResult<()> {
+        let values: Vec<Element> = Element::read_all("[[0]] ([0]) {a: {b: 0}}")?
+            .into_iter()
+            .collect();
+        assert_round_trips(format, Some(2), &values)
+    }
+
+    /// A limit above the `u8` range is enforced exactly.
+    #[rstest]
+    fn max_depth_above_u8_range_is_enforced(
+        #[values(Format::Text, Format::Binary)] format: Format,
+    ) -> IonResult<()> {
+        on_large_stack(|| {
+            let at_max = nested(Container::List, false, 300)?;
+            assert_round_trips(format, Some(300), &[at_max])?;
+
+            let past_max = nested(Container::List, false, 301)?;
+            assert_depth_error(encode_with_max_depth(format, Some(300), &[past_max]));
+            Ok(())
+        })
+    }
+
+    #[rstest]
+    fn default_depth_allows_deep_nesting(
+        #[values(Format::Text, Format::Binary)] format: Format,
+    ) -> IonResult<()> {
+        on_large_stack(|| {
+            let value = nested(Container::List, false, 300)?;
+            assert_round_trips(format, None, &[value])
+        })
     }
 }
