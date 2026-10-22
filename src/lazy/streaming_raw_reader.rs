@@ -564,7 +564,7 @@ impl IoBuffer {
         mut_ref.deref_mut().fill(MaybeUninit::new(0u8));
         // SAFETY: Now that the slice is full of zeroes (which are valid `u8`s),
         //         we can treat it like a regular Rc<[u8]>.
-        unsafe { std::mem::transmute(memory) }
+        unsafe { memory.assume_init() }
     }
 
     /// Moves all of the bytes in the range `self.position..self.limit` to the beginning of the buffer,

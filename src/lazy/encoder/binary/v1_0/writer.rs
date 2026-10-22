@@ -269,7 +269,7 @@ impl<W: Write> SequenceWriter for LazyRawBinaryWriter_1_0<W> {
 #[cfg(test)]
 mod move_soundness_tests {
     use super::LazyRawBinaryWriter_1_0;
-    use crate::lazy::encoder::LazyRawWriter;
+    use crate::lazy::encoder::{LazyRawWriter, Recycle, WriterRole};
     use crate::IonResult;
     use rstest::rstest;
 
@@ -354,6 +354,33 @@ mod move_soundness_tests {
             moved.output(),
             stationary.output(),
             "moved-after-flush writer produced different bytes (payload_len={payload_len})"
+        );
+        Ok(())
+    }
+
+    /// Same, but the writer is recycled with its arena still warm, so `recycle` rewinds it with
+    /// `AliasableBump::reset` while the discarded top-level buffer is still allocated in it.
+    #[rstest]
+    #[case(SMALL)]
+    #[case(LARGE)]
+    fn move_after_recycle_is_consistent(#[case] payload_len: usize) -> IonResult<()> {
+        let payload = "a".repeat(payload_len);
+
+        let mut moved = LazyRawBinaryWriter_1_0::new(Vec::new())?;
+        moved.write(1_i64)?; // allocates the top-level encoding buffer, never flushed
+        moved.recycle(WriterRole::System);
+        let mut moved = relocate(moved);
+        moved.write(payload.as_str())?; // re-allocates the buffer in the (moved) rewound arena
+        moved.flush()?;
+
+        let mut fresh = LazyRawBinaryWriter_1_0::new(Vec::new())?;
+        fresh.write(payload.as_str())?;
+        fresh.flush()?;
+
+        assert_eq!(
+            moved.output(),
+            fresh.output(),
+            "recycled writer produced different bytes than a fresh one (payload_len={payload_len})"
         );
         Ok(())
     }

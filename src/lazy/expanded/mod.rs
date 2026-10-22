@@ -310,10 +310,8 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         context.allocator_mut().reset();
     }
 
-    pub fn pending_context_changes(&self) -> &PendingContextChanges {
-        // If the user is able to call this method, the PendingLst is not being modified and it's
-        // safe to immutably reference.
-        unsafe { &*self.pending_context_changes.get() }
+    pub fn pending_context_changes(&mut self) -> &PendingContextChanges {
+        self.pending_context_changes.get_mut()
     }
 
     /// Updates the encoding context with the information stored in the `PendingContextChanges`.
@@ -449,33 +447,10 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         unsafe { &*self.raw_reader.get() }.encoding()
     }
 
-    /// Returns the next IVM, value, or system value as an `ExpandedStreamItem`.
-    ///
-    /// This path is less optimized than `next_system_item` because it needs to surface additional
-    /// items that do not impact the application. However, it's useful for tooling that needs more
-    /// visibility into the stream's encoding.
+    /// Returns the next IVM, value, or system value as an `ExpandedStreamItem`, for tooling that
+    /// needs visibility into the stream's encoding.
     pub fn next_item(&mut self) -> IonResult<ExpandedStreamItem<'_, Encoding>> {
-        // We're now between top level expressions. Take this opportunity to apply any pending
-        // changes to the encoding context and reset state as needed.
-        self.between_top_level_expressions();
-
-        let context_ref = self.context();
-
-        // Pull another top-level expression from the input stream if one is available.
-        use crate::lazy::raw_stream_item::RawStreamItem::*;
-        let raw_reader = unsafe { &mut *self.raw_reader.get() };
-        match raw_reader.next(context_ref)? {
-            VersionMarker(marker) => {
-                let _system_item = self.interpret_ivm(marker)?;
-                Ok(ExpandedStreamItem::VersionMarker(marker))
-            }
-            // We got our value; return it.
-            Value(raw_value) => {
-                let value = LazyExpandedValue::from_literal(context_ref, raw_value);
-                Ok(self.interpret_value(value)?.as_expanded_stream_item())
-            }
-            EndOfStream(end_position) => Ok(ExpandedStreamItem::EndOfStream(end_position)),
-        }
+        Ok(self.next_system_item()?.as_expanded_stream_item())
     }
 
     /// Returns the next [`SystemStreamItem`] by pulling another expression from the input stream.

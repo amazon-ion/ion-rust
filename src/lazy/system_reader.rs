@@ -141,7 +141,7 @@ impl<Encoding: Decoder, Input: IonInput> SystemReader<Encoding, Input> {
         self.expanding_reader.context().symbol_table()
     }
 
-    pub fn pending_context_changes(&self) -> &PendingContextChanges {
+    pub fn pending_context_changes(&mut self) -> &PendingContextChanges {
         self.expanding_reader.pending_context_changes()
     }
 
@@ -758,6 +758,46 @@ mod tests {
         let _ = reader.next_item()?.expect_symbol_table()?;
         let sexp = reader.next_item()?.expect_value()?.read()?.expect_sexp()?;
         assert!(sexp.annotations().are(["$ion"])?);
+        Ok(())
+    }
+}
+
+// Named `system_reader_soundness_tests` (not the usual `tests`) so CI's module-path Miri selection
+// can target it by name (see `MIRI_TEST_SELECTION`).
+#[cfg(test)]
+mod system_reader_soundness_tests {
+    use crate::lazy::any_encoding::IonEncoding;
+    use crate::lazy::binary::test_utilities::to_binary_ion;
+    use crate::lazy::system_reader::SystemReader;
+    use crate::lazy::system_stream_item::SystemStreamItem;
+    use crate::{AnyEncoding, IonResult};
+    use rstest::rstest;
+
+    const ION_TEXT: &str = "$ion_symbol_table::{symbols: [\"foo\"]} $10 [1, 2] {a: 3}";
+
+    /// `detected_encoding` reads the raw reader through the `UnsafeCell` that `next_item` writes
+    /// through; calling it between items must not invalidate the values those items return.
+    #[rstest]
+    #[case::text(ION_TEXT.as_bytes().to_vec(), IonEncoding::Text_1_0)]
+    #[case::binary(to_binary_ion(ION_TEXT).unwrap(), IonEncoding::Binary_1_0)]
+    fn detected_encoding_between_items(
+        #[case] input: Vec<u8>,
+        #[case] expected: IonEncoding,
+    ) -> IonResult<()> {
+        let mut reader = SystemReader::new(AnyEncoding, input);
+        let mut values = 0;
+        loop {
+            match reader.next_item()? {
+                SystemStreamItem::Value(value) => {
+                    value.read()?;
+                    values += 1;
+                }
+                SystemStreamItem::EndOfStream(_) => break,
+                _ => {}
+            }
+            assert_eq!(reader.detected_encoding(), expected);
+        }
+        assert_eq!(values, 3);
         Ok(())
     }
 }
