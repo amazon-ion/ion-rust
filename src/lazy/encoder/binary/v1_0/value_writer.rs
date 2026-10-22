@@ -19,7 +19,7 @@ use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, Annotata
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::result::{EncodingError, IonFailure};
 use crate::types::overflowing_int::Magnitude;
-use crate::{Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
+use crate::{v1_0, Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
 /// Larger length values will need to be written as a VarUInt following the type descriptor.
@@ -286,6 +286,7 @@ impl<'top> AnnotatableWriter for BinaryValueWriter_1_0<'_, 'top> {
 }
 
 impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
+    type Encoding = v1_0::Binary;
     type ListWriter = BinaryListWriter_1_0<'value, 'top>;
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
@@ -411,6 +412,7 @@ impl<'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'_, 'top> {
 }
 
 impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+    type Encoding = v1_0::Binary;
     type ListWriter = BinaryListWriter_1_0<'value, 'top>;
     type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
     type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
