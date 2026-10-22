@@ -201,10 +201,6 @@ impl ion_rs::ApplicationError
 pub fn ion_rs::ApplicationError::downcast_ref<E: core::error::Error + 'static>(&self) -> core::option::Option<&E>
 impl core::cmp::PartialEq for ion_rs::ApplicationError
 pub fn ion_rs::ApplicationError::eq(&self, &Self) -> bool
-impl core::error::Error for ion_rs::ApplicationError
-pub fn ion_rs::ApplicationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Display for ion_rs::ApplicationError
-pub fn ion_rs::ApplicationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct ion_rs::Blob(pub ion_rs::Bytes)
 impl ion_rs::Blob
 pub fn ion_rs::Blob::as_slice(&self) -> &[u8]

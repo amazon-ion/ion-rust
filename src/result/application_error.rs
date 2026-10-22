@@ -1,17 +1,18 @@
 use std::error::Error;
-use std::fmt;
 use std::sync::Arc;
+use thiserror::Error;
 
 /// An error raised by application code (for example, a `WriteAsIon`
 /// implementation) rather than by Ion itself.
 ///
-/// Construct one with [`IonError::application`](crate::IonError::application). The original
-/// error is this error's [`source`](Error::source). [`downcast_ref`](Self::downcast_ref) recovers
-/// it when it was passed in as a concrete error type (or as a `Box<dyn Error + Send + Sync>`
-/// holding one). String messages are kept only as `Display` text, and type-erasing wrappers such
-/// as `anyhow::Error` are stored as the wrapper's internal type; neither can be downcast to an
-/// original type.
-#[derive(Clone, Debug)]
+/// Construct one with [`IonError::application`](crate::IonError::application). This error is
+/// transparent: its `Display` text and [`source`](Error::source) are those of the original error.
+/// [`downcast_ref`](Self::downcast_ref) recovers the original error when it was passed in as a
+/// concrete error type (or as a `Box<dyn Error + Send + Sync>` holding one). String messages are
+/// kept only as `Display` text, and type-erasing wrappers such as `anyhow::Error` are stored as
+/// the wrapper's internal type; neither can be downcast to an original type.
+#[derive(Clone, Debug, Error)]
+#[error(transparent)]
 pub struct ApplicationError {
     // `Arc` rather than `Box` so that `IonError` can remain `Clone`. The newtype hosts the
     // identity `PartialEq` below so that `IonError` can derive `PartialEq`.
@@ -28,20 +29,6 @@ impl ApplicationError {
     /// Returns a reference to the wrapped error if it is of type `E`.
     pub fn downcast_ref<E: Error + 'static>(&self) -> Option<&E> {
         self.error.downcast_ref::<E>()
-    }
-}
-
-impl fmt::Display for ApplicationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.error, f)
-    }
-}
-
-// Not derived: `#[source]` on the `Arc` field would make the `Arc` itself the source, so the
-// payload could not be downcast from the error chain.
-impl Error for ApplicationError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&*self.error)
     }
 }
 

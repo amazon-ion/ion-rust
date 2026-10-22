@@ -70,8 +70,8 @@ pub enum IonError {
 
     /// Returned when application code (for example, a `WriteAsIon`
     /// implementation) raises its own error. See [`IonError::application`].
-    // `transparent` so that `source()` is the application's error rather than the
-    // `ApplicationError` wrapper.
+    // `transparent` (here and on `ApplicationError`) so that the application's error message
+    // appears only once when reporters print the `source` chain.
     #[error(transparent)]
     Application(#[from] ApplicationError),
 }
@@ -80,9 +80,9 @@ impl IonError {
     /// Converts an error raised by application code into an `IonError`, wrapping it in a new
     /// [`ApplicationError`] unless it is already an `IonError` or an `ApplicationError`.
     ///
-    /// A wrapped error is reachable through [`source`](std::error::Error::source) and, if it was
-    /// passed in as a concrete error type, recoverable with [`ApplicationError::downcast_ref`]; see
-    /// [`ApplicationError`] for the payloads that cannot be downcast.
+    /// A wrapped error is recoverable with [`ApplicationError::downcast_ref`] if it was passed in
+    /// as a concrete error type; see [`ApplicationError`] for the payloads that cannot be
+    /// downcast.
     ///
     /// If `error` is itself an `IonError` (directly or in a `Box<dyn Error + Send + Sync>`), it is
     /// returned unchanged so that it keeps its original variant. An `ApplicationError` is returned
@@ -254,6 +254,7 @@ impl<T> IonFailure for IonResult<T> {
 mod tests {
     use super::{ApplicationError, IonError, IonFailure};
     use crate::position::Position;
+    use rstest::rstest;
     use std::error::Error;
     use std::mem::{align_of, size_of};
 
@@ -326,13 +327,29 @@ mod tests {
         assert_eq!(error.to_string(), "account 42 is closed");
     }
 
-    #[test]
-    fn application_error_source_is_original() {
-        let error = IonError::application(AccountClosed(42));
-        let source = error
-            .source()
-            .and_then(|e| e.downcast_ref::<AccountClosed>());
-        assert_eq!(source, Some(&AccountClosed(42)));
+    #[derive(Debug, thiserror::Error)]
+    #[error("write failed")]
+    struct WriteFailed(#[source] AccountClosed);
+
+    /// The `Display` text of `error` and of each error in its `source` chain, as printed by error
+    /// reporters such as `anyhow`'s `{:#}`.
+    fn error_chain(error: &IonError) -> Vec<String> {
+        std::iter::successors(Some(error as &dyn Error), |&e| e.source())
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    #[rstest]
+    #[case::without_source(IonError::application(AccountClosed(42)), &["account 42 is closed"])]
+    #[case::with_source(
+        IonError::application(WriteFailed(AccountClosed(42))),
+        &["write failed", "account 42 is closed"]
+    )]
+    fn application_error_chain_does_not_repeat_messages(
+        #[case] error: IonError,
+        #[case] expected: &[&str],
+    ) {
+        assert_eq!(error_chain(&error), expected);
     }
 
     #[test]
