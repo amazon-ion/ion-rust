@@ -497,6 +497,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
 }
 
 impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
+    type Encoding = V::Encoding;
     type ListWriter = ApplicationListWriter<'value, V>;
     type SExpWriter = ApplicationSExpWriter<'value, V>;
     type StructWriter = ApplicationStructWriter<'value, V>;
