@@ -46,6 +46,17 @@ use winnow::Parser;
 /// A partially parsed Ion value.
 #[derive(Clone, Copy, Debug)]
 pub enum MatchedValue<'top, D: Decoder> {
+    Scalar(MatchedScalar),
+    List(&'top [D::Value<'top>]),
+    SExp(&'top [D::Value<'top>]),
+    Struct(&'top [LazyRawFieldExpr<'top, D>]),
+}
+
+/// A partially parsed scalar Ion value. Unlike a container's match, it borrows nothing.
+///
+/// A typed null, including a null container like `null.list`, is a scalar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MatchedScalar {
     // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
     Bool(bool),
@@ -57,25 +68,33 @@ pub enum MatchedValue<'top, D: Decoder> {
     Symbol(MatchedSymbol),
     Blob(MatchedBlob),
     Clob(MatchedClob),
-    List(&'top [D::Value<'top>]),
-    SExp(&'top [D::Value<'top>]),
-    Struct(&'top [LazyRawFieldExpr<'top, D>]),
+}
+
+impl MatchedScalar {
+    pub fn ion_type(&self) -> IonType {
+        match self {
+            MatchedScalar::Null(ion_type) => *ion_type,
+            MatchedScalar::Bool(_) => IonType::Bool,
+            MatchedScalar::Int(_) => IonType::Int,
+            MatchedScalar::Float(_) => IonType::Float,
+            MatchedScalar::Decimal(_) => IonType::Decimal,
+            MatchedScalar::Timestamp(_) => IonType::Timestamp,
+            MatchedScalar::String(_) => IonType::String,
+            MatchedScalar::Symbol(_) => IonType::Symbol,
+            MatchedScalar::Blob(_) => IonType::Blob,
+            MatchedScalar::Clob(_) => IonType::Clob,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, MatchedScalar::Null(_))
+    }
 }
 
 impl<D: Decoder> PartialEq for MatchedValue<'_, D> {
     fn eq(&self, other: &Self) -> bool {
-        use MatchedValue::*;
         match (self, other) {
-            (Null(n1), Null(n2)) => n1 == n2,
-            (Bool(b1), Bool(b2)) => b1 == b2,
-            (Int(i1), Int(i2)) => i1 == i2,
-            (Float(f1), Float(f2)) => f1 == f2,
-            (Decimal(d1), Decimal(d2)) => d1 == d2,
-            (Timestamp(t1), Timestamp(t2)) => t1 == t2,
-            (String(s1), String(s2)) => s1 == s2,
-            (Symbol(s1), Symbol(s2)) => s1 == s2,
-            (Blob(b1), Blob(b2)) => b1 == b2,
-            (Clob(c1), Clob(c2)) => c1 == c2,
+            (MatchedValue::Scalar(s1), MatchedValue::Scalar(s2)) => s1 == s2,
             // The container variants hold raw representations of the containers themselves.
             // We cannot compare their equality without recursively reading those containers,
             // which introduces many opportunities to encounter an error that this method cannot

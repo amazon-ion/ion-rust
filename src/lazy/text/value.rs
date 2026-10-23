@@ -22,6 +22,8 @@ use std::ops::Range;
 /// [`crate::lazy::value::LazyValue`].
 #[derive(Copy, Clone)]
 pub struct LazyRawTextValue<'top, Encoding: TextEncoding> {
+    // For a container, matched with `input`'s context from bytes inside `input`;
+    // `ParsedTextContainer::share` relies on it (see `ParsedTextOwner`).
     pub(crate) encoded_value: EncodedTextValue<'top, Encoding>,
     pub(crate) input: TextBuffer<'top>,
 }
@@ -128,6 +130,18 @@ impl<'top, E: TextEncoding> RawVersionMarker<'top> for LazyRawTextVersionMarker<
 
 pub type LazyRawTextValue_1_0<'top> = LazyRawTextValue<'top, TextEncoding_1_0>;
 
+// Every text value the reader matches, including each child slot of a matched container, holds
+// these. `MatchedValue` fits in 24 bytes only because `MatchedScalar`'s payloads leave a niche for
+// the container variants; a change that grows any of them fails to compile here rather than
+// silently. The byte counts are a 64-bit-target claim.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    use crate::lazy::text::matched::MatchedValue;
+    assert!(std::mem::size_of::<MatchedValue<'static, TextEncoding_1_0>>() <= 24);
+    assert!(std::mem::size_of::<EncodedTextValue<'static, TextEncoding_1_0>>() <= 32);
+    assert!(std::mem::size_of::<LazyRawTextValue_1_0<'static>>() <= 72);
+};
+
 impl<Encoding: TextEncoding> Debug for LazyRawTextValue<'_, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", Encoding::name())?;
@@ -196,18 +210,19 @@ impl<'top, Encoding: TextEncoding> LazyRawValue<'top, Encoding>
         let matched_input = self.input.slice_to_end(self.encoded_value.data_offset());
         let allocator = self.input.context.allocator();
 
-        use crate::lazy::text::matched::MatchedValue::*;
+        use crate::lazy::text::matched::MatchedScalar::*;
+        use crate::lazy::text::matched::MatchedValue::{List, SExp, Scalar, Struct};
         let value_ref = match self.encoded_value.matched() {
-            Null(ion_type) => RawValueRef::Null(ion_type),
-            Bool(b) => RawValueRef::Bool(b),
-            Int(i) => RawValueRef::Int(i.read(matched_input)?),
-            Float(f) => RawValueRef::Float(f.read(matched_input)?),
-            Decimal(d) => RawValueRef::Decimal(d.read(matched_input)?),
-            Timestamp(t) => RawValueRef::Timestamp(t.read(matched_input)?),
-            String(s) => RawValueRef::String(s.read(allocator, matched_input)?),
-            Symbol(s) => RawValueRef::Symbol(s.read(allocator, matched_input)?),
-            Blob(b) => RawValueRef::Blob(b.read(allocator, matched_input)?),
-            Clob(c) => RawValueRef::Clob(c.read(allocator, matched_input)?),
+            Scalar(Null(ion_type)) => RawValueRef::Null(ion_type),
+            Scalar(Bool(b)) => RawValueRef::Bool(b),
+            Scalar(Int(i)) => RawValueRef::Int(i.read(matched_input)?),
+            Scalar(Float(f)) => RawValueRef::Float(f.read(matched_input)?),
+            Scalar(Decimal(d)) => RawValueRef::Decimal(d.read(matched_input)?),
+            Scalar(Timestamp(t)) => RawValueRef::Timestamp(t.read(matched_input)?),
+            Scalar(String(s)) => RawValueRef::String(s.read(allocator, matched_input)?),
+            Scalar(Symbol(s)) => RawValueRef::Symbol(s.read(allocator, matched_input)?),
+            Scalar(Blob(b)) => RawValueRef::Blob(b.read(allocator, matched_input)?),
+            Scalar(Clob(c)) => RawValueRef::Clob(c.read(allocator, matched_input)?),
             List(_) => RawValueRef::List(Encoding::List::<'top>::from_value(*self)),
             SExp(_) => RawValueRef::SExp(Encoding::SExp::<'top>::from_value(*self)),
             Struct(_) => RawValueRef::Struct(Encoding::Struct::from_value(*self)),

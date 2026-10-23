@@ -70,6 +70,9 @@ jobs:
       #   move_soundness_tests   -- raw binary writer stays sound when moved or recycled
       #                             (AliasableBump arena)
       #   binary_soundness_tests -- binary `LazyElement`s stay valid after their reader advances,
+      #                             moves, or is dropped.
+      #   text_soundness_tests   -- the same for text `LazyElement`s, including the cache of
+      #                             re-parsed containers.
       #                             moves, or is dropped. Text is excluded on purpose: its detached
       #                             value still erases lifetimes and is known to fail here
       #                             (https://github.com/amazon-ion/ion-rust/issues/1050).
@@ -80,6 +83,7 @@ jobs:
         overflowing_int
         move_soundness_tests
         binary_soundness_tests
+        text_soundness_tests
         system_reader_soundness_tests
         annotations
     steps:
