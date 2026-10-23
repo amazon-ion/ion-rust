@@ -431,11 +431,10 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'_, 'de> {
     where
         V: Visitor<'de>,
     {
-        // Make sure we've started reading an enum.
+        // Outside an enum, an identifier is a plain string or symbol, e.g. the tag of an
+        // internally tagged enum.
         if self.variant_nesting_depth == 0 {
-            return IonResult::decoding_error(
-                "unexpected serde state; was not expecting to read an identifier",
-            );
+            return self.deserialize_str(visitor);
         }
 
         let mut annotations = self.value.annotations();
@@ -609,11 +608,11 @@ struct MapKeyDeserializer {
 impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     type Error = IonError;
 
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value")
+        visitor.visit_string(self.key)
     }
 
     fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value, Self::Error>

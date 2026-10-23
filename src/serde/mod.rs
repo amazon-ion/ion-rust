@@ -475,6 +475,21 @@ mod tests {
         assert_eq!(&from_ion::<IpAddr, _>(binary).unwrap(), &ip);
     }
 
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    #[serde(tag = "kind")]
+    enum Shape {
+        Circle { radius: u32 },
+        Square { side: u32 },
+    }
+
+    #[rstest]
+    #[case::text("{kind: \"Circle\", radius: 2}", Shape::Circle { radius: 2 })]
+    #[case::text_symbol_tag("{kind: Square, side: 3}", Shape::Square { side: 3 })]
+    #[case::binary(to_binary(&Shape::Circle { radius: 2 }).unwrap(), Shape::Circle { radius: 2 })]
+    fn internally_tagged_enum<I: crate::IonInput>(#[case] ion: I, #[case] expected: Shape) {
+        assert_eq!(from_ion::<Shape, _>(ion).unwrap(), expected);
+    }
+
     /// Regression tests for annotations being correctly written for all value types
     /// when serialized through newtype variants (which produce annotations in Ion).
     mod newtype_variant_annotations {
