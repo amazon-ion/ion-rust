@@ -1,5 +1,5 @@
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
-use crate::result::IonFailure;
+use crate::result::cold_error;
 use crate::{Annotations, Sequence};
 use crate::{Decimal, Int, Struct, Timestamp};
 use crate::{IonResult, IonType};
@@ -229,9 +229,10 @@ impl<W: io::Write> fmt::Write for IoValueFormatter<W> {
                 Ok(())
             }
             Err(e) => {
-                self.result = IonResult::encoding_error(format!(
-                    "I/O failure occurred during formatting: {e:?}",
-                ));
+                self.result = cold_error!(
+                    encoding_error,
+                    "I/O failure occurred during formatting: {e:?}"
+                );
                 Err(fmt::Error)
             }
         }
