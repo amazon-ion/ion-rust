@@ -472,6 +472,7 @@ impl<'value, W: Write + 'value> AnnotatableWriter for TextAnnotatedValueWriter_1
 }
 
 impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_0<'value, W> {
+    type Encoding = v1_0::Text;
     type ListWriter = TextListWriter_1_0<'value, W>;
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
@@ -500,6 +501,7 @@ impl<W: Write> AnnotatableWriter for TextValueWriter_1_0<'_, W> {
 }
 
 impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
+    type Encoding = v1_0::Text;
     type ListWriter = TextListWriter_1_0<'value, W>;
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
