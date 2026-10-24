@@ -762,8 +762,6 @@ mod tests {
     }
 }
 
-// Named `system_reader_soundness_tests` (not the usual `tests`) so CI's module-path Miri selection
-// can target it by name (see `MIRI_TEST_SELECTION`).
 #[cfg(test)]
 mod system_reader_soundness_tests {
     use crate::lazy::any_encoding::IonEncoding;
