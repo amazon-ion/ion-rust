@@ -693,6 +693,79 @@ impl Timestamp {
     }
 }
 
+#[cfg(feature = "experimental-serde")]
+impl Timestamp {
+    /// Returns the `(packed_fields, attoseconds)` words of this timestamp.
+    pub(crate) fn to_bits(&self) -> (u64, u64) {
+        (self.packed_fields, self.attoseconds)
+    }
+
+    /// Reconstructs a timestamp from the words returned by [`Self::to_bits`], returning an
+    /// error if they violate any invariant of the packed representation.
+    pub(crate) fn try_from_bits(packed_fields: u64, attoseconds: u64) -> IonResult<Self> {
+        fn build_with_offset<S: SupportsOffset>(
+            builder: TimestampBuilder<S>,
+            offset: Option<i32>,
+        ) -> IonResult<Timestamp> {
+            match offset {
+                Some(offset) => builder.with_offset(offset).build(),
+                None => builder.build(),
+            }
+        }
+
+        let candidate = Timestamp {
+            packed_fields,
+            attoseconds,
+        };
+        // Must run before `fractional_seconds_as_decimal`, which debug-asserts the digit count.
+        if candidate.subsecond_digit_count() > MAX_FRAC_DIGITS {
+            return IonResult::illegal_operation(format!(
+                "fractional seconds precision ({} digits) exceeds maximum ({})",
+                candidate.subsecond_digit_count(),
+                MAX_FRAC_DIGITS
+            ));
+        }
+
+        // The builder validates the fields it is given and fills in everything else with its
+        // defaults, so any bits it does not reproduce violate an invariant.
+        let year = Timestamp::with_year(candidate.year());
+        let rebuilt = match candidate.precision() {
+            TimestampPrecision::Year => year.build(),
+            TimestampPrecision::Month => year.with_month(candidate.month()).build(),
+            TimestampPrecision::Day => year
+                .with_month(candidate.month())
+                .with_day(candidate.day())
+                .build(),
+            TimestampPrecision::HourAndMinute => build_with_offset(
+                year.with_month(candidate.month())
+                    .with_day(candidate.day())
+                    .with_hour_and_minute(candidate.hour(), candidate.minute()),
+                candidate.offset(),
+            ),
+            TimestampPrecision::Second => {
+                let seconds = year
+                    .with_month(candidate.month())
+                    .with_day(candidate.day())
+                    .with_hms(candidate.hour(), candidate.minute(), candidate.second());
+                match candidate.fractional_seconds_as_decimal() {
+                    Some(fraction) => build_with_offset(
+                        seconds.with_fractional_seconds(fraction),
+                        candidate.offset(),
+                    ),
+                    None => build_with_offset(seconds, candidate.offset()),
+                }
+            }
+        }?;
+
+        if rebuilt.packed_fields != packed_fields || rebuilt.attoseconds != attoseconds {
+            return IonResult::illegal_operation(
+                "Timestamp bits violate an invariant of the packed representation",
+            );
+        }
+        Ok(rebuilt)
+    }
+}
+
 /// Formats an ISO-8601 timestamp of appropriate precision and offset.
 impl Display for Timestamp {
     fn fmt(&self, output: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -2651,6 +2724,124 @@ mod timestamp_tests {
             .build()?;
         assert_eq!(ts.nanoseconds(), 999_999_999);
         Ok(())
+    }
+
+    #[cfg(feature = "experimental-serde")]
+    #[rstest]
+    #[case::reserved_bit_set(
+        Timestamp::pack_masked(TimestampPrecision::Second, 2024, 6, 15, 12, 30, 45, OFFSET_BIAS as u16, 0) | 1,
+        0
+    )]
+    #[case::field_set_below_precision(
+        Timestamp::pack_masked(
+            TimestampPrecision::Year,
+            2024,
+            6,
+            1,
+            0,
+            0,
+            0,
+            OFFSET_UNKNOWN_SENTINEL,
+            0
+        ),
+        0
+    )]
+    #[case::digits_31(
+        Timestamp::pack_masked(
+            TimestampPrecision::Second,
+            2024,
+            6,
+            15,
+            12,
+            30,
+            45,
+            OFFSET_UNKNOWN_SENTINEL,
+            31
+        ),
+        0
+    )]
+    #[case::offset_raw_4000(
+        Timestamp::pack_masked(TimestampPrecision::HourAndMinute, 2024, 6, 15, 12, 30, 0, 4000, 0),
+        0
+    )]
+    #[case::attoseconds_one_second(
+        Timestamp::pack_masked(TimestampPrecision::Second, 2024, 6, 15, 12, 30, 45, OFFSET_BIAS as u16, MAX_FRAC_DIGITS),
+        MAX_ATTOSECONDS
+    )]
+    #[case::attoseconds_finer_than_digits(
+        Timestamp::pack_masked(TimestampPrecision::Second, 2024, 6, 15, 12, 30, 45, OFFSET_BIAS as u16, 3),
+        1
+    )]
+    #[case::offset_below_hour_and_minute(
+        Timestamp::pack_masked(TimestampPrecision::Day, 2024, 6, 15, 0, 0, 0, OFFSET_BIAS as u16, 0),
+        0
+    )]
+    #[case::year_0(
+        Timestamp::pack_masked(
+            TimestampPrecision::Year,
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            OFFSET_UNKNOWN_SENTINEL,
+            0
+        ),
+        0
+    )]
+    #[case::year_10000(
+        Timestamp::pack_masked(
+            TimestampPrecision::Year,
+            10000,
+            1,
+            1,
+            0,
+            0,
+            0,
+            OFFSET_UNKNOWN_SENTINEL,
+            0
+        ),
+        0
+    )]
+    #[case::month_0(
+        Timestamp::pack_masked(TimestampPrecision::HourAndMinute, 2024, 0, 15, 12, 30, 0, OFFSET_BIAS as u16, 0),
+        0
+    )]
+    #[case::month_13(
+        Timestamp::pack_masked(TimestampPrecision::HourAndMinute, 2024, 13, 15, 12, 30, 0, OFFSET_BIAS as u16, 0),
+        0
+    )]
+    #[case::digits_below_second(
+        Timestamp::pack_masked(TimestampPrecision::HourAndMinute, 2024, 6, 15, 12, 30, 0, OFFSET_BIAS as u16, 3),
+        0
+    )]
+    #[case::attoseconds_below_second(
+        Timestamp::pack_masked(TimestampPrecision::HourAndMinute, 2024, 6, 15, 12, 30, 0, OFFSET_BIAS as u16, 0),
+        1
+    )]
+    fn try_from_bits_rejects_invalid_bits(#[case] packed_fields: u64, #[case] attoseconds: u64) {
+        assert!(Timestamp::try_from_bits(packed_fields, attoseconds).is_err());
+    }
+
+    /// Precision field values 5-7 name no `TimestampPrecision`.
+    #[cfg(feature = "experimental-serde")]
+    #[rstest]
+    fn try_from_bits_rejects_undefined_precision(#[values(5, 6, 7)] precision: u64) {
+        let second = Timestamp::pack_masked(
+            TimestampPrecision::Second,
+            2024,
+            6,
+            15,
+            12,
+            30,
+            45,
+            OFFSET_BIAS as u16,
+            0,
+        );
+        let packed_fields =
+            (second & !(PRECISION_MASK << PRECISION_SHIFT)) | (precision << PRECISION_SHIFT);
+        assert!(Timestamp::try_from_bits(packed_fields, 0).is_err());
     }
 }
 

@@ -58,13 +58,13 @@ impl Decoder for AnyEncoding {
 impl DetachableValue for AnyEncoding {
     type DetachedValue = DetachedAnyValue;
 
-    fn detach_value(value: <Self as Decoder>::Value<'_>, span: Span<'_>) -> Self::DetachedValue {
+    fn detach_value(value: <Self as Decoder>::Value<'_>) -> Self::DetachedValue {
         match value.kind() {
             LazyRawValueKind::Text_1_0(v) => {
-                DetachedAnyValue::Text_1_0(TextEncoding_1_0::detach_value(v, span))
+                DetachedAnyValue::Text_1_0(TextEncoding_1_0::detach_value(v))
             }
             LazyRawValueKind::Binary_1_0(v) => {
-                DetachedAnyValue::Binary_1_0(BinaryEncoding_1_0::detach_value(v, span))
+                DetachedAnyValue::Binary_1_0(BinaryEncoding_1_0::detach_value(v))
             }
         }
     }
@@ -101,26 +101,54 @@ impl DetachableValue for AnyEncoding {
         detached: &'a Self::DetachedValue,
         context: EncodingContextRef<'a>,
         span: Span<'a>,
-    ) -> <Self as Decoder>::Value<'a> {
+    ) -> IonResult<<Self as Decoder>::Value<'a>> {
         match detached {
             DetachedAnyValue::Text_1_0(v) => {
-                TextEncoding_1_0::reattach_value(v, context, span).into()
+                TextEncoding_1_0::reattach_value(v, context, span).map(Into::into)
             }
             DetachedAnyValue::Binary_1_0(v) => {
-                BinaryEncoding_1_0::reattach_value(v, context, span).into()
+                BinaryEncoding_1_0::reattach_value(v, context, span).map(Into::into)
             }
+        }
+    }
+
+    fn reattach_annotations<'a>(
+        detached: &'a Self::DetachedValue,
+        context: EncodingContextRef<'a>,
+        span: Span<'a>,
+    ) -> IonResult<<Self as Decoder>::AnnotationsIterator<'a>> {
+        let encoding = match detached {
+            DetachedAnyValue::Text_1_0(v) => RawAnnotationsIteratorKind::Text_1_0(
+                TextEncoding_1_0::reattach_annotations(v, context, span)?,
+            ),
+            DetachedAnyValue::Binary_1_0(v) => RawAnnotationsIteratorKind::Binary_1_0(
+                BinaryEncoding_1_0::reattach_annotations(v, context, span)?,
+            ),
+        };
+        Ok(RawAnyAnnotationsIterator { encoding })
+    }
+
+    #[cfg(test)]
+    fn detached_parse_owner(detached: &Self::DetachedValue) -> Option<*const ()> {
+        match detached {
+            DetachedAnyValue::Text_1_0(v) => TextEncoding_1_0::detached_parse_owner(v),
+            DetachedAnyValue::Binary_1_0(_) => None,
         }
     }
 }
 
-/// The lifetime-free form of a [`LazyRawAnyValue`]; see [`DetachableValue::DetachedValue`]. The
-/// binary variant is a pure copy of the value's encoding metadata; the text variant erases a
-/// lifetime (see the `XXX` note on `impl DetachableValue for TextEncoding_1_0`).
+/// The lifetime-free form of a [`LazyRawAnyValue`]; see [`DetachableValue::DetachedValue`].
 #[derive(Debug)]
 pub enum DetachedAnyValue {
     Text_1_0(<TextEncoding_1_0 as DetachableValue>::DetachedValue),
     Binary_1_0(<BinaryEncoding_1_0 as DetachableValue>::DetachedValue),
 }
+
+// Every `LazyElement<AnyEncoding>` (the `LazyElement` default) holds one, and the `Reader`
+// iterator moves one by value per item. 48 is the current size, so growing it must be a deliberate
+// change. The byte count is a 64-bit-target claim.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<DetachedAnyValue>() <= 48);
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawAnyVersionMarker<'top> {

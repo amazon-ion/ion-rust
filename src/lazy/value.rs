@@ -6,8 +6,8 @@ use crate::location::SourceLocation;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    try_or_some_err, Annotations, Element, ExpandedValueSource, HasSpan, IntoAnnotatedElement,
-    IonError, IonResult, IonType, LazyRawValue, SymbolRef, SymbolTable, Value,
+    try_or_some_err, Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError,
+    IonResult, IonType, LazyRawValue, SymbolRef, SymbolTable, Value,
 };
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
@@ -252,6 +252,13 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         }
     }
 
+    /// Returns a `LazyElement` that shares this value's input bytes, symbol table, and arena
+    /// rather than borrowing them from the reader.
+    ///
+    /// The first read of a text `LazyElement` holding a container re-parses that container's
+    /// subtree into the shared arena, unless this value was itself read from a stored container's
+    /// parsed subtree, in which case the new element shares that parse, at the cost of copying the
+    /// value into the arena.
     pub fn to_owned(self) -> LazyElement<D> {
         // Cloning the context bumps its resources' reference counts and captures a shared handle to
         // the reader's input buffer, keeping this value's bytes available; `save_io_buffer` takes a
@@ -259,10 +266,9 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         let context = self.context().context.clone();
         let io_buffer = context.save_io_buffer();
         // `raw_value` may refer to the reader's buffer and context, so ask the encoding for a
-        // lifetime-free form. The span is `raw_value.span()`, read through our own handle.
+        // lifetime-free form.
         let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded_value.source;
-        let span = io_buffer.span_for_stream_range(raw_value.span().range());
-        let detached_value = D::detach_value(raw_value, span);
+        let detached_value = D::detach_value(raw_value);
         LazyElement::new(context, io_buffer, detached_value)
     }
 }
@@ -838,7 +844,7 @@ mod tests {
     ) -> IonResult<Vec<SourceLocation>> {
         let mut locations = vec![];
         for lazy_element in values {
-            locations.push(lazy_element.as_lazy_value().location());
+            locations.push(lazy_element.as_lazy_value()?.location());
             let contained_values = match lazy_element.ion_type() {
                 IonType::List => lazy_element
                     .read()?
