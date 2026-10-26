@@ -214,6 +214,21 @@ pub(crate) trait IonFailure {
     fn illegal_operation<S: Into<Cow<'static, str>>>(operation: S) -> Self;
 }
 
+/// Constructs an `IonResult::Err` with a `format!`ted message inside a never-inlined cold
+/// function, so the formatting code is not inlined into the hot caller.
+///
+/// `cold_error!(encoding_error, "symbol ID {sid} is out of range")` is equivalent to
+/// `IonResult::encoding_error(format!("symbol ID {sid} is out of range"))`.
+macro_rules! cold_error {
+    ($kind:ident, $($format_args:tt)+) => {
+        ice_code::ice!(<$crate::IonResult<_> as $crate::result::IonFailure>::$kind(format!(
+            $($format_args)+
+        )))
+    };
+}
+
+pub(crate) use cold_error;
+
 impl IonFailure for IonError {
     fn incomplete(label: impl Into<Cow<'static, str>>, position: impl Into<Position>) -> Self {
         IncompleteError::new(label, position).into()

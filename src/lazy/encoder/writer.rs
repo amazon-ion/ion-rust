@@ -18,7 +18,7 @@ use crate::lazy::encoder::{
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::result::IonFailure;
+use crate::result::{cold_error, IonFailure};
 use crate::symbol_table::WriterSymbolTable;
 use crate::write_config::WriteConfig;
 use crate::{
@@ -424,9 +424,10 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 // The token is already a symbol ID.
                 RawSymbolRef::SymbolId(sid) => {
                     if !self.symbol_table().sid_is_valid(sid) {
-                        return IonResult::encoding_error(format!(
+                        return cold_error!(
+                            encoding_error,
                             "annotation symbol ID {sid} is out of range"
-                        ));
+                        );
                     }
                 }
                 // The token is text...
@@ -449,9 +450,10 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
         for annotation in annotations {
             if let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_ref() {
                 if !self.symbol_table().sid_is_valid(sid) {
-                    return IonResult::encoding_error(format!(
+                    return cold_error!(
+                        encoding_error,
                         "annotation symbol ID {sid} is not in the symbol table"
-                    ));
+                    );
                 }
             }
         }
@@ -473,9 +475,10 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
                 // The token is already a symbol ID.
                 RawSymbolRef::SymbolId(sid) => {
                     if !self.symbol_table().sid_is_valid(sid) {
-                        return IonResult::encoding_error(format!(
+                        return cold_error!(
+                            encoding_error,
                             "annotation symbol ID {sid} is out of range"
-                        ));
+                        );
                     }
                 }
                 // The token is text...
@@ -535,9 +538,10 @@ impl<'value, V: ValueWriter> ValueWriter for ApplicationValueWriter<'value, V> {
             SymbolId(symbol_id) => {
                 // We can write the symbol ID as-is. Make sure it's in the symbol table.
                 if !symbols.sid_is_valid(symbol_id) {
-                    return cold_path!(IonResult::encoding_error(format!(
+                    return cold_error!(
+                        encoding_error,
                         "symbol value ID ${symbol_id} is not in the symbol table"
-                    )));
+                    );
                 }
                 SymbolId(symbol_id)
             }
@@ -645,9 +649,10 @@ impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
             // resolve the SID in the symbol table before calling this method.
             RawSymbolRef::SymbolId(symbol_id) => {
                 if !self.symbols.sid_is_valid(symbol_id) {
-                    return cold_path!(IonResult::encoding_error(format!(
+                    return cold_error!(
+                        encoding_error,
                         "symbol ID ${symbol_id} is not in the symbol table"
-                    )));
+                    );
                 }
                 return self.raw_struct_writer.encode_field_name(symbol_id);
             }
