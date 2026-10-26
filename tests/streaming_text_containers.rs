@@ -21,6 +21,15 @@ impl Read for Chunks<'_> {
     }
 }
 
+struct NoReadPastEnd<'a>(Chunks<'a>);
+
+impl Read for NoReadPastEnd<'_> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        assert!(!self.0.data.is_empty(), "read past a complete container");
+        self.0.read(output)
+    }
+}
+
 #[test]
 fn containers_at_each_chunk_boundary() {
     for text in [
@@ -152,4 +161,39 @@ fn complete_value_is_not_replaced_by_io_error(#[case] text: &str) {
     let expected = Element::read_one(text).unwrap();
     assert_eq!(IonData::from(actual), IonData::from(expected));
     assert!(matches!(reader.next(), Err(IonError::Io(_))));
+}
+
+#[test]
+fn sexp_operators_do_not_wait_for_another_read() {
+    let mut texts = vec![
+        "(1. // 'ignored\n)".to_owned(),
+        "(1. /* 'ignored */)".to_owned(),
+        "[(-2.5e-3 +//),(a +/*)]".to_owned(),
+        "(a /* ) */ +// // )\n b)".to_owned(),
+    ];
+    for operator in [
+        "!", "#", "%", "&", "*", "+", "-", ".", "/+", ";", "<", "=", ">", "?", "@", "^", "`", "|",
+        "~",
+    ] {
+        for suffix in ["//", "/*", "//+", "/*+"] {
+            texts.push(format!("(a {operator}{suffix})"));
+        }
+    }
+    for text in texts {
+        let expected = Element::read_one(&text).unwrap();
+        for chunk_size in 1..=text.len() {
+            let input = NoReadPastEnd(Chunks {
+                data: text.as_bytes(),
+                chunk_size,
+                stop_at_end: false,
+            });
+            let mut reader = Reader::new(v1_0::Text, IonStream::new(input)).unwrap();
+            let actual = reader.read_next_element().unwrap().unwrap();
+            assert_eq!(
+                IonData::from(actual),
+                IonData::from(expected.clone()),
+                "chunk {chunk_size}: {text}"
+            );
+        }
+    }
 }

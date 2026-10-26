@@ -7,7 +7,7 @@ enum State {
 }
 
 /// Tracks a container's closing delimiter between parser retries. This does not validate Ion;
-/// mismatched delimiters and lobs return control to the parser.
+/// mismatched delimiters, lobs, and operator characters in s-expressions return control to the parser.
 pub(crate) struct TextContainerBoundary {
     offset: usize,
     delimiters: Vec<u8>,
@@ -81,6 +81,14 @@ impl TextContainerBoundary {
                     }
                 }
                 State::Unquoted => match byte {
+                    b'!' | b'#' | b'%' | b'&' | b'*' | b'+' | b'-' | b'.' | b'/' | b';' | b'<'
+                    | b'=' | b'>' | b'?' | b'@' | b'^' | b'`' | b'|' | b'~'
+                        if self.delimiters.last() == Some(&b')') =>
+                    {
+                        // Operators can contain comment markers; scalar tokens can also contain
+                        // operator characters. Let the parser determine their token boundaries.
+                        return true;
+                    }
                     b'"' => self.state = State::Quoted(b'"'),
                     b'\'' => {
                         if rest.len() < 3 {
@@ -130,5 +138,20 @@ impl TextContainerBoundary {
             self.offset += 1;
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TextContainerBoundary;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::line_comment_start("(a +//)")]
+    #[case::block_comment_start("(a +/*)")]
+    #[case::slash_prefix("(a /+//)")]
+    fn operator_containing_comment_start_closes_sexp(#[case] text: &str) {
+        let mut boundary = TextContainerBoundary::new(text.as_bytes()).unwrap();
+        assert!(boundary.needs_parse(text.as_bytes()));
     }
 }
