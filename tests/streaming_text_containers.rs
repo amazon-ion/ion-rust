@@ -137,3 +137,19 @@ fn incomplete_input_preserves_io_errors() {
         .read_all_elements();
     assert!(matches!(result, Err(IonError::Io(_))));
 }
+
+#[rstest::rstest]
+#[case::line_comment_start("(a +//)")]
+#[case::block_comment_start("(a +/*)")]
+fn complete_value_is_not_replaced_by_io_error(#[case] text: &str) {
+    let input = Chunks {
+        data: text.as_bytes(),
+        chunk_size: 1,
+        stop_at_end: true,
+    };
+    let mut reader = Reader::new(v1_0::Text, IonStream::new(input)).unwrap();
+    let actual = reader.read_next_element().unwrap().unwrap();
+    let expected = Element::read_one(text).unwrap();
+    assert_eq!(IonData::from(actual), IonData::from(expected));
+    assert!(matches!(reader.next(), Err(IonError::Io(_))));
+}

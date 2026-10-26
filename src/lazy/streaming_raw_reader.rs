@@ -192,10 +192,13 @@ impl<Encoding: Decoder, Input: IonInput> StreamingRawReader<Encoding, Input> {
 
             let result = slice_reader.next();
             if let Some(error) = pending_io_error.take() {
-                return match result {
-                    Err(IonError::Decoding(_)) => result,
-                    _ => Err(error),
-                };
+                if matches!(
+                    result,
+                    Err(IonError::Incomplete(_))
+                        | Ok(LazyRawStreamItem::<Encoding>::EndOfStream(_))
+                ) {
+                    return Err(error);
+                }
             }
 
             let new_encoding = slice_reader.encoding();
