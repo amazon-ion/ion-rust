@@ -435,9 +435,6 @@ mod tests {
     }
 
     // ===== Binary =====
-    //
-    // Keep this module's name in sync with `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`,
-    // which selects these tests by module path.
     mod binary_soundness_tests {
         use super::{
             assert_annotations_match_text, assert_elements_match_text,
@@ -781,8 +778,7 @@ mod tests {
     //
     // A stored text container is re-parsed once, on first read, into a cache that owns the storage
     // it borrows from; one stored from another container's cache shares it. These exercise that
-    // cache, and the scalar path, under Miri. Keep this module's name in sync with
-    // `MIRI_TEST_SELECTION` in `.github/workflows/miri.yml`.
+    // cache, and the scalar path, under Miri.
     mod text_soundness_tests {
         use super::{
             annotation_texts, assert_annotations_match_text, assert_elements_match_text,

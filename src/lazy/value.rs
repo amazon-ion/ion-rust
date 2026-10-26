@@ -692,6 +692,7 @@ mod tests {
         //                (       bar     789   )  )
                          (3, 6), (3, 7), (3, 11)],
     )]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     #[case::deeply_nested_containers(
         "{\n  foo:{a:1,b:2},\n  bar:[a,b,c],\n  baz:(foo (bar)\n           (quux)),\n}",
         // {

@@ -992,6 +992,7 @@ mod reuse_tests {
     /// interned. Its contents are discarded on reuse either way, so retaining that capacity would be
     /// pure overhead for the life of a pooled writer.
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn detach_caps_retained_symbol_table() -> IonResult<()> {
         // A struct with far more distinct field names than the cap allows the table to retain.
         let fields = (0..IDLE_SYMBOL_RETAIN_CAP * 2)
@@ -1033,6 +1034,7 @@ mod reuse_tests {
     /// A single very large symbol grows the byte arena without growing the entry count, so the
     /// arena needs its own retention cap independent of `IDLE_SYMBOL_RETAIN_CAP`.
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn detach_caps_retained_symbol_text_arena() -> IonResult<()> {
         let huge_symbol = "x".repeat(IDLE_RETAIN_CAP * 2);
         let mut writer = idle_binary_writer()?.attach(Vec::new());
@@ -1071,6 +1073,7 @@ mod reuse_tests {
     /// still encode correct documents -- and would make pooling pointless -- so only this test would
     /// catch it.
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn detach_retains_warm_capacity_for_a_mid_sized_document() -> IonResult<()> {
         // Big enough to grow the arena past its initial chunk and the data buffer past the capacity a
         // replacement buffer would be given, but far short of the cap at which either is released.
@@ -1531,6 +1534,7 @@ mod tests {
 
     /// A limit above the `u8` range is enforced exactly.
     #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn max_depth_above_u8_range_is_enforced(
         #[values(Format::Text, Format::Binary)] format: Format,
     ) -> IonResult<()> {
@@ -1545,6 +1549,7 @@ mod tests {
     }
 
     #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn default_depth_allows_deep_nesting(
         #[values(Format::Text, Format::Binary)] format: Format,
     ) -> IonResult<()> {

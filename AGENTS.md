@@ -70,12 +70,17 @@ Refer to `.github/workflows/rust.yml` for complete information about the CI chec
 - New or modified `unsafe` blocks and `unsafe impl`s need a `// SAFETY:` comment
   stating the invariant that makes them sound; `unsafe fn`s document caller
   obligations in `/// # Safety`. Do not backfill existing code.
-- Miri runs in CI (`.github/workflows/miri.yml`). The `unsafe-representations`
-  job uses default features and `MIRI_TEST_SELECTION` substring filters.
-- Put tests for new `unsafe` code in a distinctively named `#[cfg(test)]` module
-  (like `move_soundness_tests`) that compiles under default features, and add it
-  to `MIRI_TEST_SELECTION`.
-- Refer to the CI workflow to see how to run Miri tests locally.
+- Miri runs in CI (`.github/workflows/miri.yml`). The `full-library` job runs
+  every library unit test under both tree and stacked borrows. The
+  `representations` job runs each module in its matrix on 32-bit and big-endian
+  targets, using default features.
+- Mark a test `#[cfg_attr(miri, ignore = "too slow under Miri")]` only if other
+  tests reach every `unsafe` line it does.
+- Test new `unsafe` code in the library's unit tests. If its soundness depends
+  on pointer width or endianness, make those tests compile under default
+  features and add their module path to the `representations` matrix.
+- Refer to the CI workflow to see how to run Miri tests locally, using its
+  pinned `MIRI_TOOLCHAIN`.
 
 ## Performance
 
