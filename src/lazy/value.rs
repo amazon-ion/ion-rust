@@ -6,9 +6,10 @@ use crate::location::SourceLocation;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    try_or_some_err, Annotations, Element, ExpandedValueSource, IntoAnnotatedElement, IonError,
-    IonResult, IonType, LazyRawValue, SymbolRef, SymbolTable, Value,
+    try_or_some_err, Annotations, Element, ExpandedValueSource, IonError, IonResult, IonType,
+    LazyRawValue, SymbolRef, SymbolTable, Value,
 };
+use ice_code::ice as cold_path;
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -292,11 +293,10 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
         let location = lazy_value.location();
         let value: Value = lazy_value.read()?.try_into()?;
         if lazy_value.has_annotations() {
-            let annotations: Annotations = lazy_value.annotations().try_into()?;
-            Ok(value.with_annotations(annotations).with_location(location))
-        } else {
-            Ok(<Value as Into<Element>>::into(value).with_location(location))
+            return cold_path!(Annotations::try_from(lazy_value.annotations())
+                .map(|annotations| Element::new(annotations, value).with_location(location)));
         }
+        Ok(<Value as Into<Element>>::into(value).with_location(location))
     }
 }
 

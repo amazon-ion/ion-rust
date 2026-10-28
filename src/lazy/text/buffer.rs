@@ -30,6 +30,7 @@ use crate::{Encoding, IonError, IonResult, IonType, Span, TimestampPrecision};
 
 use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::token_kind::{ValueTokenKind, TEXT_ION_TOKEN_KINDS};
+use ice_code::ice as cold_path;
 use winnow::ascii::{digit0, digit1};
 
 /// Generates parser functions that map from an Ion type representation (`Decimal`, `Int`, etc)
@@ -464,18 +465,8 @@ impl<'top> TextBuffer<'top> {
         use ValueTokenKind::*;
         dispatch! {
             |input: &mut TextBuffer<'top>| Ok(TEXT_ION_TOKEN_KINDS[input.peek_byte()? as usize]);
-            NumberOrTimestamp => alt((
-                Self::match_int_value,
-                Self::match_float_value,
-                Self::match_decimal_value,
-                Self::match_timestamp_value,
-            )),
-            Letter => alt((
-                Self::match_null_value,
-                Self::match_bool_value,
-                Self::match_identifier_value,
-                Self::match_float_special_value, // nan
-            )),
+            NumberOrTimestamp => Self::match_number_or_timestamp_value::<E>,
+            Letter => Self::match_letter_value::<E>,
             Symbol => Self::match_symbol_value,
             QuotedText => alt((Self::match_string_value, Self::match_symbol_value)),
             List => E::list_matcher(),
@@ -495,6 +486,82 @@ impl<'top> TextBuffer<'top> {
         .with_taken()
         .map(|(encoded_value, input)| E::new_value(input, encoded_value))
         .parse_next(self)
+    }
+
+    /// Matches an int, float, decimal, or timestamp. Input that begins with a year followed by `-`
+    /// or `T` is passed directly to the timestamp parser.
+    fn match_number_or_timestamp_value<E: TextEncoding>(
+        &mut self,
+    ) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
+        match self.bytes() {
+            // `-` and `T` are neither digits nor stop characters, and they cannot follow the
+            // leading digits of a float or decimal, so `match_int`, `match_float`, and
+            // `match_decimal` cannot match this input.
+            [b'0'..=b'9', b'0'..=b'9', b'0'..=b'9', b'0'..=b'9', b'-' | b'T', ..] => {
+                Self::match_timestamp_value(self)
+            }
+            // Every complete timestamp is routed above. On partial input, the timestamp
+            // alternative also reports `Incomplete` for a leading-zero year that the other
+            // parsers reject (e.g. `0123`). Otherwise it supplies the error reported when all
+            // three fail.
+            _ => alt((
+                Self::match_int_value,
+                Self::match_float_or_decimal_value::<E>,
+                Self::match_timestamp_value,
+            ))
+            .parse_next(self),
+        }
+    }
+
+    /// Matches a null, bool, identifier, or `nan`. The null and bool parsers are only tried for
+    /// input that begins with their keyword's first letter. The arms mirror the keywords rejected
+    /// by `match_identifier` and the `nan` of `match_float_special`.
+    fn match_letter_value<E: TextEncoding>(
+        &mut self,
+    ) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
+        match self.bytes() {
+            [b'n', ..] => alt((
+                Self::match_null_value,
+                Self::match_identifier_value,
+                Self::match_float_special_value, // nan
+            ))
+            .parse_next(self),
+            [b't' | b'f', ..] => alt((
+                Self::match_bool_value,
+                Self::match_identifier_value,
+                // Never matches `t`/`f`; it supplies the error reported when all three fail.
+                Self::match_float_special_value,
+            ))
+            .parse_next(self),
+            // No keyword or unsigned special float starts with any other letter. On a letter,
+            // the identifier parser either matches or reports `Incomplete`, so it is the only
+            // parser this arm needs.
+            _ => Self::match_identifier_value(self),
+        }
+    }
+
+    /// Matches a float or a decimal. If the byte after the number's leading run of digits, `_`s,
+    /// and `.`s is in the buffer, it determines which of the two parsers can match. Otherwise
+    /// (no digit after an optional `-`, as in `±inf`, or a run that reaches the end of the
+    /// buffer), both parsers are tried.
+    fn match_float_or_decimal_value<E: TextEncoding>(
+        &mut self,
+    ) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
+        let bytes = self.bytes();
+        let unsigned = bytes.strip_prefix(b"-").unwrap_or(bytes);
+        if unsigned.first().is_some_and(u8::is_ascii_digit) {
+            // Without reading past the byte that ends this run, a float fails unless that byte is
+            // `e`/`E` (`match_float_exponent_marker_and_digits`), and a decimal fails if it is.
+            let after_run = unsigned
+                .iter()
+                .find(|b| !(b.is_ascii_digit() || **b == b'_' || **b == b'.'));
+            match after_run {
+                Some(b'e' | b'E') => return Self::match_float_value(self),
+                Some(_) => return Self::match_decimal_value(self),
+                None => {}
+            }
+        }
+        alt((Self::match_float_value, Self::match_decimal_value)).parse_next(self)
     }
 
     /// Matches and returns a boolean value.
@@ -558,11 +625,7 @@ impl<'top> TextBuffer<'top> {
         terminated(
             // We test for base 16 and base 2 so the '0x' or '0b' isn't confused for a leading zero
             // in a base 10 number, which would be illegal.
-            alt((
-                Self::match_base_2_int,
-                Self::match_base_16_int,
-                Self::match_base_10_int,
-            )),
+            alt((Self::match_base_2_or_16_int, Self::match_base_10_int)),
             Self::peek_stop_character,
         )
         .parse_next(self)
@@ -582,6 +645,22 @@ impl<'top> TextBuffer<'top> {
         Self::match_blob => Blob => match_blob_value,
         Self::match_clob => Clob => match_clob_value,
     );
+
+    /// Matches a base-2 or base-16 notation integer. Input that cannot begin with the
+    /// `0b`/`0B`/`0x`/`0X` prefix of `match_base_2_int` or `match_base_16_int` is rejected without
+    /// running either parser.
+    fn match_base_2_or_16_int(&mut self) -> IonParseResult<'top, MatchedInt> {
+        let bytes = self.bytes();
+        let unsigned = bytes.strip_prefix(b"-").unwrap_or(bytes);
+        match unsigned {
+            // `[b'0']` is passed through so partial input still reports `Incomplete`. `[]` is
+            // passed through defensively; `match_int` reports the same error without it.
+            [] | [b'0'] | [b'0', b'b' | b'B' | b'x' | b'X', ..] => cold_path! {
+                alt((Self::match_base_2_int, Self::match_base_16_int)).parse_next(self)
+            },
+            _ => self.unrecognized().backtrack(),
+        }
+    }
 
     /// Matches a base-2 notation integer (e.g. `0b0`, `0B1010`, or `-0b0111`) and returns the
     /// partially parsed value as a [`MatchedInt`].
@@ -648,14 +727,25 @@ impl<'top> TextBuffer<'top> {
     /// This parser accepts leading zeros, which is why it cannot be used for the beginning
     /// of a number.
     fn match_base_10_trailing_digits(&mut self) -> IonMatchResult<'top> {
-        // A sequence of zero or more...
-        zero_or_more(alt((
-            //...underscore-followed-by-a-digit...
-            ("_", one_of(|b: u8| b.is_ascii_digit())).take(),
-            //...or one or more digits.
-            digit1,
-        )))
-        .parse_next(self)
+        let start = *self;
+        // A run of digits that is not followed by `_` is the complete match. A run that reaches
+        // the end of partial input is `Incomplete` and falls through to the `zero_or_more` parser
+        // below, which reports it.
+        let digits: IonMatchResult<'top> = digit0.parse_next(self);
+        if digits.is_ok() && self.bytes().first() != Some(&b'_') {
+            return Ok(start.slice(0, self.offset() - start.offset()));
+        }
+        *self = start;
+        cold_path! {
+            // A sequence of zero or more...
+            zero_or_more(alt((
+                //...underscore-followed-by-a-digit...
+                ("_", one_of(|b: u8| b.is_ascii_digit())).take(),
+                //...or one or more digits.
+                digit1,
+            )))
+            .parse_next(self)
+        }
     }
 
     /// Matches a base-10 notation integer (e.g. `0x0`, `0X20`, or `-0xCAFE`) and returns the
@@ -1050,6 +1140,7 @@ impl<'top> TextBuffer<'top> {
     /// Matches an identifier (`foo`).
     /// Ion keywords (`true`, `false`, `null`, and `nan`) have identifier syntax but are not
     /// identifiers. Compare the whole scanned token so that `true_` still matches.
+    /// `match_letter_value` dispatches on these keywords' first letters.
     /// On partial input, `take_while` must return `Incomplete` before keyword verification
     /// when the token reaches the buffer's end: the next chunk may continue the identifier.
     pub(crate) fn match_identifier(&mut self) -> IonParseResult<'top, MatchedSymbol> {
@@ -1811,6 +1902,144 @@ mod tests {
             assert_eq!(input.offset(), keyword.len() + 1);
             assert_eq!(input.bytes(), b":");
         }
+    }
+
+    const FINAL: bool = true;
+    const PARTIAL: bool = false;
+
+    /// The result of `match_value` at the start of a buffer.
+    #[derive(Debug, PartialEq)]
+    enum Matched {
+        /// A non-null value: its type and matched length.
+        Value(IonType, usize),
+        /// A null: its type and matched length.
+        Null(IonType, usize),
+        Incomplete,
+        Mismatch,
+    }
+
+    fn match_value_1_0(input: &str, is_final_data: bool) -> Matched {
+        use crate::lazy::decoder::LazyRawValue;
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let mut buffer =
+            TextBuffer::with_offset(context.get_ref(), 0, input.as_bytes(), is_final_data);
+        match buffer.match_value::<TextEncoding_1_0>() {
+            Ok(value) if value.is_null() => Matched::Null(value.ion_type(), buffer.offset()),
+            Ok(value) => Matched::Value(value.ion_type(), buffer.offset()),
+            Err(e) if e.is_incomplete() => Matched::Incomplete,
+            Err(winnow::error::ErrMode::Backtrack(_)) => Matched::Mismatch,
+            Err(e) => panic!("unexpected error for {input:?}: {e:?}"),
+        }
+    }
+
+    /// Covers the gates in `match_number_or_timestamp_value`, `match_float_or_decimal_value`,
+    /// `match_base_2_or_16_int`, and `match_base_10_trailing_digits`.
+    #[rstest::rstest]
+    #[case::year_final("2024", FINAL, Matched::Value(IonType::Int, 4))]
+    #[case::year_partial("2024", PARTIAL, Matched::Incomplete)]
+    #[case::year_then_space("2024 ", PARTIAL, Matched::Value(IonType::Int, 4))]
+    #[case::five_digits("20245", FINAL, Matched::Value(IonType::Int, 5))]
+    #[case::year_dash_final("2024-", FINAL, Matched::Mismatch)]
+    #[case::year_dash_partial("2024-", PARTIAL, Matched::Incomplete)]
+    #[case::year_dot("2024.5", FINAL, Matched::Value(IonType::Decimal, 6))]
+    #[case::year_e("2024e0", FINAL, Matched::Value(IonType::Float, 6))]
+    #[case::year_t_final("2024T", FINAL, Matched::Value(IonType::Timestamp, 5))]
+    #[case::year_t_partial("2024T", PARTIAL, Matched::Value(IonType::Timestamp, 5))]
+    #[case::date_then_space("2024-01-01 ", PARTIAL, Matched::Value(IonType::Timestamp, 10))]
+    #[case::year_zero_dash("0000-", FINAL, Matched::Mismatch)]
+    #[case::leading_zero_year_final("0123", FINAL, Matched::Mismatch)]
+    #[case::leading_zero_year_partial("0123", PARTIAL, Matched::Incomplete)]
+    #[case::zero_year_partial("0001", PARTIAL, Matched::Incomplete)]
+    #[case::two_zeros_partial("00", PARTIAL, Matched::Incomplete)]
+    #[case::zero_one_partial("01", PARTIAL, Matched::Incomplete)]
+    #[case::three_digits_dash("202-", FINAL, Matched::Mismatch)]
+    #[case::negative_date("-2024-01-01", FINAL, Matched::Mismatch)]
+    #[case::sign_final("-", FINAL, Matched::Mismatch)]
+    #[case::sign_partial("-", PARTIAL, Matched::Incomplete)]
+    #[case::zero_final("0", FINAL, Matched::Value(IonType::Int, 1))]
+    #[case::zero_partial("0", PARTIAL, Matched::Incomplete)]
+    #[case::zero_then_space("0 ", PARTIAL, Matched::Value(IonType::Int, 1))]
+    #[case::negative_zero_partial("-0", PARTIAL, Matched::Incomplete)]
+    #[case::hex_prefix_final("0x", FINAL, Matched::Mismatch)]
+    #[case::hex_prefix_partial("0x", PARTIAL, Matched::Incomplete)]
+    #[case::negative_hex_prefix_final("-0x", FINAL, Matched::Mismatch)]
+    #[case::negative_hex_prefix_partial("-0x", PARTIAL, Matched::Incomplete)]
+    #[case::upper_hex_prefix_partial("0X", PARTIAL, Matched::Incomplete)]
+    #[case::upper_hex("0X1F", FINAL, Matched::Value(IonType::Int, 4))]
+    #[case::negative_hex("-0x1F", FINAL, Matched::Value(IonType::Int, 5))]
+    #[case::binary_final("0b1", FINAL, Matched::Value(IonType::Int, 3))]
+    #[case::binary_partial("0b1", PARTIAL, Matched::Incomplete)]
+    #[case::binary_then_space("0B1 ", PARTIAL, Matched::Value(IonType::Int, 3))]
+    #[case::digit_final("5", FINAL, Matched::Value(IonType::Int, 1))]
+    #[case::digit_partial("5", PARTIAL, Matched::Incomplete)]
+    #[case::trailing_dot_final("5.", FINAL, Matched::Value(IonType::Decimal, 2))]
+    #[case::trailing_dot_partial("5.", PARTIAL, Matched::Incomplete)]
+    #[case::decimal_then_space("5.0 ", PARTIAL, Matched::Value(IonType::Decimal, 3))]
+    #[case::exponent_marker_final("5.0e", FINAL, Matched::Mismatch)]
+    #[case::exponent_marker_partial("5.0e", PARTIAL, Matched::Incomplete)]
+    #[case::float_final("5.0e0", FINAL, Matched::Value(IonType::Float, 5))]
+    #[case::float_then_space("5.0E-1 ", PARTIAL, Matched::Value(IonType::Float, 6))]
+    #[case::float_with_underscore("1_0.5e0", FINAL, Matched::Value(IonType::Float, 7))]
+    #[case::negative_float("-1.5e3", FINAL, Matched::Value(IonType::Float, 6))]
+    #[case::decimal_exponent_final("5.0d0", FINAL, Matched::Value(IonType::Decimal, 5))]
+    #[case::decimal_exponent_partial("5.0d0", PARTIAL, Matched::Incomplete)]
+    #[case::decimal_exponent_then_space("5.0D0 ", PARTIAL, Matched::Value(IonType::Decimal, 5))]
+    #[case::underscores_final("1_000", FINAL, Matched::Value(IonType::Int, 5))]
+    #[case::underscores_partial("1_000", PARTIAL, Matched::Incomplete)]
+    #[case::underscores_then_space("1_000 ", PARTIAL, Matched::Value(IonType::Int, 5))]
+    #[case::trailing_underscore_final("12_", FINAL, Matched::Mismatch)]
+    #[case::trailing_underscore_partial("12_", PARTIAL, Matched::Incomplete)]
+    #[case::inner_underscore_final("12_3", FINAL, Matched::Value(IonType::Int, 4))]
+    #[case::inner_underscore_partial("12_3", PARTIAL, Matched::Incomplete)]
+    #[case::positive_inf("+inf", FINAL, Matched::Value(IonType::Float, 4))]
+    #[case::negative_inf_final("-inf", FINAL, Matched::Value(IonType::Float, 4))]
+    #[case::negative_inf_partial("-inf", PARTIAL, Matched::Value(IonType::Float, 4))]
+    #[case::negative_inf_then_space("-inf ", PARTIAL, Matched::Value(IonType::Float, 4))]
+    fn match_number_or_timestamp(
+        #[case] input: &str,
+        #[case] is_final_data: bool,
+        #[case] expected: Matched,
+    ) {
+        assert_eq!(match_value_1_0(input, is_final_data), expected, "{input:?}");
+    }
+
+    /// Covers the gates in `match_letter_value`.
+    #[rstest::rstest]
+    #[case::n_final("n", FINAL, Matched::Value(IonType::Symbol, 1))]
+    #[case::n_partial("n", PARTIAL, Matched::Incomplete)]
+    #[case::na_final("na", FINAL, Matched::Value(IonType::Symbol, 2))]
+    #[case::na_partial("na", PARTIAL, Matched::Incomplete)]
+    #[case::nan_final("nan", FINAL, Matched::Value(IonType::Float, 3))]
+    #[case::nan_partial("nan", PARTIAL, Matched::Incomplete)]
+    #[case::nan_then_space("nan ", PARTIAL, Matched::Value(IonType::Float, 3))]
+    #[case::nul_final("nul", FINAL, Matched::Value(IonType::Symbol, 3))]
+    #[case::nul_partial("nul", PARTIAL, Matched::Incomplete)]
+    #[case::null_final("null", FINAL, Matched::Null(IonType::Null, 4))]
+    #[case::null_partial("null", PARTIAL, Matched::Incomplete)]
+    #[case::null_int_final("null.int", FINAL, Matched::Null(IonType::Int, 8))]
+    #[case::null_int_partial("null.int", PARTIAL, Matched::Null(IonType::Int, 8))]
+    #[case::null_int_then_space("null.int ", PARTIAL, Matched::Null(IonType::Int, 8))]
+    #[case::t_final("t", FINAL, Matched::Value(IonType::Symbol, 1))]
+    #[case::t_partial("t", PARTIAL, Matched::Incomplete)]
+    #[case::tr_final("tr", FINAL, Matched::Value(IonType::Symbol, 2))]
+    #[case::tr_partial("tr", PARTIAL, Matched::Incomplete)]
+    #[case::true_final("true", FINAL, Matched::Value(IonType::Bool, 4))]
+    #[case::true_partial("true", PARTIAL, Matched::Value(IonType::Bool, 4))]
+    #[case::true_then_space("true ", PARTIAL, Matched::Value(IonType::Bool, 4))]
+    #[case::true_then_colon("true:", FINAL, Matched::Mismatch)]
+    #[case::trueish_final("trueish", FINAL, Matched::Value(IonType::Symbol, 7))]
+    #[case::trueish_partial("trueish", PARTIAL, Matched::Incomplete)]
+    #[case::f_final("f", FINAL, Matched::Value(IonType::Symbol, 1))]
+    #[case::f_partial("f", PARTIAL, Matched::Incomplete)]
+    #[case::false_final("false", FINAL, Matched::Value(IonType::Bool, 5))]
+    #[case::i_final("i", FINAL, Matched::Value(IonType::Symbol, 1))]
+    #[case::i_partial("i", PARTIAL, Matched::Incomplete)]
+    #[case::inf_final("inf", FINAL, Matched::Value(IonType::Symbol, 3))]
+    #[case::inf_partial("inf", PARTIAL, Matched::Incomplete)]
+    #[case::capital_n_final("N", FINAL, Matched::Value(IonType::Symbol, 1))]
+    #[case::capital_n_partial("N", PARTIAL, Matched::Incomplete)]
+    fn match_letter(#[case] input: &str, #[case] is_final_data: bool, #[case] expected: Matched) {
+        assert_eq!(match_value_1_0(input, is_final_data), expected, "{input:?}");
     }
 
     /// Returns a parser that discards the output and instead reports the number of bytes that matched.

@@ -10,6 +10,7 @@ use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef};
+use ice_code::ice as cold_path;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
@@ -343,8 +344,19 @@ impl<'top, D: Decoder> TryFrom<LazyStruct<'top, D>> for Struct {
     fn try_from(lazy_struct: LazyStruct<'top, D>) -> Result<Self, Self::Error> {
         let mut builder = StructBuilder::new();
         for field in &lazy_struct {
-            let field = field?;
-            builder = builder.with_field(field.name()?, Element::try_from(field.value())?);
+            let name_and_value =
+                field.and_then(|field| Ok((field.name()?, Element::try_from(field.value())?)));
+            match name_and_value {
+                Ok((name, value)) => builder = builder.with_field(name, value),
+                Err(e) => {
+                    // Moving `builder` into the cold path keeps its drop on the error return out of
+                    // the loop.
+                    return cold_path!({
+                        drop(builder);
+                        Err(e)
+                    });
+                }
+            }
         }
         Ok(builder.build())
     }

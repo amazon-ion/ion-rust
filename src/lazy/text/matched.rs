@@ -197,6 +197,30 @@ impl MatchedInt {
 
     /// Attempts to finish reading the partially parsed integer.
     pub fn read(&self, matched_input: TextBuffer<'_>) -> IonResult<Int> {
+        let digits = matched_input
+            .slice_to_end(self.digits_offset as usize)
+            .bytes();
+        // Up to 19 base-10 digits always fit in a `u64`.
+        if self.radix == 10
+            && !digits.is_empty()
+            && digits.len() <= 19
+            && digits.iter().all(u8::is_ascii_digit)
+        {
+            let magnitude = digits
+                .iter()
+                .fold(0u64, |acc, &digit| acc * 10 + u64::from(digit - b'0'));
+            let magnitude = Int::from(magnitude);
+            return Ok(if self.is_negative {
+                magnitude.neg()
+            } else {
+                magnitude
+            });
+        }
+        cold_path! { self.read_with_sanitization(matched_input) }
+    }
+
+    /// Reads an int in any radix, with or without underscores, and of any size.
+    fn read_with_sanitization(&self, matched_input: TextBuffer<'_>) -> IonResult<Int> {
         let digits = matched_input.slice_to_end(self.digits_offset as usize);
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
@@ -1270,6 +1294,32 @@ mod tests {
             expect_int(input, expected);
         }
         Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case::zero("0", 0)]
+    #[case::negative_zero("-0", 0)]
+    #[case::nineteen_digits("9999999999999999999", 9_999_999_999_999_999_999)]
+    #[case::negative_nineteen_digits("-9999999999999999999", -9_999_999_999_999_999_999)]
+    #[case::twenty_digits("10000000000000000000", 10_000_000_000_000_000_000)]
+    #[case::negative_twenty_digits("-10000000000000000000", -10_000_000_000_000_000_000)]
+    #[case::u64_max("18446744073709551615", u64::MAX as i128)]
+    #[case::u64_max_plus_one("18446744073709551616", u64::MAX as i128 + 1)]
+    #[case::negative_u64_max("-18446744073709551615", -(u64::MAX as i128))]
+    #[case::underscores("1_000", 1_000)]
+    #[case::nineteen_digits_with_underscore("999_999_999_999_999_999_9", 9_999_999_999_999_999_999)]
+    #[case::hex("0x1F", 0x1F)]
+    #[case::negative_hex("-0x1F", -0x1F)]
+    #[case::negative_hex_zero("-0x0", 0)]
+    #[case::binary("0b101", 0b101)]
+    #[case::negative_binary("-0b101", -0b101)]
+    fn read_int_boundaries(#[case] data: &str, #[case] expected: i128) {
+        let encoding_context = EncodingContext::empty();
+        let mut buffer = TextBuffer::new(encoding_context.get_ref(), data.as_bytes());
+        let matched = peek(TextBuffer::match_int).parse_next(&mut buffer).unwrap();
+        let actual = matched.read(buffer).unwrap();
+        assert_eq!(actual, Int::from(expected), "{data}");
+        assert_eq!(actual.to_string(), expected.to_string(), "{data}");
     }
 
     #[test]
