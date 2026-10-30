@@ -77,6 +77,7 @@ const DEFAULT_CONTEXT: &str = "reading Ion data";
 
 /// Adds error constructor methods to the `TextBuffer` type.
 impl<'data> TextBuffer<'data> {
+    #[cold]
     #[inline(never)]
     pub(crate) fn incomplete_err_mode(
         &self,
