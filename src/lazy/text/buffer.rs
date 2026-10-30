@@ -488,34 +488,98 @@ impl<'top> TextBuffer<'top> {
         .parse_next(self)
     }
 
-    /// Matches an int, float, decimal, or timestamp. Input that begins with a year followed by `-`
-    /// or `T` is passed directly to the timestamp parser.
+    /// Matches an int, float, decimal, or timestamp. The leading bytes select the one parser that
+    /// can match, and that parser reports the error if the input is invalid. Partial input that is
+    /// too short to select a parser (e.g. `2024` or `-0`) is `Incomplete`.
     fn match_number_or_timestamp_value<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
         match self.bytes() {
-            // `-` and `T` are neither digits nor stop characters, and they cannot follow the
-            // leading digits of a float or decimal, so `match_int`, `match_float`, and
-            // `match_decimal` cannot match this input.
+            // A year followed by `-` or `T` can only begin a timestamp.
             [b'0'..=b'9', b'0'..=b'9', b'0'..=b'9', b'0'..=b'9', b'-' | b'T', ..] => {
                 Self::match_timestamp_value(self)
             }
-            // Every complete timestamp is routed above. On partial input, the timestamp
-            // alternative also reports `Incomplete` for a leading-zero year that the other
-            // parsers reject (e.g. `0123`). Otherwise it supplies the error reported when all
-            // three fail.
-            _ => alt((
-                Self::match_int_value,
-                Self::match_float_or_decimal_value::<E>,
-                Self::match_timestamp_value,
-            ))
-            .parse_next(self),
+            [b'0', b'b' | b'B' | b'x' | b'X', ..] | [b'-', b'0', b'b' | b'B' | b'x' | b'X', ..] => {
+                Self::match_base_2_or_16_int_value(self)
+            }
+            [b'+', ..] | [b'-', b'i', ..] => Self::match_signed_infinity_value(self),
+            // On partial input, up to four digits could still be the year of a timestamp, and `0` or
+            // `-0` could still begin a base-2/16 int.
+            digits
+                if !self.is_final_data()
+                    && digits.len() < 5
+                    && digits.iter().all(u8::is_ascii_digit) =>
+            {
+                self.incomplete("reading a number")
+            }
+            [b'-', b'0'] if !self.is_final_data() => self.incomplete("reading a number"),
+            _ => Self::match_base_10_number_value(self),
         }
+    }
+
+    /// Matches a base-10 int, float, or decimal, reading its digits once. The integer part may be
+    /// followed by a `.` and an optional fraction. The next byte then selects the type: `e`/`E`
+    /// begins a float exponent, `d`/`D` begins a decimal exponent, and any other byte ends a
+    /// decimal if there was a `.` or an int if there was not.
+    // Keeping this out of `match_value`'s dispatch measured faster for every value type.
+    #[inline(never)]
+    fn match_base_10_number_value<E: TextEncoding>(
+        &mut self,
+    ) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
+        let initial_offset = self.offset();
+        let is_negative = opt("-").parse_next(self)?.is_some();
+        let leading_digits = Self::match_base_10_digits_before_dot(self)?;
+        // `None` if there is no `.`; empty if the `.` has no fraction.
+        let digits_after_dot = match self.bytes().first() {
+            Some(b'.') => {
+                let dot = ".".parse_next(self)?;
+                Some(
+                    opt(Self::match_zero_or_more_digits_after_dot)
+                        .parse_next(self)?
+                        .unwrap_or_else(|| dot.slice(1, 0)),
+                )
+            }
+            _ => None,
+        };
+        let scalar = match (self.bytes().first(), digits_after_dot) {
+            (Some(b'e' | b'E'), _) => {
+                Self::match_float_exponent_marker_and_digits(self)?;
+                MatchedScalar::Float(MatchedFloat::Numeric)
+            }
+            (Some(b'd' | b'D'), _) => {
+                let digits_after_dot = digits_after_dot.unwrap_or_else(|| self.slice(0, 0));
+                let (exponent_is_negative, exp_digits) = Self::match_decimal_exponent(self)?;
+                MatchedScalar::Decimal(Self::new_matched_decimal(
+                    initial_offset,
+                    is_negative,
+                    leading_digits,
+                    digits_after_dot,
+                    exponent_is_negative,
+                    exp_digits,
+                ))
+            }
+            (_, Some(digits_after_dot)) => MatchedScalar::Decimal(Self::new_matched_decimal(
+                initial_offset,
+                is_negative,
+                leading_digits,
+                digits_after_dot,
+                false,
+                // The (absent) exponent digits
+                digits_after_dot.slice(digits_after_dot.len(), 0),
+            )),
+            (_, None) => MatchedScalar::Int(MatchedInt::new(
+                10,
+                is_negative,
+                leading_digits.offset() - initial_offset,
+            )),
+        };
+        Self::peek_stop_character(self)?;
+        Ok(EncodedTextValue::new(MatchedValue::Scalar(scalar)))
     }
 
     /// Matches a null, bool, identifier, or `nan`. The null and bool parsers are only tried for
     /// input that begins with their keyword's first letter. The arms mirror the keywords rejected
-    /// by `match_identifier` and the `nan` of `match_float_special`.
+    /// by `match_identifier`, plus `nan`.
     fn match_letter_value<E: TextEncoding>(
         &mut self,
     ) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
@@ -523,14 +587,14 @@ impl<'top> TextBuffer<'top> {
             [b'n', ..] => alt((
                 Self::match_null_value,
                 Self::match_identifier_value,
-                Self::match_float_special_value, // nan
+                Self::match_nan_value,
             ))
             .parse_next(self),
             [b't' | b'f', ..] => alt((
                 Self::match_bool_value,
                 Self::match_identifier_value,
                 // Never matches `t`/`f`; it supplies the error reported when all three fail.
-                Self::match_float_special_value,
+                Self::match_nan_value,
             ))
             .parse_next(self),
             // No keyword or unsigned special float starts with any other letter. On a letter,
@@ -538,30 +602,6 @@ impl<'top> TextBuffer<'top> {
             // parser this arm needs.
             _ => Self::match_identifier_value(self),
         }
-    }
-
-    /// Matches a float or a decimal. If the byte after the number's leading run of digits, `_`s,
-    /// and `.`s is in the buffer, it determines which of the two parsers can match. Otherwise
-    /// (no digit after an optional `-`, as in `±inf`, or a run that reaches the end of the
-    /// buffer), both parsers are tried.
-    fn match_float_or_decimal_value<E: TextEncoding>(
-        &mut self,
-    ) -> IonParseResult<'top, EncodedTextValue<'top, E>> {
-        let bytes = self.bytes();
-        let unsigned = bytes.strip_prefix(b"-").unwrap_or(bytes);
-        if unsigned.first().is_some_and(u8::is_ascii_digit) {
-            // Without reading past the byte that ends this run, a float fails unless that byte is
-            // `e`/`E` (`match_float_exponent_marker_and_digits`), and a decimal fails if it is.
-            let after_run = unsigned
-                .iter()
-                .find(|b| !(b.is_ascii_digit() || **b == b'_' || **b == b'.'));
-            match after_run {
-                Some(b'e' | b'E') => return Self::match_float_value(self),
-                Some(_) => return Self::match_decimal_value(self),
-                None => {}
-            }
-        }
-        alt((Self::match_float_value, Self::match_decimal_value)).parse_next(self)
     }
 
     /// Matches and returns a boolean value.
@@ -619,25 +659,12 @@ impl<'top> TextBuffer<'top> {
         peek(Self::match_stop_character).parse_next(self)
     }
 
-    /// Matches the three parts of an int--its base, its sign, and its digits--without actually
-    /// constructing an Int from them.
-    pub fn match_int(&mut self) -> IonParseResult<'top, MatchedInt> {
-        terminated(
-            // We test for base 16 and base 2 so the '0x' or '0b' isn't confused for a leading zero
-            // in a base 10 number, which would be illegal.
-            alt((Self::match_base_2_or_16_int, Self::match_base_10_int)),
-            Self::peek_stop_character,
-        )
-        .parse_next(self)
-    }
-
     scalar_value_matchers!(
         Self::match_null => Null => match_null_value,
         Self::match_bool => Bool => match_bool_value,
-        Self::match_int => Int => match_int_value,
-        Self::match_float => Float => match_float_value,
-        Self::match_float_special => Float => match_float_special_value,
-        Self::match_decimal => Decimal => match_decimal_value,
+        Self::match_base_2_or_16_int => Int => match_base_2_or_16_int_value,
+        Self::match_nan => Float => match_nan_value,
+        Self::match_signed_infinity => Float => match_signed_infinity_value,
         Self::match_timestamp => Timestamp => match_timestamp_value,
         Self::match_string => String => match_string_value,
         Self::match_symbol => Symbol => match_symbol_value,
@@ -646,19 +673,15 @@ impl<'top> TextBuffer<'top> {
         Self::match_clob => Clob => match_clob_value,
     );
 
-    /// Matches a base-2 or base-16 notation integer. Input that cannot begin with the
-    /// `0b`/`0B`/`0x`/`0X` prefix of `match_base_2_int` or `match_base_16_int` is rejected without
-    /// running either parser.
+    /// Matches a base-2 or base-16 notation integer. `match_number_or_timestamp_value` routes input
+    /// here only if it begins with `0b`/`0B`/`0x`/`0X`, optionally preceded by `-`.
     fn match_base_2_or_16_int(&mut self) -> IonParseResult<'top, MatchedInt> {
-        let bytes = self.bytes();
-        let unsigned = bytes.strip_prefix(b"-").unwrap_or(bytes);
-        match unsigned {
-            // `[b'0']` is passed through so partial input still reports `Incomplete`. `[]` is
-            // passed through defensively; `match_int` reports the same error without it.
-            [] | [b'0'] | [b'0', b'b' | b'B' | b'x' | b'X', ..] => cold_path! {
-                alt((Self::match_base_2_int, Self::match_base_16_int)).parse_next(self)
-            },
-            _ => self.unrecognized().backtrack(),
+        cold_path! {
+            terminated(
+                alt((Self::match_base_2_int, Self::match_base_16_int)),
+                Self::peek_stop_character,
+            )
+            .parse_next(self)
         }
     }
 
@@ -683,22 +706,6 @@ impl<'top> TextBuffer<'top> {
         )
         .take()
         .parse_next(self)
-    }
-
-    /// Matches a base-10 notation integer (e.g. `0`, `255`, or `-1_024`) and returns the partially
-    /// parsed value as a [`MatchedInt`].
-    fn match_base_10_int(&mut self) -> IonParseResult<'top, MatchedInt> {
-        let initial_offset = self.offset();
-        (opt("-"), Self::match_base_10_int_digits)
-            .map(|(maybe_sign, digits)| {
-                MatchedInt::new(10, maybe_sign.is_some(), digits.offset() - initial_offset)
-            })
-            .parse_next(self)
-    }
-
-    /// Matches the digits of a base-10 integer. (i.e. An integer without a sign.)
-    fn match_base_10_int_digits(&mut self) -> IonMatchResult<'top> {
-        Self::match_base_10_digits_before_dot(self)
     }
 
     /// Matches either:
@@ -794,80 +801,24 @@ impl<'top> TextBuffer<'top> {
         n_times(count, one_of(|b: u8| b.is_ascii_hexdigit())).take()
     }
 
-    /// Matches an Ion float of any syntax
-    fn match_float(&mut self) -> IonParseResult<'top, MatchedFloat> {
+    /// Matches `+inf` or `-inf` followed by a stop character.
+    fn match_signed_infinity(&mut self) -> IonParseResult<'top, MatchedFloat> {
         terminated(
-            alt((Self::match_float_special, Self::match_float_numeric_value)),
+            alt((
+                "+inf".value(MatchedFloat::PositiveInfinity),
+                "-inf".value(MatchedFloat::NegativeInfinity),
+            )),
             Self::peek_stop_character,
         )
         .parse_next(self)
     }
 
-    /// Matches special IEEE-754 values, including +/- infinity and NaN.
-    fn match_float_special(&mut self) -> IonParseResult<'top, MatchedFloat> {
-        alt((
-            "nan".value(MatchedFloat::NotANumber),
-            "+inf".value(MatchedFloat::PositiveInfinity),
-            "-inf".value(MatchedFloat::NegativeInfinity),
-        ))
-        .parse_next(self)
+    /// Matches `nan`. `match_signed_infinity` matches the other special IEEE-754 values.
+    fn match_nan(&mut self) -> IonParseResult<'top, MatchedFloat> {
+        "nan".value(MatchedFloat::NotANumber).parse_next(self)
     }
 
-    /// Matches numeric IEEE-754 floating point values.
-    fn match_float_numeric_value(&mut self) -> IonParseResult<'top, MatchedFloat> {
-        (
-            Self::match_number_with_optional_dot_and_digits,
-            Self::match_float_exponent_marker_and_digits,
-        )
-            .take()
-            .value(MatchedFloat::Numeric)
-            .parse_next(self)
-    }
-
-    /// Matches a number that may or may not have a decimal place and trailing fractional digits.
-    /// If a decimal place is present, there must also be trailing digits.
-    /// For example:
-    ///   1000
-    ///   1000.559
-    ///   -25.2
-    fn match_number_with_optional_dot_and_digits(&mut self) -> IonMatchResult<'top> {
-        (
-            opt("-"),
-            Self::match_base_10_digits_before_dot,
-            opt(Self::match_dot_followed_by_base_10_digits),
-        )
-            .take()
-            .parse_next(self)
-    }
-
-    /// In a float or decimal, matches the digits that are permitted before the decimal point.
-    /// This includes either a single zero, or a non-zero followed by any sequence of digits.
-    fn match_digits_before_dot(&mut self) -> IonMatchResult<'top> {
-        alt((
-            "0",
-            (Self::match_leading_digit, Self::match_trailing_digits).take(),
-        ))
-        .parse_next(self)
-    }
-
-    /// Matches a single non-zero base 10 digit.
-    fn match_leading_digit(&mut self) -> IonMatchResult<'top> {
-        one_of(b"123456789").take().parse_next(self)
-    }
-
-    /// Matches any number of base 10 digits, allowing underscores at any position except the end.
-    fn match_trailing_digits(&mut self) -> IonMatchResult<'top> {
-        zero_or_more(preceded(opt("_"), digit1)).parse_next(self)
-    }
-
-    /// Recognizes a decimal point followed by any number of base-10 digits.
-    fn match_dot_followed_by_base_10_digits(&mut self) -> IonMatchResult<'top> {
-        (".", opt(Self::match_zero_or_more_digits_after_dot))
-            .take()
-            .parse_next(self)
-    }
-
-    /// Like `match_digits_before_dot`, but allows leading zeros.
+    /// Like `match_base_10_digits_before_dot`, but allows leading zeros.
     fn match_one_or_more_digits_after_dot(&mut self) -> IonMatchResult<'top> {
         (
             // Any number of digit-sequence-with-trailing-underscores...
@@ -880,7 +831,7 @@ impl<'top> TextBuffer<'top> {
             .parse_next(self)
     }
 
-    /// Like `match_digits_before_dot`, but allows leading zeros.
+    /// Like `match_base_10_digits_before_dot`, but allows leading zeros.
     fn match_zero_or_more_digits_after_dot(&mut self) -> IonMatchResult<'top> {
         terminated(
             // Zero or more digits-followed-by-underscores.
@@ -944,77 +895,39 @@ impl<'top> TextBuffer<'top> {
         .parse_next(self)
     }
 
-    /// Match an optional sign (if present), digits before the decimal point, then digits after the
-    /// decimal point (if present).
-    pub fn match_decimal(&mut self) -> IonParseResult<'top, MatchedDecimal> {
-        let initial_offset = self.offset();
-        terminated(
-            (
-                opt("-"),
-                Self::match_digits_before_dot,
-                alt((
-                    (
-                        ".",
-                        opt(Self::match_zero_or_more_digits_after_dot),
-                        opt(Self::match_decimal_exponent),
-                    )
-                        .map(
-                            |(dot, maybe_digits_after_dot, maybe_exponent)| {
-                                let digits_after_dot = match maybe_digits_after_dot {
-                                    Some(digits) => digits,
-                                    None => dot.slice(1, 0),
-                                };
-                                let (exp_is_negative, exp_digits) = match maybe_exponent {
-                                    Some(exponent) => exponent,
-                                    None => {
-                                        (false, digits_after_dot.slice(digits_after_dot.len(), 0))
-                                    }
-                                };
-                                (digits_after_dot, exp_is_negative, exp_digits)
-                            },
-                        ),
-                    // or just a d/D and exponent
-                    Self::match_decimal_exponent.with_taken().map(
-                        |((exp_is_negative, exp_digits), matched)| {
-                            // Make an empty slice to represent the (absent) digits after dot
-                            let digits_after_dot = matched.slice(0, 0);
-                            (digits_after_dot, exp_is_negative, exp_digits)
-                        },
-                    ),
-                )),
-            ),
-            Self::peek_stop_character,
+    /// Builds a `MatchedDecimal` from the parts of a decimal that began at `initial_offset`.
+    fn new_matched_decimal(
+        initial_offset: usize,
+        is_negative: bool,
+        leading_digits: TextBuffer<'top>,
+        digits_after_dot: TextBuffer<'top>,
+        exponent_is_negative: bool,
+        exp_digits: TextBuffer<'top>,
+    ) -> MatchedDecimal {
+        let digits_offset = (leading_digits.offset() - initial_offset) as u16;
+        let digits_length = match digits_after_dot.len() {
+            0 => leading_digits.len() as u16,
+            trailing_digits_length => {
+                // The `+1` accounts for the decimal point
+                (leading_digits.len() + 1 + trailing_digits_length) as u16
+            }
+        };
+        let num_trailing_digits = digits_after_dot
+            .bytes()
+            .iter()
+            .filter(|b| b.is_ascii_digit())
+            .count() as u16;
+        let exponent_digits_offset = (exp_digits.offset() - initial_offset) as u16;
+        let exponent_digits_length = exp_digits.len() as u16;
+        MatchedDecimal::new(
+            is_negative,
+            digits_offset,
+            digits_length,
+            num_trailing_digits,
+            exponent_is_negative,
+            exponent_digits_offset,
+            exponent_digits_length,
         )
-        .map(
-            |(maybe_sign, leading_digits, (digits_after_dot, exponent_is_negative, exp_digits))| {
-                let is_negative = maybe_sign.is_some();
-                let digits_offset = (leading_digits.offset() - initial_offset) as u16;
-                let digits_length = match digits_after_dot.len() {
-                    0 => leading_digits.len() as u16,
-                    trailing_digits_length => {
-                        // The `+1` accounts for the decimal point
-                        (leading_digits.len() + 1 + trailing_digits_length) as u16
-                    }
-                };
-                let num_trailing_digits = digits_after_dot
-                    .bytes()
-                    .iter()
-                    .filter(|b| b.is_ascii_digit())
-                    .count() as u16;
-                let exponent_digits_offset = (exp_digits.offset() - initial_offset) as u16;
-                let exponent_digits_length = exp_digits.len() as u16;
-                MatchedDecimal::new(
-                    is_negative,
-                    digits_offset,
-                    digits_length,
-                    num_trailing_digits,
-                    exponent_is_negative,
-                    exponent_digits_offset,
-                    exponent_digits_length,
-                )
-            },
-        )
-        .parse_next(self)
     }
 
     /// Matches short- or long-form string.
@@ -1932,8 +1845,8 @@ mod tests {
         }
     }
 
-    /// Covers the gates in `match_number_or_timestamp_value`, `match_float_or_decimal_value`,
-    /// `match_base_2_or_16_int`, and `match_base_10_trailing_digits`.
+    /// Covers the gates and fast paths in `match_number_or_timestamp_value`,
+    /// `match_base_10_number_value`, and `match_base_10_trailing_digits`.
     #[rstest::rstest]
     #[case::year_final("2024", FINAL, Matched::Value(IonType::Int, 4))]
     #[case::year_partial("2024", PARTIAL, Matched::Incomplete)]
@@ -1960,6 +1873,8 @@ mod tests {
     #[case::zero_partial("0", PARTIAL, Matched::Incomplete)]
     #[case::zero_then_space("0 ", PARTIAL, Matched::Value(IonType::Int, 1))]
     #[case::negative_zero_partial("-0", PARTIAL, Matched::Incomplete)]
+    #[case::negative_zero_then_space_partial("-0 ", PARTIAL, Matched::Value(IonType::Int, 2))]
+    #[case::negative_zero_decimal_partial("-0.5 ", PARTIAL, Matched::Value(IonType::Decimal, 4))]
     #[case::hex_prefix_final("0x", FINAL, Matched::Mismatch)]
     #[case::hex_prefix_partial("0x", PARTIAL, Matched::Incomplete)]
     #[case::negative_hex_prefix_final("-0x", FINAL, Matched::Mismatch)]
@@ -1995,6 +1910,30 @@ mod tests {
     #[case::negative_inf_final("-inf", FINAL, Matched::Value(IonType::Float, 4))]
     #[case::negative_inf_partial("-inf", PARTIAL, Matched::Value(IonType::Float, 4))]
     #[case::negative_inf_then_space("-inf ", PARTIAL, Matched::Value(IonType::Float, 4))]
+    #[case::plus_final("+", FINAL, Matched::Mismatch)]
+    #[case::plus_partial("+", PARTIAL, Matched::Incomplete)]
+    #[case::plus_i_partial("+i", PARTIAL, Matched::Incomplete)]
+    #[case::positive_inf_partial("+inf", PARTIAL, Matched::Value(IonType::Float, 4))]
+    #[case::minus_i_final("-i", FINAL, Matched::Mismatch)]
+    #[case::minus_i_partial("-i", PARTIAL, Matched::Incomplete)]
+    #[case::minus_in_partial("-in", PARTIAL, Matched::Incomplete)]
+    #[case::negative_inf_then_letter("-infx", FINAL, Matched::Mismatch)]
+    #[case::dot_then_e_final("5.e0", FINAL, Matched::Value(IonType::Float, 4))]
+    #[case::dot_then_e_partial("5.e0", PARTIAL, Matched::Incomplete)]
+    #[case::e_without_dot_final("5e0", FINAL, Matched::Value(IonType::Float, 3))]
+    #[case::e_without_dot_partial("5e0", PARTIAL, Matched::Incomplete)]
+    #[case::e_marker_without_dot_final("5e", FINAL, Matched::Mismatch)]
+    #[case::e_marker_without_dot_partial("5e", PARTIAL, Matched::Incomplete)]
+    #[case::d_without_dot_final("5d0", FINAL, Matched::Value(IonType::Decimal, 3))]
+    #[case::d_without_dot_partial("5d0", PARTIAL, Matched::Incomplete)]
+    #[case::d_marker_without_dot_final("5d", FINAL, Matched::Mismatch)]
+    #[case::d_marker_without_dot_partial("5d", PARTIAL, Matched::Incomplete)]
+    #[case::d_marker_after_fraction_final("5.0d", FINAL, Matched::Mismatch)]
+    #[case::d_marker_after_fraction_partial("5.0d", PARTIAL, Matched::Incomplete)]
+    #[case::five_digits_partial("20245", PARTIAL, Matched::Incomplete)]
+    #[case::leading_zero_five_digits_partial("01234", PARTIAL, Matched::Mismatch)]
+    #[case::negative_digit_partial("-5", PARTIAL, Matched::Incomplete)]
+    #[case::negative_zero_final("-0", FINAL, Matched::Value(IonType::Int, 2))]
     fn match_number_or_timestamp(
         #[case] input: &str,
         #[case] is_final_data: bool,
@@ -2270,6 +2209,34 @@ mod tests {
         ],
     }
 
+    /// Number matchers that run `match_number_or_timestamp_value` and backtrack unless it matches
+    /// the requested type.
+    impl<'top> TextBuffer<'top> {
+        pub(crate) fn match_int(&mut self) -> IonParseResult<'top, MatchedInt> {
+            let start = *self;
+            match Self::match_number_or_timestamp_value::<TextEncoding_1_0>(self)?.matched() {
+                MatchedValue::Scalar(MatchedScalar::Int(int)) => Ok(int),
+                _ => start.unrecognized().backtrack(),
+            }
+        }
+
+        fn match_float(&mut self) -> IonParseResult<'top, MatchedFloat> {
+            let start = *self;
+            match Self::match_number_or_timestamp_value::<TextEncoding_1_0>(self)?.matched() {
+                MatchedValue::Scalar(MatchedScalar::Float(float)) => Ok(float),
+                _ => start.unrecognized().backtrack(),
+            }
+        }
+
+        pub(crate) fn match_decimal(&mut self) -> IonParseResult<'top, MatchedDecimal> {
+            let start = *self;
+            match Self::match_number_or_timestamp_value::<TextEncoding_1_0>(self)?.matched() {
+                MatchedValue::Scalar(MatchedScalar::Decimal(decimal)) => Ok(decimal),
+                _ => start.unrecognized().backtrack(),
+            }
+        }
+    }
+
     matcher_tests! {
         match_float
         expect_match: [
@@ -2435,6 +2402,10 @@ mod tests {
             "(a++)",
             "(++a)",
             "(a+=b)",
+            "(-)",
+            "(+ 1)",
+            "( 2 --1 )",
+            "(-in)",
             "(())",
             "((()))",
             "(1 (2 (3 4) 5) 6)",

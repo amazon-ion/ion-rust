@@ -1623,6 +1623,10 @@ mod tests {
             ("-0.005d+2", Decimal::new(-5, -1)),
             ("0.005D-2", Decimal::new(5, -5)),
             ("-0.005D-2", Decimal::new(-5, -5)),
+            ("1_000.5", Decimal::new(10005, -1)),
+            ("1.000_5d2", Decimal::new(10005, -2)),
+            ("1_0.0_5", Decimal::new(1005, -2)),
+            ("-1_0d1", Decimal::new(-10, 1)),
         ];
 
         for (input, expected) in tests {
