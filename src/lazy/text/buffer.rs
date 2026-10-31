@@ -28,7 +28,6 @@ use crate::lazy::text::value::{LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTe
 use crate::result::DecodingError;
 use crate::{Encoding, IonError, IonResult, IonType, Span, TimestampPrecision};
 
-use crate::lazy::text::as_utf8::AsUtf8;
 use crate::lazy::text::token_kind::{ValueTokenKind, TEXT_ION_TOKEN_KINDS};
 use ice_code::ice as cold_path;
 use winnow::ascii::{digit0, digit1};
@@ -1055,13 +1054,30 @@ impl<'top> TextBuffer<'top> {
         // We do this to make sure that input like `$1_02` gets parsed like an identifier;
         // If we didn't check for a trailing identifier character, it would be a SID (`$1`) and an
         // identifier (`_02`).
-        let initial_offset = self.offset();
-        terminated(digit1, not(one_of(Self::is_identifier_byte)))
-            .map(|buffer: TextBuffer<'_>| {
-                // The matched buffer is ascii base 10 digits, parsing must succeed
-                usize::from_str(buffer.as_utf8(initial_offset).unwrap()).unwrap()
-            })
-            .parse_next(self)
+        // Any run of at most this many digits fits in a `usize`.
+        const MAX_UNCHECKED_DIGITS: usize = usize::MAX.ilog10() as usize;
+        let digits = terminated(digit1, not(one_of(Self::is_identifier_byte))).parse_next(self)?;
+        let digit_bytes = digits.bytes();
+        if digit_bytes.len() <= MAX_UNCHECKED_DIGITS {
+            return Ok(digit_bytes
+                .iter()
+                .fold(0, |value, &digit| value * 10 + usize::from(digit - b'0')));
+        }
+        cold_path! {
+            digit_bytes
+                .iter()
+                .try_fold(0usize, |value, &digit| {
+                    value
+                        .checked_mul(10)?
+                        .checked_add(usize::from(digit - b'0'))
+                })
+                .ok_or_else(|| {
+                    digits
+                        .invalid("value did not fit in a usize")
+                        .context("reading a symbol ID or address")
+                        .cut_err()
+                })
+        }
     }
 
     /// Matches an identifier (`foo`).
@@ -1821,6 +1837,20 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[case::longest_unchecked(
+        "9".repeat(usize::MAX.ilog10() as usize),
+        Some(10usize.pow(usize::MAX.ilog10()) - 1)
+    )]
+    #[case::max(usize::MAX.to_string(), Some(usize::MAX))]
+    #[case::max_with_leading_zero(format!("0{}", usize::MAX), Some(usize::MAX))]
+    #[case::max_plus_one((usize::MAX as u128 + 1).to_string(), None)]
+    fn match_address_range(#[case] digits: String, #[case] expected: Option<usize>) {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let mut input = TextBuffer::with_offset(context.get_ref(), 0, digits.as_bytes(), true);
+        assert_eq!(input.match_address().ok(), expected, "{digits:?}");
+    }
+
+    #[rstest::rstest]
     #[case::trailing_letters("$123abc")]
     #[case::trailing_dollar("$1$2")]
     fn reader_reads_dollar_digit_prefixed_identifier_as_one_symbol(
@@ -2415,6 +2445,7 @@ mod tests {
             "$-8",       // Negative SID
             "'hello",    // No closing quote
             "'hello\\'", // Closing quote is escaped
+            "$123456789012345678901234567890", // SID does not fit in a usize
         ],
     }
 
@@ -2429,7 +2460,12 @@ mod tests {
             "foo::bar::baz::quux::quuz::5",
             "foo::'bar'::baz::$10::5",
         ],
-        expect_mismatch: ["foo::", "foo:bar", "foo:::bar"],
+        expect_mismatch: [
+            "foo::",
+            "foo:bar",
+            "foo:::bar",
+            "foo::$123456789012345678901234567890::5", // SID does not fit in a usize
+        ],
     }
 
     matcher_tests! {
@@ -2510,7 +2546,8 @@ mod tests {
             "{foo: bar,, baz: quux}",
             "{foo:: bar, baz: quux}",
             "{, foo: bar, baz: quux}",
-            "{,}"
+            "{,}",
+            "{$123456789012345678901234567890: bar}", // SID does not fit in a usize
         ]
     }
 

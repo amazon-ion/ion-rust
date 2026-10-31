@@ -493,4 +493,16 @@ mod tests {
 
         Ok(())
     }
+
+    #[rstest::rstest]
+    #[case::value("$123456789012345678901234567890")]
+    #[case::annotation("$123456789012345678901234567890::1")]
+    #[case::field_name("{$123456789012345678901234567890: 1}")]
+    fn symbol_id_too_large_for_usize(#[case] input: &str) {
+        let result = crate::Element::read_all(input);
+        assert!(
+            matches!(result, Err(crate::IonError::Decoding(_))),
+            "expected a decoding error for {input}, found {result:?}"
+        );
+    }
 }
