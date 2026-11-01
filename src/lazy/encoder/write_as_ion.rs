@@ -34,6 +34,10 @@ use crate::{
 /// on [`ValueWriter`].
 pub trait WriteAsIon {
     /// Maps this value to the Ion data model using the provided [`ValueWriter`] implementation.
+    ///
+    /// Implementations that need to report their own failures can return an
+    /// [`IonError::Application`](crate::IonError::Application); see
+    /// [`IonError::application`](crate::IonError::application).
     fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()>;
 
     /// Encodes this value as an Ion stream with `self` as the single top-level value.
@@ -430,7 +434,7 @@ impl<T: WriteAsIon> WriteAsIon for Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v1_0;
+    use crate::{v1_0, IonError};
 
     #[test]
     fn test_element_write_as_ion_without_annotations() -> IonResult<()> {
@@ -446,5 +450,69 @@ mod tests {
         let encoded: String = element.encode_as(v1_0::Text)?;
         assert_eq!(encoded.trim(), "foo::42");
         Ok(())
+    }
+
+    #[derive(Debug, thiserror::Error, PartialEq)]
+    #[error("account {0} is closed")]
+    struct AccountClosed(u64);
+
+    impl From<AccountClosed> for IonError {
+        fn from(error: AccountClosed) -> Self {
+            IonError::application(error)
+        }
+    }
+
+    struct Account {
+        id: u64,
+        closed: bool,
+    }
+
+    impl Account {
+        fn ensure_open(&self) -> Result<(), AccountClosed> {
+            if self.closed {
+                return Err(AccountClosed(self.id));
+            }
+            Ok(())
+        }
+    }
+
+    impl WriteAsIon for Account {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            self.ensure_open()?;
+            writer.write_i64(self.id as i64)
+        }
+    }
+
+    fn expect_account_closed(result: IonResult<String>, id: u64) {
+        match result {
+            Err(IonError::Application(error)) => {
+                assert_eq!(error.downcast_ref(), Some(&AccountClosed(id)))
+            }
+            other => panic!("expected IonError::Application, found {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_application_error_from_write_as_ion() {
+        let account = Account {
+            id: 7,
+            closed: true,
+        };
+        expect_account_closed(account.encode_as(v1_0::Text), 7);
+    }
+
+    #[test]
+    fn test_application_error_propagates_through_containers() {
+        let accounts = vec![
+            Account {
+                id: 1,
+                closed: false,
+            },
+            Account {
+                id: 2,
+                closed: true,
+            },
+        ];
+        expect_account_closed(accounts.encode_as(v1_0::Text), 2);
     }
 }

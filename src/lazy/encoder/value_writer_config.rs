@@ -2,7 +2,15 @@
 ///
 /// The default configuration aligns closely with Ion 1.0's encoding. All symbols, field names, and
 /// annotations are added to the symbol table and encoded as symbol IDs.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug)]
+// This config is copied into a new value writer for every nested value, so its layout is on the hot
+// path. Each copy must be read back by loads that each fall within a single earlier store: a load
+// that spans more than one in-flight store cannot be forwarded from the store buffer and stalls
+// until the stores reach the cache, which slowed container-heavy encoding by ~2-12% on Graviton.
+// `repr(C)` keeps the one-byte enum fields contiguous (one 4-byte store) ahead of the separately
+// updated `remaining_depth`; the default layout places `remaining_depth` first, so a 4-byte load
+// spans it and two of the enums.
+#[repr(C)]
 pub struct ValueWriterConfig {
     // How nested containers should be encoded.
     container_encoding: ContainerEncoding,
@@ -12,6 +20,16 @@ pub struct ValueWriterConfig {
     annotations_encoding: AnnotationsEncoding,
     // If this writer emits a struct, the struct will encode its field names according to this setting.
     field_name_encoding: FieldNameEncoding,
+    // The number of container levels that may still be opened, counting the value this writer
+    // writes if it is a container: `0` means the value may not be a container. A plain `u16` rather
+    // than an `Option`, whose tag and value would be stored separately and read back together.
+    remaining_depth: u16,
+}
+
+impl Default for ValueWriterConfig {
+    fn default() -> Self {
+        Self::binary()
+    }
 }
 
 /// Configuration options for encoding containers.
@@ -86,6 +104,7 @@ impl ValueWriterConfig {
             symbol_value_encoding: SymbolValueEncoding::InlineText,
             annotations_encoding: AnnotationsEncoding::InlineText,
             field_name_encoding: FieldNameEncoding::InlineText,
+            remaining_depth: u16::MAX,
         }
     }
 
@@ -96,6 +115,7 @@ impl ValueWriterConfig {
             symbol_value_encoding: SymbolValueEncoding::SymbolIds,
             annotations_encoding: AnnotationsEncoding::SymbolIds,
             field_name_encoding: FieldNameEncoding::SymbolIds,
+            remaining_depth: u16::MAX,
         }
     }
 
@@ -161,5 +181,51 @@ impl ValueWriterConfig {
     ) -> Self {
         self.field_name_encoding = field_name_encoding;
         self
+    }
+
+    /// Allows `remaining_depth` levels of containers to be opened, counting the value this writer
+    /// writes if it is a container: `0` means the value may not be a container.
+    pub(crate) const fn with_remaining_depth(mut self, remaining_depth: u16) -> Self {
+        self.remaining_depth = remaining_depth;
+        self
+    }
+
+    /// Returns the configuration for the children of a container this writer is about to open, or
+    /// `None` if they would exceed the maximum depth.
+    #[inline]
+    pub(crate) fn enter_container(mut self) -> Option<Self> {
+        self.remaining_depth = self.remaining_depth.checked_sub(1)?;
+        Some(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ValueWriterConfig;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::default_limit(u16::MAX, u16::MAX - 1)]
+    #[case::one_level_left(1, 0)]
+    fn enter_container_passes_the_remaining_depth_to_children(
+        #[case] remaining_depth: u16,
+        #[case] expected_for_children: u16,
+    ) {
+        let children = ValueWriterConfig::default()
+            .with_remaining_depth(remaining_depth)
+            .enter_container()
+            .expect("the container should be allowed");
+        assert_eq!(children.remaining_depth, expected_for_children);
+    }
+
+    #[test]
+    fn enter_container_rejects_a_container_with_no_remaining_depth() {
+        let config = ValueWriterConfig::default().with_remaining_depth(0);
+        assert!(config.enter_container().is_none());
+    }
+
+    #[test]
+    fn default_allows_u16_max_levels_of_containers() {
+        assert_eq!(ValueWriterConfig::default().remaining_depth, u16::MAX);
     }
 }

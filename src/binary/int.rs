@@ -1,6 +1,7 @@
+use crate::binary::uint::minimal_be_bytes;
 use crate::decimal::Coefficient;
 use crate::result::IonResult;
-use crate::types::integer::{AsBigOrSmallValue, UIntData};
+use crate::types::overflowing_int::Magnitude;
 use crate::Int;
 use ice_code::ice as cold_path;
 use std::io::Write;
@@ -34,22 +35,16 @@ impl DecodedInt {
     /// Encodes the provided `value` as an Int and writes it to the provided `sink`.
     /// Returns the number of bytes written.
     pub fn write<W: Write>(sink: &mut W, value: &Int) -> IonResult<usize> {
-        let is_negative = value.is_negative();
-        let magnitude = value.unsigned_abs();
-        // Common case: the magnitude is stored inline, so its big-endian bytes can be encoded on
-        // the stack with no heap allocation.
-        if let Some(mag) = magnitude.data.as_small_value() {
-            let (mut be, start) = UIntData::small_to_be_bytes(mag);
-            return Self::write_sign_and_magnitude(sink, &mut be[start..], is_negative);
+        match value.as_overflowing_int().magnitude_ref() {
+            Magnitude::Small(small) => {
+                let (mut be, start) = minimal_be_bytes(small);
+                Self::write_sign_and_magnitude(sink, &mut be[start..], value.is_negative())
+            }
+            Magnitude::Big(big) => cold_path! {{
+                let mut be = big.to_bytes_be();
+                Self::write_sign_and_magnitude(sink, &mut be, value.is_negative())
+            }},
         }
-        // Cold path: a BigUint magnitude, which has to be heap-allocated to be encoded.
-        // `cold_path!` wraps its body in a closure, so `?` and `return` inside the block are scoped
-        // to that closure rather than to `write`. This block is `write`'s tail expression, so its
-        // value is the value of `write`.
-        cold_path! {{
-            let mut be = magnitude.data.to_be_bytes();
-            Self::write_sign_and_magnitude(sink, &mut be, is_negative)
-        }}
     }
 
     /// Writes the sign bit followed by the minimal big-endian magnitude in `be` to `sink`,
@@ -60,8 +55,8 @@ impl DecodedInt {
     /// mutably so the sign bit can be set in place, avoiding a second write in the common case.
     ///
     /// `be` must be non-empty: it holds the minimal big-endian magnitude, which is at least one
-    /// byte (zero encodes as `[0x00]`). Both callers derive `be` from [`UIntData::small_to_be_bytes`]
-    /// or [`UIntData::to_be_bytes`], which guarantee this.
+    /// byte (zero encodes as `[0x00]`). [`minimal_be_bytes`] guarantees this, and a heap magnitude
+    /// is never zero.
     fn write_sign_and_magnitude<W: Write>(
         sink: &mut W,
         be: &mut [u8],
@@ -163,8 +158,7 @@ mod tests {
         Ok(())
     }
 
-    /// Returns `2^128`, the smallest magnitude that `Int` cannot store inline. Encoding it takes
-    /// the `BigUint` cold path in [`DecodedInt::write`].
+    /// Returns `2^128`, the smallest magnitude wider than 16 bytes.
     fn two_pow_128() -> Int {
         let mut bytes = vec![0u8; 17];
         bytes[16] = 1;
@@ -201,12 +195,34 @@ mod tests {
         Int::from(i64::MIN),
         &[0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
     )]
-    // Sixteen-byte magnitudes: the widest that `Int` stores inline.
+    // Sixteen-byte magnitudes.
     #[case::max_i128(
         Int::from(i128::MAX),
         &[
             0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]
+    )]
+    // Either side of 2^126, where storage moves from inline to the heap; the bytes don't change.
+    #[case::two_pow_126_minus_one(
+        Int::from((1i128 << 126) - 1),
+        &[
+            0x3F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]
+    )]
+    #[case::two_pow_126(
+        Int::from(1i128 << 126),
+        &[
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+    )]
+    #[case::negative_two_pow_126(
+        Int::from(-(1i128 << 126)),
+        &[
+            0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
     #[case::min_i128(
@@ -216,9 +232,9 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
-    // A 16-byte magnitude whose leading byte's high bit is clear (`start == 0`): the sign bit is set
-    // in place in the first byte, with no leading sign-only byte. Guards the `be[0] |= 0x80` branch
-    // at the widest inline width.
+    // A 16-byte magnitude whose leading byte's high bit is clear: the sign bit is set in place in
+    // the first byte, with no leading sign-only byte. Guards the `be[0] |= 0x80` branch at the full
+    // 16-byte width.
     #[case::negative_two_pow_120(
         Int::from(-(1i128 << 120)),
         &[
@@ -226,9 +242,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]
     )]
-    // `u128::MAX` is stored as a `BigInt` because it does not fit in an `i128`, but its *magnitude*
-    // fits in a `u128`, so `Int::unsigned_abs` normalizes it back to inline storage and it takes
-    // the stack-only path. This is the widest output that path can produce: 17 bytes.
+    // The widest 16-byte magnitude, which needs a leading sign-only byte: 17 bytes.
     #[case::max_u128_magnitude(
         Int::from(UInt::from(u128::MAX)),
         &[
@@ -243,7 +257,7 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         ]
     )]
-    // Just past the seam: a magnitude that exceeds `u128` and so takes the heap-allocating path.
+    // A 17-byte magnitude.
     #[case::two_pow_128(
         two_pow_128(),
         &[

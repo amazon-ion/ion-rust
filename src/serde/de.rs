@@ -1,4 +1,5 @@
 use serde::de;
+use serde::de::value::BytesDeserializer;
 use serde::de::{DeserializeOwned, DeserializeSeed, EnumAccess, MapAccess, SeqAccess, Visitor};
 
 use crate::lazy::any_encoding::AnyEncoding;
@@ -9,9 +10,9 @@ use crate::lazy::value_ref::ValueRef;
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
+use crate::serde::TunnelBytes;
 use crate::{
-    Decimal, IonEncoding, IonError, IonResult, IonType, RawVersionMarker, SystemReader,
-    SystemStreamItem, Timestamp,
+    IonEncoding, IonError, IonResult, IonType, RawVersionMarker, SystemReader, SystemStreamItem,
 };
 
 /// Generic method that can deserialize an object from any given type
@@ -342,32 +343,12 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'_, 'de> {
         V: Visitor<'de>,
     {
         let value = self.value.read()?;
-        if name == TUNNELED_TIMESTAMP_TYPE_NAME {
-            let timestamp = value.expect_timestamp()?;
-            assert_eq!(
-                std::mem::size_of::<V::Value>(),
-                std::mem::size_of::<Timestamp>()
-            );
-            // # Safety
-            // compiler doesn't understand that the generic Timestamp here is actually V::Value here
-            // The assert statement above that compares the sizes of the Timestamp and V::Value types
-            let visitor_value =
-                unsafe { std::mem::transmute_copy::<Timestamp, V::Value>(&timestamp) };
-            return Ok(visitor_value);
-        } else if name == TUNNELED_DECIMAL_TYPE_NAME {
-            let decimal = value.expect_decimal()?;
-            assert_eq!(
-                std::mem::size_of::<V::Value>(),
-                std::mem::size_of::<Decimal>()
-            );
-            // # Safety
-            // compiler doesn't understand that the generic Decimal here is actually V::Value here
-            // The assert statement above that compares the sizes of the Decimal and V::Value types
-            let visitor_value = unsafe { std::mem::transmute_copy::<Decimal, V::Value>(&decimal) };
-            return Ok(visitor_value);
-        }
-
-        visitor.visit_newtype_struct(self)
+        let TunnelBytes(payload) = match name {
+            TUNNELED_TIMESTAMP_TYPE_NAME => TunnelBytes::from(&value.expect_timestamp()?),
+            TUNNELED_DECIMAL_TYPE_NAME => TunnelBytes::from(&value.expect_decimal()?),
+            _ => return visitor.visit_newtype_struct(self),
+        };
+        visitor.visit_newtype_struct(BytesDeserializer::<IonError>::new(&payload))
     }
 
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -431,11 +412,10 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'_, 'de> {
     where
         V: Visitor<'de>,
     {
-        // Make sure we've started reading an enum.
+        // Outside an enum, an identifier is a plain string or symbol, e.g. the tag of an
+        // internally tagged enum.
         if self.variant_nesting_depth == 0 {
-            return IonResult::decoding_error(
-                "unexpected serde state; was not expecting to read an identifier",
-            );
+            return self.deserialize_str(visitor);
         }
 
         let mut annotations = self.value.annotations();
@@ -609,11 +589,11 @@ struct MapKeyDeserializer {
 impl<'de> de::Deserializer<'de> for MapKeyDeserializer {
     type Error = IonError;
 
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        IonResult::decoding_error("expected a string value")
+        visitor.visit_string(self.key)
     }
 
     fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value, Self::Error>

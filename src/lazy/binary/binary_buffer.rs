@@ -15,6 +15,7 @@ use crate::lazy::encoding::BinaryEncoding_1_0;
 use crate::lazy::expanded::EncodingContextRef;
 use crate::result::IonFailure;
 use crate::{Int, IonError, IonResult};
+use ice_code::ice as cold_path;
 
 /// A buffer of unsigned bytes that can be cheaply copied and which defines methods for parsing
 /// the various encoding elements of a binary Ion stream.
@@ -191,26 +192,22 @@ impl<'a> BinaryBuffer<'a> {
         // (including errors) to be a function call.
 
         let data = self.bytes();
-        // The 'fast path' first checks whether we have at least two bytes available. This allows us
-        // to do a single length check on the fast path. If there's one byte in the buffer that
-        // happens to be a complete VarUInt (a very rare occurrence), it will still be handled by
-        // `read_var_uint_slow()`.
-        if data.len() >= 2 {
-            let first_byte = data[0];
-            let mut magnitude = (LOWER_7_BITMASK & first_byte) as usize;
-            let num_bytes = if first_byte >= HIGHEST_BIT_VALUE {
-                1
-            } else {
-                let second_byte = data[1];
-                if second_byte < HIGHEST_BIT_VALUE {
-                    return self.read_var_uint_slow();
+        // The 'fast path' handles a 1-byte VarUInt whenever at least one byte is available. A
+        // buffer that ends with a complete 1-byte VarUInt is common: annotation sequences and
+        // timestamp bodies without fractional seconds are sliced to end exactly at their last
+        // VarUInt.
+        if let Some(&first_byte) = data.first() {
+            let magnitude = (LOWER_7_BITMASK & first_byte) as usize;
+            if first_byte >= HIGHEST_BIT_VALUE {
+                return Ok((VarUInt::new(magnitude, 1), self.consume(1)));
+            }
+            if let Some(&second_byte) = data.get(1) {
+                if second_byte >= HIGHEST_BIT_VALUE {
+                    let lower_seven = (LOWER_7_BITMASK & second_byte) as usize;
+                    let magnitude = (magnitude << 7) | lower_seven;
+                    return Ok((VarUInt::new(magnitude, 2), self.consume(2)));
                 }
-                let lower_seven = (LOWER_7_BITMASK & second_byte) as usize;
-                magnitude <<= 7;
-                magnitude |= lower_seven;
-                2
-            };
-            return Ok((VarUInt::new(magnitude, num_bytes), self.consume(num_bytes)));
+            }
         }
 
         // All other VarUInt sizes and error cases (incomplete data, oversized, etc) are handled by
@@ -641,7 +638,7 @@ impl<'a> BinaryBuffer<'a> {
     /// the next byte (`type_descriptor`) is not a NOP.
     fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
         if type_descriptor.is_annotation_wrapper() {
-            self.read_annotated_value(type_descriptor)
+            cold_path! { self.read_annotated_value(type_descriptor) }
         } else {
             self.read_value_without_annotations(type_descriptor)
         }
@@ -779,44 +776,37 @@ mod tests {
         input_test(Vec::from("foo bar baz".as_bytes()));
     }
 
-    #[test]
-    fn read_var_uint() -> IonResult<()> {
+    /// `expected` is `Some((value, size_in_bytes))`, or `None` if the input is incomplete.
+    #[rstest::rstest]
+    #[case::one_byte_zero(&[0b1000_0000], Some((0, 1)))]
+    #[case::one_byte_max_value(&[0b1111_1111], Some((127, 1)))]
+    #[case::one_byte_then_more_data(&[0b1000_0001, 0b0000_0000], Some((1, 1)))]
+    #[case::two_bytes_max_value(&[0b0111_1111, 0b1111_1111], Some((16_383, 2)))]
+    #[case::two_bytes_then_more_data(&[0b0000_0001, 0b1000_0001, 0b0111_1111], Some((129, 2)))]
+    #[case::three_bytes(&[0b0111_1001, 0b0000_1111, 0b1000_0001], Some((1_984_385, 3)))]
+    #[case::empty(&[], None)]
+    #[case::one_byte_incomplete(&[0b0000_0001], None)]
+    #[case::two_bytes_incomplete(&[0b0111_1001, 0b0000_1111], None)]
+    fn read_var_uint(
+        #[case] input: &[u8],
+        #[case] expected: Option<(usize, usize)>,
+    ) -> IonResult<()> {
         let context = EncodingContext::for_ion_version(IonVersion::v1_0);
-        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1001, 0b0000_1111, 0b1000_0001]);
-        let var_uint = buffer.read_var_uint()?.0;
-        assert_eq!(3, var_uint.size_in_bytes());
-        assert_eq!(1_984_385, var_uint.value());
-        Ok(())
-    }
-
-    #[test]
-    fn read_var_uint_zero() -> IonResult<()> {
-        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
-        let buffer = BinaryBuffer::new(context.get_ref(), &[0b1000_0000]);
-        let var_uint = buffer.read_var_uint()?.0;
-        assert_eq!(var_uint.size_in_bytes(), 1);
-        assert_eq!(var_uint.value(), 0);
-        Ok(())
-    }
-
-    #[test]
-    fn read_var_uint_two_bytes_max_value() -> IonResult<()> {
-        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
-        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1111, 0b1111_1111]);
-        let var_uint = buffer.read_var_uint()?.0;
-        assert_eq!(var_uint.size_in_bytes(), 2);
-        assert_eq!(var_uint.value(), 16_383);
-        Ok(())
-    }
-
-    #[test]
-    fn read_incomplete_var_uint() -> IonResult<()> {
-        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
-        let buffer = BinaryBuffer::new(context.get_ref(), &[0b0111_1001, 0b0000_1111]);
-        match buffer.read_var_uint() {
-            Err(IonError::Incomplete { .. }) => Ok(()),
-            other => panic!("expected IonError::Incomplete, but found: {other:?}"),
+        let result = BinaryBuffer::new(context.get_ref(), input).read_var_uint();
+        match expected {
+            Some((value, size_in_bytes)) => {
+                let (var_uint, remaining) = result?;
+                assert_eq!(var_uint.value(), value);
+                assert_eq!(var_uint.size_in_bytes(), size_in_bytes);
+                assert_eq!(remaining.offset(), size_in_bytes);
+                assert_eq!(remaining.bytes(), &input[size_in_bytes..]);
+            }
+            None => assert!(
+                matches!(result, Err(IonError::Incomplete { .. })),
+                "expected IonError::Incomplete, but found: {result:?}"
+            ),
         }
+        Ok(())
     }
 
     #[test]

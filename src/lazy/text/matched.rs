@@ -46,6 +46,17 @@ use winnow::Parser;
 /// A partially parsed Ion value.
 #[derive(Clone, Copy, Debug)]
 pub enum MatchedValue<'top, D: Decoder> {
+    Scalar(MatchedScalar),
+    List(&'top [D::Value<'top>]),
+    SExp(&'top [D::Value<'top>]),
+    Struct(&'top [LazyRawFieldExpr<'top, D>]),
+}
+
+/// A partially parsed scalar Ion value. Unlike a container's match, it borrows nothing.
+///
+/// A typed null, including a null container like `null.list`, is a scalar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MatchedScalar {
     // `Null` and `Bool` are fully parsed because they only involve matching a keyword.
     Null(IonType),
     Bool(bool),
@@ -57,25 +68,33 @@ pub enum MatchedValue<'top, D: Decoder> {
     Symbol(MatchedSymbol),
     Blob(MatchedBlob),
     Clob(MatchedClob),
-    List(&'top [D::Value<'top>]),
-    SExp(&'top [D::Value<'top>]),
-    Struct(&'top [LazyRawFieldExpr<'top, D>]),
+}
+
+impl MatchedScalar {
+    pub fn ion_type(&self) -> IonType {
+        match self {
+            MatchedScalar::Null(ion_type) => *ion_type,
+            MatchedScalar::Bool(_) => IonType::Bool,
+            MatchedScalar::Int(_) => IonType::Int,
+            MatchedScalar::Float(_) => IonType::Float,
+            MatchedScalar::Decimal(_) => IonType::Decimal,
+            MatchedScalar::Timestamp(_) => IonType::Timestamp,
+            MatchedScalar::String(_) => IonType::String,
+            MatchedScalar::Symbol(_) => IonType::Symbol,
+            MatchedScalar::Blob(_) => IonType::Blob,
+            MatchedScalar::Clob(_) => IonType::Clob,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, MatchedScalar::Null(_))
+    }
 }
 
 impl<D: Decoder> PartialEq for MatchedValue<'_, D> {
     fn eq(&self, other: &Self) -> bool {
-        use MatchedValue::*;
         match (self, other) {
-            (Null(n1), Null(n2)) => n1 == n2,
-            (Bool(b1), Bool(b2)) => b1 == b2,
-            (Int(i1), Int(i2)) => i1 == i2,
-            (Float(f1), Float(f2)) => f1 == f2,
-            (Decimal(d1), Decimal(d2)) => d1 == d2,
-            (Timestamp(t1), Timestamp(t2)) => t1 == t2,
-            (String(s1), String(s2)) => s1 == s2,
-            (Symbol(s1), Symbol(s2)) => s1 == s2,
-            (Blob(b1), Blob(b2)) => b1 == b2,
-            (Clob(c1), Clob(c2)) => c1 == c2,
+            (MatchedValue::Scalar(s1), MatchedValue::Scalar(s2)) => s1 == s2,
             // The container variants hold raw representations of the containers themselves.
             // We cannot compare their equality without recursively reading those containers,
             // which introduces many opportunities to encounter an error that this method cannot
@@ -178,6 +197,30 @@ impl MatchedInt {
 
     /// Attempts to finish reading the partially parsed integer.
     pub fn read(&self, matched_input: TextBuffer<'_>) -> IonResult<Int> {
+        let digits = matched_input
+            .slice_to_end(self.digits_offset as usize)
+            .bytes();
+        // Up to 19 base-10 digits always fit in a `u64`.
+        if self.radix == 10
+            && !digits.is_empty()
+            && digits.len() <= 19
+            && digits.iter().all(u8::is_ascii_digit)
+        {
+            let magnitude = digits
+                .iter()
+                .fold(0u64, |acc, &digit| acc * 10 + u64::from(digit - b'0'));
+            let magnitude = Int::from(magnitude);
+            return Ok(if self.is_negative {
+                magnitude.neg()
+            } else {
+                magnitude
+            });
+        }
+        cold_path! { self.read_with_sanitization(matched_input) }
+    }
+
+    /// Reads an int in any radix, with or without underscores, and of any size.
+    fn read_with_sanitization(&self, matched_input: TextBuffer<'_>) -> IonResult<Int> {
         let digits = matched_input.slice_to_end(self.digits_offset as usize);
         let mut sanitized: SmallVec<[u8; Self::STACK_ALLOC_BUFFER_CAPACITY]> =
             SmallVec::with_capacity(Self::STACK_ALLOC_BUFFER_CAPACITY);
@@ -1253,6 +1296,32 @@ mod tests {
         Ok(())
     }
 
+    #[rstest::rstest]
+    #[case::zero("0", 0)]
+    #[case::negative_zero("-0", 0)]
+    #[case::nineteen_digits("9999999999999999999", 9_999_999_999_999_999_999)]
+    #[case::negative_nineteen_digits("-9999999999999999999", -9_999_999_999_999_999_999)]
+    #[case::twenty_digits("10000000000000000000", 10_000_000_000_000_000_000)]
+    #[case::negative_twenty_digits("-10000000000000000000", -10_000_000_000_000_000_000)]
+    #[case::u64_max("18446744073709551615", u64::MAX as i128)]
+    #[case::u64_max_plus_one("18446744073709551616", u64::MAX as i128 + 1)]
+    #[case::negative_u64_max("-18446744073709551615", -(u64::MAX as i128))]
+    #[case::underscores("1_000", 1_000)]
+    #[case::nineteen_digits_with_underscore("999_999_999_999_999_999_9", 9_999_999_999_999_999_999)]
+    #[case::hex("0x1F", 0x1F)]
+    #[case::negative_hex("-0x1F", -0x1F)]
+    #[case::negative_hex_zero("-0x0", 0)]
+    #[case::binary("0b101", 0b101)]
+    #[case::negative_binary("-0b101", -0b101)]
+    fn read_int_boundaries(#[case] data: &str, #[case] expected: i128) {
+        let encoding_context = EncodingContext::empty();
+        let mut buffer = TextBuffer::new(encoding_context.get_ref(), data.as_bytes());
+        let matched = peek(TextBuffer::match_int).parse_next(&mut buffer).unwrap();
+        let actual = matched.read(buffer).unwrap();
+        assert_eq!(actual, Int::from(expected), "{data}");
+        assert_eq!(actual.to_string(), expected.to_string(), "{data}");
+    }
+
     #[test]
     fn read_ints_arbitrary_precision() {
         fn expect_big_int(data: &str, expected_decimal_str: &str) {
@@ -1554,6 +1623,10 @@ mod tests {
             ("-0.005d+2", Decimal::new(-5, -1)),
             ("0.005D-2", Decimal::new(5, -5)),
             ("-0.005D-2", Decimal::new(-5, -5)),
+            ("1_000.5", Decimal::new(10005, -1)),
+            ("1.000_5d2", Decimal::new(10005, -2)),
+            ("1_0.0_5", Decimal::new(1005, -2)),
+            ("-1_0d1", Decimal::new(-10, 1)),
         ];
 
         for (input, expected) in tests {

@@ -1,16 +1,13 @@
 use bumpalo::collections::Vec as BumpVec;
 use bumpalo::Bump as BumpAllocator;
-use ice_code::ice as cold_path;
 
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::binary::v1_0::value_writer::{BinaryValueWriter_1_0, MAX_INLINE_LENGTH};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::result::{EncodingError, IonFailure};
-use crate::{
-    v1_0, ContextWriter, Encoding, IonError, IonResult, RawSymbolRef, SymbolId, ValueWriterConfig,
-};
+use crate::result::cold_error;
+use crate::{v1_0, ContextWriter, Encoding, IonResult, RawSymbolRef, SymbolId, ValueWriterConfig};
 
 /// A helper type that holds fields and logic that is common to [`BinaryListWriter_1_0`],
 /// [`BinarySExpWriter_1_0`], and [`BinaryStructWriter_1_0`].
@@ -56,11 +53,10 @@ impl<'value, 'top> BinaryContainerWriter_1_0<'value, 'top> {
             let symbol_address = match annotation.as_raw_symbol_ref() {
                 RawSymbolRef::SymbolId(symbol_id) => symbol_id,
                 other_token => {
-                    return cold_path! {
-                        IonResult::encoding_error(
-                            format!("binary Ion 1.0 only supports symbol ID annotations (received '{other_token:?}')")
-                        )
-                    }
+                    return cold_error!(
+                        encoding_error,
+                        "binary Ion 1.0 only supports symbol ID annotations (received '{other_token:?}')"
+                    );
                 }
             };
             symbol_ids.push(symbol_address);
@@ -318,9 +314,10 @@ impl FieldEncoder for BinaryStructWriter_1_0<'_, '_> {
         let sid = match name.as_raw_symbol_ref() {
             RawSymbolRef::SymbolId(sid) => sid,
             other => {
-                return Err(IonError::Encoding(EncodingError::new(format!(
+                return cold_error!(
+                    encoding_error,
                     "the v1.0 raw binary writer only supports symbol ID struct field names, received {other:?}"
-                ))));
+                );
             }
         };
         VarUInt::write_u64(&mut self.container_writer.child_values_buffer, sid as u64)?;

@@ -71,12 +71,15 @@ pub macro ion_rs::ion_seq!
 pub macro ion_rs::ion_sexp!
 pub macro ion_rs::ion_struct!
 #[non_exhaustive] pub enum ion_rs::IonError
+pub ion_rs::IonError::Application(ion_rs::ApplicationError)
 pub ion_rs::IonError::Conversion(ion_rs::result::conversion::ConversionError)
 pub ion_rs::IonError::Decoding(ion_rs::result::decoding_error::DecodingError)
 pub ion_rs::IonError::Encoding(ion_rs::result::encoding_error::EncodingError)
 pub ion_rs::IonError::IllegalOperation(ion_rs::result::illegal_operation::IllegalOperation)
 pub ion_rs::IonError::Incomplete(ion_rs::result::incomplete::IncompleteError)
 pub ion_rs::IonError::Io(ion_rs::result::io_error::IoError)
+impl ion_rs::IonError
+pub fn ion_rs::IonError::application(impl core::convert::Into<alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>>) -> Self
 impl core::convert::From<core::fmt::Error> for ion_rs::IonError
 pub fn ion_rs::IonError::from(core::fmt::Error) -> Self
 impl core::convert::From<core::io::error::ErrorKind> for ion_rs::IonError
@@ -193,6 +196,11 @@ pub type &'a ion_rs::Annotations::Item = &'a ion_rs::Symbol
 pub fn &'a ion_rs::Annotations::into_iter(self) -> Self::IntoIter
 impl<S: core::convert::Into<ion_rs::Symbol>> core::iter::traits::collect::FromIterator<S> for ion_rs::Annotations
 pub fn ion_rs::Annotations::from_iter<T: core::iter::traits::collect::IntoIterator<Item = S>>(T) -> Self
+pub struct ion_rs::ApplicationError
+impl ion_rs::ApplicationError
+pub fn ion_rs::ApplicationError::downcast_ref<E: core::error::Error + 'static>(&self) -> core::option::Option<&E>
+impl core::cmp::PartialEq for ion_rs::ApplicationError
+pub fn ion_rs::ApplicationError::eq(&self, &Self) -> bool
 pub struct ion_rs::Blob(pub ion_rs::Bytes)
 impl ion_rs::Blob
 pub fn ion_rs::Blob::as_slice(&self) -> &[u8]
@@ -468,10 +476,36 @@ impl core::convert::From<&ion_rs::Int> for ion_rs::Int
 pub fn ion_rs::Int::from(&ion_rs::Int) -> Self
 impl core::convert::From<&ion_rs::UInt> for ion_rs::Int
 pub fn ion_rs::Int::from(&ion_rs::UInt) -> Self
+impl core::convert::From<i128> for ion_rs::Int
+pub fn ion_rs::Int::from(i128) -> ion_rs::Int
+impl core::convert::From<i16> for ion_rs::Int
+pub fn ion_rs::Int::from(i16) -> ion_rs::Int
+impl core::convert::From<i32> for ion_rs::Int
+pub fn ion_rs::Int::from(i32) -> ion_rs::Int
+impl core::convert::From<i64> for ion_rs::Int
+pub fn ion_rs::Int::from(i64) -> ion_rs::Int
+impl core::convert::From<i8> for ion_rs::Int
+pub fn ion_rs::Int::from(i8) -> ion_rs::Int
 impl core::convert::From<ion_rs::Int> for ion_rs::Decimal
 pub fn ion_rs::Decimal::from(ion_rs::Int) -> Self
 impl core::convert::From<ion_rs::Int> for ion_rs::decimal::Coefficient
 pub fn ion_rs::decimal::Coefficient::from(ion_rs::Int) -> ion_rs::decimal::Coefficient
+impl core::convert::From<ion_rs::UInt> for ion_rs::Int
+pub fn ion_rs::Int::from(ion_rs::UInt) -> Self
+impl core::convert::From<isize> for ion_rs::Int
+pub fn ion_rs::Int::from(isize) -> ion_rs::Int
+impl core::convert::From<u128> for ion_rs::Int
+pub fn ion_rs::Int::from(u128) -> ion_rs::Int
+impl core::convert::From<u16> for ion_rs::Int
+pub fn ion_rs::Int::from(u16) -> ion_rs::Int
+impl core::convert::From<u32> for ion_rs::Int
+pub fn ion_rs::Int::from(u32) -> ion_rs::Int
+impl core::convert::From<u64> for ion_rs::Int
+pub fn ion_rs::Int::from(u64) -> ion_rs::Int
+impl core::convert::From<u8> for ion_rs::Int
+pub fn ion_rs::Int::from(u8) -> ion_rs::Int
+impl core::convert::From<usize> for ion_rs::Int
+pub fn ion_rs::Int::from(usize) -> ion_rs::Int
 impl core::convert::TryFrom<&ion_rs::Int> for ion_rs::UInt
 pub type ion_rs::UInt::Error = ion_rs::IonError
 pub fn ion_rs::UInt::try_from(&ion_rs::Int) -> core::result::Result<Self, Self::Error>
@@ -520,10 +554,10 @@ pub fn usize::try_from(ion_rs::Int) -> core::result::Result<Self, Self::Error>
 impl core::convert::TryFrom<ion_rs::decimal::Coefficient> for ion_rs::Int
 pub type ion_rs::Int::Error = ion_rs::IonError
 pub fn ion_rs::Int::try_from(ion_rs::decimal::Coefficient) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for ion_rs::Int
+pub fn ion_rs::Int::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for ion_rs::Int
 pub fn ion_rs::Int::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::result::Result<(), core::fmt::Error>
-impl<T> core::convert::From<T> for ion_rs::Int where T: core::convert::Into<int_data::IntData>
-pub fn ion_rs::Int::from(T) -> Self
 pub struct ion_rs::IonData<T>(_)
 impl<T: ion_rs::ion_data::ion_eq::IonEq> ion_rs::IonData<T>
 pub fn ion_rs::IonData<T>::eq<R: core::ops::deref::Deref<Target = T>>(R, R) -> bool
@@ -831,6 +865,8 @@ impl core::convert::From<&ion_rs::UInt> for ion_rs::Int
 pub fn ion_rs::Int::from(&ion_rs::UInt) -> Self
 impl core::convert::From<&ion_rs::UInt> for ion_rs::UInt
 pub fn ion_rs::UInt::from(&ion_rs::UInt) -> Self
+impl core::convert::From<ion_rs::UInt> for ion_rs::Int
+pub fn ion_rs::Int::from(ion_rs::UInt) -> Self
 impl core::convert::From<ion_rs::UInt> for ion_rs::decimal::Coefficient
 pub fn ion_rs::decimal::Coefficient::from(ion_rs::UInt) -> ion_rs::decimal::Coefficient
 impl core::convert::From<u128> for ion_rs::UInt
@@ -929,6 +965,8 @@ pub fn ion_rs::UInt::try_from(ion_rs::decimal::Coefficient) -> core::result::Res
 impl core::convert::TryFrom<isize> for ion_rs::UInt
 pub type ion_rs::UInt::Error = ion_rs::IonError
 pub fn ion_rs::UInt::try_from(isize) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for ion_rs::UInt
+pub fn ion_rs::UInt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for ion_rs::UInt
 pub fn ion_rs::UInt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::result::Result<(), core::fmt::Error>
 pub struct ion_rs::WriteConfig<E: ion_rs::lazy::encoding::Encoding>
@@ -936,6 +974,8 @@ impl ion_rs::WriteConfig<ion_rs::v1_0::Binary>
 pub fn ion_rs::WriteConfig<ion_rs::v1_0::Binary>::new() -> Self
 impl ion_rs::WriteConfig<ion_rs::v1_0::Text>
 pub fn ion_rs::WriteConfig<ion_rs::v1_0::Text>::new(ion_rs::TextFormat) -> Self
+impl<E: ion_rs::lazy::encoding::Encoding> ion_rs::WriteConfig<E>
+pub fn ion_rs::WriteConfig<E>::with_max_depth(self, u16) -> Self
 impl core::convert::From<ion_rs::v1_0::Binary> for ion_rs::WriteConfig<ion_rs::v1_0::Binary>
 pub fn ion_rs::WriteConfig<ion_rs::v1_0::Binary>::from(ion_rs::v1_0::Binary) -> Self
 impl core::convert::From<ion_rs::v1_0::Text> for ion_rs::WriteConfig<ion_rs::v1_0::Text>

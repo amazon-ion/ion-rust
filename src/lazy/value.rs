@@ -1,16 +1,15 @@
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::lazy_element::LazyElement;
-use crate::lazy::expanded::{
-    EncodingContextRef, ExpandedAnnotationsIterator, IoBufferSource, LazyExpandedValue,
-};
+use crate::lazy::expanded::{EncodingContextRef, ExpandedAnnotationsIterator, LazyExpandedValue};
 use crate::lazy::value_ref::ValueRef;
 use crate::location::SourceLocation;
 use crate::result::IonFailure;
 use crate::symbol_ref::AsSymbolRef;
 use crate::{
-    try_or_some_err, Annotations, Element, ExpandedValueSource, HasSpan, IntoAnnotatedElement,
-    IonError, IonResult, IonType, LazyRawValue, Span, SymbolRef, SymbolTable, Value,
+    try_or_some_err, Annotations, Element, ExpandedValueSource, IonError, IonResult, IonType,
+    LazyRawValue, SymbolRef, SymbolTable, Value,
 };
+use ice_code::ice as cold_path;
 
 /// A value in a binary Ion stream whose header has been parsed but whose body (i.e. its data) has
 /// not. A `LazyValue` is immutable; its data can be read any number of times.
@@ -254,30 +253,24 @@ impl<'top, D: Decoder> LazyValue<'top, D> {
         }
     }
 
+    /// Returns a `LazyElement` that shares this value's input bytes, symbol table, and arena
+    /// rather than borrowing them from the reader.
+    ///
+    /// The first read of a text `LazyElement` holding a container re-parses that container's
+    /// subtree into the shared arena, unless this value was itself read from a stored container's
+    /// parsed subtree, in which case the new element shares that parse, at the cost of copying the
+    /// value into the arena.
     pub fn to_owned(self) -> LazyElement<D> {
-        // Clone the `EncodingContext`, which will also bump the reference counts for the resources
-        // it owns.
+        // Cloning the context bumps its resources' reference counts and captures a shared handle to
+        // the reader's input buffer, keeping this value's bytes available; `save_io_buffer` takes a
+        // second handle to the same allocation for the `LazyElement` to hold directly.
         let context = self.context().context.clone();
-        // The value's source is a `ValueLiteral`, which may hold references to bytes in the input
-        // buffer. Modify the source to point to heap data owned by `context`.
-        // First, get the `IoBufferSource` and ask it for a shared copy of the IoBuffer.
-        // SAFETY: `io_buffer_source` is an `UnsafeCell` to allow us to set it from the
-        //         `StreamingRawReader` after each top-level value. That means we need `unsafe` here.
+        let io_buffer = context.save_io_buffer();
+        // `raw_value` may refer to the reader's buffer and context, so ask the encoding for a
+        // lifetime-free form.
         let ExpandedValueSource::ValueLiteral(raw_value) = self.expanded_value.source;
-        let IoBufferSource::IoBuffer(ref io_buffer) = (unsafe { &*context.io_buffer_source.get() })
-        else {
-            unreachable!("tried to access cloned EncodingContext IoBuffer but it didn't exist");
-        };
-        let value_span = raw_value.span();
-        let value_offset = value_span.offset();
-        let value_length = value_span.len();
-        let local_offset = value_offset - io_buffer.stream_offset();
-        let value_bytes = &io_buffer.all_bytes()[local_offset..local_offset + value_length];
-        let backing_span = Span::with_offset(value_offset, value_bytes);
-        let raw_value = raw_value.with_backing_data(backing_span);
-        let source = ExpandedValueSource::ValueLiteral(raw_value);
-        // Now that we have upheld the invariants required by `LazyElement::new`, we can safely call it.
-        unsafe { LazyElement::new(context, source) }
+        let detached_value = D::detach_value(raw_value);
+        LazyElement::new(context, io_buffer, detached_value)
     }
 }
 
@@ -300,11 +293,10 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
         let location = lazy_value.location();
         let value: Value = lazy_value.read()?.try_into()?;
         if lazy_value.has_annotations() {
-            let annotations: Annotations = lazy_value.annotations().try_into()?;
-            Ok(value.with_annotations(annotations).with_location(location))
-        } else {
-            Ok(<Value as Into<Element>>::into(value).with_location(location))
+            return cold_path!(Annotations::try_from(lazy_value.annotations())
+                .map(|annotations| Element::new(annotations, value).with_location(location)));
         }
+        Ok(<Value as Into<Element>>::into(value).with_location(location))
     }
 }
 
@@ -700,6 +692,7 @@ mod tests {
         //                (       bar     789   )  )
                          (3, 6), (3, 7), (3, 11)],
     )]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     #[case::deeply_nested_containers(
         "{\n  foo:{a:1,b:2},\n  bar:[a,b,c],\n  baz:(foo (bar)\n           (quux)),\n}",
         // {
@@ -852,7 +845,7 @@ mod tests {
     ) -> IonResult<Vec<SourceLocation>> {
         let mut locations = vec![];
         for lazy_element in values {
-            locations.push(lazy_element.as_lazy_value().location());
+            locations.push(lazy_element.as_lazy_value()?.location());
             let contained_values = match lazy_element.ion_type() {
                 IonType::List => lazy_element
                     .read()?

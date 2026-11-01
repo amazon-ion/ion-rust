@@ -1,6 +1,7 @@
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoding::Encoding;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::{Decimal, Int, IonResult, IonType, RawSymbolRef, Timestamp};
 
@@ -59,6 +60,9 @@ pub trait AnnotatableWriter {
 }
 
 pub trait ValueWriter: AnnotatableWriter + Sized {
+    /// The encoding this writer produces. `WriteAsIon` impls can use it to encode a separate,
+    /// nested stream (e.g. as a blob payload) in the same encoding as the enclosing stream.
+    type Encoding: Encoding;
     type ListWriter: SequenceWriter<Resources = ()>;
     type SExpWriter: SequenceWriter<Resources = ()>;
     type StructWriter: StructWriter;
@@ -244,6 +248,8 @@ impl<StructWriterType: StructWriter> AnnotatableWriter for FieldWriter<'_, Struc
 }
 
 impl<'field, StructWriterType: StructWriter> ValueWriter for FieldWriter<'field, StructWriterType> {
+    type Encoding =
+        <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::Encoding;
     type ListWriter =
         <<StructWriterType as ContextWriter>::NestedValueWriter<'field> as ValueWriter>::ListWriter;
     type SExpWriter =
@@ -304,6 +310,8 @@ impl<StructWriterType: StructWriter> AnnotatableWriter
 impl<'field, StructWriterType: StructWriter> ValueWriter
     for AnnotatedFieldWriter<'field, StructWriterType>
 {
+    type Encoding =
+        <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::Encoding;
     type ListWriter =
         <<<StructWriterType as ContextWriter>::NestedValueWriter<'field> as AnnotatableWriter>::AnnotatedValueWriter<'field> as ValueWriter>::ListWriter;
     type SExpWriter =
@@ -320,13 +328,15 @@ impl<'field, StructWriterType: StructWriter> ValueWriter
 
 pub trait StructWriter: FieldEncoder + MakeValueWriter + Sized {
     /// Writes a struct field using the provided name/value pair.
+    ///
+    /// The field name is only encoded once `value` writes a value; if its [`WriteAsIon`]
+    /// implementation returns without writing, the field is omitted.
     fn write<A: AsRawSymbolRef, V: WriteAsIon>(
         &mut self,
         name: A,
         value: V,
     ) -> IonResult<&mut Self> {
-        self.encode_field_name(name)?;
-        value.write_as_ion(self.make_value_writer())?;
+        value.write_as_ion(self.field_writer(name.as_raw_symbol_ref()))?;
         Ok(self)
     }
 
@@ -462,9 +472,14 @@ pub trait SequenceWriter: MakeValueWriter {
 
 #[cfg(all(test, feature = "experimental-reader-writer"))]
 mod tests {
+    use crate::lazy::encoding::Encoding;
     use crate::symbol_ref::AsSymbolRef;
-    use crate::{ion_seq, v1_0, Element, IntoAnnotatedElement, SequenceWriter, Writer};
-    use crate::{AnnotatableWriter, IonResult, ValueWriter};
+    use crate::{ion_seq, ion_struct, v1_0, Element, IntoAnnotatedElement, SequenceWriter, Writer};
+    use crate::{
+        Annotatable, AnnotatableWriter, IonResult, StructWriter, ValueWriter, WriteAsIon,
+        WriteConfig,
+    };
+    use rstest::rstest;
     #[test]
     fn save_and_reuse_symbol_id() -> IonResult<()> {
         let mut writer = Writer::new(v1_0::Binary, vec![])?;
@@ -490,6 +505,73 @@ mod tests {
             "name".as_symbol_ref().with_annotations(["name"])
         );
         assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    /// A `WriteAsIon` impl that declines to write a value.
+    struct NoValue;
+
+    impl WriteAsIon for NoValue {
+        fn write_as_ion<V: ValueWriter>(&self, _writer: V) -> IonResult<()> {
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    #[case::text(v1_0::Text)]
+    #[case::binary(v1_0::Binary)]
+    fn struct_write_omits_field_without_value<E: Encoding + Into<WriteConfig<E>>>(
+        #[case] encoding: E,
+    ) -> IonResult<()> {
+        let mut writer = Writer::new(encoding, vec![])?;
+        let mut struct_writer = writer.value_writer().struct_writer()?;
+        struct_writer
+            .write("skipped", NoValue)?
+            .write("kept", 1)?
+            .write("skipped_annotated", NoValue.annotated_with("x"))?;
+        struct_writer.close()?;
+        let bytes = writer.close()?;
+        assert_eq!(Element::read_one(bytes)?, Element::read_one("{kept: 1}")?);
+        Ok(())
+    }
+
+    /// A `WriteAsIon` impl that writes its value as a blob containing a nested stream.
+    struct Envelope(i64);
+
+    impl WriteAsIon for Envelope {
+        fn write_as_ion<V: ValueWriter>(&self, writer: V) -> IonResult<()> {
+            let nested = V::Encoding::encode(self.0)?;
+            writer.write_blob(nested.as_ref())
+        }
+    }
+
+    #[rstest]
+    #[case::text(v1_0::Text)]
+    #[case::binary(v1_0::Binary)]
+    fn nested_stream_uses_outer_encoding<E: Encoding + Into<WriteConfig<E>>>(
+        #[case] encoding: E,
+    ) -> IonResult<()> {
+        let mut writer = Writer::new(encoding, vec![])?;
+        writer
+            .write(Envelope(1))?
+            .write(Envelope(2).annotated_with("x"))?;
+        let mut struct_writer = writer.value_writer().struct_writer()?;
+        struct_writer
+            .write("a", Envelope(3))?
+            .write("b", Envelope(4).annotated_with("x"))?;
+        struct_writer.close()?;
+        let bytes = writer.close()?;
+
+        let blob = |value: i64| E::encode(value).map(Element::blob);
+        let expected = ion_seq!(
+            blob(1)?
+            blob(2)?.with_annotations(["x"])
+            ion_struct! {
+                "a": blob(3)?,
+                "b": blob(4)?.with_annotations(["x"]),
+            }
+        );
+        assert_eq!(Element::read_all(bytes)?, expected);
         Ok(())
     }
 }

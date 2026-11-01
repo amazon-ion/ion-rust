@@ -12,7 +12,7 @@ pub(crate) mod integer;
 mod list;
 mod lob;
 mod null;
-mod overflowing_int;
+pub(crate) mod overflowing_int;
 mod sexp;
 mod string;
 mod r#struct;

@@ -53,6 +53,11 @@
 //! implementation of decimal and timestamp serialization and deserialization. If one wants to use [chrono::DateTime],
 //! it needs to be tagged with `#[serde_as(as = crate::Timestamp)]`._
 //!
+//! _Serializers other than Ion's receive `Decimal` and `Timestamp` as these `newtype_struct`s wrapping
+//! opaque bytes, and deserializing an Ion decimal or timestamp through `deserialize_any` produces
+//! the same `newtype_struct`s. The byte layout is unspecified and may change between versions.
+//! Formats that cannot deserialize bytes natively, such as JSON, cannot read them back._
+//!
 //! ## Example of serialization of Rust struct into Ion data
 //! ```
 //! use ion_rs::IonResult;
@@ -200,17 +205,78 @@ mod timestamp;
 
 pub use de::from_ion;
 pub use ser::{to_binary, to_pretty, to_string};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
+
+/// Kind tag in byte 0 of a [`Decimal`](crate::Decimal) tunnel payload.
+const DECIMAL_KIND: u8 = 1;
+/// Kind tag in byte 0 of a [`Timestamp`](crate::Timestamp) tunnel payload.
+const TIMESTAMP_KIND: u8 = 2;
+
+/// Bytes that carry a [`Decimal`](crate::Decimal) or [`Timestamp`](crate::Timestamp) through
+/// serde as the payload of its tunnel `newtype_struct`. Private to that tunnel; each type's
+/// `From<&T> for TunnelBytes` documents its layout. Its visitor accepts only bytes so that
+/// serde's buffered `flatten` and `untagged` paths do not decode Ion lists or strings as payloads.
+struct TunnelBytes(Vec<u8>);
+
+impl Serialize for TunnelBytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for TunnelBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct TunnelBytesVisitor;
+
+        impl Visitor<'_> for TunnelBytesVisitor {
+            type Value = TunnelBytes;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an Ion serde tunnel payload")
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(TunnelBytes(bytes.to_vec()))
+            }
+
+            fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(TunnelBytes(bytes))
+            }
+        }
+
+        deserializer.deserialize_bytes(TunnelBytesVisitor)
+    }
+}
 
 #[cfg(test)]
 #[cfg(feature = "experimental-serde")]
 mod tests {
-    use crate::serde::{from_ion, to_binary, to_pretty, to_string};
+    use crate::serde::{
+        decimal, from_ion, timestamp, to_binary, to_pretty, to_string, TunnelBytes, DECIMAL_KIND,
+        TIMESTAMP_KIND,
+    };
+    use std::fmt;
     use std::net::IpAddr;
 
-    use crate::{Decimal, Element, Timestamp};
-    use chrono::{DateTime, FixedOffset, Utc};
+    use crate::{Decimal, Element, Int, IonData, IonResult, Timestamp};
+    use chrono::{DateTime, FixedOffset, TimeZone, Utc};
     use rstest::*;
-    use serde::{Deserialize, Serialize};
+    use serde::de::{DeserializeOwned, Visitor};
+    use serde::{Deserialize, Deserializer, Serialize};
     use serde_with::serde_as;
 
     #[rstest]
@@ -475,6 +541,21 @@ mod tests {
         assert_eq!(&from_ion::<IpAddr, _>(binary).unwrap(), &ip);
     }
 
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    #[serde(tag = "kind")]
+    enum Shape {
+        Circle { radius: u32 },
+        Square { side: u32 },
+    }
+
+    #[rstest]
+    #[case::text("{kind: \"Circle\", radius: 2}", Shape::Circle { radius: 2 })]
+    #[case::text_symbol_tag("{kind: Square, side: 3}", Shape::Square { side: 3 })]
+    #[case::binary(to_binary(&Shape::Circle { radius: 2 }).unwrap(), Shape::Circle { radius: 2 })]
+    fn internally_tagged_enum<I: crate::IonInput>(#[case] ion: I, #[case] expected: Shape) {
+        assert_eq!(from_ion::<Shape, _>(ion).unwrap(), expected);
+    }
+
     /// Regression tests for annotations being correctly written for all value types
     /// when serialized through newtype variants (which produce annotations in Ion).
     mod newtype_variant_annotations {
@@ -588,5 +669,257 @@ mod tests {
             let roundtrip: Wrapper = from_ion(&ion).unwrap();
             assert_eq!(val, roundtrip);
         }
+    }
+
+    /// 2^128, too wide for an inline coefficient.
+    fn heap_backed_coefficient() -> Int {
+        let mut bytes = [0u8; 17];
+        bytes[16] = 1;
+        let coefficient = Int::from_le_signed_bytes(&bytes);
+        #[cfg(feature = "experimental")]
+        assert!(!coefficient.is_inline());
+        coefficient
+    }
+
+    #[rstest]
+    #[case::positive(Decimal::new(355, -1))]
+    #[case::negative(Decimal::new(-355, -1))]
+    #[case::zero(Decimal::new(0, 3))]
+    #[case::negative_zero(Decimal::negative_zero_with_exponent(-3))]
+    #[case::heap_backed(Decimal::new(heap_backed_coefficient(), -4))]
+    #[case::negative_heap_backed(Decimal::new(heap_backed_coefficient().neg(), -4))]
+    fn decimal_roundtrip(#[case] decimal: Decimal) {
+        let from_text: Decimal = from_ion(to_string(&decimal).unwrap().as_str()).unwrap();
+        assert_eq!(IonData::from(&from_text), IonData::from(&decimal));
+
+        let from_binary: Decimal = from_ion(to_binary(&decimal).unwrap().as_slice()).unwrap();
+        assert_eq!(IonData::from(&from_binary), IonData::from(&decimal));
+    }
+
+    #[rstest]
+    #[case::year(Timestamp::with_year(2024).build())]
+    #[case::month(Timestamp::with_year(2024).with_month(6).build())]
+    #[case::day(Timestamp::with_ymd(2024, 6, 15).build())]
+    #[case::minute_unknown_offset(Timestamp::with_ymd(2024, 6, 15).with_hour_and_minute(12, 30).build())]
+    #[case::minute_negative_offset(Timestamp::with_ymd(2024, 6, 15).with_hour_and_minute(12, 30).with_offset(-1439).build())]
+    #[case::second(Timestamp::with_ymd(2024, 6, 15).with_hms(12, 30, 45).with_offset(1439).build())]
+    #[case::fractional_zero(Timestamp::with_ymd(2024, 6, 15).with_hms(12, 30, 45).with_milliseconds(0).with_offset(0).build())]
+    #[case::fractional_arbitrary(Timestamp::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).with_offset(0).build())]
+    #[case::second_unknown_offset(Timestamp::with_ymd(2024, 6, 15).with_hms(12, 30, 45).build())]
+    #[case::fractional_unknown_offset(Timestamp::with_ymd(2024, 6, 15).with_hms(12, 30, 45).with_milliseconds(123).build())]
+    #[case::minute_positive_offset(Timestamp::with_ymd(2024, 6, 15).with_hour_and_minute(12, 30).with_offset(330).build())]
+    #[case::fractional_18_digits(Timestamp::with_ymd(2024, 6, 15).with_hms(12, 30, 45).with_fractional_seconds(Decimal::new(123_456_789_012_345_678_i64, -18)).with_offset(-480).build())]
+    #[case::year_1(Timestamp::with_year(1).build())]
+    #[case::year_9999(Timestamp::with_year(9999).build())]
+    fn timestamp_roundtrip(#[case] timestamp: IonResult<Timestamp>) {
+        let timestamp = timestamp.unwrap();
+        let from_text: Timestamp = from_ion(to_string(&timestamp).unwrap().as_str()).unwrap();
+        assert_eq!(IonData::from(&from_text), IonData::from(&timestamp));
+
+        let from_binary: Timestamp = from_ion(to_binary(&timestamp).unwrap().as_slice()).unwrap();
+        assert_eq!(IonData::from(&from_binary), IonData::from(&timestamp));
+    }
+
+    /// Serializes a non-payload value under a tunnel type name.
+    struct SpoofedTunnel(&'static str);
+
+    impl Serialize for SpoofedTunnel {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.serialize_newtype_struct(self.0, "not a tunnel payload")
+        }
+    }
+
+    #[rstest]
+    #[case::decimal(decimal::TUNNELED_DECIMAL_TYPE_NAME)]
+    #[case::timestamp(timestamp::TUNNELED_TIMESTAMP_TYPE_NAME)]
+    fn spoofed_tunnel_name_errors(#[case] name: &'static str) {
+        assert!(to_string(&SpoofedTunnel(name)).is_err());
+        assert!(to_binary(&SpoofedTunnel(name)).is_err());
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    enum DecimalOrTimestamp {
+        Decimal(Decimal),
+        Timestamp(Timestamp),
+    }
+
+    /// Reaches `value` through serde's buffered `flatten` path.
+    #[derive(Deserialize)]
+    struct Flattened<T> {
+        #[serde(flatten)]
+        inner: Field<T>,
+    }
+
+    #[derive(Deserialize)]
+    struct Field<T> {
+        value: T,
+    }
+
+    fn from_flattened<T: DeserializeOwned>(value: &str) -> IonResult<T> {
+        from_ion::<Flattened<T>, _>(format!("{{value: {value}}}").as_str()).map(|f| f.inner.value)
+    }
+
+    #[rstest]
+    #[case::inline(Decimal::new(35, -1))]
+    #[case::heap_backed(Decimal::new(heap_backed_coefficient(), -4))]
+    fn decimal_deserializes_through_buffered_paths(#[case] decimal: Decimal) {
+        let ion = decimal.to_string();
+
+        let flattened: Decimal = from_flattened(&ion).unwrap();
+        assert_eq!(IonData::from(&flattened), IonData::from(&decimal));
+
+        match from_ion(ion.as_str()).unwrap() {
+            DecimalOrTimestamp::Decimal(untagged) => {
+                assert_eq!(IonData::from(&untagged), IonData::from(&decimal))
+            }
+            other => panic!("expected a Decimal, got {other:?}"),
+        }
+    }
+
+    /// The untagged cases also check that a timestamp is not taken for the `Decimal` variant,
+    /// which is tried first.
+    #[rstest]
+    #[case::whole_seconds(Timestamp::with_ymd(2024, 6, 15).with_hms(12, 30, 0).with_offset(0).build())]
+    #[case::fractional(Timestamp::with_ymd(2024, 6, 15).with_hms(12, 30, 45).with_milliseconds(123).with_offset(-480).build())]
+    fn timestamp_deserializes_through_buffered_paths(#[case] timestamp: IonResult<Timestamp>) {
+        let timestamp = timestamp.unwrap();
+        let ion = timestamp.to_string();
+
+        let flattened: Timestamp = from_flattened(&ion).unwrap();
+        assert_eq!(IonData::from(&flattened), IonData::from(&timestamp));
+
+        match from_ion(ion.as_str()).unwrap() {
+            DecimalOrTimestamp::Timestamp(untagged) => {
+                assert_eq!(IonData::from(&untagged), IonData::from(&timestamp))
+            }
+            other => panic!("expected a Timestamp, got {other:?}"),
+        }
+    }
+
+    /// The list and string cases hold a well-formed `Decimal` payload for `5`.
+    #[rstest]
+    #[case::list(
+        "[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5]",
+        "expected an Ion serde tunnel payload"
+    )]
+    #[case::string(
+        r#""\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05""#,
+        "expected an Ion serde tunnel payload"
+    )]
+    #[case::timestamp("2024-06-15T12:30:00Z", "missing or wrong kind")]
+    fn flattened_decimal_rejects_other_types(#[case] value: &str, #[case] expected: &str) {
+        let result = from_flattened::<Decimal>(value);
+        assert!(result.is_err_and(|e| e.to_string().contains(expected)));
+    }
+
+    #[test]
+    fn flattened_timestamp_rejects_decimal() {
+        assert!(from_flattened::<Timestamp>("3.5").is_err());
+    }
+
+    /// Requests a tunnel `newtype_struct` with a visitor that only accepts a `u64`.
+    struct SpoofedTunnelRequest<const TIMESTAMP: bool>;
+
+    impl<'de, const TIMESTAMP: bool> Deserialize<'de> for SpoofedTunnelRequest<TIMESTAMP> {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct U64Visitor;
+
+            impl Visitor<'_> for U64Visitor {
+                type Value = u64;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    formatter.write_str("a u64")
+                }
+
+                fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+                    Ok(value)
+                }
+            }
+
+            let name = if TIMESTAMP {
+                timestamp::TUNNELED_TIMESTAMP_TYPE_NAME
+            } else {
+                decimal::TUNNELED_DECIMAL_TYPE_NAME
+            };
+            deserializer.deserialize_newtype_struct(name, U64Visitor)?;
+            Ok(SpoofedTunnelRequest)
+        }
+    }
+
+    #[test]
+    fn spoofed_tunnel_name_deserialize_errors() {
+        let decimal = from_ion::<SpoofedTunnelRequest<false>, _>("3.5");
+        assert!(decimal.is_err_and(|e| e.to_string().contains("expected a u64")));
+
+        let timestamp = from_ion::<SpoofedTunnelRequest<true>, _>("2024-06-15T12:30:00Z");
+        assert!(timestamp.is_err_and(|e| e.to_string().contains("expected a u64")));
+    }
+
+    #[rstest]
+    #[case::empty(vec![])]
+    #[case::wrong_kind(vec![TIMESTAMP_KIND, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5])]
+    #[case::truncated_exponent(vec![DECIMAL_KIND, 0, 0, 0])]
+    #[case::missing_sign(vec![DECIMAL_KIND, 0, 0, 0, 0, 0, 0, 0, 0])]
+    #[case::bad_sign(vec![DECIMAL_KIND, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5])]
+    fn malformed_decimal_payload_errors(#[case] bytes: Vec<u8>) {
+        assert!(Decimal::try_from(TunnelBytes(bytes)).is_err());
+    }
+
+    /// A valid timestamp payload with its kind byte replaced and its length changed to `len`.
+    fn timestamp_payload(kind: u8, len: usize) -> Vec<u8> {
+        let TunnelBytes(mut bytes) =
+            TunnelBytes::from(&Timestamp::with_year(2024).build().unwrap());
+        bytes[0] = kind;
+        bytes.resize(len, 0);
+        bytes
+    }
+
+    #[rstest]
+    #[case::empty(vec![])]
+    #[case::wrong_kind(timestamp_payload(DECIMAL_KIND, 17))]
+    #[case::truncated(timestamp_payload(TIMESTAMP_KIND, 16))]
+    #[case::too_long(timestamp_payload(TIMESTAMP_KIND, 18))]
+    fn malformed_timestamp_payload_errors(#[case] bytes: Vec<u8>) {
+        assert!(Timestamp::try_from(TunnelBytes(bytes)).is_err());
+    }
+
+    /// The local year of this `DateTime` is 10000, which `Timestamp` cannot represent.
+    #[test]
+    fn chrono_datetime_with_local_year_10000_fails_to_serialize() {
+        #[serde_as]
+        #[derive(Serialize)]
+        struct Test {
+            #[serde_as(as = "crate::Timestamp")]
+            date: DateTime<FixedOffset>,
+        }
+
+        let offset = FixedOffset::east_opt(2 * 60 * 60).unwrap();
+        let date = Utc
+            .with_ymd_and_hms(9999, 12, 31, 23, 0, 0)
+            .unwrap()
+            .with_timezone(&offset);
+        assert!(to_string(&Test { date }).is_err());
+        assert!(to_binary(&Test { date }).is_err());
+    }
+
+    /// `to_utc` can produce UTC year 0, which is outside Ion's 1..=9999 range.
+    #[test]
+    fn to_utc_with_year_0_fails_to_serialize() {
+        let timestamp = Timestamp::with_ymd(1, 1, 1)
+            .with_hour_and_minute(0, 30)
+            .with_offset(60)
+            .build()
+            .unwrap()
+            .to_utc();
+        assert_eq!(timestamp.year(), 0);
+        assert!(to_string(&timestamp).is_err());
+        assert!(to_binary(&timestamp).is_err());
     }
 }
