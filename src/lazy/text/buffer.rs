@@ -1032,17 +1032,20 @@ impl<'top> TextBuffer<'top> {
 
     /// Matches the integer portion of a symbol ID or a macro address.
     /// Addresses
-    ///   * CANNOT have underscores in them. For example: `$1_0` and `$100_200_300` are considered
-    ///     identifiers, not symbol IDs.
+    ///   * CANNOT be followed by an identifier character. For example: `$1_0`, `$100_200_300`,
+    ///     `$123abc`, and `$1$2` are considered identifiers, not symbol IDs.
     ///   * CAN have leading zeros. For example, `$0003` is the same as `$3`.
     // There's precedent for allowing leading zeros in ion-java, so we support it here for consistency.
+    // ion-java also treats `$`-prefixed text as a symbol ID only if every character after the `$`
+    // is a digit.
     fn match_address(&mut self) -> IonParseResult<'top, usize> {
-        // Any number of base-10 digits followed by something that is NOT an underscore.
+        // Any number of base-10 digits followed by something that cannot continue an identifier.
         // We do this to make sure that input like `$1_02` gets parsed like an identifier;
-        // If we didn't check for a trailing underscore, it would be a SID (`$1`) and an
+        // If we didn't check for a trailing identifier character, it would be a SID (`$1`) and an
         // identifier (`_02`).
         let initial_offset = self.offset();
-        terminated(digit1, not("_"))
+        let is_identifier_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+        terminated(digit1, not(one_of(is_identifier_byte)))
             .map(|buffer: TextBuffer<'_>| {
                 // The matched buffer is ascii base 10 digits, parsing must succeed
                 usize::from_str(buffer.as_utf8(initial_offset).unwrap()).unwrap()
@@ -1678,6 +1681,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::element::reader::ElementReader;
     use crate::lazy::any_encoding::IonVersion;
     use crate::lazy::expanded::EncodingContext;
     use crate::{AnyEncoding, Reader};
@@ -1786,6 +1790,38 @@ mod tests {
             assert_eq!(matched.range(), 0..7);
             assert_eq!(input.bytes(), b":");
         }
+    }
+
+    #[rstest::rstest]
+    #[case::digits("$123", MatchedSymbol::SymbolId)]
+    #[case::leading_zeros("$0003", MatchedSymbol::SymbolId)]
+    #[case::trailing_letters("$123abc", MatchedSymbol::Identifier)]
+    #[case::trailing_underscore("$1_2", MatchedSymbol::Identifier)]
+    #[case::trailing_dollar("$1$2", MatchedSymbol::Identifier)]
+    #[case::dollar_only("$", MatchedSymbol::Identifier)]
+    fn dollar_symbol_is_a_symbol_id_only_if_all_digits(
+        #[case] text: &str,
+        #[case] expected: MatchedSymbol,
+    ) {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let mut input = TextBuffer::with_offset(context.get_ref(), 0, text.as_bytes(), true);
+        assert_eq!(input.match_symbol().unwrap(), expected, "{text:?}");
+        assert!(input.is_empty(), "{text:?} left {:?}", input.bytes());
+    }
+
+    #[rstest::rstest]
+    #[case::trailing_letters("$123abc")]
+    #[case::trailing_dollar("$1$2")]
+    fn reader_reads_dollar_digit_prefixed_identifier_as_one_symbol(
+        #[case] text: &str,
+    ) -> IonResult<()> {
+        let mut reader = Reader::new(AnyEncoding, format!("{text}::{{{text}: {text}}}"))?;
+        let element = reader.read_one_element()?;
+        assert_eq!(element.annotations().first(), Some(text));
+        let (field_name, value) = element.expect_struct()?.iter().next().unwrap();
+        assert_eq!(field_name.text(), Some(text));
+        assert_eq!(value.as_symbol().and_then(|s| s.text()), Some(text));
+        Ok(())
     }
 
     #[test]

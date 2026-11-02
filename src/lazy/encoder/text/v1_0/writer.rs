@@ -154,7 +154,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 mod tests {
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    use crate::{v1_0, Annotatable, IonData, IonResult, Reader, SequenceWriter};
+    use crate::{v1_0, Annotatable, IonData, IonResult, Reader, SequenceWriter, SymbolRef};
 
     #[test]
     fn write_annotated_values() -> IonResult<()> {
@@ -184,6 +184,23 @@ mod tests {
         let expected = reader.read_all_elements()?;
 
         assert!(IonData::eq(&expected, &actual));
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case::symbol_id("$123", "'$123'")]
+    #[case::trailing_letters("$123abc", "$123abc")]
+    #[case::trailing_underscore("$1_2", "$1_2")]
+    #[case::trailing_dollar("$1$2", "$1$2")]
+    #[case::dollar_only("$", "$")]
+    fn write_dollar_symbol(#[case] text: &str, #[case] expected: &str) -> IonResult<()> {
+        let mut writer = LazyRawTextWriter_1_0::new(vec![])?;
+        writer.write(SymbolRef::with_text(text))?;
+        let encoded_text = String::from_utf8(writer.close()?).unwrap();
+        assert_eq!(encoded_text.trim(), expected);
+
+        let element = Reader::new(v1_0::Text, encoded_text)?.read_one_element()?;
+        assert_eq!(element.as_symbol().and_then(|s| s.text()), Some(text));
         Ok(())
     }
 }
