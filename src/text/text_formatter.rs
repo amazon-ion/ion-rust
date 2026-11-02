@@ -270,12 +270,10 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
     /// symbol with the text `$99`. However, `$99` (without quotes) is a symbol ID that maps to
     /// different text.
     fn token_resembles_symbol_id(token: &str) -> bool {
-        if token.is_empty() {
-            return false;
+        match token.as_bytes() {
+            [b'$', digits @ ..] => !digits.is_empty() && digits.iter().all(u8::is_ascii_digit),
+            _ => false,
         }
-        let mut chars = token.chars();
-        let first = chars.next().unwrap();
-        first == '$' && chars.all(|c| c.is_numeric())
     }
 
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
