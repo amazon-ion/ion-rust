@@ -448,22 +448,23 @@ impl Display for Decimal {
 
         let digits = &*self.coefficient.magnitude().to_string();
         let len = digits.len();
-        // The index of the decimal point, relative to the magnitude representation
-        //       0123                                                       01234
-        // Given ABCDd-2, the decimal gets inserted at position 2, yielding AB.CD
-        let dot_index = len as i64 + self.exponent;
 
         if self.coefficient.sign() == Sign::Negative {
             write!(f, "-").unwrap();
         };
 
         if self.exponent == 0 && len > WIDE_NUMBER { // e.g. A.BCDEFGd6
-            write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
+            write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], len - 1)
         } else if self.exponent == 0 { // e.g. ABC.
             write!(f, "{}.", digits)
         } else if self.exponent >= 0 { // e.g. ABCd1
             write!(f, "{}d{}", digits, self.exponent)
         } else { // exponent < 0, there is a fractional component
+            // The index of the decimal point, relative to the magnitude representation
+            //       0123                                                       01234
+            // Given ABCDd-2, the decimal gets inserted at position 2, yielding AB.CD
+            // The exponent is negative, so the sum cannot overflow.
+            let dot_index = len as i64 + self.exponent;
             if dot_index > 0 { // e.g. A.BC or AB.C
                 let dot_index = dot_index as usize;
                 write!(f, "{}.{}", &digits[0..dot_index], &digits[dot_index..len])
@@ -620,6 +621,10 @@ mod decimal_tests {
     #[case(Decimal::new( 123, -5),   "0.00123")]
     #[case(Decimal::new( 123, -10),  "1.23d-8")]
     #[case(Decimal::new(-123, -10), "-1.23d-8")]
+    #[case::max_exponent(Decimal::new(1, i64::MAX), "1d9223372036854775807")]
+    #[case::negative_max_exponent(Decimal::new(-123, i64::MAX), "-123d9223372036854775807")]
+    #[case::min_exponent(Decimal::new(1, i64::MIN), "1.d-9223372036854775808")]
+    #[case::wide_min_exponent(Decimal::new(1234567, i64::MIN), "1.234567d-9223372036854775802")]
     fn test_display(#[case] decimal: Decimal, #[case] expected: &str) {
         let mut buffer = String::new();
         write!(buffer, "{decimal}").unwrap();
