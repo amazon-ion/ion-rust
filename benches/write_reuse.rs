@@ -11,7 +11,7 @@ mod benchmark {
 #[cfg(feature = "experimental")]
 mod benchmark {
     use criterion::{Criterion, Throughput};
-    use ion_rs::{v1_0, Element};
+    use ion_rs::{v1_0, Element, Encoding, Reusable, WriteConfig, Writer};
     use std::hint::black_box;
 
     // One log record (~97 bytes encoded). Documents are lists of N of these, sized to hit the
@@ -32,28 +32,37 @@ mod benchmark {
         s
     }
 
-    // Benchmarks encoding `elem` as one binary 1.0 document: a fresh writer per document
+    // Benchmarks encoding `elem` as one `encoding_name` document: a fresh writer per document
     // (`main`'s behavior) vs a reused writer bound to a fresh sink per document via attach/detach.
-    fn bench_doc(c: &mut Criterion, label: &str, elem: &Element) {
+    fn bench_doc<E>(
+        c: &mut Criterion,
+        encoding: E,
+        encoding_name: &str,
+        label: &str,
+        elem: &Element,
+    ) where
+        E: Encoding + Into<WriteConfig<E>> + Copy,
+        E::Writer<Vec<u8>>: Reusable,
+    {
         // Encoded size of one document, for context / throughput.
         let encoded_len = {
             let mut buf = Vec::new();
-            let mut w = v1_0::BinaryWriter::new(v1_0::Binary, &mut buf).unwrap();
+            let mut w = Writer::new(encoding, &mut buf).unwrap();
             w.write(elem).unwrap();
             w.close().unwrap();
             buf.len()
         };
 
-        let mut group = c.benchmark_group(format!("binary 1.0 encode/{label}"));
+        let mut group = c.benchmark_group(format!("{encoding_name} encode/{label}"));
         group.throughput(Throughput::Bytes(encoded_len as u64));
 
-        // Baseline: a fresh managed writer per document (the 16 KiB bump arena + symbol table are
-        // constructed on every value).
+        // Baseline: a fresh managed writer per document (the sub-writers, including binary's
+        // 16 KiB bump arena, and the symbol table are constructed on every value).
         group.bench_function("fresh_writer_per_doc", |b| {
             let mut buf = Vec::with_capacity(64 * 1024);
             b.iter(|| {
                 buf.clear();
-                let mut w = v1_0::BinaryWriter::new(v1_0::Binary, &mut buf).unwrap();
+                let mut w = Writer::new(encoding, &mut buf).unwrap();
                 w.write(black_box(elem)).unwrap();
                 w.close().unwrap();
                 black_box(buf.len());
@@ -63,7 +72,7 @@ mod benchmark {
         // Reuse: one parked idle writer, bound to a fresh sink per document via attach/detach.
         group.bench_function("reused_writer", |b| {
             let mut buf = Vec::with_capacity(64 * 1024);
-            let mut idle = Some(v1_0::BinaryWriter::<()>::idle(v1_0::Binary).unwrap());
+            let mut idle = Some(Writer::<E, ()>::idle(encoding).unwrap());
             b.iter(|| {
                 buf.clear();
                 let mut w = idle.take().unwrap().attach(&mut buf);
@@ -78,7 +87,7 @@ mod benchmark {
         });
 
         group.finish();
-        println!("\nencoded 1.0 '{label}' document size: {encoded_len} bytes\n");
+        println!("\nencoded {encoding_name} '{label}' document size: {encoded_len} bytes\n");
     }
 
     // A document of `n` records, each with `fields` field names unique to document `doc_id`.
@@ -131,6 +140,10 @@ mod benchmark {
         group.finish();
     }
 
+    // The binary encoding and the text encoding in its default, compact, format.
+    const BINARY: &str = "binary 1.0";
+    const COMPACT_TEXT: &str = "text 1.0 compact";
+
     pub fn criterion_benchmark(c: &mut Criterion) {
         // (label, records per document, fields per record): 100 and 1,000 distinct symbols.
         for (label, n, fields) in [("100 symbols", 10usize, 10usize), ("1000 symbols", 100, 10)] {
@@ -139,6 +152,7 @@ mod benchmark {
                     Element::read_one(make_symbol_heavy_doc(doc_id, n, fields).as_str()).unwrap()
                 })
                 .collect::<Vec<_>>();
+            // Binary only: the text writer writes symbol text inline and never interns it.
             bench_rotating_docs(c, label, &docs);
         }
 
@@ -152,7 +166,8 @@ mod benchmark {
         ];
         for (label, n) in sizes {
             let elem = Element::read_one(make_doc(n).as_str()).unwrap();
-            bench_doc(c, label, &elem);
+            bench_doc(c, v1_0::Binary, BINARY, label, &elem);
+            bench_doc(c, v1_0::Text, COMPACT_TEXT, label, &elem);
         }
 
         // Optionally benchmark a real document supplied via `ION_BENCH_FILE` (any Ion text/binary
@@ -164,7 +179,8 @@ mod benchmark {
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("file");
-            bench_doc(c, label, &elem);
+            bench_doc(c, v1_0::Binary, BINARY, label, &elem);
+            bench_doc(c, v1_0::Text, COMPACT_TEXT, label, &elem);
         }
     }
 }

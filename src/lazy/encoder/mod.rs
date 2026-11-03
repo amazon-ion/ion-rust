@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::io::Write;
 use value_writer::SequenceWriter;
 
+use crate::lazy::encoder::private::ManagedWriterEncoding;
 use crate::lazy::encoding::Encoding;
 use crate::write_config::WriteConfig;
 use crate::IonResult;
@@ -52,6 +53,13 @@ pub(crate) mod private {
     // This trait exists only as a visibility constraint, so the compiler considers it dead code.
     #[allow(dead_code)]
     pub trait Sealed {}
+
+    /// An encoding's sizing for a managed writer's data buffer.
+    pub trait ManagedWriterEncoding {
+        /// The capacity, in bytes, that a managed writer requests for its data buffer when it is
+        /// built.
+        const INITIAL_DATA_BUFFER_CAPACITY: usize;
+    }
 }
 
 /// Which of a managed writer's two raw sub-writers is being recycled. The system (directive)
@@ -93,18 +101,14 @@ pub trait Recycle {
 
 /// The upper bound on the memory a parked (idle) writer may retain in any one of its buffers or
 /// scratch arenas. Each of those grows to fit the largest document the writer has encoded; a pooled
-/// writer can live for the rest of the process, so anything that has grown past this cap is dropped
-/// in favor of a small fresh allocation instead of being held indefinitely. The cost is one
-/// reallocation the next time a large document is encoded. (A future refinement could make this
-/// adaptive to avoid thrashing when large documents are frequent.)
+/// writer can live for the rest of the process, so anything that has grown past this cap is not
+/// held indefinitely: an output buffer or arena is replaced with a small (possibly empty) one, and
+/// the symbol table's text storage is shrunk to the cap. The cost is regrowing it, possibly over
+/// several reallocations, the next time a large document is encoded. (A future refinement could
+/// make this adaptive to avoid thrashing when large documents are frequent.)
 // These caps are encoding-agnostic on purpose: they describe the managed writer's parking policy, so
 // they do not belong to (and must not be borrowed from) any one encoding's writer module.
 pub(crate) const IDLE_RETAIN_CAP: usize = 256 * 1024;
-
-/// The capacity given to the replacement buffer when a retained buffer exceeds [`IDLE_RETAIN_CAP`].
-/// Sized to hold a typical small document -- the workload the reusable-writer API exists for --
-/// without immediately reallocating.
-pub(crate) const IDLE_BUFFER_CAPACITY: usize = 8 * 1024;
 
 /// The upper bound on the number of entries a parked writer's symbol table may retain. Expressed in
 /// entries rather than bytes because that is what the table's storage is sized by; at a few dozen
@@ -112,20 +116,36 @@ pub(crate) const IDLE_BUFFER_CAPACITY: usize = 8 * 1024;
 /// magnitude as [`IDLE_RETAIN_CAP`].
 pub(crate) const IDLE_SYMBOL_RETAIN_CAP: usize = 1024;
 
-/// Bounds the memory a parked (idle) writer retains in `buffer`. If `buffer` has grown past
-/// [`IDLE_RETAIN_CAP`], it is replaced with a small fresh one rather than held for the (possibly very
-/// long) life of a pooled writer.
+/// The capacity, in bytes, that a managed writer requests for the output buffer of its sub-writer
+/// in `role` when it is built, and that [`cap_retained_buffer`] gives a replacement for it: none
+/// for the directive writer, and `E`'s [`ManagedWriterEncoding::INITIAL_DATA_BUFFER_CAPACITY`] for
+/// the data writer.
+pub(crate) fn initial_buffer_capacity<E: ManagedWriterEncoding>(role: WriterRole) -> usize {
+    match role {
+        WriterRole::System => 0,
+        WriterRole::Application => E::INITIAL_DATA_BUFFER_CAPACITY,
+    }
+}
+
+/// Bounds the memory a parked (idle) writer retains in `buffer`, the output buffer of its
+/// sub-writer in `role`. If `buffer` has grown past [`IDLE_RETAIN_CAP`], it is replaced rather than
+/// held for the (possibly very long) life of a pooled writer, with a buffer of `role`'s
+/// [`initial_buffer_capacity`]. `E` must be the encoding whose managed writer built `buffer`; each
+/// raw writer names the one encoding it is the writer of.
 ///
 /// The buffer must already be empty, because replacing it discards its contents; each
 /// [`Recycle::recycle`] implementation clears it immediately before calling this, so the assertion
 /// below is a cross-check on them.
-pub(crate) fn cap_retained_buffer(buffer: &mut Vec<u8>) {
+pub(crate) fn cap_retained_buffer<E: ManagedWriterEncoding>(
+    buffer: &mut Vec<u8>,
+    role: WriterRole,
+) {
     debug_assert!(
         buffer.is_empty(),
         "a retained buffer must be drained before it is capped"
     );
     if buffer.capacity() > IDLE_RETAIN_CAP {
-        *buffer = Vec::with_capacity(IDLE_BUFFER_CAPACITY);
+        *buffer = Vec::with_capacity(initial_buffer_capacity::<E>(role));
     }
 }
 
@@ -170,8 +190,11 @@ mod tests {
     use crate::lazy::encoder::annotate::Annotatable;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter};
+    use crate::lazy::encoder::{cap_retained_buffer, WriterRole, IDLE_RETAIN_CAP};
+    use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
     use crate::symbol_ref::AsSymbolRef;
     use crate::{Element, IonData, IonResult, Timestamp};
+    use rstest::rstest;
 
     fn writer_test(
         expected: &str,
@@ -330,5 +353,61 @@ mod tests {
             struct_.end()
         };
         writer_test(expected, test)
+    }
+
+    /// An oversized buffer is replaced at the capacity its sub-writer requests when built: none for
+    /// a directive buffer, the encoding's (512 bytes for text, none for binary) for a data buffer.
+    /// A buffer at the cap is kept whatever its role.
+    #[rstest]
+    #[case::text_directive_over_cap(
+        cap_retained_buffer::<TextEncoding_1_0>,
+        WriterRole::System,
+        IDLE_RETAIN_CAP + 1,
+        Some(0)
+    )]
+    #[case::text_data_over_cap(
+        cap_retained_buffer::<TextEncoding_1_0>,
+        WriterRole::Application,
+        IDLE_RETAIN_CAP + 1,
+        Some(512)
+    )]
+    #[case::binary_directive_over_cap(
+        cap_retained_buffer::<BinaryEncoding_1_0>,
+        WriterRole::System,
+        IDLE_RETAIN_CAP + 1,
+        Some(0)
+    )]
+    #[case::binary_data_over_cap(
+        cap_retained_buffer::<BinaryEncoding_1_0>,
+        WriterRole::Application,
+        IDLE_RETAIN_CAP + 1,
+        Some(0)
+    )]
+    #[case::text_directive_at_cap(
+        cap_retained_buffer::<TextEncoding_1_0>,
+        WriterRole::System,
+        IDLE_RETAIN_CAP,
+        None
+    )]
+    #[case::text_data_at_cap(
+        cap_retained_buffer::<TextEncoding_1_0>,
+        WriterRole::Application,
+        IDLE_RETAIN_CAP,
+        None
+    )]
+    fn cap_retained_buffer_replaces_only_an_oversized_buffer(
+        #[case] cap: fn(&mut Vec<u8>, WriterRole),
+        #[case] role: WriterRole,
+        #[case] starting_capacity: usize,
+        // `None` means the buffer is kept, so its capacity is unchanged.
+        #[case] replacement_capacity: Option<usize>,
+    ) {
+        let mut buffer = Vec::with_capacity(starting_capacity);
+        let kept_capacity = buffer.capacity();
+        cap(&mut buffer, role);
+        assert_eq!(
+            buffer.capacity(),
+            replacement_capacity.unwrap_or(kept_capacity)
+        );
     }
 }

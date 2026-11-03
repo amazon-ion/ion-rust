@@ -58,12 +58,12 @@ impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
     /// Discards any buffered (unflushed) content and bounds the retained output buffer; in either
     /// role, that is all: a text 1.0 writer owns no scratch state and emits no construction prologue
     /// to re-seed.
-    fn recycle(&mut self, _role: WriterRole) {
+    fn recycle(&mut self, role: WriterRole) {
         // A text writer encodes straight into its output buffer, so this is where an unflushed
         // document is discarded. Like binary's, the clear lives here so the contract does not depend
         // on the caller having drained the buffer first.
         self.output.clear();
-        cap_retained_buffer(&mut self.output);
+        cap_retained_buffer::<TextEncoding_1_0>(&mut self.output, role);
     }
 
     /// Re-derives the whitespace rules from `config`, the only state a text writer takes from it.

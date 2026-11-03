@@ -230,6 +230,9 @@ impl SymbolTable {
 }
 
 /// Hashes symbol text for the writer's keyless lookup index.
+// Inlined into each lookup and into the index's hasher closures, which run for every entry each
+// time the index grows.
+#[inline]
 fn symbol_text_hash(text: &str) -> u64 {
     let mut hasher = FxHasher::default();
     text.hash(&mut hasher);
@@ -307,6 +310,9 @@ impl SymbolTexts {
 pub struct WriterSymbolTable {
     ion_version: IonVersion,
     texts: SymbolTexts,
+    /// The SIDs of the user symbols, and of the system symbols `get_or_add` has looked up since the
+    /// index was allocated, found by their text. A system symbol is added with its own SID and is
+    /// never pending, and text is never assigned a second SID, so each text maps to its lowest SID.
     ids_by_text: HashTable<SymbolId>,
     num_pending: usize,
 }
@@ -323,9 +329,9 @@ impl WriterSymbolTable {
                 num_system_symbols + Self::INITIAL_USER_SYMBOL_CAPACITY,
                 Self::INITIAL_TEXT_CAPACITY,
             ),
-            ids_by_text: HashTable::with_capacity(
-                num_system_symbols + Self::INITIAL_USER_SYMBOL_CAPACITY,
-            ),
+            // Allocated by the first `get_or_add` of user text, so a writer that interns only
+            // system text never allocates it.
+            ids_by_text: HashTable::new(),
             num_pending: 0,
         };
         table.texts.insert_unknown_text(); // $0
@@ -335,7 +341,6 @@ impl WriterSymbolTable {
                 .insert(text)
                 .expect("system symbol text fits in the arena");
         }
-        table.index_system_symbols();
         table
     }
 
@@ -343,39 +348,71 @@ impl WriterSymbolTable {
         self.ion_version.system_symbol_table().len()
     }
 
-    /// Adds the system symbols, which are already in `texts`, to the empty text lookup index.
-    fn index_system_symbols(&mut self) {
-        let texts = &self.texts;
-        // SID 0 has unknown text, so it is not part of the text lookup index.
-        for sid in 1..self.num_system_symbols() {
-            let text = texts.get(sid).expect("system symbols after $0 have text");
-            self.ids_by_text
-                .insert_unique(symbol_text_hash(text), sid, |sid| {
-                    symbol_text_hash(texts.get(*sid).expect("indexed SIDs have text"))
-                });
+    /// Returns the SID of the system symbol with the text `text`, if there is one.
+    ///
+    /// The system symbols are matched here rather than indexed in `ids_by_text`, so that neither a
+    /// new table nor one reset for reuse has to hash them. A literal `match` is used rather than
+    /// [`SystemSymbolTable::address_for_text`] because it is cheaper on the common miss: it
+    /// branches on the text's length and compares a few words, where the `phf` map hashes the
+    /// text first. `system_symbols_are_found_by_text` checks it against the system symbol table.
+    #[inline]
+    fn system_sid_for(ion_version: IonVersion, text: &str) -> Option<SymbolId> {
+        use v1_0::system_symbol_ids as sid;
+        match ion_version {
+            IonVersion::v1_0 => match text {
+                "$ion" => Some(sid::ION),
+                "$ion_1_0" => Some(sid::ION_1_0),
+                "$ion_symbol_table" => Some(sid::ION_SYMBOL_TABLE),
+                "name" => Some(sid::NAME),
+                "version" => Some(sid::VERSION),
+                "imports" => Some(sid::IMPORTS),
+                "symbols" => Some(sid::SYMBOLS),
+                "max_id" => Some(sid::MAX_ID),
+                "$ion_shared_symbol_table" => Some(sid::ION_SHARED_SYMBOL_TABLE),
+                _ => None,
+            },
         }
     }
 
     /// Returns the SID for `text`, interning the text and assigning it a new SID if needed.
     ///
     /// The Ion spec requires the lowest SID when more than one maps to the same text. This table
-    /// never assigns a second SID to text it already holds, so the only matching SID is the lowest.
+    /// assigns at most one SID to any text: a new SID only to text that neither `ids_by_text` nor
+    /// the system symbols hold. So the only matching SID is the lowest.
     pub(crate) fn get_or_add(&mut self, text: impl AsRef<str>) -> IonResult<SymbolId> {
         let text = text.as_ref();
+        if self.ids_by_text.capacity() == 0 {
+            // The index has no allocation, so it holds no user symbols; system text is resolved
+            // without allocating it.
+            if let Some(sid) = Self::system_sid_for(self.ion_version, text) {
+                return Ok(sid);
+            }
+            // Starts the index at its working size rather than growing it a doubling at a time.
+            // The index is empty, so the hasher is never called.
+            self.ids_by_text
+                .reserve(Self::INITIAL_USER_SYMBOL_CAPACITY, |_| 0);
+        }
         let texts = &self.texts;
-        match self.ids_by_text.entry(
+        // Text this table already holds, including system text looked up before, is found without
+        // testing it against the system symbols. `entry` reserves room for an insert before
+        // probing, so new text can grow a full index.
+        let entry = match self.ids_by_text.entry(
             symbol_text_hash(text),
             |sid| texts.get_bytes(*sid) == Some(text.as_bytes()),
             |sid| symbol_text_hash(texts.get(*sid).expect("indexed SIDs have text")),
         ) {
-            Entry::Occupied(entry) => Ok(*entry.get()),
-            Entry::Vacant(entry) => {
-                let sid = self.texts.insert(text)?;
-                entry.insert(sid);
-                self.num_pending += 1;
-                Ok(sid)
-            }
+            Entry::Occupied(entry) => return Ok(*entry.get()),
+            Entry::Vacant(entry) => entry,
+        };
+        if let Some(sid) = Self::system_sid_for(self.ion_version, text) {
+            // Later lookups of this system text find its SID in the index.
+            entry.insert(sid);
+            return Ok(sid);
         }
+        let sid = self.texts.insert(text)?;
+        entry.insert(sid);
+        self.num_pending += 1;
+        Ok(sid)
     }
 
     /// If defined, returns the lowest Symbol ID associated with the provided text, as the Ion spec
@@ -387,6 +424,7 @@ impl WriterSymbolTable {
                 self.texts.get_bytes(*sid) == Some(text.as_bytes())
             })
             .copied()
+            .or_else(|| Self::system_sid_for(self.ion_version, text))
     }
 
     /// If defined, returns the text associated with the provided Symbol ID.
@@ -438,20 +476,19 @@ impl WriterSymbolTable {
         self.texts.ranges.shrink_to(max_retained_symbols);
         self.num_pending = 0;
 
-        // `retain` would leave tombstones that skew `capacity`, so clear and re-index instead.
+        // The index holds user symbols and looked-up system symbols, neither of which outlives the
+        // document; system symbols are found again by `system_sid_for`.
         let oversized = self.ids_by_text.capacity() > max_retained_symbols;
         self.ids_by_text.clear();
         if oversized {
             // The table is empty, so the hasher is never called.
-            self.ids_by_text.shrink_to(
-                num_system_symbols + Self::INITIAL_USER_SYMBOL_CAPACITY,
-                |_| 0,
-            );
+            self.ids_by_text
+                .shrink_to(Self::INITIAL_USER_SYMBOL_CAPACITY, |_| 0);
         }
-        self.index_system_symbols();
     }
 
-    /// The number of symbol entries this table can retain without reallocating.
+    /// An upper bound on the symbol entries this table retains: the larger of the SID storage's
+    /// capacity (which counts the system symbols) and the text index's (which does not).
     #[cfg(test)]
     pub(crate) fn retained_capacity(&self) -> usize {
         self.texts
@@ -536,7 +573,7 @@ mod writer_symbol_table_tests {
     use rstest::rstest;
 
     #[test]
-    fn system_symbols_are_indexed_without_becoming_pending() {
+    fn new_table_holds_only_system_symbols_and_sid_zero() {
         let table = WriterSymbolTable::new(IonVersion::v1_0);
         assert_eq!(table.sid_for("$ion"), Some(1));
         assert_eq!(table.text_for(1), Some("$ion"));
@@ -544,6 +581,90 @@ mod writer_symbol_table_tests {
         assert_eq!(table.text_for(0), None);
         assert_eq!(table.len(), 10);
         assert_eq!(table.num_pending(), 0);
+    }
+
+    /// `system_sid_for` matches every system symbol's text to its SID, and `get_or_add` returns
+    /// those SIDs without adding the text or making it pending, whether or not the table holds user
+    /// symbols. Once the index is allocated, `get_or_add` also indexes each system symbol it looks
+    /// up, so that its next lookup finds it there.
+    #[rstest]
+    #[case::fresh(0, false, false)]
+    #[case::with_user_symbols(WriterSymbolTable::INITIAL_USER_SYMBOL_CAPACITY * 2, false, true)]
+    #[case::after_reset(WriterSymbolTable::INITIAL_USER_SYMBOL_CAPACITY * 2, true, true)]
+    fn system_symbols_are_found_by_text(
+        #[case] num_user_symbols: usize,
+        #[case] reset: bool,
+        #[case] indexes_system_symbols: bool,
+    ) -> IonResult<()> {
+        let mut table = WriterSymbolTable::new(IonVersion::v1_0);
+        for i in 0..num_user_symbols {
+            table.get_or_add(format!("s{i}"))?;
+        }
+        if reset {
+            table.reset_for_reuse(usize::MAX, usize::MAX);
+        }
+        let len = table.len();
+        let num_pending = table.num_pending();
+        let num_indexed = table.ids_by_text.len();
+
+        let system_symbols = IonVersion::v1_0.system_symbol_table().symbols_by_address;
+        for (index, text) in system_symbols.iter().enumerate() {
+            let sid = index + 1;
+            assert_eq!(
+                WriterSymbolTable::system_sid_for(IonVersion::v1_0, text),
+                Some(sid),
+                "{text}"
+            );
+            assert_eq!(table.sid_for(text), Some(sid), "{text}");
+            assert_eq!(table.get_or_add(text)?, sid, "{text}");
+        }
+        assert_eq!(table.len(), len);
+        assert_eq!(table.num_pending(), num_pending);
+        let num_newly_indexed = if indexes_system_symbols {
+            system_symbols.len()
+        } else {
+            0
+        };
+        assert_eq!(table.ids_by_text.len(), num_indexed + num_newly_indexed);
+        // A second lookup of each system symbol finds the same SID and indexes nothing more.
+        for (index, text) in system_symbols.iter().enumerate() {
+            assert_eq!(table.get_or_add(text)?, index + 1, "{text}");
+        }
+        assert_eq!(table.ids_by_text.len(), num_indexed + num_newly_indexed);
+        assert_eq!(table.num_pending(), num_pending);
+        assert_eq!(table.get_or_add("next")?, len);
+        Ok(())
+    }
+
+    #[test]
+    fn index_is_allocated_by_the_first_get_or_add_of_user_text() -> IonResult<()> {
+        let mut table = WriterSymbolTable::new(IonVersion::v1_0);
+        assert_eq!(table.ids_by_text.capacity(), 0);
+        table.reset_for_reuse(usize::MAX, usize::MAX);
+        assert_eq!(table.ids_by_text.capacity(), 0);
+        assert_eq!(table.get_or_add("name")?, 4);
+        assert_eq!(table.ids_by_text.capacity(), 0);
+
+        assert_eq!(table.get_or_add("foo")?, 10);
+        assert!(table.ids_by_text.capacity() >= WriterSymbolTable::INITIAL_USER_SYMBOL_CAPACITY);
+        Ok(())
+    }
+
+    /// Text that is close to a system symbol's is not one, so `get_or_add` gives it a new SID.
+    #[rstest]
+    #[case::empty("")]
+    #[case::prefix("nam")]
+    #[case::suffix("names")]
+    #[case::case_variant("Name")]
+    #[case::other_version_marker("$ion_1_1")]
+    fn near_miss_text_is_not_a_system_symbol(#[case] text: &str) -> IonResult<()> {
+        assert_eq!(
+            WriterSymbolTable::system_sid_for(IonVersion::v1_0, text),
+            None
+        );
+        let mut table = WriterSymbolTable::new(IonVersion::v1_0);
+        assert_eq!(table.get_or_add(text)?, 10);
+        Ok(())
     }
 
     #[test]
@@ -601,10 +722,14 @@ mod writer_symbol_table_tests {
 
         assert_eq!(table.sid_for("$ion"), Some(1));
         assert_eq!(table.sid_for("foo"), None);
+        assert!(table.ids_by_text.is_empty());
         assert_eq!(table.len(), 10);
         assert_eq!(table.num_pending(), 0);
         assert_eq!(table.retained_capacity(), entry_capacity);
         assert_eq!(table.retained_text_capacity(), text_capacity);
+
+        assert_eq!(table.get_or_add("foo")?, 10);
+        assert_eq!(table.pending_texts().collect::<Vec<_>>(), [Some("foo")]);
         Ok(())
     }
 

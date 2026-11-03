@@ -14,7 +14,8 @@ use crate::lazy::encoder::value_writer_config::{
 };
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{
-    LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_RETAIN_CAP, IDLE_SYMBOL_RETAIN_CAP,
+    initial_buffer_capacity, LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_RETAIN_CAP,
+    IDLE_SYMBOL_RETAIN_CAP,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
 use crate::raw_symbol_ref::AsRawSymbolRef;
@@ -68,8 +69,14 @@ struct WriterParts<E: Encoding> {
 /// `flush`), so they share this rather than each spelling the fields out and risking divergence.
 fn build_parts<E: Encoding>(config: WriteConfig<E>) -> IonResult<WriterParts<E>> {
     let value_writer_config = config.value_writer_config();
-    let directive_writer = E::Writer::build(config.clone(), vec![])?;
-    let mut data_writer = E::Writer::build(config, vec![])?;
+    let directive_writer = E::Writer::build(
+        config.clone(),
+        Vec::with_capacity(initial_buffer_capacity::<E>(WriterRole::System)),
+    )?;
+    let mut data_writer = E::Writer::build(
+        config,
+        Vec::with_capacity(initial_buffer_capacity::<E>(WriterRole::Application)),
+    )?;
     // Erase the IVM that's created by default; only the directive writer carries the prologue.
     data_writer.output_mut().clear();
     // TODO: LazyEncoder should define a method to construct a new symtab and/or macro table
@@ -802,12 +809,11 @@ impl<S: SequenceWriter> ElementWriter for S {
 mod reuse_tests {
     use super::tests::assert_depth_error;
     use super::Writer;
+    use crate::binary::constants::v1_0::IVM;
     // `DEFAULT_BUMP_SIZE` is the binary writer's arena size, imported here (and only here) so the
     // arena tests can derive their sizes from the real arena rather than hardcoding them.
     use crate::lazy::encoder::binary::v1_0::writer::DEFAULT_BUMP_SIZE;
-    use crate::lazy::encoder::{
-        LazyRawWriter, Reusable, IDLE_BUFFER_CAPACITY, IDLE_RETAIN_CAP, IDLE_SYMBOL_RETAIN_CAP,
-    };
+    use crate::lazy::encoder::{LazyRawWriter, Reusable, IDLE_RETAIN_CAP, IDLE_SYMBOL_RETAIN_CAP};
     use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
     use crate::{v1_0, Element, Encoding, IonData, IonResult, TextFormat, WriteConfig};
     use bumpalo::Bump as BumpAllocator;
@@ -829,6 +835,15 @@ mod reuse_tests {
     fn construction_prologue<E: Encoding>(config: impl Into<WriteConfig<E>>) -> IonResult<Vec<u8>> {
         let raw_writer = E::Writer::<Vec<u8>>::build(config.into(), vec![])?;
         Ok(raw_writer.output().clone())
+    }
+
+    /// The capacity of a `Vec` that was requested with none and then had the binary Ion 1.0 IVM
+    /// written to it. `Vec` does not specify how much it grows by, so this is measured rather than
+    /// hardcoded.
+    fn capacity_holding_ivm() -> usize {
+        let mut buffer = Vec::<u8>::new();
+        buffer.extend_from_slice(&IVM);
+        buffer.capacity()
     }
 
     fn idle_binary_writer() -> IonResult<Writer<BinaryEncoding_1_0, ()>> {
@@ -988,6 +1003,50 @@ mod reuse_tests {
         Ok(())
     }
 
+    /// A data buffer that `detach` replaces comes back at the capacity `build_parts` requests for
+    /// it: none for binary, which copies its arena into the buffer once per flush, and 512 bytes
+    /// for text, which appends to it piece by piece. A fresh text data buffer starts at that
+    /// capacity; a fresh binary one is larger because it keeps the allocation `Vec` made for the
+    /// IVM `build_parts` erases. The directive buffer is requested with no capacity, so a fresh one
+    /// holds only what the encoding's prologue allocated. The cases spell out the requested
+    /// capacities rather than naming the encodings' constants so that the test pins the policy.
+    #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    #[case::binary_1_0(v1_0::Binary, capacity_holding_ivm(), capacity_holding_ivm(), 0)]
+    #[case::text_1_0(v1_0::Text, 512, 0, 512)]
+    fn detach_replaces_an_oversized_data_buffer_at_the_requested_capacity<E>(
+        #[case] encoding: E,
+        #[case] fresh_data_capacity: usize,
+        #[case] fresh_directive_capacity: usize,
+        #[case] replaced_capacity: usize,
+    ) -> IonResult<()>
+    where
+        E: Encoding + Into<WriteConfig<E>>,
+        E::Writer<Vec<u8>>: Reusable,
+    {
+        let fresh = Writer::<E, ()>::idle(encoding)?;
+        assert_eq!(fresh.data_writer.output().capacity(), fresh_data_capacity);
+        assert_eq!(
+            fresh.directive_writer.output().capacity(),
+            fresh_directive_capacity
+        );
+
+        let big = vec![0u8; IDLE_RETAIN_CAP * 2];
+        let mut writer = fresh.attach(Vec::new());
+        writer.write(big.as_slice())?;
+        writer.flush()?;
+        // Precondition: the document grew the data buffer past the cap.
+        assert!(
+            writer.data_writer.output().capacity() > IDLE_RETAIN_CAP,
+            "data buffer did not exceed the retain cap before detach: {} bytes",
+            writer.data_writer.output().capacity()
+        );
+
+        let (idle, _bytes) = writer.detach();
+        assert_eq!(idle.data_writer.output().capacity(), replaced_capacity);
+        Ok(())
+    }
+
     /// `detach` must also bound the symbol table, which grows to hold every symbol the writer has
     /// interned. Its contents are discarded on reuse either way, so retaining that capacity would be
     /// pure overhead for the life of a pooled writer.
@@ -1075,8 +1134,8 @@ mod reuse_tests {
     #[test]
     #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn detach_retains_warm_capacity_for_a_mid_sized_document() -> IonResult<()> {
-        // Big enough to grow the arena past its initial chunk and the data buffer past the capacity a
-        // replacement buffer would be given, but far short of the cap at which either is released.
+        // Big enough to grow the arena past its initial chunk and the data buffer past a fresh
+        // writer's, but far short of the cap at which either is released.
         let mid_sized_blob = vec![0u8; DEFAULT_BUMP_SIZE * 2];
         // More symbols than a fresh table is sized for, fewer than the cap at which it is released.
         let fields = (0..IDLE_SYMBOL_RETAIN_CAP / 4)
@@ -1087,6 +1146,8 @@ mod reuse_tests {
         let fresh_writer = idle_binary_writer()?;
         let fresh_symbol_capacity = fresh_writer.symbols.retained_capacity();
         let fresh_symbol_text_capacity = fresh_writer.symbols.retained_text_capacity();
+        let fresh_data_capacity = fresh_writer.data_writer.output().capacity();
+        let fresh_directive_capacity = fresh_writer.directive_writer.output().capacity();
 
         let mut writer = idle_binary_writer()?.attach(Vec::new());
         writer.write(&doc)?;
@@ -1109,11 +1170,11 @@ mod reuse_tests {
             "the document did not leave the arena warm and under the cap: {arena_bytes} bytes"
         );
         assert!(
-            data_capacity > IDLE_BUFFER_CAPACITY && data_capacity <= IDLE_RETAIN_CAP,
+            data_capacity > fresh_data_capacity && data_capacity <= IDLE_RETAIN_CAP,
             "the document did not leave the data buffer warm and under the cap: {data_capacity} bytes"
         );
         assert!(
-            directive_capacity > 0 && directive_capacity <= IDLE_RETAIN_CAP,
+            directive_capacity > fresh_directive_capacity && directive_capacity <= IDLE_RETAIN_CAP,
             "the document did not leave the directive buffer warm and under the cap: {directive_capacity} bytes"
         );
         assert!(
@@ -1304,6 +1365,34 @@ mod tests {
     use crate::{v1_0, Element, Encoding, IonError, IonResult, TextFormat, WriteConfig, Writer};
     use rstest::rstest;
     use std::io::BufWriter;
+
+    /// A binary writer encodes text that a system symbol has with that symbol's SID, so the stream
+    /// is the IVM, a local symbol table only if there is user text, and the value.
+    #[rstest]
+    #[case::symbol_value("name", &[0x71, 0x04])]
+    #[case::ion_symbol_table_symbol_value("$ion_symbol_table", &[0x71, 0x03])]
+    #[case::field_name("{name: 1}", &[0xD3, 0x84, 0x21, 0x01])]
+    #[case::annotation("name::1", &[0xE4, 0x81, 0x84, 0x21, 0x01])]
+    // `$ion_symbol_table::{imports: $ion_symbol_table, symbols: ["foo"]}`, then `{$10: $4}`. `foo`
+    // comes first so that `name` is resolved after the user text has allocated the symbol index.
+    #[case::with_user_text(
+        "{foo: name}",
+        &[
+            0xEC, 0x81, 0x83, 0xD9, 0x86, 0x71, 0x03, 0x87, 0xB4, 0x83, b'f', b'o', b'o',
+            0xD3, 0x8A, 0x71, 0x04,
+        ]
+    )]
+    fn binary_writer_writes_system_text_by_sid(
+        #[case] ion: &str,
+        #[case] bytes_after_ivm: &[u8],
+    ) -> IonResult<()> {
+        let mut writer = Writer::new(v1_0::Binary, Vec::new())?;
+        writer.write(Element::read_one(ion)?)?;
+        let bytes = writer.close()?;
+        let expected = [&[0xE0, 0x01, 0x00, 0xEA], bytes_after_ivm].concat();
+        assert_eq!(bytes, expected, "{ion}");
+        Ok(())
+    }
 
     #[test]
     fn flush_underlying_sink() -> IonResult<()> {

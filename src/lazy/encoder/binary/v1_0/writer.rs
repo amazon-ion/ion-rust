@@ -13,7 +13,7 @@ use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{
     cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_RETAIN_CAP,
 };
-use crate::lazy::encoding::Encoding;
+use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
 use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref, ptr_to_ref};
 use crate::write_config::{BinaryWriteConfig, WriteConfig, WriteConfigKind};
 use crate::{ContextWriter, IonResult};
@@ -81,7 +81,7 @@ impl Recycle for LazyRawBinaryWriter_1_0<Vec<u8>> {
         self.output.clear();
         // Bound the output buffer too; it grew to hold the largest document this writer encoded.
         // This must precede the IVM below, because replacing the buffer would drop it.
-        cap_retained_buffer(&mut self.output);
+        cap_retained_buffer::<BinaryEncoding_1_0>(&mut self.output, role);
         if role == WriterRole::System {
             // A freshly built binary writer emits the IVM (see `new`); re-seed it so the reused
             // writer starts a new stream exactly as a fresh one would. Written straight to the `Vec`

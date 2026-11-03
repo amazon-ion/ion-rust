@@ -11,6 +11,7 @@ use crate::lazy::binary::raw::type_descriptor::Header;
 use crate::lazy::binary::raw::value::{LazyRawBinaryValue_1_0, LazyRawBinaryVersionMarker_1_0};
 use crate::lazy::decoder::private::DetachableValue;
 use crate::lazy::decoder::Decoder;
+use crate::lazy::encoder::private::ManagedWriterEncoding;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::Encoder;
 use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
@@ -48,7 +49,10 @@ use winnow::combinator::{opt, separated_pair};
 use winnow::Parser;
 
 /// Marker trait for types that represent an Ion encoding.
-pub trait Encoding: Encoder + Decoder {
+// `ManagedWriterEncoding` is a supertrait rather than members on `Encoding` so that the managed
+// writer's buffer sizing stays off this trait's documented surface. Its const is still readable
+// through an `E: Encoding` bound, but it is not a supported API.
+pub trait Encoding: Encoder + Decoder + ManagedWriterEncoding {
     type Output: 'static + OutputFromBytes + AsRef<[u8]>;
 
     fn encode<V: WriteAsIon>(value: V) -> IonResult<Self::Output> {
@@ -155,6 +159,15 @@ impl Encoding for BinaryEncoding_1_0 {
             .with_symbol_value_encoding(SymbolValueEncoding::SymbolIds)
     }
 }
+
+impl ManagedWriterEncoding for BinaryEncoding_1_0 {
+    // The binary writer encodes into its arena and copies the result into this buffer with one
+    // write per flush, so the buffer grows straight to the size of what is flushed rather than in
+    // small steps. A fresh data buffer still holds the small allocation of the IVM that
+    // `LazyRawBinaryWriter_1_0::new` writes and `build_parts` erases.
+    const INITIAL_DATA_BUFFER_CAPACITY: usize = 0;
+}
+
 impl Encoding for TextEncoding_1_0 {
     type Output = String;
 
@@ -179,6 +192,12 @@ impl Encoding for TextEncoding_1_0 {
             .with_container_encoding(ContainerEncoding::Delimited)
             .with_symbol_value_encoding(SymbolValueEncoding::InlineText)
     }
+}
+
+impl ManagedWriterEncoding for TextEncoding_1_0 {
+    // The text writer appends many small pieces straight into this buffer, which would otherwise
+    // grow from empty several times while writing a small value.
+    const INITIAL_DATA_BUFFER_CAPACITY: usize = 512;
 }
 
 /// Marker trait for binary encodings of any version.
