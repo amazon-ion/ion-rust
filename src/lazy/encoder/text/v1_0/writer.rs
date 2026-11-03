@@ -193,6 +193,11 @@ mod tests {
     #[case::trailing_underscore("$1_2", "$1_2")]
     #[case::trailing_dollar("$1$2", "$1$2")]
     #[case::dollar_only("$", "$")]
+    #[case::version_marker("$ion_1_1", "'$ion_1_1'")]
+    #[case::version_marker_then_letter("$ion_1_0x", "$ion_1_0x")]
+    #[case::version_marker_then_underscore("$ion_1_0_0", "$ion_1_0_0")]
+    #[case::system_symbol("$ion_symbol_table", "$ion_symbol_table")]
+    #[case::ion_prefix("$ion_", "$ion_")]
     fn write_dollar_symbol(#[case] text: &str, #[case] expected: &str) -> IonResult<()> {
         let mut writer = LazyRawTextWriter_1_0::new(vec![])?;
         writer.write(SymbolRef::with_text(text))?;
