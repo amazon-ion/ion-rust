@@ -419,7 +419,6 @@ pub const ELEMENT_GLOBAL_SKIP_LIST: SkipList = &[
 pub const ELEMENT_ROUND_TRIP_SKIP_LIST: SkipList = &[
     "ion-tests/iontestdata/good/item1.10n",
     "ion-tests/iontestdata/good/localSymbolTableImportZeroMaxId.ion",
-    "ion-tests/iontestdata/good/notVersionMarkers.ion",
     "ion-tests/iontestdata/good/subfieldInt.ion",
     "ion-tests/iontestdata/good/subfieldUInt.ion",
     "ion-tests/iontestdata/good/subfieldVarInt.ion",
