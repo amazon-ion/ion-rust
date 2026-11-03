@@ -434,7 +434,6 @@ pub const ELEMENT_ROUND_TRIP_SKIP_LIST: SkipList = &[
 pub const ELEMENT_EQUIVS_SKIP_LIST: SkipList = &[
     "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
     "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
-    "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
 ];
 
 /// An implementation of `io::Read` that only yields a single byte on each

@@ -11,9 +11,7 @@ use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::serde::TunnelBytes;
-use crate::{
-    IonEncoding, IonError, IonResult, IonType, RawVersionMarker, SystemReader, SystemStreamItem,
-};
+use crate::{IonError, IonResult, IonType, SystemReader};
 
 /// Generic method that can deserialize an object from any given type
 /// that implements `IonInput`.
@@ -22,29 +20,12 @@ where
     T: DeserializeOwned,
     I: IonInput,
 {
-    let mut ion_encoding = IonEncoding::default();
     let mut reader = SystemReader::new(AnyEncoding, input);
-    loop {
-        match reader.next_item()? {
-            SystemStreamItem::VersionMarker(marker) => {
-                // It's a version marker; update the detected Ion encoding
-                ion_encoding = marker.stream_encoding_after_marker()?;
-            }
-            SystemStreamItem::Value(value) => {
-                let value_deserializer = ValueDeserializer::new(
-                    &value,
-                    /*is_human_readable=*/ ion_encoding.is_text(),
-                );
-                return T::deserialize(value_deserializer);
-            }
-            SystemStreamItem::EndOfStream(_end) => {
-                return IonResult::decoding_error("stream did not contain any values")
-            }
-            _system_value => {
-                // Ignore system values
-            }
-        }
-    }
+    let Some(value) = reader.next_value()? else {
+        return IonResult::decoding_error("stream did not contain any values");
+    };
+    let is_human_readable = value.raw().is_some_and(|raw| raw.encoding().is_text());
+    T::deserialize(ValueDeserializer::new(&value, is_human_readable))
 }
 
 #[derive(Clone, Copy)]

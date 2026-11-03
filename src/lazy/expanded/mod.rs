@@ -433,12 +433,23 @@ impl<Encoding: Decoder, Input: IonInput> ExpandingReader<Encoding, Input> {
         use SystemStreamItem::*;
         loop {
             match self.next_system_item() {
+                Ok(Value(value)) if Self::is_ivm_symbol(&value) => {}
                 Ok(Value(value)) => return Ok(Some(value)),
                 Ok(EndOfStream(_)) => return Ok(None),
                 Ok(_) => {}
                 Err(e) => return Err(e),
             };
         }
+    }
+
+    /// Returns `true` if `value` is an unannotated symbol with the text `$ion_1_0`. At the top
+    /// level, such a symbol is a no-op rather than an application value.
+    fn is_ivm_symbol(value: &LazyValue<'_, Encoding>) -> bool {
+        if value.ion_type() != IonType::Symbol || value.has_annotations() {
+            return false;
+        }
+        // A read error is left for the application to see when it reads the value.
+        matches!(value.read(), Ok(ValueRef::Symbol(symbol)) if symbol == "$ion_1_0")
     }
 
     pub fn detected_encoding(&self) -> IonEncoding {

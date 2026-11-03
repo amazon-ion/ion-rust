@@ -23,7 +23,6 @@ fn contains_path(paths: &[&str], file_name: &str) -> bool {
 const SKIP_LIST: &[&str] = &[
     "ion-tests/iontestdata/good/equivs/localSymbolTableAppend.ion",
     "ion-tests/iontestdata/good/equivs/localSymbolTableNullSlots.ion",
-    "ion-tests/iontestdata/good/equivs/nonIVMNoOps.ion",
     // Timestamp limits fractional seconds to 18 digits.
     "ion-tests/iontestdata/good/equivs/timestampsLargeFractionalPrecision.ion",
 ];
