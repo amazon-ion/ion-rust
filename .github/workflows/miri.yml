@@ -63,7 +63,7 @@ jobs:
         # -Zmiri-deterministic-floats
         #     Miri otherwise perturbs the results of float operations whose precision Rust does not
         #     specify (e.g. `powi`), which breaks tests that compare against exact values.
-        run: MIRIFLAGS="-Zmiri-disable-isolation ${{ matrix.aliasing-flag }} -Zmiri-strict-provenance -Zmiri-deterministic-floats" cargo miri test --lib --all-features
+        run: MIRIFLAGS="-Zmiri-disable-isolation ${{ matrix.aliasing-flag }} -Zmiri-strict-provenance -Zmiri-deterministic-floats" ./run-miri.sh --lib --all-features
 
   representations:
     name: Miri over ${{ matrix.module }} (32-bit and big-endian)
