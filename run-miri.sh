@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
-# Runs `cargo miri test` with the given pass-through arguments, reports each
-# test's execution time, lists the slowest tests, and fails if the run executed
-# zero tests.
+# Runs `cargo miri test` with the given pass-through arguments, split across
+# MIRI_PROCS concurrent Miri processes (default 1). Miri interprets on a single
+# host thread, so concurrent processes are the only way to use more cores.
+# Reports failures, totals, and the slowest tests, and fails if the selection
+# matches zero tests.
 #
 # The `representations` Miri job (see .github/workflows/miri.yml) selects
 # tests by MODULE PATH rather than by name. That fails closed for a *new* test
@@ -14,13 +16,14 @@
 # module path per invocation.
 #
 # MIRIFLAGS is read from the environment; the caller sets it. Arguments before
-# `--` are forwarded to `cargo miri test`; arguments after it are forwarded to
-# libtest, after the flags this script adds. For example:
+# `--` are forwarded to `cargo miri test`; arguments after it are libtest
+# filters and options that select the tests to run. For example:
 #   MIRIFLAGS="..." ./run-miri.sh --target i686-unknown-linux-gnu -- types::overflowing_int::
 #
 # When GITHUB_STEP_SUMMARY is set, the slowest tests are also written there.
 set -euo pipefail
 
+procs="${MIRI_PROCS:-1}"
 # Number of slowest tests to list.
 slowest=10
 
@@ -36,35 +39,52 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+dir="$(mktemp -d)"
+trap 'rm -rf "$dir"' EXIT
 
-# libtest's JSON output is captured for the post-run analysis and rendered as one
-# line per test for the CI log. Lines that are not JSON (e.g. a test writing to
-# stdout directly, bypassing capture) pass through unchanged. Miri's diagnostics
-# go to stderr and are not piped.
-#
-# The status is recorded rather than failing immediately so that the slowest
-# tests are reported for failed runs too.
+# Listing also compiles the test binary, so the processes below share one build.
+mapfile -t tests < <(cargo miri test "${cargo_args[@]}" -- --list --format terse "${test_args[@]}" | sed -n 's/: test$//p')
+if [ "${#tests[@]}" -eq 0 ]; then
+  echo "::error::Miri selected 0 tests — the module-path selection matched nothing. Was a selected module renamed? See the representations matrix in .github/workflows/miri.yml." >&2
+  exit 1
+fi
+# An empty shard would pass no names, and an unfiltered libtest runs every test.
+if [ "$procs" -gt "${#tests[@]}" ]; then
+  procs="${#tests[@]}"
+fi
+echo "Running ${#tests[@]} test(s) across ${procs} Miri process(es)."
+
+# Tests are dealt round-robin so that slow tests, which cluster by module, are
+# spread across processes. Each process writes libtest's JSON to its own file;
+# Miri's diagnostics go to stderr, which is not redirected.
+pids=()
+for ((k = 0; k < procs; k++)); do
+  shard=()
+  for ((i = k; i < ${#tests[@]}; i += procs)); do
+    shard+=("${tests[i]}")
+  done
+  cargo miri test "${cargo_args[@]}" -- -Zunstable-options --format json --report-time --exact "${shard[@]}" \
+    > "$dir/$k.json" &
+  pids+=($!)
+done
 status=0
-cargo miri test "${cargo_args[@]}" -- -Zunstable-options --format json --report-time "${test_args[@]}" \
-  | tee "$log" \
-  | jq --unbuffered -rR '. as $line | try (fromjson |
-      if .type == "suite" and .event == "started" then
-        "\nrunning \(.test_count) tests"
-      elif .type == "test" and .event != "started" then
-        "test \(.name) ... \(.event)" + (if .exec_time then " <\(.exec_time)s>" else "" end)
-          + (if .stdout then "\n\(.stdout)" else "" end)
-      elif .type == "suite" then
-        "\ntest result: \(.event). \(.passed) passed; \(.failed) failed; \(.ignored) ignored; \(.filtered_out) filtered out; finished in \(.exec_time)s"
-      else empty end
-    ) catch $line' \
-  || status=$?
+for pid in "${pids[@]}"; do
+  wait "$pid" || status=1
+done
+
+# Lines that are not JSON (e.g. a test writing to stdout directly, bypassing
+# capture) are skipped.
+jq -nrR '[inputs | fromjson?] as $events
+  | ($events[] | select(.type == "test" and .event == "failed")
+      | "\n---- \(.name) ----\n\(.stdout // "")"),
+    ([$events[] | select(.type == "suite" and .event != "started")]
+      | "\ntest result: \(map(.passed) | add) passed; \(map(.failed) | add) failed; \(map(.ignored) | add) ignored")' \
+  "$dir"/*.json
 
 slowest_table="$(jq -nrR --argjson n "$slowest" '
   [inputs | fromjson? | select(.type == "test" and .exec_time != null)]
   | sort_by(-.exec_time) | .[:$n][]
-  | "| \(.exec_time * 1000 | round / 1000)s | `\(.name)` |"' "$log")"
+  | "| \(.exec_time * 1000 | round / 1000)s | `\(.name)` |"' "$dir"/*.json)"
 if [ -n "$slowest_table" ]; then
   report="$(printf '### Slowest Miri tests\n\n| Time | Test |\n| ---: | --- |\n%s\n' "$slowest_table")"
   printf '\n%s\n' "$report"
@@ -73,15 +93,4 @@ if [ -n "$slowest_table" ]; then
   fi
 fi
 
-if [ "$status" -ne 0 ]; then
-  exit "$status"
-fi
-
-# libtest reports a test count once per test binary. Sum across binaries and
-# require a non-zero total: a renamed module makes every binary report 0.
-total="$(jq -nR '[inputs | fromjson? | select(.type == "suite" and .event == "started") | .test_count] | add // 0' "$log")"
-if [ "$total" -eq 0 ]; then
-  echo "::error::Miri executed 0 tests — the module-path selection matched nothing. Was a selected module renamed? See the representations matrix in .github/workflows/miri.yml." >&2
-  exit 1
-fi
-echo "Miri executed ${total} test(s)."
+exit "$status"
