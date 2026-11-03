@@ -81,6 +81,18 @@ impl Decimal {
     /// If zero or positive, a scale indicates the number of digits to the right of the decimal point.
     /// If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
     /// For example, a scale of -3 means the unscaled value is multiplied by 1000.
+    ///
+    /// The scale is the negation of [`exponent`](Self::exponent).
+    ///
+    /// # Panics
+    ///
+    /// The negation of an `i64::MIN` exponent is not representable as an `i64`. With overflow
+    /// checks enabled, this panics; otherwise, it returns `i64::MIN`. Use
+    /// `exponent().checked_neg()` instead.
+    #[deprecated(
+        since = "1.3.0",
+        note = "panics or returns `i64::MIN` if the exponent is `i64::MIN`; use `exponent().checked_neg()` instead"
+    )]
     pub fn scale(&self) -> i64 {
         self.exponent.neg()
     }
@@ -489,12 +501,17 @@ mod bigdecimal {
         type Error = IonError;
 
         /// Attempts to create a BigDecimal from a Decimal. Returns an Error if the Decimal being
-        /// converted is a special value (negative zero) or has a magnitude no representable as u128.
+        /// converted is a special value (negative zero) or has an exponent of `i64::MIN`.
         fn try_into(self) -> Result<BigDecimal, Self::Error> {
+            let Some(scale) = self.exponent.checked_neg() else {
+                return IonResult::illegal_operation(
+                    "Cannot represent exponent as BigDecimal scale.",
+                );
+            };
             match self.coefficient().as_int() {
                 Some(coefficient) => Ok(BigDecimal::new(
                     coefficient.as_overflowing_int().to_bigint(),
-                    self.scale(),
+                    scale,
                 )),
                 None => IonResult::illegal_operation("Cannot convert negative zero to BigDecimal."),
             }
@@ -504,15 +521,19 @@ mod bigdecimal {
     impl TryFrom<BigDecimal> for Decimal {
         type Error = IonError;
 
-        /// Attempts to create a Decimal from a BigDecimal. Returns an Error if the BigDecimal cannot be
-        /// represented as a Decimal in this library.
+        /// Attempts to create a Decimal from a BigDecimal. Returns an Error if the BigDecimal's
+        /// coefficient does not fit in an `i128` or its scale is `i64::MIN`.
         fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
             let (coeff, exponent) = value.into_bigint_and_exponent();
             let Some(data) = coeff.to_i128() else {
                 return IonResult::illegal_operation("Cannot represent coefficient as i128.");
             };
 
-            Ok(Decimal::new(data, -exponent))
+            let Some(exponent) = exponent.checked_neg() else {
+                return IonResult::illegal_operation("Cannot represent scale as Decimal exponent.");
+            };
+
+            Ok(Decimal::new(data, exponent))
         }
     }
 
@@ -547,7 +568,7 @@ mod bigdecimal {
             no_such_decimal()
         )]
         /// Effectively tests TryFrom<BigDecimal> for Decimal. The only failure cases should be when
-        /// the coefficient is larger i128
+        /// the coefficient is larger than i128 or the scale is `i64::MIN`
         fn try_from_bigdecimal_for_decimal(#[case] input: BigDecimal, #[case] expected: Decimal) {
             let actual = Decimal::try_from(input).unwrap();
             assert_eq!(actual, expected);
@@ -574,7 +595,7 @@ mod bigdecimal {
         #[should_panic]
         #[case::negative_zero(Decimal::NEGATIVE_ZERO, no_such_bigdecimal())]
         /// Effectively tests TryFrom<Decimal> for BigDecimal. The only failure cases should be when
-        /// the coefficient is larger i128
+        /// the value is negative zero or the exponent is `i64::MIN`
         fn try_into_bigdecimal_for_decimal(#[case] input: Decimal, #[case] expected: BigDecimal) {
             let actual: BigDecimal = Decimal::try_into(input).unwrap();
             assert_eq!(actual, expected);
@@ -592,6 +613,18 @@ mod bigdecimal {
             let d = Decimal::new(Coefficient::new(big_int), 0i64);
             let result: Result<BigDecimal, _> = d.try_into();
             assert!(result.is_ok());
+        }
+
+        #[test]
+        fn convert_min_exponent_decimal_to_bigdecimal_is_error() {
+            let result: Result<BigDecimal, _> = Decimal::new(1, i64::MIN).try_into();
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn convert_min_scale_bigdecimal_to_decimal_is_error() {
+            let result = Decimal::try_from(BigDecimal::new(1.into(), i64::MIN));
+            assert!(result.is_err());
         }
     }
 }
@@ -817,7 +850,9 @@ mod decimal_tests {
     #[case(Decimal::new(u64::MAX, -5), 5)]
     #[case(Decimal::new(u64::MAX, 0), 0)]
     fn test_scale(#[case] value: Decimal, #[case] expected: i64) {
-        assert_eq!(value.scale(), expected)
+        #[allow(deprecated)]
+        let scale = value.scale();
+        assert_eq!(scale, expected)
     }
 
     #[rstest]
