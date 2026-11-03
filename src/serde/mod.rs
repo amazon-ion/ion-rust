@@ -299,6 +299,14 @@ mod tests {
     }
 
     #[rstest]
+    #[case::text(b"'$ion_1_0' 5")]
+    #[case::binary(&[0xE0, 0x01, 0x00, 0xEA, 0x71, 0x02, 0x21, 0x05])]
+    fn from_ion_skips_top_level_ion_1_0_symbol(#[case] ion_data: &[u8]) -> IonResult<()> {
+        assert_eq!(from_ion::<i32, _>(ion_data)?, 5);
+        Ok(())
+    }
+
+    #[rstest]
     #[case::i8(to_string(&-1_i8).unwrap(),     "-1")]
     #[case::i16(to_string(&-1_i16).unwrap(),   "-1")]
     #[case::i32(to_string(&-1_i32).unwrap(),   "-1")]

@@ -16,7 +16,8 @@ pub(crate) enum SystemStreamItem<'top, D: Decoder> {
     VersionMarker(D::VersionMarker<'top>),
     /// An Ion 1.0-style symbol table encoded as a struct annotated with `$ion_symbol_table`.
     SymbolTable(LazyStruct<'top, D>),
-    /// An application-level Ion value
+    /// An application-level Ion value, or an unannotated `$ion_1_0` symbol, which is a no-op
+    /// that `next_value` skips.
     Value(LazyValue<'top, D>),
     /// The end of the stream
     EndOfStream(EndPosition),

@@ -300,7 +300,15 @@ impl<'top> TextBuffer<'top> {
         &mut self,
     ) -> IonParseResult<'top, LazyRawTextVersionMarker<'top, E>> {
         let ((matched_major, matched_minor), matched_marker) = terminated(
-            preceded("$ion_", separated_pair(digit1, "_", digit1)),
+            preceded(
+                "$ion_",
+                separated_pair(
+                    digit1,
+                    "_",
+                    // `$ion_1_0x` is an identifier, not an IVM followed by `x`.
+                    terminated(digit1, not(one_of(Self::is_identifier_byte))),
+                ),
+            ),
             // Look ahead to make sure the IVM isn't followed by a '::'. If it is, then it's not
             // an IVM, it's an annotation.
             peek(whitespace_and_then(not(":"))),
@@ -1030,6 +1038,10 @@ impl<'top> TextBuffer<'top> {
             .parse_next(self)
     }
 
+    fn is_identifier_byte(b: u8) -> bool {
+        b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+    }
+
     /// Matches the integer portion of a symbol ID or a macro address.
     /// Addresses
     ///   * CANNOT be followed by an identifier character. For example: `$1_0`, `$100_200_300`,
@@ -1044,8 +1056,7 @@ impl<'top> TextBuffer<'top> {
         // If we didn't check for a trailing identifier character, it would be a SID (`$1`) and an
         // identifier (`_02`).
         let initial_offset = self.offset();
-        let is_identifier_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
-        terminated(digit1, not(one_of(is_identifier_byte)))
+        terminated(digit1, not(one_of(Self::is_identifier_byte)))
             .map(|buffer: TextBuffer<'_>| {
                 // The matched buffer is ascii base 10 digits, parsing must succeed
                 usize::from_str(buffer.as_utf8(initial_offset).unwrap()).unwrap()
@@ -1821,6 +1832,19 @@ mod tests {
         let (field_name, value) = element.expect_struct()?.iter().next().unwrap();
         assert_eq!(field_name.text(), Some(text));
         assert_eq!(value.as_symbol().and_then(|s| s.text()), Some(text));
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case::trailing_letter("$ion_1_0x")]
+    #[case::trailing_underscore("$ion_1_0_0")]
+    #[case::trailing_dollar("$ion_1_0$")]
+    fn reader_reads_ivm_prefixed_identifier_as_one_symbol(#[case] text: &str) -> IonResult<()> {
+        let actual =
+            Reader::new(AnyEncoding, format!("{text} {text}::{text}"))?.read_all_elements()?;
+        let expected = Reader::new(AnyEncoding, format!("'{text}' '{text}'::'{text}'"))?
+            .read_all_elements()?;
+        assert_eq!(actual, expected);
         Ok(())
     }
 

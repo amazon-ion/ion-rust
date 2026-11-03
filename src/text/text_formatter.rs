@@ -276,12 +276,27 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         }
     }
 
+    /// Returns `true` if this token's text resembles an Ion version marker (e.g. `$ion_1_1`).
+    /// Without quotes, such text at the top level reads as a version marker, not a symbol.
+    fn token_resembles_version_marker(token: &str) -> bool {
+        let is_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        token
+            .strip_prefix("$ion_")
+            .and_then(|version| version.split_once('_'))
+            .is_some_and(|(major, minor)| is_digits(major) && is_digits(minor))
+    }
+
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
         use RawSymbolRef::*;
         let write_result = match token.as_raw_symbol_ref() {
             SymbolId(sid) => write!(self.output, "${sid}"),
-            // If the text could be mistaken for a keyword or symbol ID, wrap it in single quotes.
-            Text(text) if Self::token_is_keyword(text) || Self::token_resembles_symbol_id(text) => {
+            // If the text could be mistaken for a keyword, symbol ID, or version marker, wrap it in
+            // single quotes.
+            Text(text)
+                if Self::token_is_keyword(text)
+                    || Self::token_resembles_symbol_id(text)
+                    || Self::token_resembles_version_marker(text) =>
+            {
                 write!(self.output, "'{text}'")
             }
             // If the text is an identifier, it doesn't require quotes.

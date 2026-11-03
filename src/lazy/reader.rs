@@ -202,7 +202,7 @@ mod tests {
     use crate::lazy::encoding::BinaryEncoding_1_0;
     use crate::lazy::value_ref::ValueRef;
     use crate::write_config::WriteConfig;
-    use crate::{ion_list, ion_sexp, ion_struct, v1_0, Int, IonResult, IonType};
+    use crate::{ion_list, ion_sexp, ion_struct, v1_0, AnyEncoding, Int, IonResult, IonType};
 
     use super::*;
 
@@ -214,6 +214,21 @@ mod tests {
         writer.write_elements(&elements)?;
         writer.flush()?;
         writer.close()
+    }
+
+    #[rstest::rstest]
+    #[case::quoted_text(b"'$ion_1_0' 5", "5")]
+    #[case::text_symbol_id(b"$2 5", "5")]
+    #[case::binary_symbol_id(&[0xE0, 0x01, 0x00, 0xEA, 0x71, 0x02, 0x21, 0x05], "5")]
+    #[case::annotated(b"a::'$ion_1_0'", "a::'$ion_1_0'")]
+    #[case::nested(b"['$ion_1_0']", "['$ion_1_0']")]
+    fn reader_skips_unannotated_top_level_ion_1_0_symbols(
+        #[case] input: &[u8],
+        #[case] expected: &str,
+    ) -> IonResult<()> {
+        let mut reader = Reader::new(AnyEncoding, input)?;
+        assert_eq!(reader.read_all_elements()?, Element::read_all(expected)?);
+        Ok(())
     }
 
     #[test]
