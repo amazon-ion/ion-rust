@@ -460,16 +460,17 @@ mod tests {
     // ===== Binary =====
     mod binary_soundness_tests {
         use super::{
-            assert_annotations_match, assert_annotations_match_text, assert_elements_match,
-            assert_elements_match_text, assert_header_accessors_match_lazy_value,
-            collect_ion_types, store_elements_then_drop_reader, test_data, ANNOTATED,
-            ARENA_GROWTH_ITERATIONS,
+            assert_annotations_match, assert_elements_match, assert_elements_match_text,
+            assert_header_accessors_match_lazy_value, collect_ion_types,
+            store_elements_then_drop_reader, test_data, ANNOTATED, ARENA_GROWTH_ITERATIONS,
         };
         use crate::lazy::binary::test_utilities::{elements_to_binary_ion, to_binary_ion};
         use crate::lazy::encoding::BinaryEncoding_1_0;
         use crate::lazy::expanded::lazy_element::LazyElement;
         use crate::read_config::ReadConfig;
-        use crate::{AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader};
+        use crate::{
+            ion_struct, AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader,
+        };
         use rstest::rstest;
         use std::io::{BufReader, Cursor};
 
@@ -533,25 +534,29 @@ mod tests {
         fn values_survive_after_reader_drops<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
-            let text = test_data();
-            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(&text)?)?;
-            assert_elements_match_text(&text, &elements)
+            let expected = Element::read_all(test_data())?;
+            let elements =
+                store_elements_then_drop_reader(encoding, elements_to_binary_ion(&expected)?)?;
+            assert_elements_match(expected.as_ref(), &elements)
         }
 
         #[rstest]
         fn stored_annotations_match_elements<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
-            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(ANNOTATED)?)?;
-            assert_annotations_match_text(ANNOTATED, &elements)
+            let expected = Element::read_all(ANNOTATED)?;
+            let elements =
+                store_elements_then_drop_reader(encoding, elements_to_binary_ion(&expected)?)?;
+            assert_annotations_match(expected.as_ref(), &elements)
         }
 
         #[rstest]
         fn container_children_survive_after_reader_drops<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
-            let text = container_test_data();
-            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(&text)?)?;
+            let expected = Element::read_all(container_test_data())?;
+            let elements =
+                store_elements_then_drop_reader(encoding, elements_to_binary_ion(&expected)?)?;
 
             let mut actual = Vec::new();
             for element in &elements {
@@ -567,7 +572,7 @@ mod tests {
             assert_eq!(actual, actual_again);
 
             // The children are also correct, not merely well-typed.
-            assert_elements_match_text(&text, &elements)
+            assert_elements_match(expected.as_ref(), &elements)
         }
 
         #[rstest]
@@ -654,12 +659,11 @@ mod tests {
         fn values_survive_a_shifting_stream_window() -> IonResult<()> {
             // Exceed `IonStream`'s window (128 bytes in unit tests) so the reader must shift while
             // elements are stored.
-            const VALUE_COUNT: usize = 4;
-            let text = (0..VALUE_COUNT)
-                .map(|index| format!("{{index: {index}, filler: \"{}\"}}", "x".repeat(48)))
-                .collect::<Vec<String>>()
-                .join("\n");
-            let expected = Element::read_all(&text)?;
+            const VALUE_COUNT: i64 = 4;
+            let filler = "x".repeat(48);
+            let expected: Vec<Element> = (0..VALUE_COUNT)
+                .map(|index| ion_struct! { "index": index, "filler": filler.as_str() }.into())
+                .collect();
             let binary_ion = elements_to_binary_ion(&expected)?;
 
             // A `BufReader` goes through `IonStream`; a `Vec<u8>` would be borrowed in place instead.
@@ -682,7 +686,7 @@ mod tests {
                 "no stored element saw a shifted window, so this test proves nothing"
             );
 
-            assert_elements_match(expected.as_ref(), &elements)
+            assert_elements_match(&expected, &elements)
         }
 
         /// Stays readable after moving and after its reader advances -- why `as_lazy_value()`
@@ -813,28 +817,42 @@ mod tests {
         use crate::lazy::encoding::TextEncoding_1_0;
         use crate::lazy::expanded::lazy_element::LazyElement;
         use crate::read_config::ReadConfig;
-        use crate::{AnyEncoding, Decoder, Element, IonResult, LazyValue, Reader, ValueRef};
+        use crate::{
+            ion_struct, AnyEncoding, Decoder, Element, IonResult, LazyValue, Reader, ValueRef,
+        };
         use rstest::rstest;
         use std::io::{BufReader, Cursor};
+        use std::sync::OnceLock;
 
         /// Scalars and containers of each type: nested, annotated with interstitial comments,
-        /// holding escapes (decoded into the arena), and holding s-expression operators.
+        /// holding escapes (decoded into the arena), and holding s-expression operators. Each shape
+        /// appears once; parsing dominates these tests under Miri.
         const TEXT: &str = r#"
             foo
             ann:: /* comment */ 5
             null.list
-            [1, two, "th\nree", [4, 5]]
-            {a: 1, b: [2, 3], c: {d: four}, 'e\'s': (5 + 6)}
-            outer:: /* comment */ inner::(six (7 8) {nine: 10})
+            [1, "th\nree", [4]]
+            {a: 1, c: {d: four}, 'e\'s': (5 + 6)}
+            outer:: /* comment */ inner::(six (7) {nine: 10})
             []
         "#;
+
+        /// `Element::read_all(TEXT)`, parsed once per process and shared by the tests that check
+        /// against it.
+        fn expected_text_elements() -> IonResult<&'static [Element]> {
+            static EXPECTED: OnceLock<IonResult<Vec<Element>>> = OnceLock::new();
+            EXPECTED
+                .get_or_init(|| Element::read_all(TEXT).map(Vec::from))
+                .as_deref()
+                .map_err(Clone::clone)
+        }
 
         #[rstest]
         fn values_survive_after_reader_drops<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
             let elements = store_elements_then_drop_reader(encoding, TEXT)?;
-            assert_elements_match_text(TEXT, &elements)
+            assert_elements_match(expected_text_elements()?, &elements)
         }
 
         #[rstest]
@@ -951,7 +969,7 @@ mod tests {
             let first = traverse_all(&elements)?;
             let second = traverse_all(&elements)?;
             assert_eq!(first, second);
-            assert_elements_match_text(TEXT, &elements)
+            assert_elements_match(expected_text_elements()?, &elements)
         }
 
         /// `TryFrom<LazyElement>` takes the element by value and drops it inside the call, with
@@ -971,8 +989,7 @@ mod tests {
                 .into_iter()
                 .map(Element::try_from)
                 .collect::<IonResult<Vec<Element>>>()?;
-            let expected: Vec<Element> = Element::read_all(TEXT)?.into_iter().collect();
-            assert_eq!(expected, actual);
+            assert_eq!(expected_text_elements()?, actual.as_slice());
             Ok(())
         }
 
@@ -987,7 +1004,7 @@ mod tests {
                 moved.push(element);
             }
             assert_eq!(before, traverse_all(&moved)?);
-            assert_elements_match_text(TEXT, &moved)
+            assert_elements_match(expected_text_elements()?, &moved)
         }
 
         /// The cache is populated in the arena the reader is still using; advancing the reader
@@ -1127,6 +1144,15 @@ mod tests {
                 .map(|index| format!("{{index: {index}, inner: ann::{{filler: \"{filler}\"}}}}"))
                 .collect::<Vec<String>>()
                 .join("\n");
+            // Built directly rather than parsed from `text`, which is slow under Miri.
+            let inner =
+                Element::from(ion_struct! { "filler": filler.as_str() }).with_annotations(["ann"]);
+            let expected: Vec<Element> = (0..VALUE_COUNT as i64)
+                .map(|index| ion_struct! { "index": index, "inner": inner.clone() }.into())
+                .collect();
+            let expected_children: Vec<Element> = (0..VALUE_COUNT as i64)
+                .flat_map(|index| [Element::int(index), inner.clone()])
+                .collect();
 
             let mut reader = Reader::new(
                 TextEncoding_1_0,
@@ -1162,22 +1188,16 @@ mod tests {
                 max_stream_offset > 0,
                 "no stored element saw a shifted window"
             );
-            let expected = Element::read_all(&text)?;
             if read_while_live {
-                assert_elements_match(expected.as_ref(), &elements)?;
+                assert_elements_match(&expected, &elements)?;
             }
             drop(reader);
             traverse_all(&elements)?;
-            assert_elements_match(expected.as_ref(), &elements)?;
+            assert_elements_match(&expected, &elements)?;
             drop(elements);
             if read_while_live {
-                let children_text = (0..VALUE_COUNT)
-                    .map(|index| format!("{index} ann::{{filler: \"{filler}\"}}"))
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                let expected_children = Element::read_all(&children_text)?;
-                assert_elements_match(expected_children.as_ref(), &children)?;
-                assert_annotations_match(expected_children.as_ref(), &children)?;
+                assert_elements_match(&expected_children, &children)?;
+                assert_annotations_match(&expected_children, &children)?;
             }
             Ok(())
         }
