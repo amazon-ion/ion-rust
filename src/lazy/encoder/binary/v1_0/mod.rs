@@ -14,3 +14,9 @@ impl Encoder for BinaryEncoding_1_0 {
 
     type Writer<W: Write> = LazyRawBinaryWriter_1_0<W>;
 }
+
+/// The initial capacity of a binary writer's encoding buffer.
+// This value was chosen somewhat arbitrarily and can be modified as needed. Choosing a value that
+// is too low will lead to performance degradation as the buffer will require multiple
+// reallocations/copies.
+pub(crate) const DEFAULT_ENCODING_BUFFER_SIZE: usize = 512;

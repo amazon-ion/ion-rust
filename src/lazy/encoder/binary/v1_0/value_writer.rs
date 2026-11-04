@@ -1,7 +1,5 @@
 use std::mem;
 
-use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump as BumpAllocator;
 use ice_code::ice as cold_path;
 
 use crate::binary::decimal::DecimalBinaryEncoder;
@@ -11,34 +9,28 @@ use crate::binary::uint::{minimal_be_bytes, DecodedUInt};
 use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_0::container_writers::{
-    BinaryListWriter_1_0, BinarySExpWriter_1_0, BinaryStructWriter_1_0,
+    header_length, shift_tail, write_annotations_prefix, write_header, BinaryListWriter_1_0,
+    BinarySExpWriter_1_0, BinaryStructWriter_1_0, TruncateOnDrop, HEADER_RESERVE,
 };
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::ValueWriter;
 use crate::lazy::encoder::value_writer::{delegate_value_writer_to_self, AnnotatableWriter};
 use crate::raw_symbol_ref::AsRawSymbolRef;
-use crate::result::{cold_error, EncodingError};
+use crate::result::cold_error;
 use crate::types::overflowing_int::Magnitude;
-use crate::{v1_0, Decimal, Int, IonError, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
+use crate::{v1_0, Decimal, Int, IonResult, IonType, RawSymbolRef, SymbolId, Timestamp};
 
 /// The largest possible 'L' (length) value that can be written directly in a type descriptor byte.
 /// Larger length values will need to be written as a VarUInt following the type descriptor.
 pub(crate) const MAX_INLINE_LENGTH: usize = 13;
 
-pub struct BinaryValueWriter_1_0<'value, 'top> {
-    allocator: &'top BumpAllocator,
-    encoding_buffer: &'value mut BumpVec<'top, u8>,
+pub struct BinaryValueWriter_1_0<'value> {
+    encoding_buffer: &'value mut Vec<u8>,
 }
 
-impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
-    pub fn new(
-        allocator: &'top BumpAllocator,
-        encoding_buffer: &'value mut BumpVec<'top, u8>,
-    ) -> BinaryValueWriter_1_0<'value, 'top> {
-        BinaryValueWriter_1_0 {
-            allocator,
-            encoding_buffer,
-        }
+impl<'value> BinaryValueWriter_1_0<'value> {
+    pub(crate) fn new(encoding_buffer: &'value mut Vec<u8>) -> BinaryValueWriter_1_0<'value> {
+        BinaryValueWriter_1_0 { encoding_buffer }
     }
 
     #[inline]
@@ -48,7 +40,7 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
 
     #[inline]
     fn push_bytes(&mut self, bytes: &[u8]) {
-        self.encoding_buffer.extend_from_slice_copy(bytes)
+        self.encoding_buffer.extend_from_slice(bytes)
     }
 
     pub fn write_symbol_id(mut self, symbol_id: SymbolId) -> IonResult<()> {
@@ -241,33 +233,24 @@ impl<'value, 'top> BinaryValueWriter_1_0<'value, 'top> {
         self.write_lob(bytes, 0xA0)
     }
 
-    fn list_writer(self) -> IonResult<BinaryListWriter_1_0<'value, 'top>> {
-        Ok(BinaryListWriter_1_0::new(
-            self.allocator,
-            self.encoding_buffer,
-        ))
+    fn list_writer(self) -> IonResult<BinaryListWriter_1_0<'value>> {
+        Ok(BinaryListWriter_1_0::new(self.encoding_buffer))
     }
 
-    fn sexp_writer(self) -> IonResult<BinarySExpWriter_1_0<'value, 'top>> {
-        Ok(BinarySExpWriter_1_0::new(
-            self.allocator,
-            self.encoding_buffer,
-        ))
+    fn sexp_writer(self) -> IonResult<BinarySExpWriter_1_0<'value>> {
+        Ok(BinarySExpWriter_1_0::new(self.encoding_buffer))
     }
 
-    fn struct_writer(self) -> IonResult<BinaryStructWriter_1_0<'value, 'top>> {
-        Ok(BinaryStructWriter_1_0::new(
-            self.allocator,
-            self.encoding_buffer,
-        ))
+    fn struct_writer(self) -> IonResult<BinaryStructWriter_1_0<'value>> {
+        Ok(BinaryStructWriter_1_0::new(self.encoding_buffer))
     }
 }
 
-impl Sealed for BinaryValueWriter_1_0<'_, '_> {}
+impl Sealed for BinaryValueWriter_1_0<'_> {}
 
-impl<'top> AnnotatableWriter for BinaryValueWriter_1_0<'_, 'top> {
+impl AnnotatableWriter for BinaryValueWriter_1_0<'_> {
     type AnnotatedValueWriter<'a>
-        = BinaryAnnotatedValueWriter_1_0<'a, 'top>
+        = BinaryAnnotatedValueWriter_1_0<'a>
     where
         Self: 'a;
 
@@ -279,121 +262,99 @@ impl<'top> AnnotatableWriter for BinaryValueWriter_1_0<'_, 'top> {
         Self: 'a,
     {
         Ok(BinaryAnnotatedValueWriter_1_0::new(
-            self.allocator,
             annotations.into_annotations_vec(),
             self.encoding_buffer,
         ))
     }
 }
 
-impl<'value, 'top> ValueWriter for BinaryValueWriter_1_0<'value, 'top> {
+impl<'value> ValueWriter for BinaryValueWriter_1_0<'value> {
     type Encoding = v1_0::Binary;
-    type ListWriter = BinaryListWriter_1_0<'value, 'top>;
-    type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
-    type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
+    type ListWriter = BinaryListWriter_1_0<'value>;
+    type SExpWriter = BinarySExpWriter_1_0<'value>;
+    type StructWriter = BinaryStructWriter_1_0<'value>;
 
     delegate_value_writer_to_self!();
 }
 
-pub struct BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+pub struct BinaryAnnotatedValueWriter_1_0<'value> {
     annotations: AnnotationsVec<'value>,
-    allocator: &'top BumpAllocator,
-    output_buffer: &'value mut BumpVec<'top, u8>,
+    output_buffer: &'value mut Vec<u8>,
 }
 
-impl<'value, 'top> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
-    pub fn new(
-        allocator: &'top BumpAllocator,
+impl<'value> BinaryAnnotatedValueWriter_1_0<'value> {
+    pub(crate) fn new(
         annotations: AnnotationsVec<'value>,
-        encoding_buffer: &'value mut BumpVec<'top, u8>,
-    ) -> BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+        encoding_buffer: &'value mut Vec<u8>,
+    ) -> BinaryAnnotatedValueWriter_1_0<'value> {
         BinaryAnnotatedValueWriter_1_0 {
             annotations,
-            allocator,
             output_buffer: encoding_buffer,
         }
     }
 }
 
 /// Takes a series of `TYPE => METHOD` pairs, generating a function for each that encodes an
-/// annotations sequence and then delegates encoding the value to the corresponding value writer
+/// annotations wrapper and then delegates encoding the value to the corresponding value writer
 /// method.
 macro_rules! annotate_and_delegate_1_0 {
     // End of iteration
     () => {};
     // Recurses one argument pair at a time
     ($value_type:ty => $method:ident, $($rest:tt)*) => {
-        fn $method(mut self, value: $value_type) -> IonResult<()> {
-            let allocator = self.allocator;
-            let mut buffer = BumpVec::new_in(allocator);
-            let value_writer =
-                $crate::lazy::encoder::binary::v1_0::value_writer::BinaryValueWriter_1_0::new(
-                    self.allocator,
-                    &mut buffer,
-                );
-            value_writer.$method(value)?;
-            self.annotate_encoded_value(buffer.as_slice())
+        fn $method(self, value: $value_type) -> IonResult<()> {
+            Self::write_annotated_in_place(
+                &self.annotations,
+                self.output_buffer,
+                |value_writer| value_writer.$method(value),
+            )
         }
         annotate_and_delegate_1_0!($($rest)*);
     };
 }
 
-impl BinaryAnnotatedValueWriter_1_0<'_, '_> {
-    pub(crate) fn annotate_encoded_value(&mut self, encoded_value: &[u8]) -> IonResult<()> {
-        if self.annotations.is_empty() {
-            self.output_buffer.extend_from_slice(encoded_value);
-            return Ok(());
+impl BinaryAnnotatedValueWriter_1_0<'_> {
+    /// Encodes the value that `write_value` encodes at the end of `buffer`, inside an annotations
+    /// wrapper unless `annotations` is empty. The wrapper header is reserved up front and filled in
+    /// afterward. If `annotations` is non-empty and encoding fails or panics, `buffer` is truncated
+    /// back to where it was; with no annotations, `write_value` writes to `buffer` directly.
+    fn write_annotated_in_place(
+        annotations: &AnnotationsVec<'_>,
+        buffer: &mut Vec<u8>,
+        write_value: impl FnOnce(BinaryValueWriter_1_0<'_>) -> IonResult<()>,
+    ) -> IonResult<()> {
+        if annotations.is_empty() {
+            return write_value(BinaryValueWriter_1_0::new(buffer));
         }
+        let encoding = TruncateOnDrop::new(buffer);
+        let start = encoding.start;
+        write_annotations_prefix(encoding.buffer, annotations)?;
+        write_value(BinaryValueWriter_1_0::new(encoding.buffer))?;
 
-        let mut encoded_annotations_sequence = BumpVec::new_in(self.allocator);
-        self.encode_annotations_sequence(&mut encoded_annotations_sequence)?;
-
-        let mut encoded_annotations_sequence_length = BumpVec::new_in(self.allocator);
-        VarUInt::write_u64(
-            &mut encoded_annotations_sequence_length,
-            encoded_annotations_sequence.len() as u64,
-        )?;
-
-        let total_length = encoded_annotations_sequence.len()
-            + encoded_annotations_sequence_length.len()
-            + encoded_value.len();
-
-        if total_length <= MAX_INLINE_LENGTH {
-            self.output_buffer.push(0xE0u8 | total_length as u8);
-        } else {
-            self.output_buffer.push(0xEEu8);
-            VarUInt::write_u64(self.output_buffer, total_length as u64)?;
-        }
-
-        self.output_buffer
-            .extend_from_slice(encoded_annotations_sequence_length.as_slice());
-        self.output_buffer
-            .extend_from_slice(encoded_annotations_sequence.as_slice());
-        self.output_buffer.extend_from_slice(encoded_value);
-
-        Ok(())
-    }
-
-    fn encode_annotations_sequence(&self, buffer: &'_ mut BumpVec<'_, u8>) -> IonResult<()> {
-        for annotation in &self.annotations {
-            let RawSymbolRef::SymbolId(sid) = annotation.as_raw_symbol_ref() else {
-                return Err(IonError::Encoding(EncodingError::new(
-                    "binary Ion 1.0 cannot encode text literal annotations",
-                )));
-            };
-            VarUInt::write_u64(buffer, sid as u64)?;
-        }
+        let envelope_length = encoding.buffer.len() - (start + HEADER_RESERVE);
+        let wrapper_size = header_length(envelope_length);
+        shift_tail(
+            encoding.buffer,
+            start + HEADER_RESERVE,
+            wrapper_size as isize - HEADER_RESERVE as isize,
+        );
+        write_header(
+            &mut encoding.buffer[start..start + wrapper_size],
+            0xE0,
+            envelope_length,
+        );
+        encoding.commit();
         Ok(())
     }
 }
 
-impl Sealed for BinaryAnnotatedValueWriter_1_0<'_, '_> {
+impl Sealed for BinaryAnnotatedValueWriter_1_0<'_> {
     // No methods, precludes implementations outside the crate.
 }
 
-impl<'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'_, 'top> {
+impl AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'_> {
     type AnnotatedValueWriter<'a>
-        = BinaryAnnotatedValueWriter_1_0<'a, 'top>
+        = BinaryAnnotatedValueWriter_1_0<'a>
     where
         Self: 'a;
 
@@ -406,17 +367,16 @@ impl<'top> AnnotatableWriter for BinaryAnnotatedValueWriter_1_0<'_, 'top> {
     {
         Ok(BinaryAnnotatedValueWriter_1_0 {
             annotations: annotations.into_annotations_vec(),
-            allocator: self.allocator,
             output_buffer: self.output_buffer,
         })
     }
 }
 
-impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> {
+impl<'value> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value> {
     type Encoding = v1_0::Binary;
-    type ListWriter = BinaryListWriter_1_0<'value, 'top>;
-    type SExpWriter = BinarySExpWriter_1_0<'value, 'top>;
-    type StructWriter = BinaryStructWriter_1_0<'value, 'top>;
+    type ListWriter = BinaryListWriter_1_0<'value>;
+    type SExpWriter = BinarySExpWriter_1_0<'value>;
+    type StructWriter = BinaryStructWriter_1_0<'value>;
 
     annotate_and_delegate_1_0!(
         IonType => write_null,
@@ -434,21 +394,21 @@ impl<'value, 'top> ValueWriter for BinaryAnnotatedValueWriter_1_0<'value, 'top> 
     );
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
-        BinaryListWriter_1_0::new(self.allocator, self.output_buffer)
-            .with_annotations(self.annotations)
+        BinaryListWriter_1_0::new_annotated(self.output_buffer, &self.annotations)
     }
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
-        BinarySExpWriter_1_0::new(self.allocator, self.output_buffer)
-            .with_annotations(self.annotations)
+        BinarySExpWriter_1_0::new_annotated(self.output_buffer, &self.annotations)
     }
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
-        BinaryStructWriter_1_0::new(self.allocator, self.output_buffer)
-            .with_annotations(self.annotations)
+        BinaryStructWriter_1_0::new_annotated(self.output_buffer, &self.annotations)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{self, AssertUnwindSafe};
+
+    use super::BinaryListWriter_1_0;
     use crate::lazy::encoder::annotate::Annotatable;
     use crate::lazy::encoder::binary::v1_0::writer::LazyRawBinaryWriter_1_0;
     use crate::lazy::encoder::value_writer::StructWriter;
@@ -476,7 +436,7 @@ mod tests {
         Ok(())
     }
 
-    /// Writes a single value and asserts the exact bytes that follow the Ion 1.0 IVM.
+    /// Runs `test` and asserts the exact bytes it encodes after the Ion 1.0 IVM.
     fn encoding_test(
         test: impl FnOnce(&mut LazyRawBinaryWriter_1_0<&mut Vec<u8>>) -> IonResult<()>,
         expected_encoding: &[u8],
@@ -825,5 +785,294 @@ mod tests {
                 )?;
             Ok(())
         })
+    }
+
+    /// An empty annotations sequence, which an annotated value writer encodes as a bare value with
+    /// no wrapper.
+    const NO_ANNOTATIONS: [SymbolId; 0] = [];
+
+    /// The writer type `encoding_test` passes to its test closure.
+    type BufferWriter<'a> = LazyRawBinaryWriter_1_0<&'a mut Vec<u8>>;
+
+    /// Pins the bytes of annotations wrappers at the boundaries of their length arithmetic. The
+    /// wrapper's length `L` covers the `annot_length` VarUInt, the annotation SIDs, and the wrapped
+    /// value; up to 13 it fits in the type descriptor (`0xE0 | L`), past that the descriptor is
+    /// `0xEE` and `L` follows as a VarUInt. Each case shows `L` as
+    /// `annot_length VarUInt + SIDs + wrapped value`.
+    #[rstest]
+    // L = 1 (0x81) + 1 (0x84) + 11 (0x8A + 10 bytes) = 13: the largest inline length.
+    #[case::scalar_inline_length_13(
+        |w: &mut BufferWriter<'_>| { w.write("a".repeat(10).annotated_with(4))?; Ok(()) },
+        [&[0xED, 0x81, 0x84, 0x8A][..], &[b'a'; 10]].concat()
+    )]
+    // L = 1 (0x81) + 1 (0x84) + 12 (0x8B + 11 bytes) = 14: the smallest VarUInt length.
+    #[case::scalar_varuint_length_14(
+        |w: &mut BufferWriter<'_>| { w.write("a".repeat(11).annotated_with(4))?; Ok(()) },
+        [&[0xEE, 0x8E, 0x81, 0x84, 0x8B][..], &[b'a'; 11]].concat()
+    )]
+    // L = 1 (0x81) + 1 (0x84) + 11 (0xBA + ten 0x20 ints) = 13.
+    #[case::list_inline_length_13(
+        |w: &mut BufferWriter<'_>| { w.write([0; 10].annotated_with(4))?; Ok(()) },
+        [&[0xED, 0x81, 0x84, 0xBA][..], &[0x20; 10]].concat()
+    )]
+    // L = 1 (0x81) + 1 (0x84) + 12 (0xBB + eleven 0x20 ints) = 14.
+    #[case::list_varuint_length_14(
+        |w: &mut BufferWriter<'_>| { w.write([0; 11].annotated_with(4))?; Ok(()) },
+        [&[0xEE, 0x8E, 0x81, 0x84, 0xBB][..], &[0x20; 11]].concat()
+    )]
+    // A 14-byte list body needs a VarUInt length of its own (0xBE 0x8E).
+    // L = 1 (0x81) + 1 (0x84) + 16 (0xBE 0x8E + fourteen 0x20 ints) = 18 (0x92).
+    #[case::list_body_varuint_length_14(
+        |w: &mut BufferWriter<'_>| { w.write([0; 14].annotated_with(4))?; Ok(()) },
+        [&[0xEE, 0x92, 0x81, 0x84, 0xBE, 0x8E][..], &[0x20; 14]].concat()
+    )]
+    // Struct body: five `$N: 0` fields, each `0x8N 0x20`, for 10 bytes.
+    // L = 1 (0x81) + 1 (0x84) + 11 (0xDA + 10 bytes) = 13.
+    #[case::struct_inline_length_13(
+        |w: &mut BufferWriter<'_>| {
+            let mut struct_ = w.value_writer().with_annotations(4)?.struct_writer()?;
+            for field_id in 10..15 {
+                struct_.write(field_id, 0)?;
+            }
+            struct_.close()
+        },
+        vec![
+            0xED, 0x81, 0x84, 0xDA,
+            0x8A, 0x20, 0x8B, 0x20, 0x8C, 0x20, 0x8D, 0x20, 0x8E, 0x20,
+        ]
+    )]
+    // SID 200 = 1 * 128 + 72 is the two-byte VarUInt 0x01 0xC8.
+    // L = 1 (0x82) + 2 (0x01 0xC8) + 1 (0x20) = 4.
+    #[case::scalar_two_byte_sid(
+        |w: &mut BufferWriter<'_>| { w.write(0.annotated_with(200))?; Ok(()) },
+        vec![0xE4, 0x82, 0x01, 0xC8, 0x20]
+    )]
+    // L = 1 (0x82) + 2 (0x01 0xC8) + 2 (0xB1 0x20) = 5.
+    #[case::list_two_byte_sid(
+        |w: &mut BufferWriter<'_>| { w.write([0].annotated_with(200))?; Ok(()) },
+        vec![0xE5, 0x82, 0x01, 0xC8, 0xB1, 0x20]
+    )]
+    // 128 one-byte SIDs: annot_length 128 is the two-byte VarUInt 0x01 0x80.
+    // L = 2 (0x01 0x80) + 128 + 1 (0x20) = 131 = 1 * 128 + 3, the VarUInt 0x01 0x83.
+    #[case::scalar_128_byte_annotations_sequence(
+        |w: &mut BufferWriter<'_>| { w.write(0.annotated_with([4; 128]))?; Ok(()) },
+        [&[0xEE, 0x01, 0x83, 0x01, 0x80][..], &[0x84; 128], &[0x20]].concat()
+    )]
+    // L = 2 (0x01 0x80) + 128 + 2 (0xB1 0x20) = 132 = 1 * 128 + 4, the VarUInt 0x01 0x84.
+    #[case::list_128_byte_annotations_sequence(
+        |w: &mut BufferWriter<'_>| { w.write([0].annotated_with([4; 128]))?; Ok(()) },
+        [&[0xEE, 0x01, 0x84, 0x01, 0x80][..], &[0x84; 128], &[0xB1, 0x20]].concat()
+    )]
+    // An empty list: both the wrapper and the container header shrink from their two reserved bytes
+    // to one. L = 1 (0x81) + 1 (0x84) + 1 (0xB0) = 3.
+    #[case::list_empty_both_headers_shrink(
+        |w: &mut BufferWriter<'_>| { w.write([0; 0].annotated_with(4))?; Ok(()) },
+        vec![0xE3, 0x81, 0x84, 0xB0]
+    )]
+    // A 128-byte list body needs a two-byte VarUInt length (0xBE 0x01 0x80).
+    // L = 1 (0x81) + 1 (0x84) + 131 (0xBE 0x01 0x80 + 128 0x20 ints) = 133 = 1 * 128 + 5 (0x01 0x85).
+    #[case::list_body_two_byte_varuint_length(
+        |w: &mut BufferWriter<'_>| { w.write([0; 128].annotated_with(4))?; Ok(()) },
+        [&[0xEE, 0x01, 0x85, 0x81, 0x84, 0xBE, 0x01, 0x80][..], &[0x20; 128]].concat()
+    )]
+    // The wrapper grows to a two-byte VarUInt length while the list header fits (0xBE 0xFF).
+    // L = 1 (0x81) + 1 (0x84) + 129 (0xBE 0xFF + 127 0x20 ints) = 131 = 1 * 128 + 3 (0x01 0x83).
+    #[case::list_wrapper_grows_header_fits(
+        |w: &mut BufferWriter<'_>| { w.write([0; 127].annotated_with(4))?; Ok(()) },
+        [&[0xEE, 0x01, 0x83, 0x81, 0x84, 0xBE, 0xFF][..], &[0x20; 127]].concat()
+    )]
+    // The wrapper grows by two bytes while the list header shrinks to 0xB1, so the annotations
+    // move further than the body. annot_length 16380 = 127 * 128 + 124 is 0x7F 0xFC.
+    // L = 2 + 16380 + 2 (0xB1 0x20) = 16384 = 1 * 128^2, the VarUInt 0x01 0x00 0x80.
+    #[case::list_wrapper_grows_by_two(
+        |w: &mut BufferWriter<'_>| { w.write([0].annotated_with([4; 16380]))?; Ok(()) },
+        [&[0xEE, 0x01, 0x00, 0x80, 0x7F, 0xFC][..], &[0x84; 16380], &[0xB1, 0x20]].concat()
+    )]
+    // L = 1 (0x81) + 1 (0x84) + 16388 (0x8E 0x01 0x00 0x80 + 16384 bytes) = 16390 = 128^2 + 6.
+    #[case::scalar_wrapper_grows_by_two(
+        |w: &mut BufferWriter<'_>| { w.write("a".repeat(16384).annotated_with(4))?; Ok(()) },
+        [
+            &[0xEE, 0x01, 0x00, 0x86, 0x81, 0x84, 0x8E, 0x01, 0x00, 0x80][..],
+            &[b'a'; 16384],
+        ]
+        .concat()
+    )]
+    // No annotations: the list is written bare, with no wrapper.
+    #[case::list_without_annotations(
+        |w: &mut BufferWriter<'_>| {
+            let mut list = w.value_writer().with_annotations(NO_ANNOTATIONS)?.list_writer()?;
+            list.write(0)?.write(0)?;
+            list.close()
+        },
+        vec![0xB2, 0x20, 0x20]
+    )]
+    fn write_annotations_wrapper_lengths(
+        #[case] test: fn(&mut BufferWriter<'_>) -> IonResult<()>,
+        #[case] expected_encoding: Vec<u8>,
+    ) -> IonResult<()> {
+        encoding_test(test, &expected_encoding)
+    }
+
+    /// Pins container headers at the boundaries of the in-place encoding. Two header bytes are
+    /// reserved ahead of each body: bodies of up to 13 bytes shift left by one, 14–127 byte bodies
+    /// fit exactly, and longer bodies shift right.
+    #[rstest]
+    // Empty body: 0xB0 alone, one byte shorter than reserved.
+    #[case::body_0_shifts_left(
+        |w: &mut BufferWriter<'_>| { w.write([0; 0])?; Ok(()) },
+        vec![0xB0]
+    )]
+    // 13-byte body: the length fits in the type descriptor (0xBD), one byte shorter than reserved.
+    #[case::body_13_shifts_left(
+        |w: &mut BufferWriter<'_>| { w.write([0; 13])?; Ok(()) },
+        [&[0xBD][..], &[0x20; 13]].concat()
+    )]
+    // 14-byte body: 0xBE plus the one-byte VarUInt 0x8E, exactly the reserved size.
+    #[case::body_14_fits(
+        |w: &mut BufferWriter<'_>| { w.write([0; 14])?; Ok(()) },
+        [&[0xBE, 0x8E][..], &[0x20; 14]].concat()
+    )]
+    // 127-byte body: the largest one-byte VarUInt length, 0xFF.
+    #[case::body_127_fits(
+        |w: &mut BufferWriter<'_>| { w.write([0; 127])?; Ok(()) },
+        [&[0xBE, 0xFF][..], &[0x20; 127]].concat()
+    )]
+    // 128-byte body: the two-byte VarUInt 0x01 0x80, one byte longer than reserved.
+    #[case::body_128_shifts_right(
+        |w: &mut BufferWriter<'_>| { w.write([0; 128])?; Ok(()) },
+        [&[0xBE, 0x01, 0x80][..], &[0x20; 128]].concat()
+    )]
+    // 16383-byte body: 16383 = 127 * 128 + 127, the largest two-byte VarUInt, 0x7F 0xFF.
+    #[case::body_16383_shifts_right(
+        |w: &mut BufferWriter<'_>| { w.write(vec![0; 16383])?; Ok(()) },
+        [&[0xBE, 0x7F, 0xFF][..], &vec![0x20; 16383]].concat()
+    )]
+    // 16384-byte body: 16384 = 1 * 128^2, the three-byte VarUInt 0x01 0x00 0x80.
+    #[case::body_16384_shifts_right_by_two(
+        |w: &mut BufferWriter<'_>| { w.write(vec![0; 16384])?; Ok(()) },
+        [&[0xBE, 0x01, 0x00, 0x80][..], &vec![0x20; 16384]].concat()
+    )]
+    // A 128-byte inner list (0xBE 0x01 0x80 + 128) inside an outer list whose body is then 131 bytes
+    // (0xBE 0x01 0x83): the inner shift happens while the outer container is still open.
+    #[case::nested_body_shifts_right(
+        |w: &mut BufferWriter<'_>| { w.write([[0; 128]])?; Ok(()) },
+        [&[0xBE, 0x01, 0x83, 0xBE, 0x01, 0x80][..], &[0x20; 128]].concat()
+    )]
+    // A struct body of five `$N: 0` fields (10 bytes) shifts left to an inline length.
+    #[case::struct_body_10_shifts_left(
+        |w: &mut BufferWriter<'_>| {
+            let mut struct_ = w.value_writer().struct_writer()?;
+            for field_id in 10..15 {
+                struct_.write(field_id, 0)?;
+            }
+            struct_.close()
+        },
+        vec![0xDA, 0x8A, 0x20, 0x8B, 0x20, 0x8C, 0x20, 0x8D, 0x20, 0x8E, 0x20]
+    )]
+    fn write_container_header_lengths(
+        #[case] test: fn(&mut BufferWriter<'_>) -> IonResult<()>,
+        #[case] expected_encoding: Vec<u8>,
+    ) -> IonResult<()> {
+        encoding_test(test, &expected_encoding)
+    }
+
+    /// A value that is abandoned or fails part way leaves no bytes behind: a container writer
+    /// dropped without `close` (including through a failing child), an annotation that cannot be
+    /// encoded, or a wrapped value that fails after its annotations. The values around it encode as
+    /// though it was never started. Each case runs between a top-level `0` and `5`.
+    #[rstest]
+    #[case::abandoned_list(|w: &mut BufferWriter<'_>| {
+        let mut list = w.value_writer().list_writer()?;
+        list.write(1)?.write([2, 3])?;
+        Ok(())
+    })]
+    #[case::abandoned_annotated_struct(|w: &mut BufferWriter<'_>| {
+        let mut struct_ = w.value_writer().with_annotations(4)?.struct_writer()?;
+        struct_.write(10, 1)?;
+        Ok(())
+    })]
+    #[case::text_annotation_on_scalar(|w: &mut BufferWriter<'_>| {
+        assert!(w.write(1.annotated_with("a")).is_err());
+        Ok(())
+    })]
+    #[case::text_annotation_on_container(|w: &mut BufferWriter<'_>| {
+        assert!(w.write([1, 2].annotated_with([4.as_raw_symbol_ref(), "a".as_raw_symbol_ref()])).is_err());
+        Ok(())
+    })]
+    // The value fails after its annotations sequence has been written.
+    #[case::text_symbol_value_annotated(|w: &mut BufferWriter<'_>| {
+        assert!(w.write(RawSymbolRef::Text("a").annotated_with(4)).is_err());
+        Ok(())
+    })]
+    #[case::failing_child_in_list(|w: &mut BufferWriter<'_>| {
+        assert!(w.write([RawSymbolRef::SymbolId(4), RawSymbolRef::Text("a")]).is_err());
+        Ok(())
+    })]
+    fn abandoned_values_leave_no_bytes(
+        #[case] abandon: fn(&mut BufferWriter<'_>) -> IonResult<()>,
+    ) -> IonResult<()> {
+        encoding_test(
+            |w| {
+                w.write(0)?;
+                abandon(w)?;
+                w.write(5)?;
+                Ok(())
+            },
+            &[0x20, 0x21, 0x05],
+        )
+    }
+
+    /// A nested value abandoned part way leaves its parent intact: the parent's remaining children
+    /// and its header are encoded as though the nested value was never started. Each case runs
+    /// between the parent's `1` and `2`.
+    #[rstest]
+    #[case::abandoned_nested_container(|outer: &mut BinaryListWriter_1_0<'_>| {
+        let mut inner = outer.value_writer().list_writer()?;
+        inner.write([0; 20])?;
+        Ok(())
+    })]
+    #[case::failing_annotated_scalar(|outer: &mut BinaryListWriter_1_0<'_>| {
+        assert!(outer.write(RawSymbolRef::Text("a").annotated_with(4)).is_err());
+        Ok(())
+    })]
+    fn abandoned_nested_value_leaves_parent_intact(
+        #[case] abandon: fn(&mut BinaryListWriter_1_0<'_>) -> IonResult<()>,
+    ) -> IonResult<()> {
+        encoding_test(
+            |w| {
+                let mut outer = w.value_writer().list_writer()?;
+                outer.write(1)?;
+                abandon(&mut outer)?;
+                outer.write(2)?;
+                outer.close()
+            },
+            &[0xB4, 0x21, 0x01, 0x21, 0x02],
+        )
+    }
+
+    /// A panic raised while an annotated top-level scalar is being encoded, after its annotations
+    /// sequence has been written, leaves no bytes behind.
+    #[test]
+    fn panic_in_annotated_scalar_leaves_no_bytes() -> IonResult<()> {
+        struct PanickingText;
+        impl AsRef<str> for PanickingText {
+            fn as_ref(&self) -> &str {
+                panic!("PanickingText::as_ref");
+            }
+        }
+        encoding_test(
+            |w| {
+                w.write(0)?;
+                let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                    w.value_writer()
+                        .with_annotations(4)?
+                        .write_string(PanickingText)
+                }));
+                assert!(result.is_err(), "`PanickingText::as_ref` did not panic");
+                w.write(5)?;
+                Ok(())
+            },
+            &[0x20, 0x21, 0x05],
+        )
     }
 }
