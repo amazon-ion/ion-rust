@@ -1,5 +1,4 @@
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
-use crate::result::cold_error;
 use crate::{Annotations, Element, Sequence, Symbol, Value};
 use crate::{Decimal, Int, Struct, Timestamp};
 use crate::{IonResult, IonType};
@@ -445,8 +444,9 @@ impl<'a, W: fmt::Write> FmtValueFormatter<'a, W> {
 /// to implementations of `fmt::Write`.
 pub struct IoValueFormatter<W: io::Write> {
     output: W,
-    // If an I/O error happens while writing the formatted text to output, write!() will return
-    // a `fmt::Error` (which contains no information). This result can then be inspected for the
+    // If an I/O error happens while writing the formatted text to output, `write_str` returns a
+    // `fmt::Error` (which contains no information). `result` holds the first such I/O error, as an
+    // `IonError::Io`; later writes do not clear it. This result can then be inspected for the
     // cause. This approach is similar to the one the Rust std library uses internally. See:
     // https://github.com/rust-lang/rust/blob/cc4dd6fc9f1a5c798df269933c7e442b79661a86/library/std/src/io/mod.rs#L1665
     result: IonResult<()>,
@@ -460,6 +460,8 @@ impl<W: io::Write> IoValueFormatter<W> {
         }
     }
 
+    /// Returns the first I/O error any write hit, as an `IonError::Io`, or `Ok(())` if every write
+    /// succeeded.
     pub fn into_result(self) -> IonResult<()> {
         self.result
     }
@@ -470,18 +472,14 @@ impl<W: io::Write> IoValueFormatter<W> {
 }
 
 impl<W: io::Write> fmt::Write for IoValueFormatter<W> {
+    #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let io_result = self.output.write_all(s.as_bytes());
-        match io_result {
-            Ok(_) => {
-                self.result = Ok(());
-                Ok(())
-            }
+        match self.output.write_all(s.as_bytes()) {
+            Ok(()) => Ok(()),
             Err(e) => {
-                self.result = cold_error!(
-                    encoding_error,
-                    "I/O failure occurred during formatting: {e:?}"
-                );
+                if self.result.is_ok() {
+                    self.result = Err(e.into());
+                }
                 Err(fmt::Error)
             }
         }
