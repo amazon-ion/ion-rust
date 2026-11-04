@@ -13,6 +13,7 @@ use crate::lazy::decoder::private::DetachableValue;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::private::ManagedWriterEncoding;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::writer::private::StyledEncoding;
 use crate::lazy::encoder::Encoder;
 use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::span::Span;
@@ -49,10 +50,11 @@ use winnow::combinator::{opt, separated_pair};
 use winnow::Parser;
 
 /// Marker trait for types that represent an Ion encoding.
-// `ManagedWriterEncoding` is a supertrait rather than members on `Encoding` so that the managed
-// writer's buffer sizing stays off this trait's documented surface. Its const is still readable
-// through an `E: Encoding` bound, but it is not a supported API.
-pub trait Encoding: Encoder + Decoder + ManagedWriterEncoding {
+// `ManagedWriterEncoding` and `StyledEncoding` are supertraits in crate-private modules rather than
+// members on `Encoder` or `Encoding`, so that code outside the crate can neither name nor implement
+// them and the managed writer's buffer sizing and per-style raw writers are hidden from the docs. Their items are still reachable through an `E: Encoding` bound, but
+// they are not a supported API.
+pub trait Encoding: Encoder + Decoder + ManagedWriterEncoding + StyledEncoding {
     type Output: 'static + OutputFromBytes + AsRef<[u8]>;
 
     fn encode<V: WriteAsIon>(value: V) -> IonResult<Self::Output> {
@@ -723,7 +725,8 @@ mod tests {
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsIon;
-    use crate::lazy::encoder::writer::Writer;
+    use crate::lazy::encoder::writer::{IntoWriterConfig, Writer, WriterStyle};
+    use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::encoding::{Encoding, TextEncoding};
     use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::lazy::expanded::ExpandedValueSource;
@@ -1223,23 +1226,26 @@ mod tests {
         }
     }
 
-    /// Each text format, configured at run time.
+    /// Each text format, configured at run time and with its zero-sized style.
     #[template]
     #[rstest]
     #[case::compact_run_time(v1_0::Text.with_format(TextFormat::Compact), TextFormat::Compact)]
     #[case::lines_run_time(v1_0::Text.with_format(TextFormat::Lines), TextFormat::Lines)]
     #[case::pretty_run_time(v1_0::Text.with_format(TextFormat::Pretty), TextFormat::Pretty)]
-    fn text_configs(
-        #[case] config: impl Into<WriteConfig<TextEncoding_1_0>>,
+    #[case::compact_static(v1_0::CompactText, TextFormat::Compact)]
+    #[case::lines_static(v1_0::LinesText, TextFormat::Lines)]
+    #[case::pretty_static(v1_0::PrettyText, TextFormat::Pretty)]
+    fn text_configs<S: WriterStyle>(
+        #[case] config: impl IntoWriterConfig<TextEncoding_1_0, S>,
         #[case] format: TextFormat,
     ) {
     }
 
     /// Every way of writing top-level values with a managed writer produces the same text for
-    /// each format.
+    /// each format, whether its style is chosen at run time or at compile time.
     #[apply(text_configs)]
-    fn managed_writes_match_expected_text(
-        #[case] config: impl Into<WriteConfig<TextEncoding_1_0>>,
+    fn managed_writes_match_expected_text<S: WriterStyle>(
+        #[case] config: impl IntoWriterConfig<TextEncoding_1_0, S>,
         #[case] format: TextFormat,
         #[values(
             Document::Nested,
@@ -1271,11 +1277,11 @@ mod tests {
         Ok(())
     }
 
-    /// Every way of writing top-level values with a raw writer produces the expected text for
-    /// each format.
+    /// A raw writer's text for each format is the same whether its style is chosen at run time or
+    /// at compile time.
     #[apply(text_configs)]
-    fn raw_writes_match_expected_text(
-        #[case] config: impl Into<WriteConfig<TextEncoding_1_0>>,
+    fn raw_writes_match_expected_text<S: WriterStyle>(
+        #[case] config: impl IntoWriterConfig<TextEncoding_1_0, S>,
         #[case] format: TextFormat,
         #[values(
             Document::Nested,
@@ -1297,7 +1303,8 @@ mod tests {
         {
             return Ok(());
         }
-        let mut writer = LazyRawTextWriter_1_0::build(config.into(), Vec::new())?;
+        let config = config.into_write_config();
+        let mut writer = LazyRawTextWriter_1_0::<_, S>::build(config, Vec::new())?;
         write.write_to(&mut writer, &document.read()?)?;
         let bytes = SequenceWriter::close(writer)?;
         assert_eq!(

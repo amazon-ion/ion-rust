@@ -80,14 +80,35 @@ mod benchmark {
             })
         });
 
+        // One writer for the whole stream, with the layout fixed at compile time by a style marker.
+        macro_rules! bench_styled_writer {
+            ($label:literal, $style:expr) => {
+                group.bench_function(concat!("writer_styled/", $label), |b| {
+                    let mut buffer = Vec::with_capacity(compact_len * 4);
+                    b.iter(|| {
+                        buffer.clear();
+                        let mut writer = Writer::new($style, std::mem::take(&mut buffer))
+                            .expect("unable to create writer");
+                        for element in black_box(&elements) {
+                            writer.write(element).expect("unable to write value");
+                        }
+                        buffer = writer.close().expect("unable to close writer");
+                        black_box(buffer.len());
+                    })
+                });
+            };
+        }
+        bench_styled_writer!("compact", v1_0::CompactText);
+        bench_styled_writer!("lines", v1_0::LinesText);
+        bench_styled_writer!("pretty", v1_0::PrettyText);
+
         // A fresh writer per top-level value, each producing its own `Vec`, as `encode_as/compact`
-        // does but built with `Writer::new` directly.
+        // does but with the layout fixed at compile time by a style marker.
         group.bench_function("writer_per_value/compact", |b| {
             b.iter(|| {
                 for element in &elements {
-                    let mut writer =
-                        Writer::new(v1_0::Text.with_format(TextFormat::Compact), Vec::new())
-                            .expect("unable to create writer");
+                    let mut writer = Writer::new(v1_0::CompactText, Vec::new())
+                        .expect("unable to create writer");
                     writer
                         .write(black_box(element))
                         .expect("unable to write value");
@@ -98,10 +119,7 @@ mod benchmark {
 
         // One reused writer, attached to a new `Vec` for each top-level value.
         group.bench_function("writer_reused/compact", |b| {
-            let mut idle = Some(
-                Writer::idle(v1_0::Text.with_format(TextFormat::Compact))
-                    .expect("unable to create writer"),
-            );
+            let mut idle = Some(Writer::idle(v1_0::CompactText).expect("unable to create writer"));
             b.iter(|| {
                 for element in &elements {
                     let parked = idle

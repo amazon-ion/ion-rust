@@ -226,7 +226,7 @@ macro_rules! v1_x_reader_writer {
             lazy::encoding::Encoding,
             lazy::encoder::annotate::Annotatable,
             lazy::encoder::write_as_ion::WriteAsIon,
-            lazy::encoder::writer::Writer,
+            lazy::encoder::writer::{IntoWriterConfig, Writer, WriterStyle},
             lazy::reader::Reader,
             raw_symbol_ref::RawSymbolRef,
             symbol_table::{SymbolTable, WriterSymbolTable},
@@ -250,6 +250,8 @@ macro_rules! v1_0_reader_writer {
         #[allow(unused_imports)]
         $visibility use crate::{
             lazy::encoder::writer::{BinaryWriter_1_0 as BinaryWriter, TextWriter_1_0 as TextWriter},
+            text::whitespace_config::{CompactText, LinesText, PrettyText},
+            write_config::StyledWriteConfig,
         };
     };
 }

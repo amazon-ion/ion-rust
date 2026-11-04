@@ -23,7 +23,10 @@ pub struct WhitespaceConfig {
     pub(crate) struct_start: &'static str,
 }
 
-pub(crate) static COMPACT_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
+// The layouts are `const` rather than `static` so that a style's whitespace folds into the code of
+// the crate that instantiates the writer, which only sees a `static`'s address unless it is built
+// with cross-crate LTO.
+pub(crate) const COMPACT_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
     // Single space between top level values
     space_between_top_level_values: " ",
     // Single space between values
@@ -39,14 +42,14 @@ pub(crate) static COMPACT_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig
     struct_start: "{",
 };
 
-pub(crate) static LINES_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
+pub(crate) const LINES_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
     // Each value appears on its own line
     space_between_top_level_values: "\n",
     // Otherwise use the compact/default layout from `COMPACT_WHITESPACE_CONFIG`
     ..COMPACT_WHITESPACE_CONFIG
 };
 
-pub(crate) static PRETTY_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
+pub(crate) const PRETTY_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig {
     // Each top-level value starts on its own line
     space_between_top_level_values: "\n",
     // Each value appears on its own line
@@ -120,10 +123,41 @@ impl IndentationState for TrackedIndentation {
     }
 }
 
-/// The whitespace layout of the text writer. [`RuntimeStyle`] reads the layout from a config
-/// chosen at run time.
+/// The indentation state of a style whose layout never indents: it stores nothing.
+#[derive(Clone, Copy, Debug)]
+pub struct NoIndentation;
+
+impl IndentationState for NoIndentation {
+    #[inline(always)]
+    fn new(_depth: u32, _in_struct: bool) -> Self {
+        NoIndentation
+    }
+
+    #[inline(always)]
+    fn depth(self) -> u32 {
+        0
+    }
+
+    #[inline(always)]
+    fn in_struct(self) -> bool {
+        false
+    }
+
+    #[inline(always)]
+    fn has_annotations(self) -> bool {
+        false
+    }
+
+    #[inline(always)]
+    fn set_has_annotations(&mut self, _has_annotations: bool) {}
+}
+
+/// The whitespace layout of the text writer. A zero-sized style fixes the layout at compile time,
+/// so each format gets its own copy of the writer with its whitespace inlined; [`RuntimeStyle`]
+/// reads the layout from a config chosen at run time.
 pub trait TextStyle: Copy + Sealed {
-    /// The state value and container writers keep to indent.
+    /// The state value and container writers keep to indent. It is zero-sized for a layout that
+    /// never indents, so those writers store and copy no indentation state.
     #[doc(hidden)]
     type Indentation: IndentationState;
 
@@ -131,7 +165,8 @@ pub trait TextStyle: Copy + Sealed {
     #[doc(hidden)]
     fn whitespace(self) -> &'static WhitespaceConfig;
 
-    /// The style of a writer configured for `format`.
+    /// The style of a writer configured for `format`. A zero-sized style has a fixed layout, so it
+    /// ignores `format`.
     #[doc(hidden)]
     fn from_format(format: TextFormat) -> Self;
 }
@@ -156,14 +191,140 @@ impl TextStyle for RuntimeStyle {
     }
 }
 
+/// Implements `Sealed` and `TextStyle` for a zero-sized style that writes the layout of `$format`
+/// with the given indentation state. This is the only place that pairs a style with its format.
+macro_rules! impl_static_text_style {
+    ($style:ident, $format:path, $indentation:ident) => {
+        impl $style {
+            /// The text format whose layout this style writes.
+            pub(crate) const FORMAT: TextFormat = $format;
+            // A `const`, like the layouts themselves, so that it folds into the instantiating
+            // crate's code.
+            const LAYOUT: &'static WhitespaceConfig = layout_of(Self::FORMAT);
+        }
+
+        impl Sealed for $style {}
+
+        impl TextStyle for $style {
+            type Indentation = $indentation;
+
+            #[inline(always)]
+            fn whitespace(self) -> &'static WhitespaceConfig {
+                Self::LAYOUT
+            }
+
+            #[inline(always)]
+            fn from_format(_format: TextFormat) -> Self {
+                $style
+            }
+        }
+    };
+}
+
+/// Ion 1.0 text in the [`TextFormat::Compact`] layout, fixed at compile time.
+///
+/// [`Writer::new`](crate::Writer::new) and [`Writer::idle`](crate::Writer::idle) accept this
+/// marker, or the [`StyledWriteConfig`](crate::v1_0::StyledWriteConfig) that its `with_max_depth`
+/// returns, and build a
+/// `Writer<v1_0::Text, Output, v1_0::CompactText>`, whose code is specialized to the compact
+/// layout. It writes the same text as a writer built from
+/// `v1_0::Text.with_format(TextFormat::Compact)`, a `TextWriter<Output>` that reads its layout at
+/// run time. `encode_as` and `encode_to` take only run-time-styled configurations.
+///
+/// ```
+///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
+///# fn main() -> IonResult<()> {
+/// use ion_rs::{v1_0, Element, IonError, Writer};
+///
+/// let mut writer = Writer::new(v1_0::CompactText, Vec::new())?;
+/// writer.write(1)?.write([2, 3])?;
+/// assert_eq!(writer.close()?, b"1 [2, 3, ] ");
+///
+/// // A configuration of the marker's style can limit the nesting depth.
+/// let config = v1_0::CompactText.with_max_depth(1);
+/// let mut writer = Writer::new(config, Vec::new())?;
+/// writer.write([1])?;
+/// assert!(matches!(
+///     writer.write(Element::read_one("[[1]]")?),
+///     Err(IonError::Encoding(_))
+/// ));
+///# Ok(())
+///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompactText;
+
+impl_static_text_style!(CompactText, TextFormat::Compact, NoIndentation);
+
+/// Ion 1.0 text in the [`TextFormat::Lines`] layout, fixed at compile time.
+///
+/// Like [`CompactText`], for the lines layout: a writer built with this marker writes the same text
+/// as one built from `v1_0::Text.with_format(TextFormat::Lines)`, with its code specialized to the
+/// layout.
+///
+/// ```
+///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
+///# fn main() -> IonResult<()> {
+/// use ion_rs::{v1_0, Element, Writer};
+///
+/// let mut writer = Writer::new(v1_0::LinesText, Vec::new())?;
+/// writer
+///     .write(Element::read_one("{a: [1, 2]}")?)?
+///     .write(Element::read_one("(c d)")?)?;
+/// assert_eq!(writer.close()?, b"{a: [1, 2, ], }\n(c d )\n");
+///# Ok(())
+///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LinesText;
+
+impl_static_text_style!(LinesText, TextFormat::Lines, NoIndentation);
+
+/// Ion 1.0 text in the [`TextFormat::Pretty`] layout, fixed at compile time.
+///
+/// Like [`CompactText`], for the pretty layout: a writer built with this marker writes the same
+/// text as one built from `v1_0::Text.with_format(TextFormat::Pretty)`, with its code specialized
+/// to the layout.
+///
+/// ```
+///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
+///# fn main() -> IonResult<()> {
+/// use ion_rs::{v1_0, Element, Writer};
+///
+/// let mut writer = Writer::new(v1_0::PrettyText, Vec::new())?;
+/// writer.write(Element::read_one("{a: [1, 2]}")?)?;
+/// assert_eq!(writer.close()?, b"{\n  a: [\n    1,\n    2,\n  ],\n}\n");
+///# Ok(())
+///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PrettyText;
+
+impl_static_text_style!(PrettyText, TextFormat::Pretty, TrackedIndentation);
+
+/// The layout of `format`. A `const fn`, so that a zero-sized style's layout can be a `const`.
+#[inline]
+const fn layout_of(format: TextFormat) -> &'static WhitespaceConfig {
+    match format {
+        TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,
+        TextFormat::Lines => &LINES_WHITESPACE_CONFIG,
+        TextFormat::Pretty => &PRETTY_WHITESPACE_CONFIG,
+    }
+}
+
 impl From<TextFormat> for &'static WhitespaceConfig {
     #[inline]
     fn from(value: TextFormat) -> Self {
-        match value {
-            TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,
-            TextFormat::Lines => &LINES_WHITESPACE_CONFIG,
-            TextFormat::Pretty => &PRETTY_WHITESPACE_CONFIG,
-        }
+        layout_of(value)
     }
 }
 
