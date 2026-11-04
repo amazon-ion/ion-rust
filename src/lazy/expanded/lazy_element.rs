@@ -625,18 +625,14 @@ mod tests {
         /// from a `Vec<u8>`.
         #[test]
         fn values_survive_a_shifting_stream_window() -> IonResult<()> {
-            // Exceed `IonStream`'s 4 KiB window so the reader must shift while elements are stored.
-            const VALUE_COUNT: usize = 10;
+            // Exceed `IonStream`'s window (128 bytes in unit tests) so the reader must shift while
+            // elements are stored.
+            const VALUE_COUNT: usize = 4;
             let text = (0..VALUE_COUNT)
-                .map(|index| format!("{{index: {index}, filler: \"{}\"}}", "x".repeat(500)))
+                .map(|index| format!("{{index: {index}, filler: \"{}\"}}", "x".repeat(48)))
                 .collect::<Vec<String>>()
                 .join("\n");
             let binary_ion = to_binary_ion(&text)?;
-            assert!(
-                binary_ion.len() > 4 * 1024,
-                "test data ({} bytes) is too small to force a window shift",
-                binary_ion.len()
-            );
 
             // A `BufReader` goes through `IonStream`; a `Vec<u8>` would be borrowed in place instead.
             let mut reader = Reader::new(
@@ -1095,16 +1091,13 @@ mod tests {
         fn values_survive_a_shifting_stream_window(
             #[values(false, true)] read_while_live: bool,
         ) -> IonResult<()> {
-            const VALUE_COUNT: usize = 10;
-            let filler = "x".repeat(500);
+            const VALUE_COUNT: usize = 4;
+            // Exceeds `IonStream`'s window (128 bytes in unit tests).
+            let filler = "x".repeat(16);
             let text = (0..VALUE_COUNT)
                 .map(|index| format!("{{index: {index}, inner: ann::{{filler: \"{filler}\"}}}}"))
                 .collect::<Vec<String>>()
                 .join("\n");
-            assert!(
-                text.len() > 4 * 1024,
-                "test data is too small to shift the window"
-            );
 
             let mut reader = Reader::new(
                 TextEncoding_1_0,

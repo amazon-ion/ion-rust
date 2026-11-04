@@ -639,7 +639,12 @@ pub struct IonStream<R: Read> {
 }
 
 impl<R: Read> IonStream<R> {
+    #[cfg(not(test))]
     const DEFAULT_IO_BUFFER_SIZE: usize = 4 * 1024;
+    // Small enough that unit tests can shift the window with a few hundred bytes of input, which
+    // keeps them fast under Miri.
+    #[cfg(test)]
+    const DEFAULT_IO_BUFFER_SIZE: usize = 128;
 
     pub fn new(input: R) -> Self {
         IonStream {
