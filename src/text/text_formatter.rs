@@ -429,7 +429,7 @@ pub(crate) fn display_buffered(
 /// Provides a text formatter for Ion values.
 ///
 /// This is the shared implementation behind the `Display` impls of `Element` and its parts and
-/// behind the text writer's symbol, string, and clob encoding.
+/// behind the text writer's scalar and symbol encoding.
 pub struct FmtValueFormatter<'a, W: fmt::Write> {
     pub(crate) output: &'a mut W,
 }
@@ -602,6 +602,11 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         Ok(())
     }
 
+    pub(crate) fn format_i64(&mut self, value: i64) -> IonResult<()> {
+        self.output.write_str(itoa::Buffer::new().format(value))?;
+        Ok(())
+    }
+
     pub fn format_float(&mut self, value: f64) -> IonResult<()> {
         if value.is_nan() {
             self.output.write_str("nan")?;
@@ -643,8 +648,8 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         Ok(())
     }
 
-    // Always inlined so that a caller writing a string runs the escape scan in its own body. The
-    // recursive `format_value` calls it through `format_string_out_of_line` instead.
+    // Always inlined so that the text writer's `write_string` runs the escape scan in its own body.
+    // The recursive `format_value` calls it through `format_string_out_of_line` instead.
     #[inline(always)]
     pub fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         self.output.write_str("\"")?;

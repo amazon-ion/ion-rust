@@ -1,4 +1,3 @@
-use std::fmt::Formatter;
 use std::io::Write;
 
 use delegate::delegate;
@@ -16,8 +15,7 @@ use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::{ContainerType, ParentType};
 use crate::{
-    v1_0, ContextWriter, Decimal, Encoding, Int, IonResult, IonType, RawSymbolRef, Timestamp,
-    ValueWriterConfig,
+    v1_0, ContextWriter, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWriterConfig,
 };
 
 pub struct TextValueWriter_1_0<'value, W: Write> {
@@ -32,24 +30,17 @@ pub struct TextValueWriter_1_0<'value, W: Write> {
     pub(crate) has_annotations: bool,
 }
 
-pub(crate) fn write_symbol_token<O: Write, A: AsRawSymbolRef>(
+/// Runs `format` with a value formatter that writes to `output`. If an I/O error interrupted the
+/// formatter, that error is returned rather than the formatter's less specific one.
+#[inline]
+fn format_to<O: Write>(
     output: &mut O,
-    token: A,
+    format: impl FnOnce(&mut FmtValueFormatter<'_, IoValueFormatter<&mut O>>) -> IonResult<()>,
 ) -> IonResult<()> {
     let mut io_shim = IoValueFormatter::new(output);
-    let _ = io_shim.value_formatter().format_symbol_token(token);
-    io_shim.into_result()
-}
-
-/// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
-/// characters escaped.
-pub(crate) fn write_escaped_text_body<O: Write, S: AsRef<str>>(
-    output: &mut O,
-    value: S,
-) -> IonResult<()> {
-    let mut io_shim = IoValueFormatter::new(output);
-    let _ = io_shim.value_formatter().format_escaped_text_body(value);
-    io_shim.into_result()
+    let format_result = format(&mut io_shim.value_formatter());
+    io_shim.into_result()?;
+    format_result
 }
 
 impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
@@ -110,6 +101,18 @@ impl<W: Write> TextValueWriter_1_0<'_, W> {
         write!(self.output(), "{value_delimiter}{space_between}")?;
         Ok(())
     }
+
+    /// Writes indentation, then the text `format` produces, then the delimiter text that follows
+    /// the value.
+    #[inline]
+    fn write_scalar(
+        mut self,
+        format: impl FnOnce(&mut FmtValueFormatter<'_, IoValueFormatter<&mut W>>) -> IonResult<()>,
+    ) -> IonResult<()> {
+        self.write_indentation()?;
+        format_to(self.output(), format)?;
+        self.write_delimiter_text()
+    }
 }
 
 pub struct TextAnnotatedValueWriter_1_0<'value, W: Write> {
@@ -118,25 +121,25 @@ pub struct TextAnnotatedValueWriter_1_0<'value, W: Write> {
 }
 
 impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
-    fn encode_annotations(mut self) -> IonResult<TextValueWriter_1_0<'value, W>> {
+    fn encode_annotations(self) -> IonResult<TextValueWriter_1_0<'value, W>> {
+        let Self {
+            annotations,
+            mut value_writer,
+        } = self;
         // The inner ValueWriter knows the indentation depth; we'll have it write the indentation
         // before we write the value.
-        self.value_writer.write_indentation()?;
+        value_writer.write_indentation()?;
         // After indenting, we set the `has_annotations` flag to `true` so the value won't write
         // indentation a second time.
-        self.value_writer.has_annotations = !self.annotations.is_empty();
-        let output = &mut self.value_writer.writer.output;
-        for annotation in self.annotations {
-            match annotation.as_raw_symbol_ref() {
-                RawSymbolRef::Text(token) => {
-                    write_symbol_token(output, token)?;
-                    write!(output, "::")
-                }
-                RawSymbolRef::SymbolId(sid) => write!(output, "${sid}::"),
-            }?;
-        }
+        value_writer.has_annotations = !annotations.is_empty();
+        format_to(value_writer.output(), |formatter| {
+            for annotation in annotations {
+                formatter.format_annotation(annotation)?;
+            }
+            Ok(())
+        })?;
 
-        Ok(self.value_writer)
+        Ok(value_writer)
     }
 }
 
@@ -406,12 +409,15 @@ impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
 }
 
 impl<W: Write> FieldEncoder for TextStructWriter_1_0<'_, W> {
+    #[inline]
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Leading indentation for the current depth
         self.container_writer
             .write_indentation(self.container_writer.depth + 1)?;
         // Write the field name
-        write_symbol_token(self.container_writer.output(), name)?;
+        format_to(self.container_writer.output(), |formatter| {
+            formatter.format_symbol_token(name)
+        })?;
         let space_after_field_name = self
             .container_writer
             .whitespace_config()
@@ -506,135 +512,52 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     type SExpWriter = TextSExpWriter_1_0<'value, W>;
     type StructWriter = TextStructWriter_1_0<'value, W>;
 
-    fn write_null(mut self, ion_type: IonType) -> IonResult<()> {
-        use crate::IonType::*;
-        self.write_indentation()?;
-
-        let null_text = match ion_type {
-            Null => "null",
-            Bool => "null.bool",
-            Int => "null.int",
-            Float => "null.float",
-            Decimal => "null.decimal",
-            Timestamp => "null.timestamp",
-            Symbol => "null.symbol",
-            String => "null.string",
-            Blob => "null.blob",
-            Clob => "null.clob",
-            List => "null.list",
-            SExp => "null.sexp",
-            Struct => "null.struct",
-        };
-        write!(self.output(), "{null_text}")?;
-        self.write_delimiter_text()
+    fn write_null(self, ion_type: IonType) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_null(ion_type))
     }
 
-    fn write_bool(mut self, value: bool) -> IonResult<()> {
-        self.write_indentation()?;
-        let bool_text = match value {
-            true => "true",
-            false => "false",
-        };
-        write!(self.output(), "{bool_text}")?;
-        self.write_delimiter_text()
+    fn write_bool(self, value: bool) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_bool(value))
     }
 
-    fn write_i64(mut self, value: i64) -> IonResult<()> {
-        self.write_indentation()?;
-        write!(self.output(), "{value}")?;
-        self.write_delimiter_text()
+    fn write_i64(self, value: i64) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_i64(value))
     }
 
-    fn write_int(mut self, value: &Int) -> IonResult<()> {
-        self.write_indentation()?;
-        write!(self.output(), "{value}")?;
-        self.write_delimiter_text()
+    fn write_int(self, value: &Int) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_integer(value))
     }
 
     fn write_f32(self, value: f32) -> IonResult<()> {
         self.write_f64(value as f64)
     }
 
-    fn write_f64(mut self, value: f64) -> IonResult<()> {
-        self.write_indentation()?;
-        if value.is_nan() {
-            write!(self.output(), "nan")?;
-            return self.write_delimiter_text();
-        }
-
-        if value.is_infinite() {
-            if value.is_sign_positive() {
-                write!(self.output(), "+inf")?;
-            } else {
-                write!(self.output(), "-inf")?;
-            }
-            return self.write_delimiter_text();
-        }
-
-        // The {:e} formatter provided by the Display trait writes floats using scientific
-        // notation. It works for all floating point values except -0.0 (it drops the sign).
-        // See: https://github.com/rust-lang/rust/issues/20596
-        if value == 0.0f64 && value.is_sign_negative() {
-            write!(self.output(), "-0e0")?;
-            return self.write_delimiter_text();
-        }
-
-        write!(self.output(), "{value:e}")?;
-        self.write_delimiter_text()
+    fn write_f64(self, value: f64) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_float(value))
     }
 
-    fn write_decimal(mut self, value: &Decimal) -> IonResult<()> {
-        self.write_indentation()?;
-        write!(self.output(), "{value}")?;
-        self.write_delimiter_text()
+    fn write_decimal(self, value: &Decimal) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_decimal(value))
     }
 
-    fn write_timestamp(mut self, value: &Timestamp) -> IonResult<()> {
-        self.write_indentation()?;
-        write!(self.output(), "{value}")?;
-        self.write_delimiter_text()
+    fn write_timestamp(self, value: &Timestamp) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_timestamp(value))
     }
 
-    fn write_string(mut self, value: impl AsRef<str>) -> IonResult<()> {
-        self.write_indentation()?;
-        write!(self.output(), "\"",)?;
-        write_escaped_text_body(self.output(), value)?;
-        write!(self.output(), "\"")?;
-        self.write_delimiter_text()
+    fn write_string(self, value: impl AsRef<str>) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_string(value))
     }
 
-    fn write_symbol(mut self, value: impl AsRawSymbolRef) -> IonResult<()> {
-        self.write_indentation()?;
-        write_symbol_token(self.output(), value)?;
-        self.write_delimiter_text()
+    fn write_symbol(self, value: impl AsRawSymbolRef) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_symbol_token(value))
     }
 
-    fn write_clob(mut self, value: impl AsRef<[u8]>) -> IonResult<()> {
-        // This type exists solely to enable using the IonValueFormatter (which operates on
-        // `std::fmt::Write`) to write to a `std::io::Write`.
-        struct ClobShim<'a>(&'a [u8]);
-        impl std::fmt::Display for ClobShim<'_> {
-            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-                let mut formatter = FmtValueFormatter { output: f };
-                formatter.format_clob(self.0)?;
-                Ok(())
-            }
-        }
-
-        self.write_indentation()?;
-        write!(self.output(), "{}", ClobShim(value.as_ref()))?;
-        self.write_delimiter_text()
+    fn write_clob(self, value: impl AsRef<[u8]>) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_clob(value))
     }
 
-    fn write_blob(mut self, value: impl AsRef<[u8]>) -> IonResult<()> {
-        self.write_indentation()?;
-        // Rust format strings escape curly braces by doubling them. The following string is:
-        // * The opening {{ from a text Ion blob, with each brace doubled to escape it.
-        // * A {} pair used by the format string to indicate where the base64-encoded bytes
-        //   should be inserted.
-        // * The closing }} from a text Ion blob, with each brace doubled to escape it.
-        write!(self.output(), "{{{{{}}}}}", base64::encode(value))?;
-        self.write_delimiter_text()
+    fn write_blob(self, value: impl AsRef<[u8]>) -> IonResult<()> {
+        self.write_scalar(|formatter| formatter.format_blob(value))
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {

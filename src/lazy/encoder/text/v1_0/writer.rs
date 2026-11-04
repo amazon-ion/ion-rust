@@ -163,8 +163,9 @@ mod tests {
     use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
     use crate::{
-        v1_0, Annotatable, Decimal, Int, IonData, IonError, IonResult, RawSymbolRef, Reader,
-        SequenceWriter, Symbol, SymbolRef, TextFormat, Timestamp, ValueWriter, WriteConfig,
+        v1_0, Annotatable, AnnotatableWriter, Decimal, Int, IonData, IonError, IonResult,
+        RawSymbolRef, Reader, SequenceWriter, Symbol, SymbolRef, TextFormat, Timestamp,
+        ValueWriter, WriteConfig,
     };
 
     #[test]
@@ -217,6 +218,28 @@ mod tests {
 
         let element = Reader::new(v1_0::Text, encoded_text)?.read_one_element()?;
         assert_eq!(element.as_symbol().and_then(|s| s.text()), Some(text));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::text(vec![RawSymbolRef::Text("foo")], "foo::1\n")]
+    #[case::keyword(vec![RawSymbolRef::Text("null")], "'null'::1\n")]
+    #[case::quoted_text(vec![RawSymbolRef::Text("a b")], "'a b'::1\n")]
+    #[case::symbol_id(vec![RawSymbolRef::SymbolId(10)], "$10::1\n")]
+    #[case::several(
+        vec![RawSymbolRef::Text("foo"), RawSymbolRef::SymbolId(10), RawSymbolRef::Text("$12")],
+        "foo::$10::'$12'::1\n"
+    )]
+    fn write_annotations_text(
+        #[case] annotations: Vec<RawSymbolRef<'static>>,
+        #[case] expected: &str,
+    ) -> IonResult<()> {
+        let mut writer = LazyRawTextWriter_1_0::new(vec![])?;
+        writer
+            .value_writer()
+            .with_annotations(annotations)?
+            .write_i64(1)?;
+        assert_eq!(writer.close()?, expected.as_bytes());
         Ok(())
     }
 

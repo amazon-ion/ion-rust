@@ -646,6 +646,7 @@ impl<V: ValueWriter> MakeValueWriter for ApplicationStructWriter<'_, V> {
 }
 
 impl<V: ValueWriter> FieldEncoder for ApplicationStructWriter<'_, V> {
+    #[inline]
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         let text = match name.as_raw_symbol_ref() {
             // This is an application-level struct writer. It is expected that method calls will
