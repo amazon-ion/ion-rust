@@ -12,8 +12,8 @@ use crate::lazy::encoder::value_writer::{
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::raw_symbol_ref::AsRawSymbolRef;
 use crate::text::text_formatter::{FmtValueFormatter, IoValueFormatter};
-use crate::text::whitespace_config::WhitespaceConfig;
-use crate::types::{ContainerType, ParentType};
+use crate::text::whitespace_config::{IndentationState, RuntimeStyle, TextStyle};
+use crate::types::ContainerType;
 use crate::{
     v1_0, ContextWriter, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWriterConfig,
 };
@@ -32,8 +32,11 @@ pub(crate) enum Separator {
 impl Separator {
     /// Writes this separator to `writer`'s output.
     #[inline]
-    pub(crate) fn write<W: Write>(self, writer: &mut LazyRawTextWriter_1_0<W>) -> IonResult<()> {
-        let whitespace = writer.whitespace_config;
+    pub(crate) fn write<W: Write, S: TextStyle>(
+        self,
+        writer: &mut LazyRawTextWriter_1_0<W, S>,
+    ) -> IonResult<()> {
+        let whitespace = writer.whitespace_config();
         match self {
             Separator::TopLevel => write_layout(
                 &mut writer.output,
@@ -61,17 +64,13 @@ fn write_layout<W: Write>(output: &mut W, layout: &'static str) -> IonResult<()>
     Ok(())
 }
 
-pub struct TextValueWriter_1_0<'value, W: Write> {
-    pub(crate) writer: &'value mut LazyRawTextWriter_1_0<W>,
-    pub(crate) depth: usize,
+pub struct TextValueWriter_1_0<'value, W: Write, S: TextStyle = RuntimeStyle> {
+    pub(crate) writer: &'value mut LazyRawTextWriter_1_0<W, S>,
     // Written after this value.
     separator: Separator,
-    // This allows us to detect cases where a value writer is being used inside a struct
-    // (i.e. following an indented field name) which is the only time we don't write
-    // indentation before the value.
-    pub(crate) parent_type: ParentType,
-    // If `true`, this value had annotations and so should not write its own indentation.
-    pub(crate) has_annotations: bool,
+    // This value's depth, and whether its indentation was already written before a struct field
+    // name or before its annotations.
+    indentation: S::Indentation,
 }
 
 /// Runs `format` with a value formatter that writes to `output`. If an I/O error interrupted the
@@ -94,7 +93,7 @@ fn format_to<O: Write>(
 fn write_indentation_to<W: Write>(
     output: &mut W,
     indentation: &'static str,
-    depth: usize,
+    depth: u32,
 ) -> IonResult<()> {
     if indentation.is_empty() || depth == 0 {
         return Ok(());
@@ -107,7 +106,7 @@ fn write_indentation_to<W: Write>(
 fn write_indentation_levels<W: Write>(
     output: &mut W,
     indentation: &'static str,
-    depth: usize,
+    depth: u32,
 ) -> IonResult<()> {
     for _ in 0..depth {
         write_layout(output, indentation)?;
@@ -115,45 +114,39 @@ fn write_indentation_levels<W: Write>(
     Ok(())
 }
 
-impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
+impl<'value, W: Write + 'value, S: TextStyle> TextValueWriter_1_0<'value, W, S> {
     pub(crate) fn new(
-        writer: &'value mut LazyRawTextWriter_1_0<W>,
-        depth: usize,
+        writer: &'value mut LazyRawTextWriter_1_0<W, S>,
+        depth: u32,
         separator: Separator,
-        parent_type: ParentType,
+        in_struct: bool,
     ) -> Self {
         Self {
             writer,
-            depth,
             separator,
-            parent_type,
-            has_annotations: false,
+            indentation: S::Indentation::new(depth, in_struct),
         }
     }
 
     /// Writes the `indentation` string set in the whitespace config to output `depth` times.
     #[inline(always)]
     fn write_indentation(&mut self) -> IonResult<()> {
-        if self.parent_type == ParentType::Struct || self.has_annotations {
+        if self.indentation.in_struct() || self.indentation.has_annotations() {
             // If this value is part of a struct field, the indentation was written before the
             // field name.
             // If this value has annotations, the indentation was written before the annotations.
             // Either way, there's nothing to do here.
             return Ok(());
         }
-        let indentation = self.whitespace_config().indentation;
-        let depth = self.depth;
+        let indentation = self.writer.whitespace_config().indentation;
+        let depth = self.indentation.depth();
         write_indentation_to(self.output(), indentation, depth)
     }
 }
 
-impl<W: Write> TextValueWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> TextValueWriter_1_0<'_, W, S> {
     fn output(&mut self) -> &mut W {
         &mut self.writer.output
-    }
-
-    fn whitespace_config(&self) -> &WhitespaceConfig {
-        self.writer.whitespace_config
     }
 
     #[inline]
@@ -174,13 +167,13 @@ impl<W: Write> TextValueWriter_1_0<'_, W> {
     }
 }
 
-pub struct TextAnnotatedValueWriter_1_0<'value, W: Write> {
+pub struct TextAnnotatedValueWriter_1_0<'value, W: Write, S: TextStyle = RuntimeStyle> {
     pub(crate) annotations: AnnotationsVec<'value>,
-    pub(crate) value_writer: TextValueWriter_1_0<'value, W>,
+    pub(crate) value_writer: TextValueWriter_1_0<'value, W, S>,
 }
 
-impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
-    fn encode_annotations(self) -> IonResult<TextValueWriter_1_0<'value, W>> {
+impl<'value, W: Write, S: TextStyle> TextAnnotatedValueWriter_1_0<'value, W, S> {
+    fn encode_annotations(self) -> IonResult<TextValueWriter_1_0<'value, W, S>> {
         let Self {
             annotations,
             mut value_writer,
@@ -190,7 +183,9 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
         value_writer.write_indentation()?;
         // After indenting, we set the `has_annotations` flag to `true` so the value won't write
         // indentation a second time.
-        value_writer.has_annotations = !annotations.is_empty();
+        value_writer
+            .indentation
+            .set_has_annotations(!annotations.is_empty());
         format_to(value_writer.output(), |formatter| {
             for annotation in annotations {
                 formatter.format_annotation(annotation)?;
@@ -202,39 +197,38 @@ impl<'value, W: Write> TextAnnotatedValueWriter_1_0<'value, W> {
     }
 }
 
-impl<'value, W: Write + 'value> Sealed for TextAnnotatedValueWriter_1_0<'value, W> {}
+impl<'value, W: Write + 'value, S: TextStyle> Sealed
+    for TextAnnotatedValueWriter_1_0<'value, W, S>
+{
+}
 
-impl<W: Write> Sealed for TextValueWriter_1_0<'_, W> {}
+impl<W: Write, S: TextStyle> Sealed for TextValueWriter_1_0<'_, W, S> {}
 
 /// Helper type that is home to information and behavior common to the list writer, s-expression writer,
 /// and struct writer.
-pub(crate) struct TextContainerWriter_1_0<'a, W: Write> {
-    // Holds a reference to the output stream and a whitespace config
-    pub(crate) writer: &'a mut LazyRawTextWriter_1_0<W>,
-    // The depth at which this container's child values appear. This value is used for formatting
-    // indentation where applicable.
-    pub(crate) depth: usize,
-    // The Ion type of the container using this TextContainerWriter_1_0. This value is only
-    // used for more informative error messages.
-    pub(crate) container_type: ContainerType,
+pub(crate) struct TextContainerWriter_1_0<'a, W: Write, S: TextStyle> {
+    // Holds a reference to the output stream and its whitespace layout
+    pub(crate) writer: &'a mut LazyRawTextWriter_1_0<W, S>,
+    // The indentation state of this container as a value; its child values are one level deeper.
+    indentation: S::Indentation,
     // Written after each child value.
     child_separator: Separator,
     // Written after the closing delimiter: the separator the parent assigned to this container.
     trailing_separator: Separator,
 }
 
-impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
+impl<'a, W: Write, S: TextStyle> TextContainerWriter_1_0<'a, W, S> {
     /// Writes the indentation for the container's depth (unless it is a struct field's value,
     /// whose field name was already indented) and the opening delimiter of a container of
-    /// `container_type`. `trailing_separator` is written after the closing delimiter.
+    /// `container_type`. `indentation` is the state of the value writer the container was made
+    /// from. `trailing_separator` is written after the closing delimiter.
     pub fn new(
-        writer: &'a mut LazyRawTextWriter_1_0<W>,
-        depth: usize,
-        parent_type: ParentType,
+        writer: &'a mut LazyRawTextWriter_1_0<W, S>,
+        indentation: S::Indentation,
         container_type: ContainerType,
         trailing_separator: Separator,
     ) -> IonResult<Self> {
-        let whitespace = writer.whitespace_config;
+        let whitespace = writer.whitespace_config();
         let (container_start, child_separator) = match container_type {
             ContainerType::List => (whitespace.list_start, Separator::Comma),
             ContainerType::SExp => (whitespace.sexp_start, Separator::Space),
@@ -242,13 +236,12 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
         };
         let mut container_writer = Self {
             writer,
-            depth,
-            container_type,
+            indentation,
             child_separator,
             trailing_separator,
         };
-        if parent_type != ParentType::Struct {
-            container_writer.write_indentation(depth)?;
+        if !indentation.in_struct() {
+            container_writer.write_indentation(indentation.depth())?;
         }
         write_layout(container_writer.output(), container_start)?;
         Ok(container_writer)
@@ -256,22 +249,22 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
 
     /// Writes the `indentation` string set in the whitespace config to output `depth` times.
     #[inline(always)]
-    fn write_indentation(&mut self, depth: usize) -> IonResult<()> {
-        let indentation = self.whitespace_config().indentation;
+    fn write_indentation(&mut self, depth: u32) -> IonResult<()> {
+        let indentation = self.writer.whitespace_config().indentation;
         write_indentation_to(self.output(), indentation, depth)
     }
 
     /// Writes the provided value to output using its implementation of `WriteAsIon`; the value
     /// writer then writes this container's `child_separator`.
     fn write_value<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
-        self.write_indentation(self.depth)?;
+        self.write_indentation(self.indentation.depth())?;
         value.write_as_ion(self.value_writer())?;
         Ok(self)
     }
 
     /// Finalizes the container, preventing further values from being written.
     pub fn close(mut self, closing_delimiter: &str) -> IonResult<()> {
-        self.write_indentation(self.depth)?;
+        self.write_indentation(self.indentation.depth())?;
         self.output().write_all(closing_delimiter.as_bytes())?;
         self.trailing_separator.write(self.writer)?;
         Ok(())
@@ -281,38 +274,38 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
         &mut self.writer.output
     }
 
-    fn whitespace_config(&self) -> &WhitespaceConfig {
-        self.writer.whitespace_config
+    /// The depth of this container's child values.
+    // Saturates rather than overflowing: the managed writer limits nesting to `max_depth`, a `u16`,
+    // and a raw writer cannot practically nest `u32::MAX` containers, each of which borrows its
+    // parent.
+    #[inline(always)]
+    fn child_depth(&self) -> u32 {
+        self.indentation.depth().saturating_add(1)
     }
 
+    /// A value writer for a child value that is not a struct field's value;
+    /// `TextStructWriter_1_0::make_value_writer` makes those.
     #[inline]
-    pub fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
-        TextValueWriter_1_0 {
-            writer: self.writer,
-            depth: self.depth + 1,
-            separator: self.child_separator,
-            parent_type: self.container_type.into(),
-            has_annotations: false,
-        }
+    pub fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W, S> {
+        let depth = self.child_depth();
+        TextValueWriter_1_0::new(self.writer, depth, self.child_separator, false)
     }
 }
 
 /// Writes Ion 1.0 lists and implements the `SequenceWriter` trait.
-pub struct TextListWriter_1_0<'top, W: Write> {
-    container_writer: TextContainerWriter_1_0<'top, W>,
+pub struct TextListWriter_1_0<'top, W: Write, S: TextStyle = RuntimeStyle> {
+    container_writer: TextContainerWriter_1_0<'top, W, S>,
 }
 
-impl<'top, W: Write> TextListWriter_1_0<'top, W> {
+impl<'top, W: Write, S: TextStyle> TextListWriter_1_0<'top, W, S> {
     pub(crate) fn new(
-        writer: &'top mut LazyRawTextWriter_1_0<W>,
-        depth: usize,
-        parent_type: ParentType,
+        writer: &'top mut LazyRawTextWriter_1_0<W, S>,
+        indentation: S::Indentation,
         trailing_separator: Separator,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
-            depth,
-            parent_type,
+            indentation,
             ContainerType::List,
             trailing_separator,
         )?;
@@ -332,20 +325,20 @@ impl<'top, W: Write> TextListWriter_1_0<'top, W> {
     }
 }
 
-impl<W: Write> ContextWriter for TextListWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> ContextWriter for TextListWriter_1_0<'_, W, S> {
     type NestedValueWriter<'a>
-        = TextValueWriter_1_0<'a, W>
+        = TextValueWriter_1_0<'a, W, S>
     where
         Self: 'a;
 }
 
-impl<W: Write> MakeValueWriter for TextListWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> MakeValueWriter for TextListWriter_1_0<'_, W, S> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.container_writer.value_writer()
     }
 }
 
-impl<W: Write> SequenceWriter for TextListWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> SequenceWriter for TextListWriter_1_0<'_, W, S> {
     type Resources = ();
 
     fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
@@ -358,21 +351,19 @@ impl<W: Write> SequenceWriter for TextListWriter_1_0<'_, W> {
 }
 
 /// Incrementally encodes a potentially heterogeneously typed Ion s-expression.
-pub struct TextSExpWriter_1_0<'a, W: Write> {
-    container_writer: TextContainerWriter_1_0<'a, W>,
+pub struct TextSExpWriter_1_0<'a, W: Write, S: TextStyle = RuntimeStyle> {
+    container_writer: TextContainerWriter_1_0<'a, W, S>,
 }
 
-impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
+impl<'a, W: Write, S: TextStyle> TextSExpWriter_1_0<'a, W, S> {
     pub(crate) fn new(
-        writer: &'a mut LazyRawTextWriter_1_0<W>,
-        depth: usize,
-        parent_type: ParentType,
+        writer: &'a mut LazyRawTextWriter_1_0<W, S>,
+        indentation: S::Indentation,
         trailing_separator: Separator,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
-            depth,
-            parent_type,
+            indentation,
             ContainerType::SExp,
             trailing_separator,
         )?;
@@ -392,20 +383,20 @@ impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
     }
 }
 
-impl<W: Write> ContextWriter for TextSExpWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> ContextWriter for TextSExpWriter_1_0<'_, W, S> {
     type NestedValueWriter<'a>
-        = TextValueWriter_1_0<'a, W>
+        = TextValueWriter_1_0<'a, W, S>
     where
         Self: 'a;
 }
 
-impl<W: Write> MakeValueWriter for TextSExpWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> MakeValueWriter for TextSExpWriter_1_0<'_, W, S> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.container_writer.value_writer()
     }
 }
 
-impl<W: Write> SequenceWriter for TextSExpWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> SequenceWriter for TextSExpWriter_1_0<'_, W, S> {
     type Resources = ();
 
     delegate! {
@@ -420,21 +411,19 @@ impl<W: Write> SequenceWriter for TextSExpWriter_1_0<'_, W> {
 }
 
 /// Incrementally encodes an Ion struct.
-pub struct TextStructWriter_1_0<'a, W: Write> {
-    container_writer: TextContainerWriter_1_0<'a, W>,
+pub struct TextStructWriter_1_0<'a, W: Write, S: TextStyle = RuntimeStyle> {
+    container_writer: TextContainerWriter_1_0<'a, W, S>,
 }
 
-impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
+impl<'a, W: Write, S: TextStyle> TextStructWriter_1_0<'a, W, S> {
     pub(crate) fn new(
-        writer: &'a mut LazyRawTextWriter_1_0<W>,
-        depth: usize,
-        parent_type: ParentType,
+        writer: &'a mut LazyRawTextWriter_1_0<W, S>,
+        indentation: S::Indentation,
         trailing_separator: Separator,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
-            depth,
-            parent_type,
+            indentation,
             ContainerType::Struct,
             trailing_separator,
         )?;
@@ -447,12 +436,12 @@ impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
     }
 }
 
-impl<W: Write> FieldEncoder for TextStructWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> FieldEncoder for TextStructWriter_1_0<'_, W, S> {
     #[inline]
     fn encode_field_name(&mut self, name: impl AsRawSymbolRef) -> IonResult<()> {
         // Leading indentation for the current depth
         self.container_writer
-            .write_indentation(self.container_writer.depth + 1)?;
+            .write_indentation(self.container_writer.child_depth())?;
         // Write the field name
         format_to(self.container_writer.output(), |formatter| {
             formatter.format_symbol_token(name)
@@ -460,32 +449,34 @@ impl<W: Write> FieldEncoder for TextStructWriter_1_0<'_, W> {
         // Write a `:` and configured trailing whitespace
         let field_name_separator = self
             .container_writer
+            .writer
             .whitespace_config()
             .field_name_separator;
         write_layout(self.container_writer.output(), field_name_separator)
     }
 }
 
-impl<W: Write> ContextWriter for TextStructWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> ContextWriter for TextStructWriter_1_0<'_, W, S> {
     type NestedValueWriter<'a>
-        = TextValueWriter_1_0<'a, W>
+        = TextValueWriter_1_0<'a, W, S>
     where
         Self: 'a;
 }
 
-impl<W: Write> MakeValueWriter for TextStructWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> MakeValueWriter for TextStructWriter_1_0<'_, W, S> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
-        TextValueWriter_1_0 {
-            writer: self.container_writer.writer,
-            depth: self.container_writer.depth + 1,
-            separator: self.container_writer.child_separator,
-            parent_type: ParentType::Struct,
-            has_annotations: false,
-        }
+        // A field's value follows its field name, which `encode_field_name` indented.
+        let depth = self.container_writer.child_depth();
+        TextValueWriter_1_0::new(
+            self.container_writer.writer,
+            depth,
+            self.container_writer.child_separator,
+            true,
+        )
     }
 }
 
-impl<W: Write> StructWriter for TextStructWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> StructWriter for TextStructWriter_1_0<'_, W, S> {
     fn close(self) -> IonResult<()> {
         self.end()
     }
@@ -495,9 +486,11 @@ impl<W: Write> StructWriter for TextStructWriter_1_0<'_, W> {
     }
 }
 
-impl<'value, W: Write + 'value> AnnotatableWriter for TextAnnotatedValueWriter_1_0<'value, W> {
+impl<'value, W: Write + 'value, S: TextStyle> AnnotatableWriter
+    for TextAnnotatedValueWriter_1_0<'value, W, S>
+{
     type AnnotatedValueWriter<'a>
-        = TextAnnotatedValueWriter_1_0<'a, W>
+        = TextAnnotatedValueWriter_1_0<'a, W, S>
     where
         Self: 'a;
 
@@ -515,18 +508,20 @@ impl<'value, W: Write + 'value> AnnotatableWriter for TextAnnotatedValueWriter_1
     }
 }
 
-impl<'value, W: Write + 'value> ValueWriter for TextAnnotatedValueWriter_1_0<'value, W> {
+impl<'value, W: Write + 'value, S: TextStyle> ValueWriter
+    for TextAnnotatedValueWriter_1_0<'value, W, S>
+{
     type Encoding = v1_0::Text;
-    type ListWriter = TextListWriter_1_0<'value, W>;
-    type SExpWriter = TextSExpWriter_1_0<'value, W>;
-    type StructWriter = TextStructWriter_1_0<'value, W>;
+    type ListWriter = TextListWriter_1_0<'value, W, S>;
+    type SExpWriter = TextSExpWriter_1_0<'value, W, S>;
+    type StructWriter = TextStructWriter_1_0<'value, W, S>;
 
     delegate_value_writer_to!(fallible closure |self_: Self| self_.encode_annotations());
 }
 
-impl<W: Write> AnnotatableWriter for TextValueWriter_1_0<'_, W> {
+impl<W: Write, S: TextStyle> AnnotatableWriter for TextValueWriter_1_0<'_, W, S> {
     type AnnotatedValueWriter<'a>
-        = TextAnnotatedValueWriter_1_0<'a, W>
+        = TextAnnotatedValueWriter_1_0<'a, W, S>
     where
         Self: 'a;
 
@@ -544,11 +539,11 @@ impl<W: Write> AnnotatableWriter for TextValueWriter_1_0<'_, W> {
     }
 }
 
-impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
+impl<'value, W: Write, S: TextStyle> ValueWriter for TextValueWriter_1_0<'value, W, S> {
     type Encoding = v1_0::Text;
-    type ListWriter = TextListWriter_1_0<'value, W>;
-    type SExpWriter = TextSExpWriter_1_0<'value, W>;
-    type StructWriter = TextStructWriter_1_0<'value, W>;
+    type ListWriter = TextListWriter_1_0<'value, W, S>;
+    type SExpWriter = TextSExpWriter_1_0<'value, W, S>;
+    type StructWriter = TextStructWriter_1_0<'value, W, S>;
 
     fn write_null(self, ion_type: IonType) -> IonResult<()> {
         self.write_scalar(|formatter| formatter.format_null(ion_type))
@@ -599,22 +594,32 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
-        TextListWriter_1_0::new(self.writer, self.depth, self.parent_type, self.separator)
+        TextListWriter_1_0::new(self.writer, self.indentation, self.separator)
     }
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
-        TextSExpWriter_1_0::new(self.writer, self.depth, self.parent_type, self.separator)
+        TextSExpWriter_1_0::new(self.writer, self.indentation, self.separator)
     }
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
-        TextStructWriter_1_0::new(self.writer, self.depth, self.parent_type, self.separator)
+        TextStructWriter_1_0::new(self.writer, self.indentation, self.separator)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+
     use rstest::rstest;
 
-    use super::write_layout;
+    use super::{write_layout, TextValueWriter_1_0};
+    use crate::text::whitespace_config::RuntimeStyle;
     use crate::IonResult;
+
+    /// The value writer of a style that may indent, with its indentation state, fits in 24 bytes.
+    #[rstest]
+    #[case::runtime(size_of::<TextValueWriter_1_0<'static, Vec<u8>, RuntimeStyle>>())]
+    fn indented_value_writers_are_at_most_24_bytes(#[case] size: usize) {
+        assert!(size <= 24, "{size} bytes");
+    }
 
     /// `write_layout` writes the whole layout string, whichever length it has.
     #[rstest]
