@@ -10,15 +10,15 @@ use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole};
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
 use crate::result::IonFailure;
-use crate::text::whitespace_config::WhitespaceConfig;
-use crate::types::ParentType;
+use crate::text::whitespace_config::{RuntimeStyle, TextStyle, WhitespaceConfig};
 use crate::write_config::WriteConfigKind;
 use crate::{ContextWriter, IonResult, TextFormat, WriteConfig};
 
-/// A raw text Ion 1.0 writer.
-pub struct LazyRawTextWriter_1_0<W: Write> {
+/// A raw text Ion 1.0 writer whose whitespace layout is `S`: by default, the layout of the
+/// [`TextFormat`] it is built with, read at run time.
+pub struct LazyRawTextWriter_1_0<W: Write, S: TextStyle = RuntimeStyle> {
     pub(crate) output: W,
-    pub(crate) whitespace_config: &'static WhitespaceConfig,
+    style: S,
 }
 
 impl<W: Write> LazyRawTextWriter_1_0<W> {
@@ -27,6 +27,17 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
         <Self as LazyRawWriter<W>>::new(output)
     }
 
+    /// Constructs a new writer that will emit encoded data to the specified `output` in the text
+    /// format of `config`. Returns an error if `config` is a binary configuration.
+    // An inherent method so that `LazyRawTextWriter_1_0::build(..)` resolves to the default style
+    // rather than leaving the style to be inferred. Generic over `E`, as the trait method is, so
+    // that callers generic over the encoding can use it.
+    pub fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
+        <Self as LazyRawWriter<W>>::build(config, output)
+    }
+}
+
+impl<W: Write, S: TextStyle> LazyRawTextWriter_1_0<W, S> {
     /// Writes the provided data as a top-level value.
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         value.write_as_ion(self.value_writer())?;
@@ -42,16 +53,22 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
     /// Helper method to construct this format's `ValueWriter` implementation. There's no delimiter
     /// between values at the top level, only whitespace.
     #[inline]
-    fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
-        TextValueWriter_1_0::new(self, 0, Separator::TopLevel, ParentType::TopLevel)
+    fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W, S> {
+        TextValueWriter_1_0::new(self, 0, Separator::TopLevel, false)
+    }
+
+    /// The whitespace layout this writer writes.
+    #[inline]
+    pub(crate) fn whitespace_config(&self) -> &'static WhitespaceConfig {
+        self.style.whitespace()
     }
 }
 
-// Implemented only for the `Vec<u8>` instantiation, mirroring the binary 1.0 writer: that is the only
-// one the managed writer's reusable-writer API needs (`E::Writer<Vec<u8>>: Reusable`).
-impl Reusable for LazyRawTextWriter_1_0<Vec<u8>> {}
+// Implemented only for the `Vec<u8>` instantiations, mirroring the binary 1.0 writer: those are the
+// only ones the managed writer's reusable-writer API needs.
+impl<S: TextStyle> Reusable for LazyRawTextWriter_1_0<Vec<u8>, S> {}
 
-impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
+impl<S: TextStyle> Recycle for LazyRawTextWriter_1_0<Vec<u8>, S> {
     /// Discards any buffered (unflushed) content and bounds the retained output buffer; in either
     /// role, that is all: a text 1.0 writer owns no scratch state and emits no construction prologue
     /// to re-seed.
@@ -67,7 +84,7 @@ impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
     fn apply_config<E: Encoding>(&mut self, config: &WriteConfig<E>) {
         match config.kind() {
             WriteConfigKind::Text(text_config) => {
-                self.whitespace_config = text_config.text_kind.into()
+                self.style = S::from_format(text_config.text_kind)
             }
             WriteConfigKind::Binary(_) => {
                 unreachable!("Text writer can not be configured from binary encoding")
@@ -76,9 +93,9 @@ impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
     }
 }
 
-impl<W: Write> Sealed for LazyRawTextWriter_1_0<W> {}
+impl<W: Write, S: TextStyle> Sealed for LazyRawTextWriter_1_0<W, S> {}
 
-impl<W: Write> SequenceWriter for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> SequenceWriter for LazyRawTextWriter_1_0<W, S> {
     type Resources = W;
 
     fn close(mut self) -> IonResult<Self::Resources> {
@@ -87,20 +104,20 @@ impl<W: Write> SequenceWriter for LazyRawTextWriter_1_0<W> {
     }
 }
 
-impl<W: Write> ContextWriter for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> ContextWriter for LazyRawTextWriter_1_0<W, S> {
     type NestedValueWriter<'a>
-        = TextValueWriter_1_0<'a, W>
+        = TextValueWriter_1_0<'a, W, S>
     where
         Self: 'a;
 }
 
-impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> MakeValueWriter for LazyRawTextWriter_1_0<W, S> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.value_writer()
     }
 }
 
-impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> LazyRawWriter<W> for LazyRawTextWriter_1_0<W, S> {
     fn new(output: W) -> IonResult<Self> {
         Self::build(
             WriteConfig::<TextEncoding_1_0>::new(TextFormat::default()),
@@ -112,13 +129,10 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
     /// binary configuration.
     fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
         match config.kind() {
-            WriteConfigKind::Text(text_config) => {
-                let whitespace_config = text_config.text_kind.into();
-                Ok(LazyRawTextWriter_1_0 {
-                    output,
-                    whitespace_config,
-                })
-            }
+            WriteConfigKind::Text(text_config) => Ok(LazyRawTextWriter_1_0 {
+                output,
+                style: S::from_format(text_config.text_kind),
+            }),
             WriteConfigKind::Binary(_) => IonResult::illegal_operation(
                 "a text writer cannot be built from a binary configuration",
             ),
@@ -155,7 +169,6 @@ mod tests {
 
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
     use crate::{
         v1_0, Annotatable, AnnotatableWriter, Decimal, Int, IonData, IonError, IonResult,

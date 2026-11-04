@@ -1,5 +1,7 @@
-#[derive(Clone, Copy)]
-pub(crate) struct WhitespaceConfig {
+// `pub` (in a crate-private module) because it appears in the `TextStyle` trait, which bounds the
+// public text writer types.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WhitespaceConfig {
     // Top-level values are independent of other values in the stream, we may separate differently
     pub(crate) space_between_top_level_values: &'static str,
     // Non-top-level values are within a container
@@ -60,9 +62,102 @@ pub(crate) static PRETTY_WHITESPACE_CONFIG: WhitespaceConfig = WhitespaceConfig 
     struct_start: "{\n",
 };
 
+use crate::lazy::encoder::private::Sealed;
 use crate::TextFormat;
 
+/// What a text value or container writer knows about its position that decides its indentation.
+// `pub` (in a crate-private module, so it cannot be implemented outside the crate) because it
+// bounds `TextStyle::Indentation`.
+pub trait IndentationState: Copy {
+    /// The state at `depth`, with no annotations written. `in_struct` is `true` for a struct
+    /// field's value, which follows its already-indented field name.
+    fn new(depth: u32, in_struct: bool) -> Self;
+    fn depth(self) -> u32;
+    fn in_struct(self) -> bool;
+    /// Whether the value's annotations, and so its indentation, have been written.
+    fn has_annotations(self) -> bool;
+    fn set_has_annotations(&mut self, has_annotations: bool);
+}
+
+/// The indentation state of a style whose layout may indent.
+// The depth is a `u32`, so that this packs into 8 bytes and a value writer that holds it stays at
+// 24 bytes. The managed writer limits nesting to `max_depth`, a `u16`.
+#[derive(Clone, Copy, Debug)]
+pub struct TrackedIndentation {
+    depth: u32,
+    in_struct: bool,
+    has_annotations: bool,
+}
+
+impl IndentationState for TrackedIndentation {
+    #[inline(always)]
+    fn new(depth: u32, in_struct: bool) -> Self {
+        TrackedIndentation {
+            depth,
+            in_struct,
+            has_annotations: false,
+        }
+    }
+
+    #[inline(always)]
+    fn depth(self) -> u32 {
+        self.depth
+    }
+
+    #[inline(always)]
+    fn in_struct(self) -> bool {
+        self.in_struct
+    }
+
+    #[inline(always)]
+    fn has_annotations(self) -> bool {
+        self.has_annotations
+    }
+
+    #[inline(always)]
+    fn set_has_annotations(&mut self, has_annotations: bool) {
+        self.has_annotations = has_annotations;
+    }
+}
+
+/// The whitespace layout of the text writer. [`RuntimeStyle`] reads the layout from a config
+/// chosen at run time.
+pub trait TextStyle: Copy + Sealed {
+    /// The state value and container writers keep to indent.
+    #[doc(hidden)]
+    type Indentation: IndentationState;
+
+    /// The layout this style writes.
+    #[doc(hidden)]
+    fn whitespace(self) -> &'static WhitespaceConfig;
+
+    /// The style of a writer configured for `format`.
+    #[doc(hidden)]
+    fn from_format(format: TextFormat) -> Self;
+}
+
+/// A layout chosen at run time.
+#[derive(Clone, Copy, Debug)]
+pub struct RuntimeStyle(pub(crate) &'static WhitespaceConfig);
+
+impl Sealed for RuntimeStyle {}
+
+impl TextStyle for RuntimeStyle {
+    type Indentation = TrackedIndentation;
+
+    #[inline]
+    fn whitespace(self) -> &'static WhitespaceConfig {
+        self.0
+    }
+
+    #[inline]
+    fn from_format(format: TextFormat) -> Self {
+        RuntimeStyle(format.into())
+    }
+}
+
 impl From<TextFormat> for &'static WhitespaceConfig {
+    #[inline]
     fn from(value: TextFormat) -> Self {
         match value {
             TextFormat::Compact => &COMPACT_WHITESPACE_CONFIG,

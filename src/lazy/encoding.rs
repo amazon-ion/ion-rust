@@ -724,7 +724,6 @@ mod tests {
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsIon;
     use crate::lazy::encoder::writer::Writer;
-    use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::encoding::{Encoding, TextEncoding};
     use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::lazy::expanded::ExpandedValueSource;
