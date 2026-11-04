@@ -11,8 +11,9 @@ jobs:
   full-library:
     name: Miri over the library (${{ matrix.aliasing }} borrows)
     # A single runner: Miri interprets the abstract machine and the crate has no
-    # OS-specific code paths, so additional host OSes add cost without coverage.
-    runs-on: ubuntu-latest
+    # OS-specific code paths, so additional host OSes add cost without coverage. arm64, so that the
+    # native target is aarch64, matching the Graviton deployment target.
+    runs-on: ubuntu-24.04-arm
     # Bounds the job so that a pathologically slow new test fails it instead of running for hours.
     # Tests that are too slow under Miri are marked `#[cfg_attr(miri, ignore = "...")]`.
     timeout-minutes: 60
@@ -63,7 +64,9 @@ jobs:
         # -Zmiri-deterministic-floats
         #     Miri otherwise perturbs the results of float operations whose precision Rust does not
         #     specify (e.g. `powi`), which breaks tests that compare against exact values.
-        run: MIRIFLAGS="-Zmiri-disable-isolation ${{ matrix.aliasing-flag }} -Zmiri-strict-provenance -Zmiri-deterministic-floats" cargo miri test --lib --all-features
+        #
+        # MIRI_PROCS: one Miri process per runner vCPU.
+        run: MIRI_PROCS="$(nproc)" MIRIFLAGS="-Zmiri-disable-isolation ${{ matrix.aliasing-flag }} -Zmiri-strict-provenance -Zmiri-deterministic-floats" ./run-miri.sh --lib --all-features
 
   representations:
     name: Miri over ${{ matrix.module }} (32-bit and big-endian)
@@ -74,7 +77,7 @@ jobs:
     # `rust.yml` is a separate, compile-time confirmation that the layout assertions hold at a
     # 32-bit pointer width; it does not exercise the unsafe reads, and (see that job's comment) does
     # not itself shrink `HeapValue`.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != 'amazon-ion/ion-rust'
     strategy:
