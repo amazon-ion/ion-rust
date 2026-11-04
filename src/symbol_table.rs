@@ -2,7 +2,6 @@ use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 
-use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
 use rustc_hash::FxHasher;
 
@@ -381,10 +380,29 @@ impl WriterSymbolTable {
     /// the system symbols hold. So the only matching SID is the lowest.
     pub(crate) fn get_or_add(&mut self, text: impl AsRef<str>) -> IonResult<SymbolId> {
         let text = text.as_ref();
+        let hash = symbol_text_hash(text);
+        // Text this table already holds, including system text looked up before, is found here.
+        // An index with no allocation holds nothing, so this needs no capacity test.
+        let texts = &self.texts;
+        if let Some(&sid) = self
+            .ids_by_text
+            .find(hash, |sid| texts.get_bytes(*sid) == Some(text.as_bytes()))
+        {
+            return Ok(sid);
+        }
+        self.add(text, hash)
+    }
+
+    /// Returns the SID of `text`, which `ids_by_text` does not hold, and indexes it: a system
+    /// symbol's own SID, or a new SID for any other text.
+    // Out of line so that `get_or_add`'s lookup, which almost always finds the text, does not
+    // keep this path's state live across its probe.
+    #[inline(never)]
+    fn add(&mut self, text: &str, hash: u64) -> IonResult<SymbolId> {
+        let system_sid = Self::system_sid_for(self.ion_version, text);
         if self.ids_by_text.capacity() == 0 {
-            // The index has no allocation, so it holds no user symbols; system text is resolved
-            // without allocating it.
-            if let Some(sid) = Self::system_sid_for(self.ion_version, text) {
+            // System text is resolved without allocating the index.
+            if let Some(sid) = system_sid {
                 return Ok(sid);
             }
             // Starts the index at its working size rather than growing it a doubling at a time.
@@ -392,26 +410,19 @@ impl WriterSymbolTable {
             self.ids_by_text
                 .reserve(Self::INITIAL_USER_SYMBOL_CAPACITY, |_| 0);
         }
-        let texts = &self.texts;
-        // Text this table already holds, including system text looked up before, is found without
-        // testing it against the system symbols. `entry` reserves room for an insert before
-        // probing, so new text can grow a full index.
-        let entry = match self.ids_by_text.entry(
-            symbol_text_hash(text),
-            |sid| texts.get_bytes(*sid) == Some(text.as_bytes()),
-            |sid| symbol_text_hash(texts.get(*sid).expect("indexed SIDs have text")),
-        ) {
-            Entry::Occupied(entry) => return Ok(*entry.get()),
-            Entry::Vacant(entry) => entry,
-        };
-        if let Some(sid) = Self::system_sid_for(self.ion_version, text) {
+        let sid = match system_sid {
             // Later lookups of this system text find its SID in the index.
-            entry.insert(sid);
-            return Ok(sid);
-        }
-        let sid = self.texts.insert(text)?;
-        entry.insert(sid);
-        self.num_pending += 1;
+            Some(sid) => sid,
+            None => {
+                let sid = self.texts.insert(text)?;
+                self.num_pending += 1;
+                sid
+            }
+        };
+        let texts = &self.texts;
+        self.ids_by_text.insert_unique(hash, sid, |sid| {
+            symbol_text_hash(texts.get(*sid).expect("indexed SIDs have text"))
+        });
         Ok(sid)
     }
 
