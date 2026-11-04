@@ -221,6 +221,7 @@ mod tests {
     use crate::{
         AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader, Sequence, ValueRef,
     };
+    use std::sync::OnceLock;
 
     fn test_data() -> String {
         let test_data = r#"
@@ -345,6 +346,19 @@ mod tests {
         Ok(types)
     }
 
+    /// `Element::read_all(text)`, parsed on the first call with each `cache` and shared after that.
+    /// Parsing is slow under Miri, so fixtures that many tests check against are parsed once per
+    /// process.
+    fn read_all_once(
+        cache: &'static OnceLock<IonResult<Vec<Element>>>,
+        text: &str,
+    ) -> IonResult<&'static [Element]> {
+        cache
+            .get_or_init(|| Element::read_all(text).map(Vec::from))
+            .as_deref()
+            .map_err(Clone::clone)
+    }
+
     /// Annotations on scalars and on each container type, including quoted, escaped,
     /// comment-separated, and symbol ID ones (`$4` is `name`; `$0` has no text), alongside
     /// unannotated values.
@@ -361,6 +375,11 @@ mod tests {
         $0::t
         $4::$0::[u]
     "#;
+
+    fn annotated_elements() -> IonResult<&'static [Element]> {
+        static EXPECTED: OnceLock<IonResult<Vec<Element>>> = OnceLock::new();
+        read_all_once(&EXPECTED, ANNOTATED)
+    }
 
     fn annotation_texts<E: Decoder>(element: &LazyElement<E>) -> IonResult<Vec<Option<String>>> {
         // `LazyResource` only derefs, so take the iterator out of it to consume it.
@@ -460,9 +479,9 @@ mod tests {
     // ===== Binary =====
     mod binary_soundness_tests {
         use super::{
-            assert_annotations_match, assert_elements_match, assert_elements_match_text,
-            assert_header_accessors_match_lazy_value, collect_ion_types,
-            store_elements_then_drop_reader, test_data, ANNOTATED, ARENA_GROWTH_ITERATIONS,
+            annotated_elements, assert_annotations_match, assert_elements_match,
+            assert_elements_match_text, assert_header_accessors_match_lazy_value,
+            collect_ion_types, store_elements_then_drop_reader, test_data, ARENA_GROWTH_ITERATIONS,
         };
         use crate::lazy::binary::test_utilities::{elements_to_binary_ion, to_binary_ion};
         use crate::lazy::encoding::BinaryEncoding_1_0;
@@ -544,10 +563,10 @@ mod tests {
         fn stored_annotations_match_elements<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
-            let expected = Element::read_all(ANNOTATED)?;
+            let expected = annotated_elements()?;
             let elements =
-                store_elements_then_drop_reader(encoding, elements_to_binary_ion(&expected)?)?;
-            assert_annotations_match(expected.as_ref(), &elements)
+                store_elements_then_drop_reader(encoding, elements_to_binary_ion(expected)?)?;
+            assert_annotations_match(expected, &elements)
         }
 
         #[rstest]
@@ -808,10 +827,10 @@ mod tests {
     // cache, and the scalar path, under Miri.
     mod text_soundness_tests {
         use super::{
-            annotation_texts, assert_annotations_match, assert_annotations_match_text,
-            assert_elements_match, assert_elements_match_text,
-            assert_header_accessors_match_lazy_value, store_elements_then_drop_reader,
-            traverse_all, ANNOTATED, ARENA_GROWTH_ITERATIONS,
+            annotated_elements, annotation_texts, assert_annotations_match,
+            assert_annotations_match_text, assert_elements_match, assert_elements_match_text,
+            assert_header_accessors_match_lazy_value, read_all_once,
+            store_elements_then_drop_reader, traverse_all, ANNOTATED, ARENA_GROWTH_ITERATIONS,
         };
         use crate::lazy::decoder::private::DetachableValue;
         use crate::lazy::encoding::TextEncoding_1_0;
@@ -837,14 +856,9 @@ mod tests {
             []
         "#;
 
-        /// `Element::read_all(TEXT)`, parsed once per process and shared by the tests that check
-        /// against it.
         fn expected_text_elements() -> IonResult<&'static [Element]> {
             static EXPECTED: OnceLock<IonResult<Vec<Element>>> = OnceLock::new();
-            EXPECTED
-                .get_or_init(|| Element::read_all(TEXT).map(Vec::from))
-                .as_deref()
-                .map_err(Clone::clone)
+            read_all_once(&EXPECTED, TEXT)
         }
 
         #[rstest]
@@ -864,7 +878,7 @@ mod tests {
             if populate_first {
                 traverse_all(&elements)?;
             }
-            assert_annotations_match_text(ANNOTATED, &elements)
+            assert_annotations_match(annotated_elements()?, &elements)
         }
 
         /// Symbol ID annotations resolve against the symbol table active when each value was
