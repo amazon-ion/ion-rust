@@ -180,6 +180,157 @@ pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
     string_escape_codes
 }
 
+/// Escape sequences for the bytes that string and symbol text must escape. An empty entry means the
+/// byte is written as-is. Every escaped byte is ASCII, so scanning UTF-8 text a byte at a time
+/// (rather than a `char` at a time) finds exactly the same escapes.
+const TEXT_ESCAPE_CODES: [&str; 256] = text_escape_code_init();
+
+const fn text_escape_code_init() -> [&'static str; 256] {
+    let mut codes = [""; 256];
+    codes[b'\n' as usize] = r"\n";
+    codes[b'\r' as usize] = r"\r";
+    codes[b'\t' as usize] = r"\t";
+    codes[b'\\' as usize] = r"\\";
+    codes[b'"' as usize] = r#"\""#;
+    codes[b'\'' as usize] = r"\'";
+    codes[0x00] = r"\0"; // NUL
+    codes[0x07] = r"\a"; // alert BEL
+    codes[0x08] = r"\b"; // backspace
+    codes[0x0B] = r"\v"; // vertical tab
+    codes[0x0C] = r"\f"; // form feed
+    codes
+}
+
+const SWAR_LOW_BITS: u64 = u64::from_ne_bytes([0x01; 8]);
+const SWAR_HIGH_BITS: u64 = u64::from_ne_bytes([0x80; 8]);
+
+// The helpers below are SWAR (SIMD within a register) byte tests: the "has zero byte" and "has
+// less than n" tricks from Sean Anderson's Bit Twiddling Hacks.
+
+/// Returns a nonzero value if any byte of `word` is zero.
+#[inline]
+const fn swar_zero_byte_mask(word: u64) -> u64 {
+    word.wrapping_sub(SWAR_LOW_BITS) & !word & SWAR_HIGH_BITS
+}
+
+/// Returns `true` if any byte of `word` may need escaping in string or symbol text: a byte below
+/// `0x0E` (which covers every escaped control byte), a double quote, a single quote, or a
+/// backslash. Bytes `0x01..=0x06` are false positives; the per-byte table resolves them.
+///
+/// The "has less than n" test for `0x0E` is exact only because `0x0E <= 0x80`.
+#[inline]
+const fn swar_may_need_escape(word: u64) -> bool {
+    let below_0x0e = word.wrapping_sub(SWAR_LOW_BITS * 0x0E) & !word & SWAR_HIGH_BITS;
+    let double_quote = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'"' as u64));
+    let single_quote = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'\'' as u64));
+    let backslash = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'\\' as u64));
+    (below_0x0e | double_quote | single_quote | backslash) != 0
+}
+
+/// Returns `true` if `text` can be written as a symbol without quotes: it is an identifier (a `$`,
+/// `_`, or ASCII letter followed by any number of `$`, `_`, or ASCII alphanumerics) that cannot be
+/// mistaken for a keyword (`true`, `false`, `nan`, `null`), a symbol ID, or a version marker.
+///
+/// Text is quoted if it is `$` followed by one or more digits and nothing else (a symbol ID such as
+/// `$12`; a lone `$` is not quoted) or if it is a version marker (`$ion_`, digits, `_`, digits,
+/// such as `$ion_1_0`).
+pub(crate) fn is_unquoted_symbol_text(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let Some(&first) = bytes.first() else {
+        return false;
+    };
+    if first.is_ascii_digit() || !is_identifier_text(bytes) {
+        return false;
+    }
+    match *bytes {
+        [b'$', ref rest @ ..] => !resembles_symbol_id_or_version_marker(rest),
+        [b't' | b'f' | b'n', ..] => !matches!(bytes, b"true" | b"false" | b"nan" | b"null"),
+        _ => true,
+    }
+}
+
+/// Returns `true` if `rest`, the text that follows a leading `$`, is one or more digits or is
+/// `ion_` followed by one or more digits, `_`, and one or more digits.
+fn resembles_symbol_id_or_version_marker(rest: &[u8]) -> bool {
+    let is_digits = |bytes: &[u8]| !bytes.is_empty() && bytes.iter().all(u8::is_ascii_digit);
+    match rest {
+        [b'i', b'o', b'n', b'_', version @ ..] => version
+            .iter()
+            .position(|&byte| byte == b'_')
+            .is_some_and(|split| is_digits(&version[..split]) && is_digits(&version[split + 1..])),
+        _ => is_digits(rest),
+    }
+}
+
+/// Returns a word with the high bit set in each byte of `word` that is in `low..=high`, where
+/// `low <= high <= 0x7F`. The result is meaningful only if every byte of `word` is ASCII, so that
+/// no byte's sum carries into the next; a non-ASCII byte gives meaningless bits, which the caller
+/// discards by testing the high bits of `word` itself.
+#[inline]
+const fn swar_ascii_in_range(word: u64, low: u8, high: u8) -> u64 {
+    let at_least_low = word.wrapping_add(SWAR_LOW_BITS * (0x80 - low as u64));
+    let above_high = word.wrapping_add(SWAR_LOW_BITS * (0x7F - high as u64));
+    at_least_low & !above_high & SWAR_HIGH_BITS
+}
+
+/// Returns `true` if every byte of `word` is `$`, `_`, or an ASCII alphanumeric.
+#[inline]
+const fn swar_is_identifier_word(word: u64) -> bool {
+    // Setting bit 5 maps `A..=Z` onto `a..=z` and maps no other byte into that range.
+    let letters = swar_ascii_in_range(word | (SWAR_LOW_BITS * 0x20), b'a', b'z');
+    let digits = swar_ascii_in_range(word, b'0', b'9');
+    let underscores = swar_ascii_in_range(word, b'_', b'_');
+    let dollars = swar_ascii_in_range(word, b'$', b'$');
+    // The ranges are meaningful only for an all-ASCII word, which the high-bit test checks.
+    ((word & SWAR_HIGH_BITS) == 0) & ((letters | digits | underscores | dollars) == SWAR_HIGH_BITS)
+}
+
+/// Packs three bytes into the low lanes of a word whose other lanes hold an identifier byte.
+#[inline]
+const fn swar_short_word(first: u8, middle: u8, last: u8) -> u64 {
+    (SWAR_LOW_BITS * b'a' as u64) & !0xFF_FFFF
+        | first as u64
+        | (middle as u64) << 8
+        | (last as u64) << 16
+}
+
+/// Returns the last 8 bytes of `bytes` as a word or, for fewer bytes, a word in which every lane
+/// holds a byte of `bytes` or `b'a'` (which needs no escaping and is an identifier byte). Every byte
+/// of a shorter, nonempty `bytes` is in some lane; 4 to 7 bytes are packed as two overlapping
+/// halves.
+#[inline]
+fn last_word(bytes: &[u8]) -> u64 {
+    if let Some(word) = bytes.last_chunk::<8>() {
+        return u64::from_ne_bytes(*word);
+    }
+    if let (Some(head), Some(tail)) = (bytes.first_chunk::<4>(), bytes.last_chunk::<4>()) {
+        return u32::from_ne_bytes(*head) as u64 | (u32::from_ne_bytes(*tail) as u64) << 32;
+    }
+    match *bytes {
+        [] => SWAR_LOW_BITS * b'a' as u64,
+        [a] => swar_short_word(a, a, a),
+        [a, b] => swar_short_word(a, a, b),
+        [a, b, c, ..] => swar_short_word(a, b, c),
+    }
+}
+
+/// Returns `true` if every byte of `bytes` is `$`, `_`, or an ASCII alphanumeric, testing a word
+/// (8 bytes, or fewer packed into one word) at a time.
+fn is_identifier_text(bytes: &[u8]) -> bool {
+    if bytes.len() <= 8 {
+        return swar_is_identifier_word(last_word(bytes));
+    }
+    let mut rest = bytes;
+    while let Some((word, remaining)) = rest.split_first_chunk::<8>() {
+        if !swar_is_identifier_word(u64::from_ne_bytes(*word)) {
+            return false;
+        }
+        rest = remaining;
+    }
+    // The last word overlaps the bytes already tested.
+    rest.is_empty() || swar_is_identifier_word(last_word(bytes))
+}
+
 const ZEROS: &str = "00000000000000000000000000000000";
 
 /// Writes `value` in base 10, left-padded with zeros to at least `width` digits.
@@ -268,118 +419,83 @@ impl<W: io::Write> fmt::Write for IoValueFormatter<W> {
 }
 
 impl<W: fmt::Write> FmtValueFormatter<'_, W> {
-    /// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
-    /// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
-    /// and numbers. Examples:
-    /// * `firstName`
-    /// * `first_name`
-    /// * `name_1`
-    /// * `$name`
-    ///
-    /// Unlike other symbols, identifiers don't have to be wrapped in quotes.
-    fn token_is_identifier(token: &str) -> bool {
-        if token.is_empty() {
-            return false;
-        }
-        let mut chars = token.chars();
-        let first = chars.next().unwrap();
-        (first == '$' || first == '_' || first.is_ascii_alphabetic())
-            && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
-    }
-
-    /// Returns `true` if the provided text is an Ion keyword. Keywords like `true` or `null`
-    /// resemble identifiers, but writers must wrap them in quotes when using them as symbol text.
-    fn token_is_keyword(token: &str) -> bool {
-        const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
-        KEYWORDS.contains(&token)
-    }
-
-    /// Returns `true` if this token's text resembles a symbol ID literal. For example: `'$99'` is a
-    /// symbol with the text `$99`. However, `$99` (without quotes) is a symbol ID that maps to
-    /// different text.
-    fn token_resembles_symbol_id(token: &str) -> bool {
-        match token.as_bytes() {
-            [b'$', digits @ ..] => !digits.is_empty() && digits.iter().all(u8::is_ascii_digit),
-            _ => false,
-        }
-    }
-
-    /// Returns `true` if this token's text resembles an Ion version marker (e.g. `$ion_1_1`).
-    /// Without quotes, such text at the top level reads as a version marker, not a symbol.
-    fn token_resembles_version_marker(token: &str) -> bool {
-        let is_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-        token
-            .strip_prefix("$ion_")
-            .and_then(|version| version.split_once('_'))
-            .is_some_and(|(major, minor)| is_digits(major) && is_digits(minor))
-    }
-
+    // Always inlined so that the text writer's symbol and field name writes dispatch on the token
+    // and write a SID or unquoted text without calling `format_symbol_token`.
+    #[inline(always)]
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
         use RawSymbolRef::*;
-        let write_result = match token.as_raw_symbol_ref() {
-            SymbolId(sid) => write!(self.output, "${sid}"),
-            // If the text could be mistaken for a keyword, symbol ID, or version marker, wrap it in
-            // single quotes.
-            Text(text)
-                if Self::token_is_keyword(text)
-                    || Self::token_resembles_symbol_id(text)
-                    || Self::token_resembles_version_marker(text) =>
-            {
-                write!(self.output, "'{text}'")
+        match token.as_raw_symbol_ref() {
+            SymbolId(sid) => {
+                self.output.write_str("$")?;
+                self.output.write_str(itoa::Buffer::new().format(sid))?;
             }
-            // If the text is an identifier, it doesn't require quotes.
-            Text(text) if Self::token_is_identifier(text) => write!(self.output, "{text}"),
-            // Any other text has its escape sequences substituted and is wrapped in quotes.
-            Text(text) => {
-                // Write the symbol text using quotes and escaping any characters that require it.
-                write!(self.output, "\'")?;
-                self.format_escaped_text_body(text)?;
-                write!(self.output, "\'")
-            }
-        };
-        // Convert the fmt::Result into an IonResult
-        Ok(write_result?)
+            // If the text is an identifier that can't be mistaken for a keyword, symbol ID, or
+            // version marker, it doesn't require quotes.
+            Text(text) if is_unquoted_symbol_text(text) => self.output.write_str(text)?,
+            Text(text) => self.format_quoted_symbol_text(text)?,
+        }
+        Ok(())
+    }
+
+    /// Writes `text` wrapped in single quotes, with its escape sequences substituted.
+    // Outlined so that inlining `format_symbol_token` does not copy the escape loop into each
+    // symbol call site.
+    #[inline(never)]
+    fn format_quoted_symbol_text(&mut self, text: &str) -> IonResult<()> {
+        self.output.write_str("'")?;
+        self.format_escaped_text_body(text)?;
+        self.output.write_str("'")?;
+        Ok(())
     }
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
-    /// characters escaped.
+    /// characters escaped. Runs of text that need no escaping are written with a single call.
+    // Always inlined so that each string or quoted symbol write runs the escape scan without a
+    // further call.
+    #[inline(always)]
     pub(crate) fn format_escaped_text_body<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
-        let mut start = 0usize;
         let text = value.as_ref();
-        for (byte_index, character) in text.char_indices() {
-            let escaped = match character {
-                '\n' => r"\n",
-                '\r' => r"\r",
-                '\t' => r"\t",
-                '\\' => r"\\",
-                '"' => r#"\""#,
-                '\'' => r"\'",
-                '\x00' => r"\0", // NUL
-                '\x07' => r"\a", // alert BEL
-                '\x08' => r"\b", // backspace
-                '\x0B' => r"\v", // vertical tab
-                '\x0C' => r"\f", // form feed
-                _ => {
-                    // Other characters can be left as-is
+        let bytes = text.as_bytes();
+        // `unwritten` is the start of the text that has been scanned but not yet written.
+        let mut unwritten = 0usize;
+        let mut index = 0usize;
+        while index < bytes.len() {
+            let scan_end = match bytes[index..].first_chunk::<8>() {
+                Some(word) if !swar_may_need_escape(u64::from_ne_bytes(*word)) => {
+                    index += 8;
                     continue;
                 }
+                Some(_) => index + 8,
+                // Fewer than 8 bytes remain. If the word ending at the last byte (which may
+                // overlap bytes already scanned) needs no escaping, neither do they.
+                None if !swar_may_need_escape(last_word(bytes)) => break,
+                None => bytes.len(),
             };
-            // If we reach this point, the current character needed to be escaped.
-            // Write all of the text leading up to this character to output, then the escaped
-            // version of this character.
-            write!(self.output, "{}{}", &text[start..byte_index], escaped)?;
-            // Update `start` to point to the first byte after the end of this character.
-            start = byte_index + character.len_utf8();
+            while index < scan_end {
+                let escape = TEXT_ESCAPE_CODES[bytes[index] as usize];
+                if !escape.is_empty() {
+                    self.output.write_str(&text[unwritten..index])?;
+                    self.output.write_str(escape)?;
+                    unwritten = index + 1;
+                }
+                index += 1;
+            }
         }
-        write!(self.output, "{}", &text[start..])?;
+        self.output.write_str(&text[unwritten..])?;
         Ok(())
     }
 
     pub(crate) fn format_annotations(&mut self, annotations: &Annotations) -> IonResult<()> {
         for annotation in annotations {
-            self.format_symbol(annotation)?;
-            write!(self.output, "::")?;
+            self.format_annotation(annotation)?;
         }
+        Ok(())
+    }
+
+    /// Writes `annotation` followed by `::`.
+    pub(crate) fn format_annotation<A: AsRawSymbolRef>(&mut self, annotation: A) -> IonResult<()> {
+        self.format_symbol_token(annotation)?;
+        self.output.write_str("::")?;
         Ok(())
     }
 
@@ -673,6 +789,207 @@ mod fast_path_tests {
     use super::*;
     use crate::{Element, IonResult};
     use rstest::rstest;
+
+    /// The `char`-at-a-time escaper that the byte scan in `format_escaped_text_body` must match.
+    fn reference_escaped_text_body(text: &str) -> String {
+        let mut output = String::new();
+        for character in text.chars() {
+            match character {
+                '\n' => output.push_str(r"\n"),
+                '\r' => output.push_str(r"\r"),
+                '\t' => output.push_str(r"\t"),
+                '\\' => output.push_str(r"\\"),
+                '"' => output.push_str(r#"\""#),
+                '\'' => output.push_str(r"\'"),
+                '\x00' => output.push_str(r"\0"),
+                '\x07' => output.push_str(r"\a"),
+                '\x08' => output.push_str(r"\b"),
+                '\x0B' => output.push_str(r"\v"),
+                '\x0C' => output.push_str(r"\f"),
+                other => output.push(other),
+            }
+        }
+        output
+    }
+
+    fn escaped_text_body(text: &str) -> IonResult<String> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_escaped_text_body(text)?;
+        Ok(output)
+    }
+
+    /// Each special byte (and a multi-byte character) at every position across two SWAR words,
+    /// padded with text that never needs escaping.
+    #[rstest]
+    fn escaped_text_body_matches_reference_at_every_offset(
+        #[values(
+            "\n", "\r", "\t", "\\", "\"", "'", "\0", "\x07", "\x08", "\x0B", "\x0C", "\x01",
+            "\x06", "\x0E", "\x1F", "\x7F", "é", "日", "😀"
+        )]
+        special: &str,
+    ) -> IonResult<()> {
+        for prefix_len in 0..20 {
+            for suffix_len in 0..=9 {
+                let text = format!(
+                    "{}{special}{}",
+                    "a".repeat(prefix_len),
+                    "b".repeat(suffix_len)
+                );
+                assert_eq!(
+                    escaped_text_body(&text)?,
+                    reference_escaped_text_body(&text),
+                    "text: {text:?}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// The SWAR prefilter must flag every byte that `TEXT_ESCAPE_CODES` escapes, in every lane of an
+    /// otherwise clean word; a byte it missed would be written unescaped. The non-ASCII backgrounds
+    /// set the high bit of every lane except `lane`.
+    #[rstest]
+    fn swar_prefilter_flags_every_escaped_byte(
+        #[values(0, 1, 2, 3, 4, 5, 6, 7)] lane: usize,
+        #[values(b'a', 0x80, 0xBF, 0xC3, 0xFF)] background: u8,
+    ) {
+        for byte in 0..=u8::MAX {
+            if TEXT_ESCAPE_CODES[byte as usize].is_empty() {
+                continue;
+            }
+            let mut word = [background; 8];
+            word[lane] = byte;
+            assert!(
+                swar_may_need_escape(u64::from_ne_bytes(word)),
+                "byte {byte:#04x} in lane {lane}, background {background:#04x}"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case::empty("")]
+    #[case::all_escapes("\n\r\t\\\"'\0\x07\x08\x0B\x0C")]
+    #[case::adjacent_escapes_across_words("aaaaaaa\"\"bbbbbbb\\\\ccccccc''")]
+    #[case::non_ascii_between_escapes("é\"日\n😀'")]
+    fn escaped_text_body_matches_reference(#[case] text: &str) -> IonResult<()> {
+        assert_eq!(escaped_text_body(text)?, reference_escaped_text_body(text));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::identifier("foo", true)]
+    #[case::leading_underscore("_foo", true)]
+    #[case::leading_dollar("$foo", true)]
+    #[case::trailing_digits("foo_12", true)]
+    #[case::dollar_type("$type", true)]
+    #[case::dollar_ion("$ion", true)]
+    #[case::system_symbol("$ion_symbol_table", true)]
+    #[case::dollar_ion_underscore("$ion_", true)]
+    #[case::version_marker_prefix("$ion_1", true)]
+    #[case::version_marker_then_letter("$ion_1_0x", true)]
+    #[case::version_marker_then_underscore("$ion_1_0_0", true)]
+    #[case::version_marker_without_minor("$ion_1_", true)]
+    #[case::trailing_dollar_digits("a$12", true)]
+    #[case::keyword_prefix("nulls", true)]
+    #[case::keyword_suffix("anull", true)]
+    #[case::capitalized_keyword("True", true)]
+    #[case::long_identifier(
+        "abcdefghijklmnopqrstuvwxyz_ABCDEFGHIJKLMNOPQRSTUVWXYZ$0123456789",
+        true
+    )]
+    #[case::lone_dollar("$", true)]
+    #[case::dollar_digits_then_letter("$1a", true)]
+    #[case::dollar_digits_then_underscore("$1_0", true)]
+    #[case::dollar_digits_then_dollar("$1$2", true)]
+    #[case::version_marker("$ion_1_0", false)]
+    #[case::other_version_marker("$ion_12_34", false)]
+    #[case::empty("", false)]
+    #[case::keyword_true("true", false)]
+    #[case::keyword_false("false", false)]
+    #[case::keyword_nan("nan", false)]
+    #[case::keyword_null("null", false)]
+    #[case::symbol_id("$12", false)]
+    #[case::symbol_id_zero("$0", false)]
+    #[case::leading_digit("1abc", false)]
+    #[case::space("a b", false)]
+    #[case::dash("a-b", false)]
+    #[case::non_ascii("é", false)]
+    #[case::non_ascii_digits_after_dollar("$١٢", false)]
+    fn unquoted_symbol_text(#[case] text: &str, #[case] expected: bool) {
+        assert_eq!(is_unquoted_symbol_text(text), expected);
+    }
+
+    /// Each byte value at every position of identifier text of each length up to a little more
+    /// than two words, which covers the short, single-word, and multi-word paths of the SWAR test.
+    #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    fn identifier_text_matches_per_byte_test(
+        #[values(b'a', b'Z', b'0', b'_', b'$')] background: u8,
+    ) {
+        for len in 0..=17 {
+            let mut text = vec![background; len];
+            assert!(is_identifier_text(&text), "len {len}");
+            for position in 0..len {
+                for byte in 0..=u8::MAX {
+                    text[position] = byte;
+                    assert_eq!(
+                        is_identifier_text(&text),
+                        byte == b'$' || byte == b'_' || byte.is_ascii_alphanumeric(),
+                        "byte {byte:#04x} at {position} of {len}, background {background:#04x}"
+                    );
+                }
+                text[position] = background;
+            }
+        }
+    }
+
+    #[rstest]
+    #[case::identifier(RawSymbolRef::Text("foo"), "foo")]
+    #[case::keyword(RawSymbolRef::Text("true"), "'true'")]
+    #[case::resembles_symbol_id(RawSymbolRef::Text("$12"), "'$12'")]
+    #[case::lone_dollar(RawSymbolRef::Text("$"), "$")]
+    #[case::empty(RawSymbolRef::Text(""), "''")]
+    #[case::space(RawSymbolRef::Text("a b"), "'a b'")]
+    #[case::single_quote(RawSymbolRef::Text("a'b"), r"'a\'b'")]
+    #[case::symbol_id(RawSymbolRef::SymbolId(10), "$10")]
+    fn symbol_token_text(#[case] token: RawSymbolRef<'_>, #[case] expected: &str) -> IonResult<()> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_symbol_token(token)?;
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::text(RawSymbolRef::Text("foo"), "foo::")]
+    #[case::quoted_text(RawSymbolRef::Text("a b"), "'a b'::")]
+    #[case::symbol_id(RawSymbolRef::SymbolId(10), "$10::")]
+    fn annotation_text(#[case] token: RawSymbolRef<'_>, #[case] expected: &str) -> IonResult<()> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_annotation(token)?;
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    /// Symbol text that starts like a symbol ID, a version marker, or a keyword, as a top-level
+    /// value (where a version marker is recognized) and inside a list.
+    #[rstest]
+    #[case::symbol_id("$12")]
+    #[case::symbol_id_then_identifier("$12a")]
+    #[case::symbol_id_then_dollar("$1$2")]
+    #[case::lone_dollar("$")]
+    #[case::version_marker("$ion_1_1")]
+    #[case::version_marker_then_identifier("$ion_1_0x")]
+    #[case::keyword("null")]
+    fn ambiguous_symbol_text_round_trips(#[case] text: &str) -> IonResult<()> {
+        for element in [
+            Element::symbol(text),
+            Element::from(crate::ion_list![Element::symbol(text)]),
+        ] {
+            let read = Element::read_all(element.to_string())?;
+            assert_eq!(read, Sequence::from(vec![element.clone()]), "{element}");
+        }
+        Ok(())
+    }
 
     #[rstest]
     #[case::zero_no_width(0, 0, "0")]
