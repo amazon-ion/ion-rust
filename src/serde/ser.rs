@@ -6,24 +6,25 @@ use serde::{ser, Serialize};
 
 use crate::lazy::encoder::value_writer::internal::{FieldEncoder, MakeValueWriter};
 use crate::lazy::encoder::value_writer::{SequenceWriter, StructWriter, ValueWriter};
-use crate::lazy::encoder::writer::Writer;
-use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, TextEncoding_1_0};
+use crate::lazy::encoder::writer::{IntoWriterConfig, Writer, WriterStyle};
+use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
 use crate::result::IonFailure;
 use crate::serde::decimal::TUNNELED_DECIMAL_TYPE_NAME;
 use crate::serde::timestamp::TUNNELED_TIMESTAMP_TYPE_NAME;
 use crate::serde::TunnelBytes;
 use crate::symbol_ref::AsSymbolRef;
-use crate::write_config::{WriteConfig, WriteConfigKind};
+use crate::write_config::WriteConfig;
 use crate::Value::Null;
-use crate::{Decimal, IonError, IonResult, IonType, TextFormat, Timestamp};
+use crate::{v1_0, Decimal, IonError, IonResult, IonType, Timestamp};
 
-fn write_with_config<T: Serialize, E: Encoding>(
+// `to_pretty` and `to_string` each use a marker style, which trades code size for speed: a type
+// serialized as both pretty and compact text has its serializer compiled once per style.
+fn write_with_config<T: Serialize, E: Encoding, S: WriterStyle>(
     value: &T,
-    config: WriteConfig<E>,
+    config: impl IntoWriterConfig<E, S>,
 ) -> IonResult<Vec<u8>> {
-    let is_human_readable = matches!(config.kind(), WriteConfigKind::Text(_));
     let mut writer = Writer::new(config, vec![])?;
-    let serializer = ValueSerializer::new(writer.value_writer(), is_human_readable);
+    let serializer = ValueSerializer::new(writer.value_writer(), E::is_text());
     value.serialize(serializer)?;
     writer.close()
 }
@@ -35,8 +36,7 @@ pub fn to_pretty<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    let config = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Pretty);
-    let bytes = write_with_config(value, config)?;
+    let bytes = write_with_config(value, v1_0::PrettyText)?;
     match String::from_utf8(bytes) {
         Ok(data) => Ok(data),
         Err(e) => IonResult::encoding_error(e.to_string()),
@@ -48,8 +48,7 @@ pub fn to_string<T>(value: &T) -> IonResult<String>
 where
     T: Serialize,
 {
-    let config = WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact);
-    let bytes = write_with_config(value, config)?;
+    let bytes = write_with_config(value, v1_0::CompactText)?;
     match String::from_utf8(bytes) {
         Ok(data) => Ok(data),
         Err(e) => IonResult::encoding_error(e.to_string()),

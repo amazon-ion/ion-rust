@@ -1,10 +1,8 @@
 use std::io;
 use std::marker::PhantomData;
 
-use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::writer::Writer;
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, OutputFromBytes, TextEncoding_1_0};
 use crate::{IonResult, TextFormat};
 
@@ -12,6 +10,8 @@ use crate::{IonResult, TextFormat};
 /// This will be used to create a writer without specifying which writer methods to use
 #[derive(Clone, Debug)]
 pub struct WriteConfig<E: Encoding> {
+    // The variant is determined by `E`: `Text` for a text encoding, `Binary` for a binary one. Every
+    // constructor upholds this, and `text_format` relies on it.
     kind: WriteConfigKind,
     max_depth: u16,
     phantom_data: PhantomData<E>,
@@ -88,9 +88,7 @@ impl<E: Encoding> WriteConfig<E> {
         value: V,
         output: W,
     ) -> IonResult<W> {
-        let mut writer = Writer::new(self.clone(), output)?;
-        writer.write(value)?;
-        writer.close()
+        self.encode_all_to(output, [value])
     }
 
     pub(crate) fn encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: io::Write>(
@@ -98,9 +96,7 @@ impl<E: Encoding> WriteConfig<E> {
         output: W,
         values: I,
     ) -> IonResult<W> {
-        let mut writer = Writer::new(self.clone(), output)?;
-        writer.write_all(values)?;
-        writer.close()
+        E::dispatch_encode_all_to(self, output, values)
     }
 }
 
@@ -110,6 +106,17 @@ impl WriteConfig<TextEncoding_1_0> {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
             max_depth: u16::MAX,
             phantom_data: Default::default(),
+        }
+    }
+
+    /// The text format of this configuration. A text encoding's configuration always has the
+    /// `Text` kind.
+    pub(crate) fn text_format(&self) -> TextFormat {
+        match self.kind() {
+            WriteConfigKind::Text(text_config) => text_config.text_kind,
+            WriteConfigKind::Binary(_) => {
+                unreachable!("Text writer config can not have a binary encoding")
+            }
         }
     }
 }

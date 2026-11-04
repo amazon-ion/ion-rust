@@ -192,7 +192,8 @@ impl TextStyle for RuntimeStyle {
 }
 
 /// Implements `Sealed` and `TextStyle` for a zero-sized style that writes the layout of `$format`
-/// with the given indentation state. This is the only place that pairs a style with its format.
+/// with the given indentation state. This is the only place that pairs a style with its format:
+/// `TextEncoding_1_0::dispatch_encode_all_to` matches on each style's `FORMAT` to choose a style.
 macro_rules! impl_static_text_style {
     ($style:ident, $format:path, $indentation:ident) => {
         impl $style {
@@ -229,7 +230,8 @@ macro_rules! impl_static_text_style {
 /// `Writer<v1_0::Text, Output, v1_0::CompactText>`, whose code is specialized to the compact
 /// layout. It writes the same text as a writer built from
 /// `v1_0::Text.with_format(TextFormat::Compact)`, a `TextWriter<Output>` that reads its layout at
-/// run time. `encode_as` and `encode_to` take only run-time-styled configurations.
+/// run time. `encode_as` and `encode_to` take only run-time-styled configurations; each call
+/// encodes with the style of the configured format.
 ///
 /// ```
 ///# use ion_rs::IonResult;
@@ -331,6 +333,8 @@ impl From<TextFormat> for &'static WhitespaceConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lazy::encoder::writer::private::SealedWriterConfig;
+    use crate::lazy::encoding::TextEncoding_1_0;
     use rstest::rstest;
 
     #[rstest]
@@ -392,5 +396,24 @@ mod tests {
                 "`{field}` is {layout:?}, longer than the two bytes `write_layout` writes without a copy"
             );
         }
+    }
+
+    /// Each zero-sized style has the layout of its format's run-time config, which is the layout a
+    /// `RuntimeStyle` built for that format reads, and configures a writer for that format.
+    #[rstest]
+    #[case::compact(CompactText, TextFormat::Compact)]
+    #[case::lines(LinesText, TextFormat::Lines)]
+    #[case::pretty(PrettyText, TextFormat::Pretty)]
+    fn style_matches_format_config<S: TextStyle + SealedWriterConfig<TextEncoding_1_0, S>>(
+        #[case] style: S,
+        #[case] format: TextFormat,
+    ) {
+        let format_config: &WhitespaceConfig = format.into();
+        assert_eq!(style.whitespace(), format_config);
+        assert_eq!(
+            RuntimeStyle::from_format(format).whitespace(),
+            format_config
+        );
+        assert_eq!(style.into_write_config().text_format(), format);
     }
 }

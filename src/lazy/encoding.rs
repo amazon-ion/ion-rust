@@ -52,7 +52,8 @@ use winnow::Parser;
 /// Marker trait for types that represent an Ion encoding.
 // `ManagedWriterEncoding` and `StyledEncoding` are supertraits in crate-private modules rather than
 // members on `Encoder` or `Encoding`, so that code outside the crate can neither name nor implement
-// them and the managed writer's buffer sizing and per-style raw writers are hidden from the docs. Their items are still reachable through an `E: Encoding` bound, but
+// them and the managed writer's buffer sizing, per-style raw writers, and run-time format dispatch
+// are hidden from the docs. Their items are still reachable through an `E: Encoding` bound, but
 // they are not a supported API.
 pub trait Encoding: Encoder + Decoder + ManagedWriterEncoding + StyledEncoding {
     type Output: 'static + OutputFromBytes + AsRef<[u8]>;
@@ -725,7 +726,7 @@ mod tests {
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::value_writer::SequenceWriter;
     use crate::lazy::encoder::write_as_ion::WriteAsIon;
-    use crate::lazy::encoder::writer::{IntoWriterConfig, Writer, WriterStyle};
+    use crate::lazy::encoder::writer::{IntoWriterConfig, Writer, WriterStyle, LAST_ENCODED_STYLE};
     use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::encoding::{Encoding, TextEncoding};
     use crate::lazy::expanded::lazy_element::LazyElement;
@@ -733,10 +734,12 @@ mod tests {
     use crate::lazy::span::Span;
     use crate::lazy::text::buffer::TextBuffer;
     use crate::lazy::text::value::LazyRawTextValue_1_0;
+    use crate::text::whitespace_config::{CompactText, LinesText, PrettyText, RuntimeStyle};
     use crate::{
         ion_list, ion_seq, ion_sexp, ion_struct, v1_0, Element, IonData, IonResult, Reader,
         Sequence, TextFormat, WriteConfig,
     };
+    use std::any::type_name;
 
     /// `share` rejects a container that is not from its owner's parse rather than extending a
     /// borrow the owner does not keep alive. Each case breaks one of its two conditions.
@@ -1537,6 +1540,52 @@ mod tests {
         }
         let text = encode.encode_text(&document.read()?)?;
         assert_eq!(text, document.expected_text(TextFormat::Pretty));
+        Ok(())
+    }
+
+    /// `Encoding`'s text helpers encode with the zero-sized style of the default format, Pretty.
+    #[rstest]
+    fn text_default_encodings_use_the_pretty_style(
+        #[values(
+            EncodeWithDefault::Encode,
+            EncodeWithDefault::EncodeTo,
+            EncodeWithDefault::EncodeAll,
+            EncodeWithDefault::EncodeAllTo
+        )]
+        encode: EncodeWithDefault,
+    ) -> IonResult<()> {
+        LAST_ENCODED_STYLE.set(None);
+        encode.encode_text(&Document::Nested.read()?)?;
+        assert_eq!(LAST_ENCODED_STYLE.get(), Some(type_name::<PrettyText>()));
+        Ok(())
+    }
+
+    /// `encode_as` and `encode_to` encode a run-time-styled text configuration with the zero-sized
+    /// style of its format, and binary with the run-time style.
+    #[rstest]
+    #[case::compact(v1_0::Text.with_format(TextFormat::Compact), type_name::<CompactText>())]
+    #[case::lines(v1_0::Text.with_format(TextFormat::Lines), type_name::<LinesText>())]
+    #[case::pretty(v1_0::Text.with_format(TextFormat::Pretty), type_name::<PrettyText>())]
+    #[case::default(v1_0::Text, type_name::<CompactText>())]
+    #[case::binary(v1_0::Binary, type_name::<RuntimeStyle>())]
+    fn encodings_use_the_static_style_of_the_format<E: Encoding>(
+        #[case] config: impl Into<WriteConfig<E>>,
+        #[case] expected_style: &str,
+        #[values(
+            Encode::SequenceEncodeAs,
+            Encode::SequenceEncodeTo,
+            Encode::ElementEncodeAs,
+            Encode::ElementEncodeTo,
+            Encode::WriteAsIonEncodeAs,
+            Encode::WriteAsIonEncodeTo,
+            Encode::IonDataEncodeAs,
+            Encode::IonDataEncodeTo
+        )]
+        encode: Encode,
+    ) -> IonResult<()> {
+        LAST_ENCODED_STYLE.set(None);
+        encode.encode(&Document::Nested.read()?, config.into())?;
+        assert_eq!(LAST_ENCODED_STYLE.get(), Some(expected_style));
         Ok(())
     }
 }
