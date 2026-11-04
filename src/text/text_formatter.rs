@@ -419,7 +419,7 @@ pub(crate) fn display_buffered(
 /// Provides a text formatter for Ion values.
 ///
 /// This is the shared implementation behind the `Display` impls of `Element` and its parts and
-/// behind the text writer's symbol, string, and clob encoding.
+/// behind the text writer's scalar and symbol encoding.
 pub struct FmtValueFormatter<'a, W: fmt::Write> {
     pub(crate) output: &'a mut W,
 }
@@ -589,6 +589,11 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
 
     pub fn format_integer(&mut self, value: &Int) -> IonResult<()> {
         value.format_text(self.output)?;
+        Ok(())
+    }
+
+    pub(crate) fn format_i64(&mut self, value: i64) -> IonResult<()> {
+        self.output.write_str(itoa::Buffer::new().format(value))?;
         Ok(())
     }
 
