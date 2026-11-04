@@ -221,6 +221,7 @@ mod tests {
     use crate::{
         AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader, Sequence, ValueRef,
     };
+    use std::sync::OnceLock;
 
     fn test_data() -> String {
         let test_data = r#"
@@ -330,6 +331,12 @@ mod tests {
         Ok(())
     }
 
+    /// Enough calls that allocating on each would grow a stored element's arena. The arena's
+    /// `allocated_bytes()` reports chunk capacity, so it only moves when the arena acquires a chunk;
+    /// rebuilding a stored value does that within 10 calls, and this leaves margin for an
+    /// allocation smaller than a rebuild's.
+    const ARENA_GROWTH_ITERATIONS: usize = 100;
+
     /// The `IonType`s of `elements` and their descendants, in depth-first order.
     fn traverse_all<E: Decoder>(elements: &[LazyElement<E>]) -> IonResult<Vec<IonType>> {
         let mut types = Vec::new();
@@ -337,6 +344,19 @@ mod tests {
             collect_ion_types(element.as_lazy_value()?, &mut types)?;
         }
         Ok(types)
+    }
+
+    /// `Element::read_all(text)`, parsed on the first call with each `cache` and shared after that.
+    /// Parsing is slow under Miri, so fixtures that many tests check against are parsed once per
+    /// process.
+    fn read_all_once(
+        cache: &'static OnceLock<IonResult<Vec<Element>>>,
+        text: &str,
+    ) -> IonResult<&'static [Element]> {
+        cache
+            .get_or_init(|| Element::read_all(text).map(Vec::from))
+            .as_deref()
+            .map_err(Clone::clone)
     }
 
     /// Annotations on scalars and on each container type, including quoted, escaped,
@@ -356,6 +376,11 @@ mod tests {
         $4::$0::[u]
     "#;
 
+    fn annotated_elements() -> IonResult<&'static [Element]> {
+        static EXPECTED: OnceLock<IonResult<Vec<Element>>> = OnceLock::new();
+        read_all_once(&EXPECTED, ANNOTATED)
+    }
+
     fn annotation_texts<E: Decoder>(element: &LazyElement<E>) -> IonResult<Vec<Option<String>>> {
         // `LazyResource` only derefs, so take the iterator out of it to consume it.
         element
@@ -370,7 +395,16 @@ mod tests {
         text: &str,
         elements: &[LazyElement<impl Decoder>],
     ) -> IonResult<()> {
-        let expected: Vec<Vec<Option<String>>> = Element::read_all(text)?
+        assert_annotations_match(Element::read_all(text)?.as_ref(), elements)
+    }
+
+    /// Checks each stored element's annotations against `expected`'s. Parsing text is slow under
+    /// Miri, so a test that checks the same text more than once parses it once and calls this.
+    fn assert_annotations_match(
+        expected: &[Element],
+        elements: &[LazyElement<impl Decoder>],
+    ) -> IonResult<()> {
+        let expected: Vec<Vec<Option<String>>> = expected
             .iter()
             .map(|element| {
                 element
@@ -392,11 +426,19 @@ mod tests {
         text: &str,
         elements: &[LazyElement<impl Decoder>],
     ) -> IonResult<()> {
-        let expected = Element::read_all(text)?;
+        assert_elements_match(Element::read_all(text)?.as_ref(), elements)
+    }
+
+    /// Checks the materialized `elements` against `expected`. Parsing text is slow under Miri, so a
+    /// test that checks the same text more than once parses it once and calls this.
+    fn assert_elements_match(
+        expected: &[Element],
+        elements: &[LazyElement<impl Decoder>],
+    ) -> IonResult<()> {
         assert_eq!(
             expected.len(),
             elements.len(),
-            "stored a different number of values than `Element::read_all` found"
+            "stored a different number of values than expected"
         );
         let actual = elements
             .iter()
@@ -437,15 +479,17 @@ mod tests {
     // ===== Binary =====
     mod binary_soundness_tests {
         use super::{
-            assert_annotations_match_text, assert_elements_match_text,
-            assert_header_accessors_match_lazy_value, collect_ion_types,
-            store_elements_then_drop_reader, test_data, ANNOTATED,
+            annotated_elements, assert_annotations_match, assert_elements_match,
+            assert_elements_match_text, assert_header_accessors_match_lazy_value,
+            collect_ion_types, store_elements_then_drop_reader, test_data, ARENA_GROWTH_ITERATIONS,
         };
-        use crate::lazy::binary::test_utilities::to_binary_ion;
+        use crate::lazy::binary::test_utilities::{elements_to_binary_ion, to_binary_ion};
         use crate::lazy::encoding::BinaryEncoding_1_0;
         use crate::lazy::expanded::lazy_element::LazyElement;
         use crate::read_config::ReadConfig;
-        use crate::{AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader};
+        use crate::{
+            ion_struct, AnyEncoding, Decoder, Element, IonResult, IonType, LazyValue, Reader,
+        };
         use rstest::rstest;
         use std::io::{BufReader, Cursor};
 
@@ -478,14 +522,14 @@ mod tests {
         /// `Element`. `encoding` appears in the failure messages because the caller runs both.
         fn assert_class_survives_reader<E: Decoder + Into<ReadConfig<E>>>(
             encoding: E,
-            text: &str,
+            expected: &[Element],
+            binary_ion: &[u8],
         ) -> IonResult<()> {
             let label = format!("{encoding:?}");
-            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(text)?)?;
-            assert_elements_match_text(text, &elements)?;
+            let elements = store_elements_then_drop_reader(encoding, binary_ion)?;
+            assert_elements_match(expected, &elements)?;
 
-            let expected = Element::read_all(text)?;
-            for (index, (element, expected)) in elements.iter().zip(expected.iter()).enumerate() {
+            for (index, (element, expected)) in elements.iter().zip(expected).enumerate() {
                 assert_eq!(
                     expected.ion_type(),
                     element.ion_type(),
@@ -509,25 +553,29 @@ mod tests {
         fn values_survive_after_reader_drops<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
-            let text = test_data();
-            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(&text)?)?;
-            assert_elements_match_text(&text, &elements)
+            let expected = Element::read_all(test_data())?;
+            let elements =
+                store_elements_then_drop_reader(encoding, elements_to_binary_ion(&expected)?)?;
+            assert_elements_match(expected.as_ref(), &elements)
         }
 
         #[rstest]
         fn stored_annotations_match_elements<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
-            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(ANNOTATED)?)?;
-            assert_annotations_match_text(ANNOTATED, &elements)
+            let expected = annotated_elements()?;
+            let elements =
+                store_elements_then_drop_reader(encoding, elements_to_binary_ion(expected)?)?;
+            assert_annotations_match(expected, &elements)
         }
 
         #[rstest]
         fn container_children_survive_after_reader_drops<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, BinaryEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
-            let text = container_test_data();
-            let elements = store_elements_then_drop_reader(encoding, to_binary_ion(&text)?)?;
+            let expected = Element::read_all(container_test_data())?;
+            let elements =
+                store_elements_then_drop_reader(encoding, elements_to_binary_ion(&expected)?)?;
 
             let mut actual = Vec::new();
             for element in &elements {
@@ -543,7 +591,7 @@ mod tests {
             assert_eq!(actual, actual_again);
 
             // The children are also correct, not merely well-typed.
-            assert_elements_match_text(&text, &elements)
+            assert_elements_match(expected.as_ref(), &elements)
         }
 
         #[rstest]
@@ -562,8 +610,10 @@ mod tests {
         #[case::min_i64("-9223372036854775808")]
         #[case::timestamp("2024-06-01T12:34:56Z")]
         fn equivalence_classes_survive_reader(#[case] text: &str) -> IonResult<()> {
-            assert_class_survives_reader(AnyEncoding, text)?;
-            assert_class_survives_reader(BinaryEncoding_1_0, text)
+            let expected = Element::read_all(text)?;
+            let binary_ion = elements_to_binary_ion(&expected)?;
+            assert_class_survives_reader(AnyEncoding, expected.as_ref(), &binary_ion)?;
+            assert_class_survives_reader(BinaryEncoding_1_0, expected.as_ref(), &binary_ion)
         }
 
         #[test]
@@ -615,8 +665,9 @@ mod tests {
             assert!(annotated_int.has_annotations());
             assert!(!unannotated_struct.has_annotations());
             // Materializing resolves the annotation text, which lives in those leading bytes.
-            assert_elements_match_text("a::1 {b: c::three}", &children)?;
-            assert_annotations_match_text("a::1 {b: c::three}", &children)
+            let expected = Element::read_all("a::1 {b: c::three}")?;
+            assert_elements_match(expected.as_ref(), &children)?;
+            assert_annotations_match(expected.as_ref(), &children)
         }
 
         /// Values stored from a streaming (`Read`) input, whose window slides--and, pinned by a
@@ -625,18 +676,14 @@ mod tests {
         /// from a `Vec<u8>`.
         #[test]
         fn values_survive_a_shifting_stream_window() -> IonResult<()> {
-            // Exceed `IonStream`'s 4 KiB window so the reader must shift while elements are stored.
-            const VALUE_COUNT: usize = 10;
-            let text = (0..VALUE_COUNT)
-                .map(|index| format!("{{index: {index}, filler: \"{}\"}}", "x".repeat(500)))
-                .collect::<Vec<String>>()
-                .join("\n");
-            let binary_ion = to_binary_ion(&text)?;
-            assert!(
-                binary_ion.len() > 4 * 1024,
-                "test data ({} bytes) is too small to force a window shift",
-                binary_ion.len()
-            );
+            // Exceed `IonStream`'s window (128 bytes in unit tests) so the reader must shift while
+            // elements are stored.
+            const VALUE_COUNT: i64 = 4;
+            let filler = "x".repeat(48);
+            let expected: Vec<Element> = (0..VALUE_COUNT)
+                .map(|index| ion_struct! { "index": index, "filler": filler.as_str() }.into())
+                .collect();
+            let binary_ion = elements_to_binary_ion(&expected)?;
 
             // A `BufReader` goes through `IonStream`; a `Vec<u8>` would be borrowed in place instead.
             let mut reader = Reader::new(
@@ -658,7 +705,7 @@ mod tests {
                 "no stored element saw a shifted window, so this test proves nothing"
             );
 
-            assert_elements_match_text(&text, &elements)
+            assert_elements_match(&expected, &elements)
         }
 
         /// Stays readable after moving and after its reader advances -- why `as_lazy_value()`
@@ -683,9 +730,10 @@ mod tests {
             let third = reader.expect_next()?;
             assert_eq!(Element::string("four"), Element::try_from(third)?);
 
-            assert_elements_match_text("first::1 [2, 3]", &stored)?;
+            let expected = Element::read_all("first::1 [2, 3]")?;
+            assert_elements_match(expected.as_ref(), &stored)?;
             drop(reader);
-            assert_elements_match_text("first::1 [2, 3]", &stored)
+            assert_elements_match(expected.as_ref(), &stored)
         }
 
         /// Keeps resolving its symbol IDs against the table active when it was created, even after
@@ -742,9 +790,7 @@ mod tests {
                 );
             };
 
-            // `allocated_bytes()` reports chunk capacity, so it only moves when the arena acquires
-            // one; tens of kilobytes' worth of iterations makes that certain.
-            const ITERATIONS: usize = 1_000;
+            const ITERATIONS: usize = ARENA_GROWTH_ITERATIONS;
             let allocated_bytes = || element.context.get_ref().allocator().allocated_bytes();
 
             let bytes_before = allocated_bytes();
@@ -781,36 +827,46 @@ mod tests {
     // cache, and the scalar path, under Miri.
     mod text_soundness_tests {
         use super::{
-            annotation_texts, assert_annotations_match_text, assert_elements_match_text,
-            assert_header_accessors_match_lazy_value, store_elements_then_drop_reader,
-            traverse_all, ANNOTATED,
+            annotated_elements, annotation_texts, assert_annotations_match,
+            assert_annotations_match_text, assert_elements_match, assert_elements_match_text,
+            assert_header_accessors_match_lazy_value, read_all_once,
+            store_elements_then_drop_reader, traverse_all, ANNOTATED, ARENA_GROWTH_ITERATIONS,
         };
         use crate::lazy::decoder::private::DetachableValue;
         use crate::lazy::encoding::TextEncoding_1_0;
         use crate::lazy::expanded::lazy_element::LazyElement;
         use crate::read_config::ReadConfig;
-        use crate::{AnyEncoding, Decoder, Element, IonResult, LazyValue, Reader, ValueRef};
+        use crate::{
+            ion_struct, AnyEncoding, Decoder, Element, IonResult, LazyValue, Reader, ValueRef,
+        };
         use rstest::rstest;
         use std::io::{BufReader, Cursor};
+        use std::sync::OnceLock;
 
         /// Scalars and containers of each type: nested, annotated with interstitial comments,
-        /// holding escapes (decoded into the arena), and holding s-expression operators.
+        /// holding escapes (decoded into the arena), and holding s-expression operators. Each shape
+        /// appears once; parsing dominates these tests under Miri.
         const TEXT: &str = r#"
             foo
             ann:: /* comment */ 5
             null.list
-            [1, two, "th\nree", [4, 5]]
-            {a: 1, b: [2, 3], c: {d: four}, 'e\'s': (5 + 6)}
-            outer:: /* comment */ inner::(six (7 8) {nine: 10})
+            [1, "th\nree", [4]]
+            {a: 1, c: {d: four}, 'e\'s': (5 + 6)}
+            outer:: /* comment */ inner::(six (7) {nine: 10})
             []
         "#;
+
+        fn expected_text_elements() -> IonResult<&'static [Element]> {
+            static EXPECTED: OnceLock<IonResult<Vec<Element>>> = OnceLock::new();
+            read_all_once(&EXPECTED, TEXT)
+        }
 
         #[rstest]
         fn values_survive_after_reader_drops<E: Decoder + Into<ReadConfig<E>>>(
             #[values(AnyEncoding, TextEncoding_1_0)] encoding: E,
         ) -> IonResult<()> {
             let elements = store_elements_then_drop_reader(encoding, TEXT)?;
-            assert_elements_match_text(TEXT, &elements)
+            assert_elements_match(expected_text_elements()?, &elements)
         }
 
         #[rstest]
@@ -822,7 +878,7 @@ mod tests {
             if populate_first {
                 traverse_all(&elements)?;
             }
-            assert_annotations_match_text(ANNOTATED, &elements)
+            assert_annotations_match(annotated_elements()?, &elements)
         }
 
         /// Symbol ID annotations resolve against the symbol table active when each value was
@@ -890,8 +946,9 @@ mod tests {
                 let mut reader = Reader::new(TextEncoding_1_0, parent_text.as_bytes().to_vec())?;
                 store_children(reader.expect_next()?)?
             };
-            assert_elements_match_text(children_text, &children)?;
-            assert_annotations_match_text(children_text, &children)
+            let expected = Element::read_all(children_text)?;
+            assert_elements_match(expected.as_ref(), &children)?;
+            assert_annotations_match(expected.as_ref(), &children)
         }
 
         /// A stored container's annotations are read from its leading bytes, leaving its cache empty.
@@ -926,7 +983,7 @@ mod tests {
             let first = traverse_all(&elements)?;
             let second = traverse_all(&elements)?;
             assert_eq!(first, second);
-            assert_elements_match_text(TEXT, &elements)
+            assert_elements_match(expected_text_elements()?, &elements)
         }
 
         /// `TryFrom<LazyElement>` takes the element by value and drops it inside the call, with
@@ -946,8 +1003,7 @@ mod tests {
                 .into_iter()
                 .map(Element::try_from)
                 .collect::<IonResult<Vec<Element>>>()?;
-            let expected: Vec<Element> = Element::read_all(TEXT)?.into_iter().collect();
-            assert_eq!(expected, actual);
+            assert_eq!(expected_text_elements()?, actual.as_slice());
             Ok(())
         }
 
@@ -962,7 +1018,7 @@ mod tests {
                 moved.push(element);
             }
             assert_eq!(before, traverse_all(&moved)?);
-            assert_elements_match_text(TEXT, &moved)
+            assert_elements_match(expected_text_elements()?, &moved)
         }
 
         /// The cache is populated in the arena the reader is still using; advancing the reader
@@ -1095,16 +1151,22 @@ mod tests {
         fn values_survive_a_shifting_stream_window(
             #[values(false, true)] read_while_live: bool,
         ) -> IonResult<()> {
-            const VALUE_COUNT: usize = 10;
-            let filler = "x".repeat(500);
+            const VALUE_COUNT: usize = 4;
+            // Exceeds `IonStream`'s window (128 bytes in unit tests).
+            let filler = "x".repeat(16);
             let text = (0..VALUE_COUNT)
                 .map(|index| format!("{{index: {index}, inner: ann::{{filler: \"{filler}\"}}}}"))
                 .collect::<Vec<String>>()
                 .join("\n");
-            assert!(
-                text.len() > 4 * 1024,
-                "test data is too small to shift the window"
-            );
+            // Built directly rather than parsed from `text`, which is slow under Miri.
+            let inner =
+                Element::from(ion_struct! { "filler": filler.as_str() }).with_annotations(["ann"]);
+            let expected: Vec<Element> = (0..VALUE_COUNT as i64)
+                .map(|index| ion_struct! { "index": index, "inner": inner.clone() }.into())
+                .collect();
+            let expected_children: Vec<Element> = (0..VALUE_COUNT as i64)
+                .flat_map(|index| [Element::int(index), inner.clone()])
+                .collect();
 
             let mut reader = Reader::new(
                 TextEncoding_1_0,
@@ -1141,19 +1203,15 @@ mod tests {
                 "no stored element saw a shifted window"
             );
             if read_while_live {
-                assert_elements_match_text(&text, &elements)?;
+                assert_elements_match(&expected, &elements)?;
             }
             drop(reader);
             traverse_all(&elements)?;
-            assert_elements_match_text(&text, &elements)?;
+            assert_elements_match(&expected, &elements)?;
             drop(elements);
             if read_while_live {
-                let children_text = (0..VALUE_COUNT)
-                    .map(|index| format!("{index} ann::{{filler: \"{filler}\"}}"))
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                assert_elements_match_text(&children_text, &children)?;
-                assert_annotations_match_text(&children_text, &children)?;
+                assert_elements_match(&expected_children, &children)?;
+                assert_annotations_match(&expected_children, &children)?;
             }
             Ok(())
         }
@@ -1185,12 +1243,11 @@ mod tests {
             // Populates the cache.
             element.as_lazy_value()?;
 
-            // `allocated_bytes()` reports chunk capacity, so it only moves when the arena acquires
-            // one; `binary_soundness_tests::header_accessors_do_not_grow_the_arena` shows this many
-            // allocating calls is enough to move it.
+            // `binary_soundness_tests::header_accessors_do_not_grow_the_arena` shows this many
+            // allocating calls is enough to grow the arena.
             let allocated_bytes = || element.context.get_ref().allocator().allocated_bytes();
             let bytes_before = allocated_bytes();
-            for _ in 0..1_000 {
+            for _ in 0..ARENA_GROWTH_ITERATIONS {
                 element.as_lazy_value()?;
             }
             assert_eq!(

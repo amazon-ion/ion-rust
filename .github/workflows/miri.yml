@@ -6,6 +6,10 @@ env:
   # Miri, its `-Z` flags, and its diagnostics change between nightlies, so the toolchain is pinned
   # and bumped deliberately. Use the same toolchain to reproduce a CI run locally.
   MIRI_TOOLCHAIN: nightly-2026-08-21
+  # `setup-rust-toolchain` sets `RUST_BACKTRACE=short` unless it is already set. Capturing a
+  # backtrace takes seconds under Miri, and the tests that panic on purpose would each pay it. Miri's
+  # own diagnostics still include a backtrace.
+  RUST_BACKTRACE: "0"
 
 jobs:
   full-library:

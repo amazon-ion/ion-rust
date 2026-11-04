@@ -762,6 +762,7 @@ mod tests {
     // Equality routes through `by_field`, which does not branch on the threshold, so every class
     // must resolve identically in both regimes.
     #[case::below(0)]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     #[case::above(ABOVE_THRESHOLD)]
     fn multiset_equality_classes(#[case] pad: usize) {
         let mk = |extra: &[(&str, i64)]| struct_with(pad, extra);
