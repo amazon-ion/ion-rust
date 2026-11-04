@@ -56,6 +56,7 @@ base64 = "0.12"
 # See: https://github.com/chronotope/chrono/issues/602
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"], optional = true }
 delegate = "0.12.0"
+itoa = "1"
 thiserror = "1.0"
 winnow = { version = "=0.6.24", features = ["simd"] }
 num-bigint = "0.4"
