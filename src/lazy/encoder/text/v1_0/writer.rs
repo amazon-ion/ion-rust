@@ -154,13 +154,17 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
+    use rstest::rstest;
+
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
     use crate::lazy::encoder::LazyRawWriter;
-    use crate::lazy::encoding::BinaryEncoding_1_0;
+    use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
     use crate::{
-        v1_0, Annotatable, IonData, IonError, IonResult, Reader, SequenceWriter, SymbolRef,
-        WriteConfig,
+        v1_0, Annotatable, Decimal, Int, IonData, IonError, IonResult, RawSymbolRef, Reader,
+        SequenceWriter, Symbol, SymbolRef, TextFormat, Timestamp, ValueWriter, WriteConfig,
     };
 
     #[test]
@@ -194,7 +198,7 @@ mod tests {
         Ok(())
     }
 
-    #[rstest::rstest]
+    #[rstest]
     #[case::symbol_id("$123", "'$123'")]
     #[case::trailing_letters("$123abc", "$123abc")]
     #[case::trailing_underscore("$1_2", "$1_2")]
@@ -213,6 +217,79 @@ mod tests {
 
         let element = Reader::new(v1_0::Text, encoded_text)?.read_one_element()?;
         assert_eq!(element.as_symbol().and_then(|s| s.text()), Some(text));
+        Ok(())
+    }
+
+    /// An `io::Write` that accepts `capacity` bytes, recording them in `accepted`, then fails every
+    /// write with `BrokenPipe`, counting the failures in `failed_writes`.
+    struct FailingSink {
+        capacity: usize,
+        accepted: Vec<u8>,
+        failed_writes: usize,
+    }
+
+    impl io::Write for FailingSink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.capacity == 0 {
+                self.failed_writes += 1;
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
+            let len = buf.len().min(self.capacity);
+            self.capacity -= len;
+            self.accepted.extend_from_slice(&buf[..len]);
+            Ok(len)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    type FailingWriter = LazyRawTextWriter_1_0<FailingSink>;
+
+    /// A sink failure is reported as `IonError::Io` with the sink's `ErrorKind`, whichever part of
+    /// the output was being written. The sink accepts `accepted.len()` bytes of Pretty output, so
+    /// `accepted` shows that the failing write is the part the case names. The writer stops at the
+    /// first failure, so the error it reports is that failure's.
+    #[rstest]
+    #[case::i64("", |w: &mut FailingWriter| w.write(12345).map(drop))]
+    #[case::int("170", |w: &mut FailingWriter| w.write(Int::from(i128::MAX)).map(drop))]
+    #[case::float("", |w: &mut FailingWriter| w.write(1.5f64).map(drop))]
+    #[case::decimal("12", |w: &mut FailingWriter| w.write(Decimal::new(12345, -2)).map(drop))]
+    #[case::timestamp("2000-", |w: &mut FailingWriter| w.write(Timestamp::with_ymd(2000, 1, 1).build()?).map(drop))]
+    #[case::blob("{{A", |w: &mut FailingWriter| w.write([1u8, 2, 3, 4].as_slice()).map(drop))]
+    #[case::clob("{{\"", |w: &mut FailingWriter| w.value_writer().write_clob(b"hello"))]
+    #[case::string("\"", |w: &mut FailingWriter| w.write("hello").map(drop))]
+    #[case::symbol("", |w: &mut FailingWriter| w.write(Symbol::from("foo")).map(drop))]
+    #[case::symbol_id("$", |w: &mut FailingWriter| w.value_writer().write_symbol(RawSymbolRef::SymbolId(10)))]
+    #[case::text_annotation("f", |w: &mut FailingWriter| w.write(1.annotated_with("foo")).map(drop))]
+    #[case::symbol_id_annotation("$", |w: &mut FailingWriter| w.write(1.annotated_with(10usize)).map(drop))]
+    #[case::separator("1", |w: &mut FailingWriter| w.write(1).map(drop))]
+    #[case::field_name("{\n  ", |w: &mut FailingWriter| w.value_writer().write_struct([("foo", 1)]))]
+    fn sink_failures_are_io_errors(
+        #[case] accepted: &str,
+        #[case] write: fn(&mut FailingWriter) -> IonResult<()>,
+    ) -> IonResult<()> {
+        let sink = FailingSink {
+            capacity: accepted.len(),
+            accepted: Vec::new(),
+            failed_writes: 0,
+        };
+        let mut writer = LazyRawTextWriter_1_0::build(
+            WriteConfig::<TextEncoding_1_0>::new(TextFormat::Pretty),
+            sink,
+        )?;
+        match write(&mut writer) {
+            Err(IonError::Io(error)) => {
+                assert_eq!(error.source().kind(), io::ErrorKind::BrokenPipe)
+            }
+            other => panic!("expected an I/O error, got {other:?}"),
+        }
+        assert_eq!(writer.output.accepted, accepted.as_bytes());
+        assert_eq!(
+            writer.output.failed_writes, 1,
+            "the writer kept writing after the sink failed"
+        );
         Ok(())
     }
 
