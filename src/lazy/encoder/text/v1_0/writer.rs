@@ -9,6 +9,7 @@ use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole};
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
+use crate::result::IonFailure;
 use crate::text::whitespace_config::WhitespaceConfig;
 use crate::types::ParentType;
 use crate::write_config::WriteConfigKind;
@@ -111,7 +112,8 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
         )
     }
 
-    /// Build text writer based on given writer configuration
+    /// Build text writer based on given writer configuration. Returns an error if `config` is a
+    /// binary configuration.
     fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
         match config.kind() {
             WriteConfigKind::Text(text_config) => {
@@ -121,9 +123,9 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
                     whitespace_config,
                 })
             }
-            WriteConfigKind::Binary(_) => {
-                unreachable!("Binary writer can not be created from text encoding")
-            }
+            WriteConfigKind::Binary(_) => IonResult::illegal_operation(
+                "a text writer cannot be built from a binary configuration",
+            ),
         }
     }
 
@@ -154,7 +156,12 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
 mod tests {
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    use crate::{v1_0, Annotatable, IonData, IonResult, Reader, SequenceWriter, SymbolRef};
+    use crate::lazy::encoder::LazyRawWriter;
+    use crate::lazy::encoding::BinaryEncoding_1_0;
+    use crate::{
+        v1_0, Annotatable, IonData, IonError, IonResult, Reader, SequenceWriter, SymbolRef,
+        WriteConfig,
+    };
 
     #[test]
     fn write_annotated_values() -> IonResult<()> {
@@ -207,5 +214,16 @@ mod tests {
         let element = Reader::new(v1_0::Text, encoded_text)?.read_one_element()?;
         assert_eq!(element.as_symbol().and_then(|s| s.text()), Some(text));
         Ok(())
+    }
+
+    /// Building a text writer from a binary configuration is an error.
+    #[test]
+    fn build_rejects_a_binary_config() {
+        let result = LazyRawTextWriter_1_0::build(WriteConfig::<BinaryEncoding_1_0>::new(), vec![]);
+        assert!(
+            matches!(result, Err(IonError::IllegalOperation(_))),
+            "expected an illegal operation error, got {:?}",
+            result.as_ref().err()
+        );
     }
 }
