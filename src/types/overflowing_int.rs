@@ -696,15 +696,23 @@ impl Debug for OverflowingInt {
     }
 }
 
-impl Display for OverflowingInt {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl OverflowingInt {
+    /// Writes this integer in base 10, with a leading `-` if the sign is negative (including for
+    /// negative zero).
+    pub(crate) fn format_text<W: std::fmt::Write>(&self, output: &mut W) -> std::fmt::Result {
         if self.sign() == Sign::Negative {
-            write!(f, "-")?;
+            output.write_str("-")?;
         }
         match self.magnitude_ref() {
-            Magnitude::Small(magnitude) => write!(f, "{magnitude}"),
-            Magnitude::Big(big) => write!(f, "{big}"),
+            Magnitude::Small(magnitude) => output.write_str(itoa::Buffer::new().format(magnitude)),
+            Magnitude::Big(big) => cold_path! { write!(output, "{big}") },
         }
+    }
+}
+
+impl Display for OverflowingInt {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.format_text(f)
     }
 }
 

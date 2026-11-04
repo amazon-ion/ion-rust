@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::result::{IonError, IonFailure};
-use crate::types::overflowing_int::OverflowingInt;
+use crate::types::overflowing_int::{Magnitude, OverflowingInt};
 use crate::IonResult;
 use crate::{Int, UInt};
 
@@ -59,6 +59,11 @@ impl Coefficient {
 
     pub fn magnitude(&self) -> UInt {
         UInt::from(self.repr.magnitude_ref())
+    }
+
+    /// Borrows the magnitude without cloning a heap-backed value.
+    pub(crate) fn magnitude_ref(&self) -> Magnitude<'_> {
+        self.repr.magnitude_ref()
     }
 
     /// Returns true when the sign is negative. This is a **sign-only** query: it is true for
@@ -203,7 +208,7 @@ impl TryFrom<&Coefficient> for UInt {
 
 impl Display for Coefficient {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.repr)
+        self.repr.format_text(f)
     }
 }
 
