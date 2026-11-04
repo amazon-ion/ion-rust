@@ -18,10 +18,54 @@ use crate::{
     v1_0, ContextWriter, Decimal, Encoding, Int, IonResult, IonType, Timestamp, ValueWriterConfig,
 };
 
+/// The delimiter (if any) and whitespace written after a value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Separator {
+    /// `space_between_top_level_values`: follows each top-level value.
+    TopLevel,
+    /// `comma_separator`: follows each value in a list or struct.
+    Comma,
+    /// `space_between_nested_values`: follows each value in an s-expression.
+    Space,
+}
+
+impl Separator {
+    /// Writes this separator to `writer`'s output.
+    #[inline]
+    pub(crate) fn write<W: Write>(self, writer: &mut LazyRawTextWriter_1_0<W>) -> IonResult<()> {
+        let whitespace = writer.whitespace_config;
+        match self {
+            Separator::TopLevel => write_layout(
+                &mut writer.output,
+                whitespace.space_between_top_level_values,
+            ),
+            Separator::Comma => write_layout(&mut writer.output, whitespace.comma_separator),
+            Separator::Space => {
+                write_layout(&mut writer.output, whitespace.space_between_nested_values)
+            }
+        }
+    }
+}
+
+/// Writes `layout`, one of the strings of a `WhitespaceConfig`, to `output`. Every layout string is
+/// at most two bytes long; matching on its length lets a layout be written with byte stores rather
+/// than a variable-length copy.
+#[inline(always)]
+fn write_layout<W: Write>(output: &mut W, layout: &'static str) -> IonResult<()> {
+    match *layout.as_bytes() {
+        [] => {}
+        [byte] => output.write_all(&[byte])?,
+        [first, second] => output.write_all(&[first, second])?,
+        _ => output.write_all(layout.as_bytes())?,
+    }
+    Ok(())
+}
+
 pub struct TextValueWriter_1_0<'value, W: Write> {
     pub(crate) writer: &'value mut LazyRawTextWriter_1_0<W>,
     pub(crate) depth: usize,
-    value_delimiter: &'static str,
+    // Written after this value.
+    separator: Separator,
     // This allows us to detect cases where a value writer is being used inside a struct
     // (i.e. following an indented field name) which is the only time we don't write
     // indentation before the value.
@@ -43,25 +87,53 @@ fn format_to<O: Write>(
     format_result
 }
 
+/// Writes `indentation` to `output` `depth` times.
+// Always inlined so that every call site tests for no indentation itself, rather than calling out
+// to find there is nothing to write; only the loop is left to the inliner.
+#[inline(always)]
+fn write_indentation_to<W: Write>(
+    output: &mut W,
+    indentation: &'static str,
+    depth: usize,
+) -> IonResult<()> {
+    if indentation.is_empty() || depth == 0 {
+        return Ok(());
+    }
+    write_indentation_levels(output, indentation, depth)
+}
+
+/// Writes `indentation` to `output` `depth` times; the loop of [`write_indentation_to`].
+#[inline]
+fn write_indentation_levels<W: Write>(
+    output: &mut W,
+    indentation: &'static str,
+    depth: usize,
+) -> IonResult<()> {
+    for _ in 0..depth {
+        write_layout(output, indentation)?;
+    }
+    Ok(())
+}
+
 impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
     pub(crate) fn new(
         writer: &'value mut LazyRawTextWriter_1_0<W>,
         depth: usize,
-        delimiter: &'static str,
+        separator: Separator,
         parent_type: ParentType,
     ) -> Self {
         Self {
             writer,
             depth,
-            value_delimiter: delimiter,
+            separator,
             parent_type,
             has_annotations: false,
         }
     }
 
     /// Writes the `indentation` string set in the whitespace config to output `depth` times.
+    #[inline(always)]
     fn write_indentation(&mut self) -> IonResult<()> {
-        let indentation = self.whitespace_config().indentation;
         if self.parent_type == ParentType::Struct || self.has_annotations {
             // If this value is part of a struct field, the indentation was written before the
             // field name.
@@ -69,12 +141,9 @@ impl<'value, W: Write + 'value> TextValueWriter_1_0<'value, W> {
             // Either way, there's nothing to do here.
             return Ok(());
         }
-        if !indentation.is_empty() {
-            for _ in 0..self.depth {
-                write!(self.output(), "{indentation}")?;
-            }
-        }
-        Ok(())
+        let indentation = self.whitespace_config().indentation;
+        let depth = self.depth;
+        write_indentation_to(self.output(), indentation, depth)
     }
 }
 
@@ -87,23 +156,13 @@ impl<W: Write> TextValueWriter_1_0<'_, W> {
         self.writer.whitespace_config
     }
 
-    pub fn delimiter(&self) -> &'static str {
-        self.value_delimiter
-    }
-
     #[inline]
-    fn write_delimiter_text(&mut self) -> IonResult<()> {
-        let space_between = match self.depth {
-            0 => self.whitespace_config().space_between_top_level_values,
-            _ => self.whitespace_config().space_between_nested_values,
-        };
-        let value_delimiter = self.value_delimiter;
-        write!(self.output(), "{value_delimiter}{space_between}")?;
-        Ok(())
+    fn write_separator(&mut self) -> IonResult<()> {
+        self.separator.write(self.writer)
     }
 
-    /// Writes indentation, then the text `format` produces, then the delimiter text that follows
-    /// the value.
+    /// Writes indentation, then the text `format` produces, then the separator that follows the
+    /// value.
     #[inline]
     fn write_scalar(
         mut self,
@@ -111,7 +170,7 @@ impl<W: Write> TextValueWriter_1_0<'_, W> {
     ) -> IonResult<()> {
         self.write_indentation()?;
         format_to(self.output(), format)?;
-        self.write_delimiter_text()
+        self.write_separator()
     }
 }
 
@@ -155,61 +214,55 @@ pub(crate) struct TextContainerWriter_1_0<'a, W: Write> {
     // The depth at which this container's child values appear. This value is used for formatting
     // indentation where applicable.
     pub(crate) depth: usize,
-    // Tracks whether the `end()` method was called (thereby emitting a closing delimiter) before
-    // this value was dropped. This scenario is a contract violation and results in a panic.
-    has_been_closed: bool,
     // The Ion type of the container using this TextContainerWriter_1_0. This value is only
     // used for more informative error messages.
     pub(crate) container_type: ContainerType,
-    value_delimiter: &'static str,
-    trailing_delimiter: &'static str,
+    // Written after each child value.
+    child_separator: Separator,
+    // Written after the closing delimiter: the separator the parent assigned to this container.
+    trailing_separator: Separator,
 }
 
 impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
+    /// Writes the indentation for the container's depth (unless it is a struct field's value,
+    /// whose field name was already indented) and the opening delimiter of a container of
+    /// `container_type`. `trailing_separator` is written after the closing delimiter.
     pub fn new(
         writer: &'a mut LazyRawTextWriter_1_0<W>,
         depth: usize,
         parent_type: ParentType,
         container_type: ContainerType,
-        opening_delimiter: &str,
-        value_delimiter: &'static str,
-        trailing_delimiter: &'static str,
+        trailing_separator: Separator,
     ) -> IonResult<Self> {
+        let whitespace = writer.whitespace_config;
+        let (container_start, child_separator) = match container_type {
+            ContainerType::List => (whitespace.list_start, Separator::Comma),
+            ContainerType::SExp => (whitespace.sexp_start, Separator::Space),
+            ContainerType::Struct => (whitespace.struct_start, Separator::Comma),
+        };
         let mut container_writer = Self {
             writer,
             depth,
             container_type,
-            has_been_closed: false,
-            value_delimiter,
-            trailing_delimiter,
+            child_separator,
+            trailing_separator,
         };
         if parent_type != ParentType::Struct {
             container_writer.write_indentation(depth)?;
         }
-        let space_after_container_start = container_writer
-            .writer
-            .whitespace_config
-            .space_after_container_start;
-        write!(
-            container_writer.writer.output,
-            "{opening_delimiter}{space_after_container_start}"
-        )?;
+        write_layout(container_writer.output(), container_start)?;
         Ok(container_writer)
     }
 
     /// Writes the `indentation` string set in the whitespace config to output `depth` times.
+    #[inline(always)]
     fn write_indentation(&mut self, depth: usize) -> IonResult<()> {
         let indentation = self.whitespace_config().indentation;
-        if !indentation.is_empty() {
-            for _ in 0..depth {
-                write!(self.output(), "{indentation}")?;
-            }
-        }
-        Ok(())
+        write_indentation_to(self.output(), indentation, depth)
     }
 
-    /// Writes the provided value to output using its implementation of `WriteAsIon`, then writes
-    /// the whitespace config's `space_between_nested_values`.
+    /// Writes the provided value to output using its implementation of `WriteAsIon`; the value
+    /// writer then writes this container's `child_separator`.
     fn write_value<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         self.write_indentation(self.depth)?;
         value.write_as_ion(self.value_writer())?;
@@ -218,17 +271,9 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
 
     /// Finalizes the container, preventing further values from being written.
     pub fn close(mut self, closing_delimiter: &str) -> IonResult<()> {
-        let space_between = match self.depth {
-            0 => self.whitespace_config().space_between_top_level_values,
-            _ => self.whitespace_config().space_between_nested_values,
-        };
-        let trailing_delimiter = self.trailing_delimiter;
         self.write_indentation(self.depth)?;
-        write!(
-            self.output(),
-            "{closing_delimiter}{trailing_delimiter}{space_between}"
-        )?;
-        self.has_been_closed = true;
+        self.output().write_all(closing_delimiter.as_bytes())?;
+        self.trailing_separator.write(self.writer)?;
         Ok(())
     }
 
@@ -245,7 +290,7 @@ impl<'a, W: Write> TextContainerWriter_1_0<'a, W> {
         TextValueWriter_1_0 {
             writer: self.writer,
             depth: self.depth + 1,
-            value_delimiter: self.value_delimiter,
+            separator: self.child_separator,
             parent_type: self.container_type.into(),
             has_annotations: false,
         }
@@ -262,16 +307,14 @@ impl<'top, W: Write> TextListWriter_1_0<'top, W> {
         writer: &'top mut LazyRawTextWriter_1_0<W>,
         depth: usize,
         parent_type: ParentType,
-        trailing_delimiter: &'static str,
+        trailing_separator: Separator,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
             parent_type,
             ContainerType::List,
-            "[",
-            ",",
-            trailing_delimiter,
+            trailing_separator,
         )?;
         Ok(Self { container_writer })
     }
@@ -324,16 +367,14 @@ impl<'a, W: Write> TextSExpWriter_1_0<'a, W> {
         writer: &'a mut LazyRawTextWriter_1_0<W>,
         depth: usize,
         parent_type: ParentType,
-        trailing_delimiter: &'static str,
+        trailing_separator: Separator,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
             parent_type,
             ContainerType::SExp,
-            "(",
-            "",
-            trailing_delimiter,
+            trailing_separator,
         )?;
         Ok(Self { container_writer })
     }
@@ -388,16 +429,14 @@ impl<'a, W: Write> TextStructWriter_1_0<'a, W> {
         writer: &'a mut LazyRawTextWriter_1_0<W>,
         depth: usize,
         parent_type: ParentType,
-        trailing_delimiter: &'static str,
+        trailing_separator: Separator,
     ) -> IonResult<Self> {
         let container_writer = TextContainerWriter_1_0::new(
             writer,
             depth,
             parent_type,
             ContainerType::Struct,
-            "{",
-            ",",
-            trailing_delimiter,
+            trailing_separator,
         )?;
         Ok(Self { container_writer })
     }
@@ -418,13 +457,12 @@ impl<W: Write> FieldEncoder for TextStructWriter_1_0<'_, W> {
         format_to(self.container_writer.output(), |formatter| {
             formatter.format_symbol_token(name)
         })?;
-        let space_after_field_name = self
+        // Write a `:` and configured trailing whitespace
+        let field_name_separator = self
             .container_writer
             .whitespace_config()
-            .space_after_field_name;
-        // Write a `:` and configured trailing whitespace
-        write!(self.container_writer.output(), ":{space_after_field_name}",)?;
-        Ok(())
+            .field_name_separator;
+        write_layout(self.container_writer.output(), field_name_separator)
     }
 }
 
@@ -440,7 +478,7 @@ impl<W: Write> MakeValueWriter for TextStructWriter_1_0<'_, W> {
         TextValueWriter_1_0 {
             writer: self.container_writer.writer,
             depth: self.container_writer.depth + 1,
-            value_delimiter: ",",
+            separator: self.container_writer.child_separator,
             parent_type: ParentType::Struct,
             has_annotations: false,
         }
@@ -561,27 +599,33 @@ impl<'value, W: Write> ValueWriter for TextValueWriter_1_0<'value, W> {
     }
 
     fn list_writer(self) -> IonResult<Self::ListWriter> {
-        TextListWriter_1_0::new(
-            self.writer,
-            self.depth,
-            self.parent_type,
-            self.value_delimiter,
-        )
+        TextListWriter_1_0::new(self.writer, self.depth, self.parent_type, self.separator)
     }
     fn sexp_writer(self) -> IonResult<Self::SExpWriter> {
-        TextSExpWriter_1_0::new(
-            self.writer,
-            self.depth,
-            self.parent_type,
-            self.value_delimiter,
-        )
+        TextSExpWriter_1_0::new(self.writer, self.depth, self.parent_type, self.separator)
     }
     fn struct_writer(self) -> IonResult<Self::StructWriter> {
-        TextStructWriter_1_0::new(
-            self.writer,
-            self.depth,
-            self.parent_type,
-            self.value_delimiter,
-        )
+        TextStructWriter_1_0::new(self.writer, self.depth, self.parent_type, self.separator)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::write_layout;
+    use crate::IonResult;
+
+    /// `write_layout` writes the whole layout string, whichever length it has.
+    #[rstest]
+    #[case::empty("")]
+    #[case::one_byte(" ")]
+    #[case::two_bytes(", ")]
+    #[case::longer(",\n  ")]
+    fn write_layout_writes_the_layout(#[case] layout: &'static str) -> IonResult<()> {
+        let mut output = Vec::new();
+        write_layout(&mut output, layout)?;
+        assert_eq!(output, layout.as_bytes());
+        Ok(())
     }
 }
