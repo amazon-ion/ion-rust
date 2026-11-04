@@ -41,7 +41,7 @@ use crate::location::SourceLocation;
 use crate::result::{
     ConversionOperationError, ConversionOperationResult, IonTypeExpectation, TypeExpectation,
 };
-use crate::text::text_formatter::FmtValueFormatter;
+use crate::text::text_formatter::display_buffered;
 use crate::types::symbol::SymbolText;
 use crate::write_config::WriteConfig;
 
@@ -189,25 +189,7 @@ impl IonTypeExpectation for Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = FmtValueFormatter { output: f };
-        match &self {
-            Value::Null(ion_type) => ivf.format_null(*ion_type),
-            Value::Bool(bool) => ivf.format_bool(*bool),
-            Value::Int(integer) => ivf.format_integer(integer),
-            Value::Float(float) => ivf.format_float(*float),
-            Value::Decimal(decimal) => ivf.format_decimal(decimal),
-            Value::Timestamp(timestamp) => ivf.format_timestamp(timestamp),
-            Value::Symbol(symbol) => ivf.format_symbol(symbol),
-            Value::String(string) => ivf.format_string(string),
-            Value::Clob(clob) => ivf.format_clob(clob),
-            Value::Blob(blob) => ivf.format_blob(blob),
-            Value::List(sequence) => ivf.format_list(sequence),
-            Value::SExp(sequence) => ivf.format_sexp(sequence),
-            Value::Struct(struct_) => ivf.format_struct(struct_),
-        }
-        .map_err(|_| std::fmt::Error)?;
-
-        Ok(())
+        display_buffered(f, |formatter| formatter.format_value(self))
     }
 }
 
@@ -1028,13 +1010,7 @@ impl IonTypeExpectation for &Element {
 
 impl Display for Element {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let mut ivf = FmtValueFormatter { output: f };
-
-        // display for annotations of this element
-        ivf.format_annotations(&self.annotations)
-            .map_err(|_| std::fmt::Error)?;
-
-        self.value.fmt(f)
+        display_buffered(f, |formatter| formatter.format_element(self))
     }
 }
 
