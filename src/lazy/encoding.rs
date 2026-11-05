@@ -716,6 +716,7 @@ impl RawValueLiteral for LazyRawAnyValue<'_> {}
 mod tests {
     use std::rc::Weak;
 
+    use indoc::{concatdoc, indoc};
     use rstest::rstest;
     use rstest_reuse::{apply, template};
 
@@ -829,96 +830,98 @@ mod tests {
     const NESTED_COMPACT: &str = "[{a: [1, 2, ], b: (c d ), }, x::(e [f, ] ), [], (), {}, y::3, ] \
                                   {g: {}, h: z::[4, ], i: (j (k ) ), } ";
 
-    const NESTED_LINES: &str = "[{a: [1, 2, ], b: (c d ), }, x::(e [f, ] ), [], (), {}, y::3, ]\n\
-                                {g: {}, h: z::[4, ], i: (j (k ) ), }\n";
+    const NESTED_LINES: &str = indoc! {"
+        [{a: [1, 2, ], b: (c d ), }, x::(e [f, ] ), [], (), {}, y::3, ]
+        {g: {}, h: z::[4, ], i: (j (k ) ), }
+    "};
 
-    const NESTED_PRETTY: &str = concat!(
-        "[\n",
-        "  {\n",
-        "    a: [\n",
-        "      1,\n",
-        "      2,\n",
-        "    ],\n",
-        "    b: (\n",
-        "      c\n",
-        "      d\n",
-        "    ),\n",
-        "  },\n",
-        // The Pretty writer currently indents an annotated container in a list or s-expression
-        // twice (once before the annotations, once before the opening delimiter); this line
-        // pins that existing output and changes if the double indentation is fixed.
-        "  x::  (\n",
-        "    e\n",
-        "    [\n",
-        "      f,\n",
-        "    ]\n",
-        "  ),\n",
-        "  [\n",
-        "  ],\n",
-        "  (\n",
-        "  ),\n",
-        "  {\n",
-        "  },\n",
-        "  y::3,\n",
-        "]\n",
-        "{\n",
-        "  g: {\n",
-        "  },\n",
-        "  h: z::[\n",
-        "    4,\n",
-        "  ],\n",
-        "  i: (\n",
-        "    j\n",
-        "    (\n",
-        "      k\n",
-        "    )\n",
-        "  ),\n",
-        "}\n",
-    );
+    // The Pretty writer currently indents an annotated container in a list or s-expression twice
+    // (once before the annotations, once before the opening delimiter); the `x::  (` line pins that
+    // existing output and changes if the double indentation is fixed.
+    const NESTED_PRETTY: &str = indoc! {"
+        [
+          {
+            a: [
+              1,
+              2,
+            ],
+            b: (
+              c
+              d
+            ),
+          },
+          x::  (
+            e
+            [
+              f,
+            ]
+          ),
+          [
+          ],
+          (
+          ),
+          {
+          },
+          y::3,
+        ]
+        {
+          g: {
+          },
+          h: z::[
+            4,
+          ],
+          i: (
+            j
+            (
+              k
+            )
+          ),
+        }
+    "};
 
     /// `NESTED_DOCUMENT` in Pretty as a raw writer writes it. A raw container writer's `write`
     /// indents each value below the first level of nesting twice (once in the container writer,
     /// once in the value writer); these lines pin that existing output.
-    const RAW_NESTED_PRETTY: &str = concat!(
-        "[\n",
-        "  {\n",
-        "    a: [\n",
-        "          1,\n",
-        "          2,\n",
-        "    ],\n",
-        "    b: (\n",
-        "          c\n",
-        "          d\n",
-        "    ),\n",
-        "  },\n",
-        "  x::  (\n",
-        "      e\n",
-        "      [\n",
-        "          f,\n",
-        "    ]\n",
-        "  ),\n",
-        "  [\n",
-        "  ],\n",
-        "  (\n",
-        "  ),\n",
-        "  {\n",
-        "  },\n",
-        "  y::3,\n",
-        "]\n",
-        "{\n",
-        "  g: {\n",
-        "  },\n",
-        "  h: z::[\n",
-        "      4,\n",
-        "  ],\n",
-        "  i: (\n",
-        "      j\n",
-        "      (\n",
-        "          k\n",
-        "    )\n",
-        "  ),\n",
-        "}\n",
-    );
+    const RAW_NESTED_PRETTY: &str = indoc! {"
+        [
+          {
+            a: [
+                  1,
+                  2,
+            ],
+            b: (
+                  c
+                  d
+            ),
+          },
+          x::  (
+              e
+              [
+                  f,
+            ]
+          ),
+          [
+          ],
+          (
+          ),
+          {
+          },
+          y::3,
+        ]
+        {
+          g: {
+          },
+          h: z::[
+              4,
+          ],
+          i: (
+              j
+              (
+                  k
+            )
+          ),
+        }
+    "};
 
     #[test]
     fn display_nested_document() -> IonResult<()> {
@@ -939,56 +942,73 @@ mod tests {
 
     const TOP_LEVEL_COMPACT: &str = "1 w::4 [2, ] x::y::3 z ";
 
-    const TOP_LEVEL_LINES: &str = "1\nw::4\n[2, ]\nx::y::3\nz\n";
+    const TOP_LEVEL_LINES: &str = indoc! {"
+        1
+        w::4
+        [2, ]
+        x::y::3
+        z
+    "};
 
-    const TOP_LEVEL_PRETTY: &str = "1\nw::4\n[\n  2,\n]\nx::y::3\nz\n";
+    const TOP_LEVEL_PRETTY: &str = indoc! {"
+        1
+        w::4
+        [
+          2,
+        ]
+        x::y::3
+        z
+    "};
 
     /// Annotated scalars as struct field values and in s-expressions.
     const ANNOTATED_DOCUMENT: &str = "{a: w::5, b: (c v::6 d), e: [u::7]} (f t::8 s::r::9)";
 
     const ANNOTATED_COMPACT: &str = "{a: w::5, b: (c v::6 d ), e: [u::7, ], } (f t::8 s::r::9 ) ";
 
-    const ANNOTATED_LINES: &str = "{a: w::5, b: (c v::6 d ), e: [u::7, ], }\n(f t::8 s::r::9 )\n";
+    const ANNOTATED_LINES: &str = indoc! {"
+        {a: w::5, b: (c v::6 d ), e: [u::7, ], }
+        (f t::8 s::r::9 )
+    "};
 
-    const ANNOTATED_PRETTY: &str = concat!(
-        "{\n",
-        "  a: w::5,\n",
-        "  b: (\n",
-        "    c\n",
-        "    v::6\n",
-        "    d\n",
-        "  ),\n",
-        "  e: [\n",
-        "    u::7,\n",
-        "  ],\n",
-        "}\n",
-        "(\n",
-        "  f\n",
-        "  t::8\n",
-        "  s::r::9\n",
-        ")\n",
-    );
+    const ANNOTATED_PRETTY: &str = indoc! {"
+        {
+          a: w::5,
+          b: (
+            c
+            v::6
+            d
+          ),
+          e: [
+            u::7,
+          ],
+        }
+        (
+          f
+          t::8
+          s::r::9
+        )
+    "};
 
     /// `ANNOTATED_DOCUMENT` in Pretty as a raw writer writes it, with the double indentation
     /// described at `RAW_NESTED_PRETTY`.
-    const RAW_ANNOTATED_PRETTY: &str = concat!(
-        "{\n",
-        "  a: w::5,\n",
-        "  b: (\n",
-        "      c\n",
-        "      v::6\n",
-        "      d\n",
-        "  ),\n",
-        "  e: [\n",
-        "      u::7,\n",
-        "  ],\n",
-        "}\n",
-        "(\n",
-        "  f\n",
-        "  t::8\n",
-        "  s::r::9\n",
-        ")\n",
-    );
+    const RAW_ANNOTATED_PRETTY: &str = indoc! {"
+        {
+          a: w::5,
+          b: (
+              c
+              v::6
+              d
+          ),
+          e: [
+              u::7,
+          ],
+        }
+        (
+          f
+          t::8
+          s::r::9
+        )
+    "};
 
     /// Scalars of every type, spread across top level, a list, an s-expression, and a struct:
     /// strings with escapes, symbols and field names that need quotes, ints (including one beyond
@@ -1007,120 +1027,133 @@ mod tests {
          n: 'quoted sym', o: 2.5e0, p: 9223372036854775808}
     "#;
 
+    // In the expected text of `SCALARS_DOCUMENT`, each long line is split into raw-string pieces.
+    // The writer writes U+0001 unescaped, and a raw string cannot spell it, so it is a piece of its
+    // own.
     const SCALARS_COMPACT: &str = concat!(
-        "\"plain\" \"q\\\"b\\\\s\\n\\t\u{1}é😀\" 'two words' 'null' '' sym_1 $ab ",
-        "a::'b c'::\"annotated\" 'x y'::1.5e0 null null.bool true false 0 42 [1.5e0, ",
-        "-0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0., 0.00100, 123456d7, 1.d-20, ",
-        "1.2345678d7, -12.5, 'q r'::7d1, \"s\", 'null'::null.int, ",
-        "-9223372036854775809, ] (2000T 2000-01T 2000-01-02T 2000-01-02T03:04+00:00 ",
-        "2000-01-02T03:04:05.678+05:30 2000-01-02T03:04:05-00:00 0001-01-01T -7 '+' ",
-        "'-' \"t\" n::null.timestamp {{aGVsbG8=}} {{\"c\"}} ) {'field name': ",
-        "{{aGVsbG8=}}, 'str field': {{}}, ",
-        "'null': {{\"clob \\\"t\\\" \\0\\x7f\"}}, plain: null.blob, ",
-        "$ab: 'a b'::null.clob, '': null.symbol, f: null.list, g: null.sexp, ",
-        "h: null.struct, i: null.string, j: null.decimal, k: null.float, ",
-        "l: null.int, m: \"ué\", n: 'quoted sym', o: 2.5e0, p: 9223372036854775808, } ",
+        r#""plain" "q\"b\\s\n\t"#,
+        "\u{1}",
+        r#"é😀" 'two words' 'null' '' sym_1 $ab "#,
+        r#"a::'b c'::"annotated" 'x y'::1.5e0 null null.bool true false 0 42 "#,
+        r#"[1.5e0, -0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0., 0.00100, 123456d7, 1.d-20, "#,
+        r#"1.2345678d7, -12.5, 'q r'::7d1, "s", 'null'::null.int, -9223372036854775809, ] "#,
+        r#"(2000T 2000-01T 2000-01-02T 2000-01-02T03:04+00:00 2000-01-02T03:04:05.678+05:30 "#,
+        r#"2000-01-02T03:04:05-00:00 0001-01-01T -7 '+' '-' "t" n::null.timestamp "#,
+        r#"{{aGVsbG8=}} {{"c"}} ) "#,
+        r#"{'field name': {{aGVsbG8=}}, 'str field': {{}}, 'null': {{"clob \"t\" \0\x7f"}}, "#,
+        r#"plain: null.blob, $ab: 'a b'::null.clob, '': null.symbol, f: null.list, "#,
+        r#"g: null.sexp, h: null.struct, i: null.string, j: null.decimal, k: null.float, "#,
+        r#"l: null.int, m: "ué", n: 'quoted sym', o: 2.5e0, p: 9223372036854775808, } "#,
     );
 
-    const SCALARS_LINES: &str = concat!(
-        "\"plain\"\n",
-        "\"q\\\"b\\\\s\\n\\t\u{1}é😀\"\n",
-        "'two words'\n",
-        "'null'\n",
-        "''\n",
-        "sym_1\n",
-        "$ab\n",
-        "a::'b c'::\"annotated\"\n",
-        "'x y'::1.5e0\n",
-        "null\n",
-        "null.bool\n",
-        "true\n",
-        "false\n",
-        "0\n",
-        "42\n",
-        "[1.5e0, -0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0., 0.00100, 123456d7, ",
-        "1.d-20, 1.2345678d7, -12.5, 'q r'::7d1, \"s\", 'null'::null.int, ",
-        "-9223372036854775809, ]\n",
-        "(2000T 2000-01T 2000-01-02T 2000-01-02T03:04+00:00 ",
-        "2000-01-02T03:04:05.678+05:30 2000-01-02T03:04:05-00:00 0001-01-01T -7 '+' ",
-        "'-' \"t\" n::null.timestamp {{aGVsbG8=}} {{\"c\"}} )\n",
-        "{'field name': {{aGVsbG8=}}, 'str field': {{}}, ",
-        "'null': {{\"clob \\\"t\\\" \\0\\x7f\"}}, plain: null.blob, ",
-        "$ab: 'a b'::null.clob, '': null.symbol, f: null.list, g: null.sexp, ",
-        "h: null.struct, i: null.string, j: null.decimal, k: null.float, ",
-        "l: null.int, m: \"ué\", n: 'quoted sym', o: 2.5e0, p: 9223372036854775808, }\n",
+    const SCALARS_LINES: &str = concatdoc!(
+        r#"
+        "plain"
+        "q\"b\\s\n\t"#,
+        "\u{1}",
+        r#"é😀"
+        'two words'
+        'null'
+        ''
+        sym_1
+        $ab
+        a::'b c'::"annotated"
+        'x y'::1.5e0
+        null
+        null.bool
+        true
+        false
+        0
+        42
+        "#,
+        r#"[1.5e0, -0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0., 0.00100, 123456d7, 1.d-20, "#,
+        r#"1.2345678d7, -12.5, 'q r'::7d1, "s", 'null'::null.int, -9223372036854775809, ]"#,
+        "\n",
+        r#"(2000T 2000-01T 2000-01-02T 2000-01-02T03:04+00:00 2000-01-02T03:04:05.678+05:30 "#,
+        r#"2000-01-02T03:04:05-00:00 0001-01-01T -7 '+' '-' "t" n::null.timestamp "#,
+        r#"{{aGVsbG8=}} {{"c"}} )"#,
+        "\n",
+        r#"{'field name': {{aGVsbG8=}}, 'str field': {{}}, 'null': {{"clob \"t\" \0\x7f"}}, "#,
+        r#"plain: null.blob, $ab: 'a b'::null.clob, '': null.symbol, f: null.list, "#,
+        r#"g: null.sexp, h: null.struct, i: null.string, j: null.decimal, k: null.float, "#,
+        r#"l: null.int, m: "ué", n: 'quoted sym', o: 2.5e0, p: 9223372036854775808, }"#,
+        "\n",
     );
 
-    const SCALARS_PRETTY: &str = concat!(
-        "\"plain\"\n",
-        "\"q\\\"b\\\\s\\n\\t\u{1}é😀\"\n",
-        "'two words'\n",
-        "'null'\n",
-        "''\n",
-        "sym_1\n",
-        "$ab\n",
-        "a::'b c'::\"annotated\"\n",
-        "'x y'::1.5e0\n",
-        "null\n",
-        "null.bool\n",
-        "true\n",
-        "false\n",
-        "0\n",
-        "42\n",
-        "[\n",
-        "  1.5e0,\n",
-        "  -0e0,\n",
-        "  nan,\n",
-        "  +inf,\n",
-        "  -inf,\n",
-        "  2.5e-10,\n",
-        "  1.0,\n",
-        "  -0.,\n",
-        "  0.00100,\n",
-        "  123456d7,\n",
-        "  1.d-20,\n",
-        "  1.2345678d7,\n",
-        "  -12.5,\n",
-        "  'q r'::7d1,\n",
-        "  \"s\",\n",
-        "  'null'::null.int,\n",
-        "  -9223372036854775809,\n",
-        "]\n",
-        "(\n",
-        "  2000T\n",
-        "  2000-01T\n",
-        "  2000-01-02T\n",
-        "  2000-01-02T03:04+00:00\n",
-        "  2000-01-02T03:04:05.678+05:30\n",
-        "  2000-01-02T03:04:05-00:00\n",
-        "  0001-01-01T\n",
-        "  -7\n",
-        "  '+'\n",
-        "  '-'\n",
-        "  \"t\"\n",
-        "  n::null.timestamp\n",
-        "  {{aGVsbG8=}}\n",
-        "  {{\"c\"}}\n",
-        ")\n",
-        "{\n",
-        "  'field name': {{aGVsbG8=}},\n",
-        "  'str field': {{}},\n",
-        "  'null': {{\"clob \\\"t\\\" \\0\\x7f\"}},\n",
-        "  plain: null.blob,\n",
-        "  $ab: 'a b'::null.clob,\n",
-        "  '': null.symbol,\n",
-        "  f: null.list,\n",
-        "  g: null.sexp,\n",
-        "  h: null.struct,\n",
-        "  i: null.string,\n",
-        "  j: null.decimal,\n",
-        "  k: null.float,\n",
-        "  l: null.int,\n",
-        "  m: \"ué\",\n",
-        "  n: 'quoted sym',\n",
-        "  o: 2.5e0,\n",
-        "  p: 9223372036854775808,\n",
-        "}\n",
+    const SCALARS_PRETTY: &str = concatdoc!(
+        r#"
+        "plain"
+        "q\"b\\s\n\t"#,
+        "\u{1}",
+        r#"é😀"
+        'two words'
+        'null'
+        ''
+        sym_1
+        $ab
+        a::'b c'::"annotated"
+        'x y'::1.5e0
+        null
+        null.bool
+        true
+        false
+        0
+        42
+        [
+          1.5e0,
+          -0e0,
+          nan,
+          +inf,
+          -inf,
+          2.5e-10,
+          1.0,
+          -0.,
+          0.00100,
+          123456d7,
+          1.d-20,
+          1.2345678d7,
+          -12.5,
+          'q r'::7d1,
+          "s",
+          'null'::null.int,
+          -9223372036854775809,
+        ]
+        (
+          2000T
+          2000-01T
+          2000-01-02T
+          2000-01-02T03:04+00:00
+          2000-01-02T03:04:05.678+05:30
+          2000-01-02T03:04:05-00:00
+          0001-01-01T
+          -7
+          '+'
+          '-'
+          "t"
+          n::null.timestamp
+          {{aGVsbG8=}}
+          {{"c"}}
+        )
+        {
+          'field name': {{aGVsbG8=}},
+          'str field': {{}},
+          'null': {{"clob \"t\" \0\x7f"}},
+          plain: null.blob,
+          $ab: 'a b'::null.clob,
+          '': null.symbol,
+          f: null.list,
+          g: null.sexp,
+          h: null.struct,
+          i: null.string,
+          j: null.decimal,
+          k: null.float,
+          l: null.int,
+          m: "ué",
+          n: 'quoted sym',
+          o: 2.5e0,
+          p: 9223372036854775808,
+        }
+        "#,
     );
 
     /// Symbols that resemble a symbol ID or a version marker, which a writer quotes wherever it
@@ -1130,11 +1163,23 @@ mod tests {
     const AMBIGUOUS_SYMBOLS_COMPACT: &str =
         "'$12' '$ion_1_1' ['$7', ] {'$12': '$ion_1_0'::'$7', } ";
 
-    const AMBIGUOUS_SYMBOLS_LINES: &str =
-        "'$12'\n'$ion_1_1'\n['$7', ]\n{'$12': '$ion_1_0'::'$7', }\n";
+    const AMBIGUOUS_SYMBOLS_LINES: &str = indoc! {"
+        '$12'
+        '$ion_1_1'
+        ['$7', ]
+        {'$12': '$ion_1_0'::'$7', }
+    "};
 
-    const AMBIGUOUS_SYMBOLS_PRETTY: &str =
-        "'$12'\n'$ion_1_1'\n[\n  '$7',\n]\n{\n  '$12': '$ion_1_0'::'$7',\n}\n";
+    const AMBIGUOUS_SYMBOLS_PRETTY: &str = indoc! {"
+        '$12'
+        '$ion_1_1'
+        [
+          '$7',
+        ]
+        {
+          '$12': '$ion_1_0'::'$7',
+        }
+    "};
 
     /// A document with its text in each format.
     #[derive(Clone, Copy, Debug)]

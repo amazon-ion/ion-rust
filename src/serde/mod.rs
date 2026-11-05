@@ -902,6 +902,7 @@ mod tests {
     /// the names their serialized annotations are expected to have.
     mod exact_text {
         use super::*;
+        use indoc::indoc;
 
         #[derive(Serialize)]
         struct Inner {
@@ -942,40 +943,59 @@ mod tests {
         #[rstest]
         #[case::struct_compact(
             to_string(&outer()),
-            "{name: \"n\", inner: {a: 1, b: [\"x\", \"y\", ], }, tags: [2, 3, ], } "
+            r#"{name: "n", inner: {a: 1, b: ["x", "y", ], }, tags: [2, 3, ], } "#
         )]
         #[case::struct_pretty(
             to_pretty(&outer()),
-            concat!(
-                "{\n",
-                "  name: \"n\",\n",
-                "  inner: {\n",
-                "    a: 1,\n",
-                "    b: [\n",
-                "            \"x\",\n",
-                "            \"y\",\n",
-                "    ],\n",
-                "  },\n",
-                "  tags: [\n",
-                "        2,\n",
-                "        3,\n",
-                "  ],\n",
-                "}\n",
-            )
+            indoc! {r#"
+                {
+                  name: "n",
+                  inner: {
+                    a: 1,
+                    b: [
+                            "x",
+                            "y",
+                    ],
+                  },
+                  tags: [
+                        2,
+                        3,
+                  ],
+                }
+            "#}
         )]
         #[case::vec_compact(to_string(&vec![1, 2, 3]), "[1, 2, 3, ] ")]
-        #[case::vec_pretty(to_pretty(&vec![1, 2, 3]), "[\n    1,\n    2,\n    3,\n]\n")]
-        #[case::tuple_struct_compact(to_string(&Pair(1, "x".to_string())), "Pair::[1, \"x\", ] ")]
+        #[case::vec_pretty(
+            to_pretty(&vec![1, 2, 3]),
+            indoc! {"
+                [
+                    1,
+                    2,
+                    3,
+                ]
+            "}
+        )]
+        #[case::tuple_struct_compact(to_string(&Pair(1, "x".to_string())), r#"Pair::[1, "x", ] "#)]
         #[case::tuple_struct_pretty(
             to_pretty(&Pair(1, "x".to_string())),
-            "Pair::[\n    1,\n    \"x\",\n]\n"
+            indoc! {r#"
+                Pair::[
+                    1,
+                    "x",
+                ]
+            "#}
         )]
         #[case::newtype_variant_compact(to_string(&Shape::Circle(1.5)), "Circle::1.5e0 ")]
         #[case::newtype_variant_pretty(to_pretty(&Shape::Circle(1.5)), "Circle::1.5e0\n")]
         #[case::tuple_variant_compact(to_string(&Shape::Rect(2, 3)), "Rect::[2, 3, ] ")]
         #[case::tuple_variant_pretty(
             to_pretty(&Shape::Rect(2, 3)),
-            "Rect::[\n    2,\n    3,\n]\n"
+            indoc! {"
+                Rect::[
+                    2,
+                    3,
+                ]
+            "}
         )]
         fn text_serialization_is_exact(
             #[case] actual: IonResult<String>,
