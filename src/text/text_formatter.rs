@@ -1,8 +1,8 @@
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
-use crate::result::cold_error;
-use crate::{Annotations, Sequence};
+use crate::{Annotations, Element, Sequence, Symbol, Value};
 use crate::{Decimal, Int, Struct, Timestamp};
 use crate::{IonResult, IonType};
+use arrayvec::ArrayString;
 use std::{fmt, io};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
@@ -180,8 +180,256 @@ pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
     string_escape_codes
 }
 
-/// Provides a text formatter for Ion values
-/// This is used with the Display implementation of `OwnedElement`
+/// Escape sequences for the bytes that string and symbol text must escape. An empty entry means the
+/// byte is written as-is. Every escaped byte is ASCII, so scanning UTF-8 text a byte at a time
+/// (rather than a `char` at a time) finds exactly the same escapes.
+const TEXT_ESCAPE_CODES: [&str; 256] = text_escape_code_init();
+
+const fn text_escape_code_init() -> [&'static str; 256] {
+    let mut codes = [""; 256];
+    codes[b'\n' as usize] = r"\n";
+    codes[b'\r' as usize] = r"\r";
+    codes[b'\t' as usize] = r"\t";
+    codes[b'\\' as usize] = r"\\";
+    codes[b'"' as usize] = r#"\""#;
+    codes[b'\'' as usize] = r"\'";
+    codes[0x00] = r"\0"; // NUL
+    codes[0x07] = r"\a"; // alert BEL
+    codes[0x08] = r"\b"; // backspace
+    codes[0x0B] = r"\v"; // vertical tab
+    codes[0x0C] = r"\f"; // form feed
+    codes
+}
+
+const SWAR_LOW_BITS: u64 = u64::from_ne_bytes([0x01; 8]);
+const SWAR_HIGH_BITS: u64 = u64::from_ne_bytes([0x80; 8]);
+
+// The helpers below are SWAR (SIMD within a register) byte tests: the "has zero byte" and "has
+// less than n" tricks from Sean Anderson's Bit Twiddling Hacks.
+
+/// Returns a nonzero value if any byte of `word` is zero.
+#[inline]
+const fn swar_zero_byte_mask(word: u64) -> u64 {
+    word.wrapping_sub(SWAR_LOW_BITS) & !word & SWAR_HIGH_BITS
+}
+
+/// Returns `true` if any byte of `word` may need escaping in string or symbol text: a byte below
+/// `0x0E` (which covers every escaped control byte), a double quote, a single quote, or a
+/// backslash. Bytes `0x01..=0x06` are false positives; the per-byte table resolves them.
+///
+/// The "has less than n" test for `0x0E` is exact only because `0x0E <= 0x80`.
+#[inline]
+const fn swar_may_need_escape(word: u64) -> bool {
+    let below_0x0e = word.wrapping_sub(SWAR_LOW_BITS * 0x0E) & !word & SWAR_HIGH_BITS;
+    let double_quote = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'"' as u64));
+    let single_quote = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'\'' as u64));
+    let backslash = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'\\' as u64));
+    (below_0x0e | double_quote | single_quote | backslash) != 0
+}
+
+/// Returns `true` if `text` can be written as a symbol without quotes: it is an identifier (a `$`,
+/// `_`, or ASCII letter followed by any number of `$`, `_`, or ASCII alphanumerics) that cannot be
+/// mistaken for a keyword (`true`, `false`, `nan`, `null`), a symbol ID, or a version marker.
+///
+/// Text is quoted if it is `$` followed by one or more digits and nothing else (a symbol ID such as
+/// `$12`; a lone `$` is not quoted) or if it is a version marker (`$ion_`, digits, `_`, digits,
+/// such as `$ion_1_0`).
+pub(crate) fn is_unquoted_symbol_text(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let Some(&first) = bytes.first() else {
+        return false;
+    };
+    if first.is_ascii_digit() || !is_identifier_text(bytes) {
+        return false;
+    }
+    match *bytes {
+        [b'$', ref rest @ ..] => !resembles_symbol_id_or_version_marker(rest),
+        [b't' | b'f' | b'n', ..] => !matches!(bytes, b"true" | b"false" | b"nan" | b"null"),
+        _ => true,
+    }
+}
+
+/// Returns `true` if `rest`, the text that follows a leading `$`, is one or more digits or is
+/// `ion_` followed by one or more digits, `_`, and one or more digits.
+fn resembles_symbol_id_or_version_marker(rest: &[u8]) -> bool {
+    let is_digits = |bytes: &[u8]| !bytes.is_empty() && bytes.iter().all(u8::is_ascii_digit);
+    match rest {
+        [b'i', b'o', b'n', b'_', version @ ..] => version
+            .iter()
+            .position(|&byte| byte == b'_')
+            .is_some_and(|split| is_digits(&version[..split]) && is_digits(&version[split + 1..])),
+        _ => is_digits(rest),
+    }
+}
+
+/// Returns a word with the high bit set in each byte of `word` that is in `low..=high`, where
+/// `low <= high <= 0x7F`. The result is meaningful only if every byte of `word` is ASCII, so that
+/// no byte's sum carries into the next; a non-ASCII byte gives meaningless bits, which the caller
+/// discards by testing the high bits of `word` itself.
+#[inline]
+const fn swar_ascii_in_range(word: u64, low: u8, high: u8) -> u64 {
+    let at_least_low = word.wrapping_add(SWAR_LOW_BITS * (0x80 - low as u64));
+    let above_high = word.wrapping_add(SWAR_LOW_BITS * (0x7F - high as u64));
+    at_least_low & !above_high & SWAR_HIGH_BITS
+}
+
+/// Returns `true` if every byte of `word` is `$`, `_`, or an ASCII alphanumeric.
+#[inline]
+const fn swar_is_identifier_word(word: u64) -> bool {
+    // Setting bit 5 maps `A..=Z` onto `a..=z` and maps no other byte into that range.
+    let letters = swar_ascii_in_range(word | (SWAR_LOW_BITS * 0x20), b'a', b'z');
+    let digits = swar_ascii_in_range(word, b'0', b'9');
+    let underscores = swar_ascii_in_range(word, b'_', b'_');
+    let dollars = swar_ascii_in_range(word, b'$', b'$');
+    // The ranges are meaningful only for an all-ASCII word, which the high-bit test checks.
+    ((word & SWAR_HIGH_BITS) == 0) & ((letters | digits | underscores | dollars) == SWAR_HIGH_BITS)
+}
+
+/// Packs three bytes into the low lanes of a word whose other lanes hold an identifier byte.
+#[inline]
+const fn swar_short_word(first: u8, middle: u8, last: u8) -> u64 {
+    (SWAR_LOW_BITS * b'a' as u64) & !0xFF_FFFF
+        | first as u64
+        | (middle as u64) << 8
+        | (last as u64) << 16
+}
+
+/// Returns the last 8 bytes of `bytes` as a word or, for fewer bytes, a word in which every lane
+/// holds a byte of `bytes` or `b'a'` (which needs no escaping and is an identifier byte). Every byte
+/// of a shorter, nonempty `bytes` is in some lane; 4 to 7 bytes are packed as two overlapping
+/// halves.
+#[inline]
+fn last_word(bytes: &[u8]) -> u64 {
+    if let Some(word) = bytes.last_chunk::<8>() {
+        return u64::from_ne_bytes(*word);
+    }
+    if let (Some(head), Some(tail)) = (bytes.first_chunk::<4>(), bytes.last_chunk::<4>()) {
+        return u32::from_ne_bytes(*head) as u64 | (u32::from_ne_bytes(*tail) as u64) << 32;
+    }
+    match *bytes {
+        [] => SWAR_LOW_BITS * b'a' as u64,
+        [a] => swar_short_word(a, a, a),
+        [a, b] => swar_short_word(a, a, b),
+        [a, b, c, ..] => swar_short_word(a, b, c),
+    }
+}
+
+/// Returns `true` if every byte of `bytes` is `$`, `_`, or an ASCII alphanumeric, testing a word
+/// (8 bytes, or fewer packed into one word) at a time.
+fn is_identifier_text(bytes: &[u8]) -> bool {
+    if bytes.len() <= 8 {
+        return swar_is_identifier_word(last_word(bytes));
+    }
+    let mut rest = bytes;
+    while let Some((word, remaining)) = rest.split_first_chunk::<8>() {
+        if !swar_is_identifier_word(u64::from_ne_bytes(*word)) {
+            return false;
+        }
+        rest = remaining;
+    }
+    // The last word overlaps the bytes already tested.
+    rest.is_empty() || swar_is_identifier_word(last_word(bytes))
+}
+
+const ZEROS: &str = "00000000000000000000000000000000";
+
+/// Writes `value` in base 10, left-padded with zeros to at least `width` digits.
+pub(crate) fn write_zero_padded<W: fmt::Write>(
+    output: &mut W,
+    value: u64,
+    width: usize,
+) -> fmt::Result {
+    let mut buffer = itoa::Buffer::new();
+    let digits = buffer.format(value);
+    let mut padding = width.saturating_sub(digits.len());
+    while padding > 0 {
+        let chunk = padding.min(ZEROS.len());
+        output.write_str(&ZEROS[..chunk])?;
+        padding -= chunk;
+    }
+    output.write_str(digits)
+}
+
+/// Views bytes the caller knows to be ASCII as a `str`.
+fn ascii_str(bytes: &[u8]) -> Result<&str, fmt::Error> {
+    std::str::from_utf8(bytes).map_err(|_| fmt::Error)
+}
+
+/// Formats `magnitude` in base 10 into `buffer`.
+#[inline]
+pub(crate) fn format_u128(buffer: &mut itoa::Buffer, magnitude: u128) -> &str {
+    match u64::try_from(magnitude) {
+        Ok(magnitude) => buffer.format(magnitude),
+        Err(_) => buffer.format(magnitude),
+    }
+}
+
+/// The capacity of the stack buffer that [`display_buffered`] fills before writing to the
+/// `Formatter`.
+const DISPLAY_CHUNK_LEN: usize = 4096;
+
+/// A `fmt::Write` sink that collects text in a fixed-size stack buffer and writes the buffered text
+/// to a `Formatter` when the next `&str` does not fit in the remaining space. A `&str` too large for
+/// an empty buffer is written to the `Formatter` directly.
+pub(crate) struct DisplayBuffer<'a, 'f> {
+    chunk: ArrayString<DISPLAY_CHUNK_LEN>,
+    output: &'a mut fmt::Formatter<'f>,
+}
+
+impl DisplayBuffer<'_, '_> {
+    /// Writes any buffered text to the `Formatter`.
+    fn flush(&mut self) -> fmt::Result {
+        if !self.chunk.is_empty() {
+            self.output.write_str(&self.chunk)?;
+            self.chunk.clear();
+        }
+        Ok(())
+    }
+
+    /// Flushes the buffered text, then buffers `s` or, if it is larger than the buffer, writes it
+    /// directly.
+    #[cold]
+    #[inline(never)]
+    fn flush_and_write(&mut self, s: &str) -> fmt::Result {
+        self.flush()?;
+        if s.len() > DISPLAY_CHUNK_LEN {
+            return self.output.write_str(s);
+        }
+        self.chunk.try_push_str(s).map_err(|_| fmt::Error)
+    }
+}
+
+impl fmt::Write for DisplayBuffer<'_, '_> {
+    #[inline]
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        match self.chunk.try_push_str(s) {
+            Ok(()) => Ok(()),
+            Err(_) => self.flush_and_write(s),
+        }
+    }
+}
+
+/// Implements `Display` for an `Element`, `Value`, `List`, `SExp`, or `Struct`. `format` writes
+/// into a [`DisplayBuffer`], a concrete sink that lets every nested write inline rather than
+/// calling through `Formatter`'s `dyn Write`. The text reaches `f` in chunks of at most
+/// [`DISPLAY_CHUNK_LEN`] bytes (or as a single larger `&str`, such as a long string's unescaped
+/// text), so memory use is bounded regardless of the value's size.
+pub(crate) fn display_buffered(
+    f: &mut fmt::Formatter<'_>,
+    format: impl FnOnce(&mut FmtValueFormatter<'_, DisplayBuffer<'_, '_>>) -> IonResult<()>,
+) -> fmt::Result {
+    let mut buffer = DisplayBuffer {
+        chunk: ArrayString::new(),
+        output: f,
+    };
+    format(&mut FmtValueFormatter::new(&mut buffer)).map_err(|_| fmt::Error)?;
+    buffer.flush()
+}
+
+/// Provides a text formatter for Ion values.
+///
+/// This is the shared implementation behind the `Display` impls of `Element` and its parts and
+/// behind the text writer's scalar and symbol encoding.
 pub struct FmtValueFormatter<'a, W: fmt::Write> {
     pub(crate) output: &'a mut W,
 }
@@ -196,8 +444,9 @@ impl<'a, W: fmt::Write> FmtValueFormatter<'a, W> {
 /// to implementations of `fmt::Write`.
 pub struct IoValueFormatter<W: io::Write> {
     output: W,
-    // If an I/O error happens while writing the formatted text to output, write!() will return
-    // a `fmt::Error` (which contains no information). This result can then be inspected for the
+    // If an I/O error happens while writing the formatted text to output, `write_str` returns a
+    // `fmt::Error` (which contains no information). `result` holds the first such I/O error, as an
+    // `IonError::Io`; later writes do not clear it. This result can then be inspected for the
     // cause. This approach is similar to the one the Rust std library uses internally. See:
     // https://github.com/rust-lang/rust/blob/cc4dd6fc9f1a5c798df269933c7e442b79661a86/library/std/src/io/mod.rs#L1665
     result: IonResult<()>,
@@ -211,6 +460,8 @@ impl<W: io::Write> IoValueFormatter<W> {
         }
     }
 
+    /// Returns the first I/O error any write hit, as an `IonError::Io`, or `Ok(())` if every write
+    /// succeeded.
     pub fn into_result(self) -> IonResult<()> {
         self.result
     }
@@ -221,18 +472,14 @@ impl<W: io::Write> IoValueFormatter<W> {
 }
 
 impl<W: io::Write> fmt::Write for IoValueFormatter<W> {
+    #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let io_result = self.output.write_all(s.as_bytes());
-        match io_result {
-            Ok(_) => {
-                self.result = Ok(());
-                Ok(())
-            }
+        match self.output.write_all(s.as_bytes()) {
+            Ok(()) => Ok(()),
             Err(e) => {
-                self.result = cold_error!(
-                    encoding_error,
-                    "I/O failure occurred during formatting: {e:?}"
-                );
+                if self.result.is_ok() {
+                    self.result = Err(e.into());
+                }
                 Err(fmt::Error)
             }
         }
@@ -240,118 +487,83 @@ impl<W: io::Write> fmt::Write for IoValueFormatter<W> {
 }
 
 impl<W: fmt::Write> FmtValueFormatter<'_, W> {
-    /// Returns `true` if the provided `token`'s text is an 'identifier'. That is, the text starts
-    /// with a `$`, `_` or ASCII letter and is followed by a sequence of `$`, `_`, or ASCII letters
-    /// and numbers. Examples:
-    /// * `firstName`
-    /// * `first_name`
-    /// * `name_1`
-    /// * `$name`
-    ///
-    /// Unlike other symbols, identifiers don't have to be wrapped in quotes.
-    fn token_is_identifier(token: &str) -> bool {
-        if token.is_empty() {
-            return false;
-        }
-        let mut chars = token.chars();
-        let first = chars.next().unwrap();
-        (first == '$' || first == '_' || first.is_ascii_alphabetic())
-            && chars.all(|c| c == '$' || c == '_' || c.is_ascii_alphanumeric())
-    }
-
-    /// Returns `true` if the provided text is an Ion keyword. Keywords like `true` or `null`
-    /// resemble identifiers, but writers must wrap them in quotes when using them as symbol text.
-    fn token_is_keyword(token: &str) -> bool {
-        const KEYWORDS: &[&str] = &["true", "false", "nan", "null"];
-        KEYWORDS.contains(&token)
-    }
-
-    /// Returns `true` if this token's text resembles a symbol ID literal. For example: `'$99'` is a
-    /// symbol with the text `$99`. However, `$99` (without quotes) is a symbol ID that maps to
-    /// different text.
-    fn token_resembles_symbol_id(token: &str) -> bool {
-        match token.as_bytes() {
-            [b'$', digits @ ..] => !digits.is_empty() && digits.iter().all(u8::is_ascii_digit),
-            _ => false,
-        }
-    }
-
-    /// Returns `true` if this token's text resembles an Ion version marker (e.g. `$ion_1_1`).
-    /// Without quotes, such text at the top level reads as a version marker, not a symbol.
-    fn token_resembles_version_marker(token: &str) -> bool {
-        let is_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-        token
-            .strip_prefix("$ion_")
-            .and_then(|version| version.split_once('_'))
-            .is_some_and(|(major, minor)| is_digits(major) && is_digits(minor))
-    }
-
+    // Always inlined so that the text writer's symbol and field name writes dispatch on the token
+    // and write a SID or unquoted text without calling `format_symbol_token`.
+    #[inline(always)]
     pub(crate) fn format_symbol_token<A: AsRawSymbolRef>(&mut self, token: A) -> IonResult<()> {
         use RawSymbolRef::*;
-        let write_result = match token.as_raw_symbol_ref() {
-            SymbolId(sid) => write!(self.output, "${sid}"),
-            // If the text could be mistaken for a keyword, symbol ID, or version marker, wrap it in
-            // single quotes.
-            Text(text)
-                if Self::token_is_keyword(text)
-                    || Self::token_resembles_symbol_id(text)
-                    || Self::token_resembles_version_marker(text) =>
-            {
-                write!(self.output, "'{text}'")
+        match token.as_raw_symbol_ref() {
+            SymbolId(sid) => {
+                self.output.write_str("$")?;
+                self.output.write_str(itoa::Buffer::new().format(sid))?;
             }
-            // If the text is an identifier, it doesn't require quotes.
-            Text(text) if Self::token_is_identifier(text) => write!(self.output, "{text}"),
-            // Any other text has its escape sequences substituted and is wrapped in quotes.
-            Text(text) => {
-                // Write the symbol text using quotes and escaping any characters that require it.
-                write!(self.output, "\'")?;
-                self.format_escaped_text_body(text)?;
-                write!(self.output, "\'")
-            }
-        };
-        // Convert the fmt::Result into an IonResult
-        Ok(write_result?)
+            // If the text is an identifier that can't be mistaken for a keyword, symbol ID, or
+            // version marker, it doesn't require quotes.
+            Text(text) if is_unquoted_symbol_text(text) => self.output.write_str(text)?,
+            Text(text) => self.format_quoted_symbol_text(text)?,
+        }
+        Ok(())
+    }
+
+    /// Writes `text` wrapped in single quotes, with its escape sequences substituted.
+    // Outlined so that inlining `format_symbol_token` does not copy the escape loop into each
+    // symbol call site.
+    #[inline(never)]
+    fn format_quoted_symbol_text(&mut self, text: &str) -> IonResult<()> {
+        self.output.write_str("'")?;
+        self.format_escaped_text_body(text)?;
+        self.output.write_str("'")?;
+        Ok(())
     }
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
-    /// characters escaped.
+    /// characters escaped. Runs of text that need no escaping are written with a single call.
+    // Always inlined so that each string or quoted symbol write runs the escape scan without a
+    // further call.
+    #[inline(always)]
     pub(crate) fn format_escaped_text_body<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
-        let mut start = 0usize;
         let text = value.as_ref();
-        for (byte_index, character) in text.char_indices() {
-            let escaped = match character {
-                '\n' => r"\n",
-                '\r' => r"\r",
-                '\t' => r"\t",
-                '\\' => r"\\",
-                '"' => r#"\""#,
-                '\'' => r"\'",
-                '\x00' => r"\0", // NUL
-                '\x07' => r"\a", // alert BEL
-                '\x08' => r"\b", // backspace
-                '\x0B' => r"\v", // vertical tab
-                '\x0C' => r"\f", // form feed
-                _ => {
-                    // Other characters can be left as-is
+        let bytes = text.as_bytes();
+        // `unwritten` is the start of the text that has been scanned but not yet written.
+        let mut unwritten = 0usize;
+        let mut index = 0usize;
+        while index < bytes.len() {
+            let scan_end = match bytes[index..].first_chunk::<8>() {
+                Some(word) if !swar_may_need_escape(u64::from_ne_bytes(*word)) => {
+                    index += 8;
                     continue;
                 }
+                Some(_) => index + 8,
+                // Fewer than 8 bytes remain. If the word ending at the last byte (which may
+                // overlap bytes already scanned) needs no escaping, neither do they.
+                None if !swar_may_need_escape(last_word(bytes)) => break,
+                None => bytes.len(),
             };
-            // If we reach this point, the current character needed to be escaped.
-            // Write all of the text leading up to this character to output, then the escaped
-            // version of this character.
-            write!(self.output, "{}{}", &text[start..byte_index], escaped)?;
-            // Update `start` to point to the first byte after the end of this character.
-            start = byte_index + character.len_utf8();
+            while index < scan_end {
+                let escape = TEXT_ESCAPE_CODES[bytes[index] as usize];
+                if !escape.is_empty() {
+                    self.output.write_str(&text[unwritten..index])?;
+                    self.output.write_str(escape)?;
+                    unwritten = index + 1;
+                }
+                index += 1;
+            }
         }
-        write!(self.output, "{}", &text[start..])?;
+        self.output.write_str(&text[unwritten..])?;
         Ok(())
     }
 
     pub(crate) fn format_annotations(&mut self, annotations: &Annotations) -> IonResult<()> {
         for annotation in annotations {
-            self.format_symbol(annotation)?;
-            write!(self.output, "::")?;
+            self.format_annotation(annotation)?;
         }
+        Ok(())
+    }
+
+    /// Writes `annotation` followed by `::`.
+    pub(crate) fn format_annotation<A: AsRawSymbolRef>(&mut self, annotation: A) -> IonResult<()> {
+        self.format_symbol_token(annotation)?;
+        self.output.write_str("::")?;
         Ok(())
     }
 
@@ -372,7 +584,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
             SExp => "null.sexp",
             Struct => "null.struct",
         };
-        write!(self.output, "{null_text}")?;
+        self.output.write_str(null_text)?;
         Ok(())
     }
 
@@ -381,26 +593,31 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
             true => "true",
             false => "false",
         };
-        write!(self.output, "{bool_text}")?;
+        self.output.write_str(bool_text)?;
         Ok(())
     }
 
     pub fn format_integer(&mut self, value: &Int) -> IonResult<()> {
-        write!(self.output, "{value}")?;
+        value.format_text(self.output)?;
+        Ok(())
+    }
+
+    pub(crate) fn format_i64(&mut self, value: i64) -> IonResult<()> {
+        self.output.write_str(itoa::Buffer::new().format(value))?;
         Ok(())
     }
 
     pub fn format_float(&mut self, value: f64) -> IonResult<()> {
         if value.is_nan() {
-            write!(self.output, "nan")?;
+            self.output.write_str("nan")?;
             return Ok(());
         }
 
         if value.is_infinite() {
             if value.is_sign_positive() {
-                write!(self.output, "+inf")?;
+                self.output.write_str("+inf")?;
             } else {
-                write!(self.output, "-inf")?;
+                self.output.write_str("-inf")?;
             }
             return Ok(());
         }
@@ -409,7 +626,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         // notation. It works for all floating point values except -0.0 (it drops the sign).
         // See: https://github.com/rust-lang/rust/issues/20596
         if value == 0.0f64 && value.is_sign_negative() {
-            write!(self.output, "-0e0")?;
+            self.output.write_str("-0e0")?;
             return Ok(());
         }
 
@@ -418,7 +635,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
     }
 
     pub fn format_decimal(&mut self, value: &Decimal) -> IonResult<()> {
-        write!(self.output, "{value}")?;
+        value.format_text(self.output)?;
         Ok(())
     }
 
@@ -431,67 +648,122 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         Ok(())
     }
 
+    // Always inlined so that the text writer's `write_string` runs the escape scan in its own body.
+    // The recursive `format_value` calls it through `format_string_out_of_line` instead.
+    #[inline(always)]
     pub fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
-        write!(self.output, "\"")?;
+        self.output.write_str("\"")?;
         self.format_escaped_text_body(value)?;
-        write!(self.output, "\"")?;
+        self.output.write_str("\"")?;
         Ok(())
+    }
+
+    /// Calls [`Self::format_string`] from out of line, keeping its escape loop out of the
+    /// recursive `format_value`.
+    #[inline(never)]
+    fn format_string_out_of_line(&mut self, value: &str) -> IonResult<()> {
+        self.format_string(value)
     }
 
     pub fn format_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
-        // clob_value to be written based on defined STRING_ESCAPE_CODES.
-        const NUM_DELIMITER_BYTES: usize = 4; // {{}}
-        const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xHH
-
-        let value: &[u8] = value.as_ref();
-
-        // Set aside enough memory to hold a clob containing all hex-encoded bytes
-        let mut clob_value =
-            String::with_capacity((value.len() * NUM_HEX_BYTES_PER_BYTE) + NUM_DELIMITER_BYTES);
-
-        for byte in value.iter().copied() {
-            let c = byte as char;
-            let escaped_byte = &STRING_ESCAPE_CODES[c as usize];
-            if !escaped_byte.is_empty() {
-                clob_value.push_str(escaped_byte);
-            } else {
-                clob_value.push(c);
+        let bytes: &[u8] = value.as_ref();
+        self.output.write_str("{{\"")?;
+        // `unwritten` is the start of the bytes that have been scanned but not yet written. Every
+        // byte without an entry in `STRING_ESCAPE_CODES` is printable ASCII, so each unwritten run
+        // is valid UTF-8.
+        let mut unwritten = 0usize;
+        for (index, byte) in bytes.iter().copied().enumerate() {
+            let escape = STRING_ESCAPE_CODES[byte as usize];
+            if escape.is_empty() {
+                continue;
             }
+            self.output
+                .write_str(ascii_str(&bytes[unwritten..index])?)?;
+            self.output.write_str(escape)?;
+            unwritten = index + 1;
         }
-        write!(self.output, "{{{{\"{clob_value}\"}}}}")?;
+        self.output.write_str(ascii_str(&bytes[unwritten..])?)?;
+        self.output.write_str("\"}}")?;
         Ok(())
     }
 
+    // Keeps the `encoded` chunk buffer out of the stack frame of the recursive `format_value`.
+    #[inline(never)]
     pub fn format_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
-        write!(self.output, "{{{{{}}}}}", base64::encode(value))?;
+        // Encoding a multiple of 3 bytes at a time produces no padding until the final chunk, so
+        // the concatenated chunks are identical to encoding the whole blob at once.
+        const INPUT_CHUNK_LEN: usize = 3 * 256;
+        const _: () = assert!(INPUT_CHUNK_LEN % 3 == 0);
+        const OUTPUT_CHUNK_LEN: usize = INPUT_CHUNK_LEN / 3 * 4;
+        let mut encoded = [0u8; OUTPUT_CHUNK_LEN];
+        self.output.write_str("{{")?;
+        for chunk in value.as_ref().chunks(INPUT_CHUNK_LEN) {
+            let len = base64::encode_config_slice(chunk, base64::STANDARD, &mut encoded);
+            self.output.write_str(ascii_str(&encoded[..len])?)?;
+        }
+        self.output.write_str("}}")?;
         Ok(())
+    }
+
+    /// Writes `element`, including its annotations, recursing into containers through this
+    /// formatter rather than through `Display`. Each `Display` call puts a [`DISPLAY_CHUNK_LEN`]
+    /// buffer on the stack, so nested values must not go through `Display`.
+    pub(crate) fn format_element(&mut self, element: &Element) -> IonResult<()> {
+        self.format_annotations(element.annotations())?;
+        self.format_value(element.value())
+    }
+
+    /// Writes `value` without annotations. This method is on the recursive path, so a callee with a
+    /// large stack local must stay out of line, as [`Self::format_blob`] does.
+    pub(crate) fn format_value(&mut self, value: &Value) -> IonResult<()> {
+        match value {
+            Value::Null(ion_type) => self.format_null(*ion_type),
+            Value::Bool(bool) => self.format_bool(*bool),
+            Value::Int(integer) => self.format_integer(integer),
+            Value::Float(float) => self.format_float(*float),
+            Value::Decimal(decimal) => self.format_decimal(decimal),
+            Value::Timestamp(timestamp) => self.format_timestamp(timestamp),
+            Value::Symbol(symbol) => self.format_symbol(symbol),
+            Value::String(string) => self.format_string_out_of_line(string.text()),
+            Value::Clob(clob) => self.format_clob(clob),
+            Value::Blob(blob) => self.format_blob(blob),
+            Value::List(sequence) => self.format_list(sequence),
+            Value::SExp(sequence) => self.format_sexp(sequence),
+            Value::Struct(struct_) => self.format_struct(struct_),
+        }
     }
 
     pub(crate) fn format_struct(&mut self, value: &Struct) -> IonResult<()> {
-        write!(self.output, "{{")?;
-        let mut peekable_itr = value.fields().peekable();
-        while let Some((field_name, field_value)) = peekable_itr.next() {
-            self.format_symbol(field_name.as_raw_symbol_ref())?;
-            write!(self.output, ": {field_value}")?;
-            if peekable_itr.peek().is_some() {
-                write!(self.output, ", ")?;
+        self.output.write_str("{")?;
+        let mut fields = value.fields();
+        if let Some((field_name, field_value)) = fields.next() {
+            self.format_field(field_name, field_value)?;
+            for (field_name, field_value) in fields {
+                self.output.write_str(", ")?;
+                self.format_field(field_name, field_value)?;
             }
         }
-        write!(self.output, "}}")?;
+        self.output.write_str("}")?;
         Ok(())
     }
 
+    fn format_field(&mut self, name: &Symbol, value: &Element) -> IonResult<()> {
+        self.format_symbol(name.as_raw_symbol_ref())?;
+        self.output.write_str(": ")?;
+        self.format_element(value)
+    }
+
     pub(crate) fn format_sexp<S: AsRef<Sequence>>(&mut self, sequence: S) -> IonResult<()> {
-        write!(self.output, "(")?;
+        self.output.write_str("(")?;
         self.format_sequence_elements(sequence, " ")?;
-        write!(self.output, ")")?;
+        self.output.write_str(")")?;
         Ok(())
     }
 
     pub(crate) fn format_list<S: AsRef<Sequence>>(&mut self, sequence: S) -> IonResult<()> {
-        write!(self.output, "[")?;
+        self.output.write_str("[")?;
         self.format_sequence_elements(sequence, ", ")?;
-        write!(self.output, "]")?;
+        self.output.write_str("]")?;
         Ok(())
     }
 
@@ -500,12 +772,12 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         sequence: S,
         delimiter: &'static str,
     ) -> IonResult<()> {
-        let mut peekable_itr = sequence.as_ref().elements().peekable();
-        while peekable_itr.peek().is_some() {
-            let list_value = peekable_itr.next().unwrap();
-            write!(self.output, "{list_value}")?;
-            if peekable_itr.peek().is_some() {
-                write!(self.output, "{delimiter}")?;
+        let mut elements = sequence.as_ref().elements();
+        if let Some(element) = elements.next() {
+            self.format_element(element)?;
+            for element in elements {
+                self.output.write_str(delimiter)?;
+                self.format_element(element)?;
             }
         }
         Ok(())
@@ -636,6 +908,429 @@ mod formatter_test {
             |ivf| ivf.format_list(ion_list!["hello", 5, true]),
             "[\"hello\", 5, true]",
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fast_path_tests {
+    use super::*;
+    use crate::{Element, IonResult};
+    use rstest::rstest;
+
+    /// The `char`-at-a-time escaper that the byte scan in `format_escaped_text_body` must match.
+    fn reference_escaped_text_body(text: &str) -> String {
+        let mut output = String::new();
+        for character in text.chars() {
+            match character {
+                '\n' => output.push_str(r"\n"),
+                '\r' => output.push_str(r"\r"),
+                '\t' => output.push_str(r"\t"),
+                '\\' => output.push_str(r"\\"),
+                '"' => output.push_str(r#"\""#),
+                '\'' => output.push_str(r"\'"),
+                '\x00' => output.push_str(r"\0"),
+                '\x07' => output.push_str(r"\a"),
+                '\x08' => output.push_str(r"\b"),
+                '\x0B' => output.push_str(r"\v"),
+                '\x0C' => output.push_str(r"\f"),
+                other => output.push(other),
+            }
+        }
+        output
+    }
+
+    fn escaped_text_body(text: &str) -> IonResult<String> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_escaped_text_body(text)?;
+        Ok(output)
+    }
+
+    /// Each special byte (and a multi-byte character) at every position across two SWAR words,
+    /// padded with text that never needs escaping.
+    #[rstest]
+    fn escaped_text_body_matches_reference_at_every_offset(
+        #[values(
+            "\n", "\r", "\t", "\\", "\"", "'", "\0", "\x07", "\x08", "\x0B", "\x0C", "\x01",
+            "\x06", "\x0E", "\x1F", "\x7F", "é", "日", "😀"
+        )]
+        special: &str,
+    ) -> IonResult<()> {
+        for prefix_len in 0..20 {
+            for suffix_len in 0..=9 {
+                let text = format!(
+                    "{}{special}{}",
+                    "a".repeat(prefix_len),
+                    "b".repeat(suffix_len)
+                );
+                assert_eq!(
+                    escaped_text_body(&text)?,
+                    reference_escaped_text_body(&text),
+                    "text: {text:?}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// The SWAR prefilter must flag every byte that `TEXT_ESCAPE_CODES` escapes, in every lane of an
+    /// otherwise clean word; a byte it missed would be written unescaped. The non-ASCII backgrounds
+    /// set the high bit of every lane except `lane`.
+    #[rstest]
+    fn swar_prefilter_flags_every_escaped_byte(
+        #[values(0, 1, 2, 3, 4, 5, 6, 7)] lane: usize,
+        #[values(b'a', 0x80, 0xBF, 0xC3, 0xFF)] background: u8,
+    ) {
+        for byte in 0..=u8::MAX {
+            if TEXT_ESCAPE_CODES[byte as usize].is_empty() {
+                continue;
+            }
+            let mut word = [background; 8];
+            word[lane] = byte;
+            assert!(
+                swar_may_need_escape(u64::from_ne_bytes(word)),
+                "byte {byte:#04x} in lane {lane}, background {background:#04x}"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case::empty("")]
+    #[case::all_escapes("\n\r\t\\\"'\0\x07\x08\x0B\x0C")]
+    #[case::adjacent_escapes_across_words("aaaaaaa\"\"bbbbbbb\\\\ccccccc''")]
+    #[case::non_ascii_between_escapes("é\"日\n😀'")]
+    fn escaped_text_body_matches_reference(#[case] text: &str) -> IonResult<()> {
+        assert_eq!(escaped_text_body(text)?, reference_escaped_text_body(text));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::identifier("foo", true)]
+    #[case::leading_underscore("_foo", true)]
+    #[case::leading_dollar("$foo", true)]
+    #[case::trailing_digits("foo_12", true)]
+    #[case::dollar_type("$type", true)]
+    #[case::dollar_ion("$ion", true)]
+    #[case::system_symbol("$ion_symbol_table", true)]
+    #[case::dollar_ion_underscore("$ion_", true)]
+    #[case::version_marker_prefix("$ion_1", true)]
+    #[case::version_marker_then_letter("$ion_1_0x", true)]
+    #[case::version_marker_then_underscore("$ion_1_0_0", true)]
+    #[case::version_marker_without_minor("$ion_1_", true)]
+    #[case::trailing_dollar_digits("a$12", true)]
+    #[case::keyword_prefix("nulls", true)]
+    #[case::keyword_suffix("anull", true)]
+    #[case::capitalized_keyword("True", true)]
+    #[case::long_identifier(
+        "abcdefghijklmnopqrstuvwxyz_ABCDEFGHIJKLMNOPQRSTUVWXYZ$0123456789",
+        true
+    )]
+    #[case::lone_dollar("$", true)]
+    #[case::dollar_digits_then_letter("$1a", true)]
+    #[case::dollar_digits_then_underscore("$1_0", true)]
+    #[case::dollar_digits_then_dollar("$1$2", true)]
+    #[case::version_marker("$ion_1_0", false)]
+    #[case::other_version_marker("$ion_12_34", false)]
+    #[case::empty("", false)]
+    #[case::keyword_true("true", false)]
+    #[case::keyword_false("false", false)]
+    #[case::keyword_nan("nan", false)]
+    #[case::keyword_null("null", false)]
+    #[case::symbol_id("$12", false)]
+    #[case::symbol_id_zero("$0", false)]
+    #[case::leading_digit("1abc", false)]
+    #[case::space("a b", false)]
+    #[case::dash("a-b", false)]
+    #[case::non_ascii("é", false)]
+    #[case::non_ascii_digits_after_dollar("$١٢", false)]
+    fn unquoted_symbol_text(#[case] text: &str, #[case] expected: bool) {
+        assert_eq!(is_unquoted_symbol_text(text), expected);
+    }
+
+    /// Each byte value at every position of identifier text of each length up to a little more
+    /// than two words, which covers the short, single-word, and multi-word paths of the SWAR test.
+    #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    fn identifier_text_matches_per_byte_test(
+        #[values(b'a', b'Z', b'0', b'_', b'$')] background: u8,
+    ) {
+        for len in 0..=17 {
+            let mut text = vec![background; len];
+            assert!(is_identifier_text(&text), "len {len}");
+            for position in 0..len {
+                for byte in 0..=u8::MAX {
+                    text[position] = byte;
+                    assert_eq!(
+                        is_identifier_text(&text),
+                        byte == b'$' || byte == b'_' || byte.is_ascii_alphanumeric(),
+                        "byte {byte:#04x} at {position} of {len}, background {background:#04x}"
+                    );
+                }
+                text[position] = background;
+            }
+        }
+    }
+
+    #[rstest]
+    #[case::identifier(RawSymbolRef::Text("foo"), "foo")]
+    #[case::keyword(RawSymbolRef::Text("true"), "'true'")]
+    #[case::resembles_symbol_id(RawSymbolRef::Text("$12"), "'$12'")]
+    #[case::lone_dollar(RawSymbolRef::Text("$"), "$")]
+    #[case::empty(RawSymbolRef::Text(""), "''")]
+    #[case::space(RawSymbolRef::Text("a b"), "'a b'")]
+    #[case::single_quote(RawSymbolRef::Text("a'b"), r"'a\'b'")]
+    #[case::symbol_id(RawSymbolRef::SymbolId(10), "$10")]
+    fn symbol_token_text(#[case] token: RawSymbolRef<'_>, #[case] expected: &str) -> IonResult<()> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_symbol_token(token)?;
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::text(RawSymbolRef::Text("foo"), "foo::")]
+    #[case::quoted_text(RawSymbolRef::Text("a b"), "'a b'::")]
+    #[case::symbol_id(RawSymbolRef::SymbolId(10), "$10::")]
+    fn annotation_text(#[case] token: RawSymbolRef<'_>, #[case] expected: &str) -> IonResult<()> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_annotation(token)?;
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    /// Symbol text that starts like a symbol ID, a version marker, or a keyword, as a top-level
+    /// value (where a version marker is recognized) and inside a list.
+    #[rstest]
+    #[case::symbol_id("$12")]
+    #[case::symbol_id_then_identifier("$12a")]
+    #[case::symbol_id_then_dollar("$1$2")]
+    #[case::lone_dollar("$")]
+    #[case::version_marker("$ion_1_1")]
+    #[case::version_marker_then_identifier("$ion_1_0x")]
+    #[case::keyword("null")]
+    fn ambiguous_symbol_text_round_trips(#[case] text: &str) -> IonResult<()> {
+        for element in [
+            Element::symbol(text),
+            Element::from(crate::ion_list![Element::symbol(text)]),
+        ] {
+            let read = Element::read_all(element.to_string())?;
+            assert_eq!(read, Sequence::from(vec![element.clone()]), "{element}");
+        }
+        Ok(())
+    }
+
+    /// The per-byte clob encoder that the run-based `format_clob` must match.
+    fn reference_clob(bytes: &[u8]) -> String {
+        let mut body = String::new();
+        for &byte in bytes {
+            let escape = STRING_ESCAPE_CODES[byte as usize];
+            if escape.is_empty() {
+                body.push(byte as char);
+            } else {
+                body.push_str(escape);
+            }
+        }
+        format!("{{{{\"{body}\"}}}}")
+    }
+
+    fn clob_text(bytes: &[u8]) -> IonResult<String> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_clob(bytes)?;
+        Ok(output)
+    }
+
+    #[test]
+    fn clob_matches_reference_for_every_byte() -> IonResult<()> {
+        for byte in 0..=u8::MAX {
+            let bytes = [b'a', b'b', byte, b'c', b'd'];
+            assert_eq!(
+                clob_text(&bytes)?,
+                reference_clob(&bytes),
+                "byte {byte:#04x}"
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(b"", r#"{{""}}"#)]
+    #[case::no_escapes(b"abc", r#"{{"abc"}}"#)]
+    #[case::mixed(b"a\"b\\c\nd", r#"{{"a\"b\\c\nd"}}"#)]
+    #[case::adjacent_escapes(b"\"\"\\\\", r#"{{"\"\"\\\\"}}"#)]
+    #[case::leading_and_trailing_escapes(b"\x00ab\xff", r#"{{"\0ab\xff"}}"#)]
+    fn clob_text_matches_expected(#[case] bytes: &[u8], #[case] expected: &str) -> IonResult<()> {
+        assert_eq!(clob_text(bytes)?, expected);
+        assert_eq!(reference_clob(bytes), expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::zero_no_width(0, 0, "0")]
+    #[case::pads(7, 2, "07")]
+    #[case::exact_width(12, 2, "12")]
+    #[case::wider_than_width(12345, 4, "12345")]
+    #[case::year(2000, 4, "2000")]
+    #[case::small_year(1, 4, "0001")]
+    #[case::padding_longer_than_zeros(5, 40, "0000000000000000000000000000000000000005")]
+    fn zero_padded(
+        #[case] value: u64,
+        #[case] width: usize,
+        #[case] expected: &str,
+    ) -> fmt::Result {
+        let mut output = String::new();
+        write_zero_padded(&mut output, value, width)?;
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    fn blob_matches_single_shot_base64(
+        #[values(0, 1, 2, 3, 4, 5, 767, 768, 769, 770, 1536, 2000)] len: usize,
+    ) -> IonResult<()> {
+        let bytes: Vec<u8> = (0..len).map(|i| (i * 31 % 256) as u8).collect();
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_blob(&bytes)?;
+        assert_eq!(output, format!("{{{{{}}}}}", base64::encode(&bytes)));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::zero("0")]
+    #[case::one("1")]
+    #[case::negative_one("-1")]
+    #[case::i64_max("9223372036854775807")]
+    #[case::i64_min("-9223372036854775808")]
+    #[case::u64_max("18446744073709551615")]
+    #[case::u64_max_plus_one("18446744073709551616")]
+    #[case::i128_max("170141183460469231731687303715884105727")]
+    #[case::i128_min("-170141183460469231731687303715884105728")]
+    #[case::u128_max("340282366920938463463374607431768211455")]
+    #[case::beyond_u128("-340282366920938463463374607431768211456")]
+    fn integer_text_round_trips(#[case] text: &str) -> IonResult<()> {
+        let element = Element::read_one(text)?;
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_integer(element.expect_int()?)?;
+        assert_eq!(output, text);
+        Ok(())
+    }
+
+    /// Ion text for a list large enough to reach a `Display` sink in several chunks. The text is
+    /// already in `Display`'s output form.
+    fn large_list_text() -> String {
+        format!("[{}]", vec!["\"abc\""; 2000].join(", "))
+    }
+
+    /// A sink that records each `write_str` separately and formats another `Element` from inside
+    /// each one, re-entering `Display` between the outer value's chunks.
+    struct ReentrantSink {
+        chunks: Vec<String>,
+        nested: Element,
+        nested_texts: Vec<String>,
+    }
+
+    impl ReentrantSink {
+        fn new(nested: Element) -> Self {
+            Self {
+                chunks: Vec::new(),
+                nested,
+                nested_texts: Vec::new(),
+            }
+        }
+    }
+
+    impl fmt::Write for ReentrantSink {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            self.nested_texts.push(self.nested.to_string());
+            self.chunks.push(s.to_owned());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn display_tolerates_reentrant_sink() -> IonResult<()> {
+        let text = large_list_text();
+        let outer = Element::read_one(&text)?;
+        let mut sink = ReentrantSink::new(Element::read_one("(x y)")?);
+        fmt::Write::write_fmt(&mut sink, format_args!("{outer}"))?;
+        assert!(sink.chunks.len() > 1);
+        assert_eq!(sink.chunks.concat(), text);
+        assert!(sink.nested_texts.iter().all(|nested| nested == "(x y)"));
+        Ok(())
+    }
+
+    /// A sink that records each `write_str` separately.
+    #[derive(Default)]
+    struct ChunkSink(Vec<String>);
+
+    impl fmt::Write for ChunkSink {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            self.0.push(s.to_owned());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn display_emits_bounded_chunks() -> IonResult<()> {
+        // The longest `&str` that formatting `large_list_text()` writes (`abc`).
+        const MAX_PIECE_LEN: usize = 3;
+        let text = large_list_text();
+        let element = Element::read_one(&text)?;
+        let mut sink = ChunkSink::default();
+        fmt::Write::write_fmt(&mut sink, format_args!("{element}"))?;
+        let chunks = &sink.0;
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.len() <= DISPLAY_CHUNK_LEN));
+        // Every chunk but the last is flushed only when the next piece does not fit.
+        assert!(chunks[..chunks.len() - 1]
+            .iter()
+            .all(|chunk| chunk.len() > DISPLAY_CHUNK_LEN - MAX_PIECE_LEN));
+        assert_eq!(chunks.concat(), text);
+        Ok(())
+    }
+
+    #[test]
+    fn display_writes_oversized_text_directly() -> IonResult<()> {
+        let body = "a".repeat(DISPLAY_CHUNK_LEN + 1);
+        let element = Element::string(body.as_str());
+        let mut sink = ChunkSink::default();
+        fmt::Write::write_fmt(&mut sink, format_args!("{element}"))?;
+        assert_eq!(sink.0, ["\"", body.as_str(), "\""]);
+        Ok(())
+    }
+
+    /// A sink that accepts `remaining_writes` calls to `write_str` and fails every call after them,
+    /// counting every call in `attempts`.
+    struct FailingFmtSink {
+        remaining_writes: usize,
+        attempts: usize,
+    }
+
+    impl fmt::Write for FailingFmtSink {
+        fn write_str(&mut self, _s: &str) -> fmt::Result {
+            self.attempts += 1;
+            if self.remaining_writes == 0 {
+                return Err(fmt::Error);
+            }
+            self.remaining_writes -= 1;
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    #[case::final_flush_fails("(x y)".to_owned(), 0)]
+    #[case::flush_during_formatting_fails(large_list_text(), 1)]
+    fn display_reports_sink_failure(
+        #[case] text: String,
+        #[case] accepted_writes: usize,
+    ) -> IonResult<()> {
+        let element = Element::read_one(&text)?;
+        let mut sink = FailingFmtSink {
+            remaining_writes: accepted_writes,
+            attempts: 0,
+        };
+        assert!(fmt::Write::write_fmt(&mut sink, format_args!("{element}")).is_err());
+        // The first failed write must end formatting; any later write means the error was dropped.
+        assert_eq!(sink.attempts, accepted_writes + 1);
         Ok(())
     }
 }

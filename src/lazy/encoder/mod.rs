@@ -161,10 +161,15 @@ pub(crate) fn cap_retained_buffer<E: ManagedWriterEncoding>(
 /// impl<E: Encoding> MyPool<E> where E::Writer<Vec<u8>>: Reusable { /* ... */ }
 /// ```
 ///
+/// That bound covers managed writers with the default style. Writers built with a marker such as
+/// [`v1_0::CompactText`](crate::v1_0::CompactText) are reusable too, but each marker gives the
+/// writer its own type, such as `Writer<TextEncoding_1_0, (), v1_0::CompactText>`. There is no
+/// supported bound for a pool that is generic over the style, so a pool names each style it holds.
+///
 /// Only the Ion 1.0 raw writers implement it, so only `Writer<BinaryEncoding_1_0, _>` and
-/// `Writer<TextEncoding_1_0, _>` can be reused. An encoding whose writer carries state that
-/// `recycle` cannot reset must not implement it: reuse would then silently emit a document that
-/// depends on definitions the stream never makes.
+/// `Writer<TextEncoding_1_0, _, S>`, for each style `S`, can be reused. An encoding whose writer
+/// carries state that `recycle` cannot reset must not implement it: reuse would then silently emit
+/// a document that depends on definitions the stream never makes.
 pub trait Reusable: private::Sealed + Recycle {}
 
 /// An Ion writer without a symbol table.

@@ -100,8 +100,6 @@ impl IonDataHash for IonType {
 }
 
 /// An Ion container type.
-///
-/// This is similar to [`ParentType`], but does not include the top level as a variant.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum ContainerType {
     /// An s-expression
@@ -118,33 +116,6 @@ impl From<ContainerType> for IonType {
             ContainerType::SExp => IonType::SExp,
             ContainerType::List => IonType::List,
             ContainerType::Struct => IonType::Struct,
-        }
-    }
-}
-
-/// The enclosing context in which a value is found.
-///
-/// This is a superset of [`ContainerType`], which does not include a variant for the top
-/// level.
-#[derive(Debug, PartialEq, Default, Copy, Clone)]
-pub(crate) enum ParentType {
-    /// The value is not inside a container.
-    #[default]
-    TopLevel,
-    /// The value is inside of an s-expression.
-    SExp,
-    /// The value is inside of a list.
-    List,
-    /// The value is inside of a struct.
-    Struct,
-}
-
-impl From<ContainerType> for ParentType {
-    fn from(value: ContainerType) -> Self {
-        match value {
-            ContainerType::SExp => ParentType::SExp,
-            ContainerType::List => ParentType::List,
-            ContainerType::Struct => ParentType::Struct,
         }
     }
 }

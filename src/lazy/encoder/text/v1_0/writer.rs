@@ -3,21 +3,22 @@ use std::io::Write;
 use delegate::delegate;
 
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::text::v1_0::value_writer::TextValueWriter_1_0;
+use crate::lazy::encoder::text::v1_0::value_writer::{Separator, TextValueWriter_1_0};
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoder::{cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole};
 use crate::lazy::encoding::{Encoding, TextEncoding_1_0};
-use crate::text::whitespace_config::WhitespaceConfig;
-use crate::types::ParentType;
+use crate::result::IonFailure;
+use crate::text::whitespace_config::{RuntimeStyle, TextStyle, WhitespaceConfig};
 use crate::write_config::WriteConfigKind;
 use crate::{ContextWriter, IonResult, TextFormat, WriteConfig};
 
-/// A raw text Ion 1.0 writer.
-pub struct LazyRawTextWriter_1_0<W: Write> {
+/// A raw text Ion 1.0 writer whose whitespace layout is `S`: by default, the layout of the
+/// [`TextFormat`] it is built with, read at run time.
+pub struct LazyRawTextWriter_1_0<W: Write, S: TextStyle = RuntimeStyle> {
     pub(crate) output: W,
-    pub(crate) whitespace_config: &'static WhitespaceConfig,
+    style: S,
 }
 
 impl<W: Write> LazyRawTextWriter_1_0<W> {
@@ -26,6 +27,17 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
         <Self as LazyRawWriter<W>>::new(output)
     }
 
+    /// Constructs a new writer that will emit encoded data to the specified `output` in the text
+    /// format of `config`. Returns an error if `config` is a binary configuration.
+    // An inherent method so that `LazyRawTextWriter_1_0::build(..)` resolves to the default style
+    // rather than leaving the style to be inferred. Generic over `E`, as the trait method is, so
+    // that callers generic over the encoding can use it.
+    pub fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
+        <Self as LazyRawWriter<W>>::build(config, output)
+    }
+}
+
+impl<W: Write, S: TextStyle> LazyRawTextWriter_1_0<W, S> {
     /// Writes the provided data as a top-level value.
     pub fn write<V: WriteAsIon>(&mut self, value: V) -> IonResult<&mut Self> {
         value.write_as_ion(self.value_writer())?;
@@ -38,23 +50,25 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
         Ok(())
     }
 
-    /// Helper method to construct this format's `ValueWriter` implementation.
+    /// Helper method to construct this format's `ValueWriter` implementation. There's no delimiter
+    /// between values at the top level, only whitespace.
     #[inline]
-    fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
-        TextValueWriter_1_0::new(
-            self,
-            0,
-            "", // No delimiter between values at the top level
-            ParentType::TopLevel,
-        )
+    fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W, S> {
+        TextValueWriter_1_0::new(self, 0, Separator::TopLevel, false)
+    }
+
+    /// The whitespace layout this writer writes.
+    #[inline]
+    pub(crate) fn whitespace_config(&self) -> &'static WhitespaceConfig {
+        self.style.whitespace()
     }
 }
 
-// Implemented only for the `Vec<u8>` instantiation, mirroring the binary 1.0 writer: that is the only
-// one the managed writer's reusable-writer API needs (`E::Writer<Vec<u8>>: Reusable`).
-impl Reusable for LazyRawTextWriter_1_0<Vec<u8>> {}
+// Implemented only for the `Vec<u8>` instantiations, mirroring the binary 1.0 writer: those are the
+// only ones the managed writer's reusable-writer API needs.
+impl<S: TextStyle> Reusable for LazyRawTextWriter_1_0<Vec<u8>, S> {}
 
-impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
+impl<S: TextStyle> Recycle for LazyRawTextWriter_1_0<Vec<u8>, S> {
     /// Discards any buffered (unflushed) content and bounds the retained output buffer; in either
     /// role, that is all: a text 1.0 writer owns no scratch state and emits no construction prologue
     /// to re-seed.
@@ -66,11 +80,13 @@ impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
         cap_retained_buffer::<TextEncoding_1_0>(&mut self.output, role);
     }
 
-    /// Re-derives the whitespace rules from `config`, the only state a text writer takes from it.
+    /// Re-derives the whitespace rules from `config`, the only state a text writer takes from it. A
+    /// writer with a zero-sized style keeps that style's layout whatever the text format of
+    /// `config`.
     fn apply_config<E: Encoding>(&mut self, config: &WriteConfig<E>) {
         match config.kind() {
             WriteConfigKind::Text(text_config) => {
-                self.whitespace_config = text_config.text_kind.into()
+                self.style = S::from_format(text_config.text_kind)
             }
             WriteConfigKind::Binary(_) => {
                 unreachable!("Text writer can not be configured from binary encoding")
@@ -79,9 +95,9 @@ impl Recycle for LazyRawTextWriter_1_0<Vec<u8>> {
     }
 }
 
-impl<W: Write> Sealed for LazyRawTextWriter_1_0<W> {}
+impl<W: Write, S: TextStyle> Sealed for LazyRawTextWriter_1_0<W, S> {}
 
-impl<W: Write> SequenceWriter for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> SequenceWriter for LazyRawTextWriter_1_0<W, S> {
     type Resources = W;
 
     fn close(mut self) -> IonResult<Self::Resources> {
@@ -90,20 +106,20 @@ impl<W: Write> SequenceWriter for LazyRawTextWriter_1_0<W> {
     }
 }
 
-impl<W: Write> ContextWriter for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> ContextWriter for LazyRawTextWriter_1_0<W, S> {
     type NestedValueWriter<'a>
-        = TextValueWriter_1_0<'a, W>
+        = TextValueWriter_1_0<'a, W, S>
     where
         Self: 'a;
 }
 
-impl<W: Write> MakeValueWriter for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> MakeValueWriter for LazyRawTextWriter_1_0<W, S> {
     fn make_value_writer(&mut self) -> Self::NestedValueWriter<'_> {
         self.value_writer()
     }
 }
 
-impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
+impl<W: Write, S: TextStyle> LazyRawWriter<W> for LazyRawTextWriter_1_0<W, S> {
     fn new(output: W) -> IonResult<Self> {
         Self::build(
             WriteConfig::<TextEncoding_1_0>::new(TextFormat::default()),
@@ -111,19 +127,18 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
         )
     }
 
-    /// Build text writer based on given writer configuration
+    /// Build text writer based on given writer configuration. A writer with a zero-sized style
+    /// writes that style's layout whatever the text format of `config`. Returns an error if
+    /// `config` is a binary configuration.
     fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
         match config.kind() {
-            WriteConfigKind::Text(text_config) => {
-                let whitespace_config = text_config.text_kind.into();
-                Ok(LazyRawTextWriter_1_0 {
-                    output,
-                    whitespace_config,
-                })
-            }
-            WriteConfigKind::Binary(_) => {
-                unreachable!("Binary writer can not be created from text encoding")
-            }
+            WriteConfigKind::Text(text_config) => Ok(LazyRawTextWriter_1_0 {
+                output,
+                style: S::from_format(text_config.text_kind),
+            }),
+            WriteConfigKind::Binary(_) => IonResult::illegal_operation(
+                "a text writer cannot be built from a binary configuration",
+            ),
         }
     }
 
@@ -144,17 +159,29 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
     }
 
     fn write_version_marker(&mut self) -> IonResult<()> {
-        let space_between = self.whitespace_config.space_between_top_level_values;
-        write!(self.output, "$ion_1_0{space_between}")?;
-        Ok(())
+        self.output.write_all(b"$ion_1_0")?;
+        Separator::TopLevel.write(self)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
+    use rstest::rstest;
+
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
-    use crate::{v1_0, Annotatable, IonData, IonResult, Reader, SequenceWriter, SymbolRef};
+    use crate::lazy::encoder::{LazyRawWriter, Recycle};
+    use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+    use crate::text::whitespace_config::{
+        CompactText, LinesText, PrettyText, RuntimeStyle, TextStyle,
+    };
+    use crate::{
+        v1_0, Annotatable, AnnotatableWriter, Decimal, Int, IonData, IonError, IonResult,
+        RawSymbolRef, Reader, SequenceWriter, Symbol, SymbolRef, TextFormat, Timestamp,
+        ValueWriter, WriteConfig,
+    };
 
     #[test]
     fn write_annotated_values() -> IonResult<()> {
@@ -187,7 +214,7 @@ mod tests {
         Ok(())
     }
 
-    #[rstest::rstest]
+    #[rstest]
     #[case::symbol_id("$123", "'$123'")]
     #[case::trailing_letters("$123abc", "$123abc")]
     #[case::trailing_underscore("$1_2", "$1_2")]
@@ -207,5 +234,174 @@ mod tests {
         let element = Reader::new(v1_0::Text, encoded_text)?.read_one_element()?;
         assert_eq!(element.as_symbol().and_then(|s| s.text()), Some(text));
         Ok(())
+    }
+
+    #[rstest]
+    #[case::text(vec![RawSymbolRef::Text("foo")], "foo::1\n")]
+    #[case::keyword(vec![RawSymbolRef::Text("null")], "'null'::1\n")]
+    #[case::quoted_text(vec![RawSymbolRef::Text("a b")], "'a b'::1\n")]
+    #[case::symbol_id(vec![RawSymbolRef::SymbolId(10)], "$10::1\n")]
+    #[case::several(
+        vec![RawSymbolRef::Text("foo"), RawSymbolRef::SymbolId(10), RawSymbolRef::Text("$12")],
+        "foo::$10::'$12'::1\n"
+    )]
+    fn write_annotations_text(
+        #[case] annotations: Vec<RawSymbolRef<'static>>,
+        #[case] expected: &str,
+    ) -> IonResult<()> {
+        let mut writer = LazyRawTextWriter_1_0::new(vec![])?;
+        writer
+            .value_writer()
+            .with_annotations(annotations)?
+            .write_i64(1)?;
+        assert_eq!(writer.close()?, expected.as_bytes());
+        Ok(())
+    }
+
+    /// Writes `1`, a version marker, and `[2, 3]` with a raw writer of style `S` built for `format`.
+    fn text_around_version_marker<S: TextStyle>(format: TextFormat) -> IonResult<String> {
+        let config = WriteConfig::<TextEncoding_1_0>::new(format);
+        let mut writer = LazyRawTextWriter_1_0::<_, S>::build(config, Vec::new())?;
+        writer.write(1)?;
+        writer.write_version_marker()?;
+        writer.write([2, 3])?;
+        let bytes = SequenceWriter::close(writer)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// A version marker is followed by the top-level separator of the writer's layout, whether the
+    /// layout is read at run time or fixed by a zero-sized style.
+    #[rstest]
+    #[case::compact(
+        text_around_version_marker::<CompactText>,
+        TextFormat::Compact,
+        "1 $ion_1_0 [2, 3, ] "
+    )]
+    #[case::lines(
+        text_around_version_marker::<LinesText>,
+        TextFormat::Lines,
+        "1\n$ion_1_0\n[2, 3, ]\n"
+    )]
+    #[case::pretty(
+        text_around_version_marker::<PrettyText>,
+        TextFormat::Pretty,
+        "1\n$ion_1_0\n[\n  2,\n  3,\n]\n"
+    )]
+    fn version_marker_is_followed_by_the_top_level_separator(
+        #[case] write_with_static_style: fn(TextFormat) -> IonResult<String>,
+        #[case] format: TextFormat,
+        #[case] expected: &str,
+    ) -> IonResult<()> {
+        assert_eq!(
+            text_around_version_marker::<RuntimeStyle>(format)?,
+            expected
+        );
+        assert_eq!(write_with_static_style(format)?, expected);
+        Ok(())
+    }
+
+    type CompactWriter = LazyRawTextWriter_1_0<Vec<u8>, CompactText>;
+
+    /// A raw writer with a zero-sized style writes that style's layout, whatever the text format of
+    /// the configuration it is built or re-configured with.
+    #[rstest]
+    #[case::build(|config: WriteConfig<TextEncoding_1_0>| CompactWriter::build(config, Vec::new()))]
+    #[case::apply_config(|config: WriteConfig<TextEncoding_1_0>| {
+        let mut writer =
+            CompactWriter::build(WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact), Vec::new())?;
+        writer.apply_config(&config);
+        Ok(writer)
+    })]
+    fn static_style_ignores_the_configured_format(
+        #[case] configure: fn(WriteConfig<TextEncoding_1_0>) -> IonResult<CompactWriter>,
+    ) -> IonResult<()> {
+        let mut writer = configure(WriteConfig::<TextEncoding_1_0>::new(TextFormat::Pretty))?;
+        writer.write([1])?;
+        assert_eq!(SequenceWriter::close(writer)?, b"[1, ] ");
+        Ok(())
+    }
+
+    /// An `io::Write` that accepts `capacity` bytes, recording them in `accepted`, then fails every
+    /// write with `BrokenPipe`, counting the failures in `failed_writes`.
+    struct FailingSink {
+        capacity: usize,
+        accepted: Vec<u8>,
+        failed_writes: usize,
+    }
+
+    impl io::Write for FailingSink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.capacity == 0 {
+                self.failed_writes += 1;
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
+            let len = buf.len().min(self.capacity);
+            self.capacity -= len;
+            self.accepted.extend_from_slice(&buf[..len]);
+            Ok(len)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    type FailingWriter = LazyRawTextWriter_1_0<FailingSink>;
+
+    /// A sink failure is reported as `IonError::Io` with the sink's `ErrorKind`, whichever part of
+    /// the output was being written. The sink accepts `accepted.len()` bytes of Pretty output, so
+    /// `accepted` shows that the failing write is the part the case names. The writer stops at the
+    /// first failure, so the error it reports is that failure's.
+    #[rstest]
+    #[case::i64("", |w: &mut FailingWriter| w.write(12345).map(drop))]
+    #[case::int("170", |w: &mut FailingWriter| w.write(Int::from(i128::MAX)).map(drop))]
+    #[case::float("", |w: &mut FailingWriter| w.write(1.5f64).map(drop))]
+    #[case::decimal("12", |w: &mut FailingWriter| w.write(Decimal::new(12345, -2)).map(drop))]
+    #[case::timestamp("2000-", |w: &mut FailingWriter| w.write(Timestamp::with_ymd(2000, 1, 1).build()?).map(drop))]
+    #[case::blob("{{A", |w: &mut FailingWriter| w.write([1u8, 2, 3, 4].as_slice()).map(drop))]
+    #[case::clob("{{\"", |w: &mut FailingWriter| w.value_writer().write_clob(b"hello"))]
+    #[case::string("\"", |w: &mut FailingWriter| w.write("hello").map(drop))]
+    #[case::symbol("", |w: &mut FailingWriter| w.write(Symbol::from("foo")).map(drop))]
+    #[case::symbol_id("$", |w: &mut FailingWriter| w.value_writer().write_symbol(RawSymbolRef::SymbolId(10)))]
+    #[case::text_annotation("f", |w: &mut FailingWriter| w.write(1.annotated_with("foo")).map(drop))]
+    #[case::symbol_id_annotation("$", |w: &mut FailingWriter| w.write(1.annotated_with(10usize)).map(drop))]
+    #[case::separator("1", |w: &mut FailingWriter| w.write(1).map(drop))]
+    #[case::field_name("{\n  ", |w: &mut FailingWriter| w.value_writer().write_struct([("foo", 1)]))]
+    fn sink_failures_are_io_errors(
+        #[case] accepted: &str,
+        #[case] write: fn(&mut FailingWriter) -> IonResult<()>,
+    ) -> IonResult<()> {
+        let sink = FailingSink {
+            capacity: accepted.len(),
+            accepted: Vec::new(),
+            failed_writes: 0,
+        };
+        let mut writer = LazyRawTextWriter_1_0::build(
+            WriteConfig::<TextEncoding_1_0>::new(TextFormat::Pretty),
+            sink,
+        )?;
+        match write(&mut writer) {
+            Err(IonError::Io(error)) => {
+                assert_eq!(error.source().kind(), io::ErrorKind::BrokenPipe)
+            }
+            other => panic!("expected an I/O error, got {other:?}"),
+        }
+        assert_eq!(writer.output.accepted, accepted.as_bytes());
+        assert_eq!(
+            writer.output.failed_writes, 1,
+            "the writer kept writing after the sink failed"
+        );
+        Ok(())
+    }
+
+    /// Building a text writer from a binary configuration is an error.
+    #[test]
+    fn build_rejects_a_binary_config() {
+        let result = LazyRawTextWriter_1_0::build(WriteConfig::<BinaryEncoding_1_0>::new(), vec![]);
+        assert!(
+            matches!(result, Err(IonError::IllegalOperation(_))),
+            "expected an illegal operation error, got {:?}",
+            result.as_ref().err()
+        );
     }
 }

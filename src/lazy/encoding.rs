@@ -13,6 +13,7 @@ use crate::lazy::decoder::private::DetachableValue;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::encoder::private::ManagedWriterEncoding;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
+use crate::lazy::encoder::writer::private::StyledEncoding;
 use crate::lazy::encoder::Encoder;
 use crate::lazy::expanded::{EncodingContext, EncodingContextRef};
 use crate::lazy::span::Span;
@@ -49,10 +50,12 @@ use winnow::combinator::{opt, separated_pair};
 use winnow::Parser;
 
 /// Marker trait for types that represent an Ion encoding.
-// `ManagedWriterEncoding` is a supertrait rather than members on `Encoding` so that the managed
-// writer's buffer sizing stays off this trait's documented surface. Its const is still readable
-// through an `E: Encoding` bound, but it is not a supported API.
-pub trait Encoding: Encoder + Decoder + ManagedWriterEncoding {
+// `ManagedWriterEncoding` and `StyledEncoding` are supertraits in crate-private modules rather than
+// members on `Encoder` or `Encoding`, so that code outside the crate can neither name nor implement
+// them and the managed writer's buffer sizing, per-style raw writers, and run-time format dispatch
+// are hidden from the docs. Their items are still reachable through an `E: Encoding` bound, but
+// they are not a supported API.
+pub trait Encoding: Encoder + Decoder + ManagedWriterEncoding + StyledEncoding {
     type Output: 'static + OutputFromBytes + AsRef<[u8]>;
 
     fn encode<V: WriteAsIon>(value: V) -> IonResult<Self::Output> {
@@ -717,18 +720,26 @@ mod tests {
     use std::rc::Weak;
 
     use rstest::rstest;
+    use rstest_reuse::{apply, template};
 
     use super::{ParsedTextContainer, TextEncoding_1_0};
-    use crate::lazy::encoding::TextEncoding;
+    use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
+    use crate::lazy::encoder::value_writer::SequenceWriter;
+    use crate::lazy::encoder::write_as_ion::WriteAsIon;
+    use crate::lazy::encoder::writer::{IntoWriterConfig, Writer, WriterStyle, LAST_ENCODED_STYLE};
+    use crate::lazy::encoder::LazyRawWriter;
+    use crate::lazy::encoding::{Encoding, TextEncoding};
     use crate::lazy::expanded::lazy_element::LazyElement;
     use crate::lazy::expanded::ExpandedValueSource;
     use crate::lazy::span::Span;
     use crate::lazy::text::buffer::TextBuffer;
     use crate::lazy::text::value::LazyRawTextValue_1_0;
+    use crate::text::whitespace_config::{CompactText, LinesText, PrettyText, RuntimeStyle};
     use crate::{
-        ion_list, ion_seq, ion_sexp, ion_struct, v1_0, IonResult, Reader, Sequence, TextFormat,
-        WriteConfig,
+        ion_list, ion_seq, ion_sexp, ion_struct, v1_0, Element, IonData, IonResult, Reader,
+        Sequence, TextFormat, WriteConfig,
     };
+    use std::any::type_name;
 
     /// `share` rejects a container that is not from its owner's parse rather than extending a
     /// borrow the owner does not keep alive. Each case breaks one of its two conditions.
@@ -813,6 +824,768 @@ mod tests {
 
         let text = sequence.encode_as(config)?;
         assert_eq!(text, expected);
+        Ok(())
+    }
+
+    /// Nested, annotated, and empty containers, with an annotated scalar.
+    const NESTED_DOCUMENT: &str = "[{a: [1, 2], b: (c d)}, x::(e [f]), [], (), {}, y::3] \
+                                   {g: {}, h: z::[4], i: (j (k))}";
+
+    const NESTED_COMPACT: &str = "[{a: [1, 2, ], b: (c d ), }, x::(e [f, ] ), [], (), {}, y::3, ] \
+                                  {g: {}, h: z::[4, ], i: (j (k ) ), } ";
+
+    const NESTED_LINES: &str = "[{a: [1, 2, ], b: (c d ), }, x::(e [f, ] ), [], (), {}, y::3, ]\n\
+                                {g: {}, h: z::[4, ], i: (j (k ) ), }\n";
+
+    const NESTED_PRETTY: &str = concat!(
+        "[\n",
+        "  {\n",
+        "    a: [\n",
+        "      1,\n",
+        "      2,\n",
+        "    ],\n",
+        "    b: (\n",
+        "      c\n",
+        "      d\n",
+        "    ),\n",
+        "  },\n",
+        // The Pretty writer currently indents an annotated container in a list or s-expression
+        // twice (once before the annotations, once before the opening delimiter); this line
+        // pins that existing output and changes if the double indentation is fixed.
+        "  x::  (\n",
+        "    e\n",
+        "    [\n",
+        "      f,\n",
+        "    ]\n",
+        "  ),\n",
+        "  [\n",
+        "  ],\n",
+        "  (\n",
+        "  ),\n",
+        "  {\n",
+        "  },\n",
+        "  y::3,\n",
+        "]\n",
+        "{\n",
+        "  g: {\n",
+        "  },\n",
+        "  h: z::[\n",
+        "    4,\n",
+        "  ],\n",
+        "  i: (\n",
+        "    j\n",
+        "    (\n",
+        "      k\n",
+        "    )\n",
+        "  ),\n",
+        "}\n",
+    );
+
+    /// `NESTED_DOCUMENT` in Pretty as a raw writer writes it. A raw container writer's `write`
+    /// indents each value below the first level of nesting twice (once in the container writer,
+    /// once in the value writer); these lines pin that existing output.
+    const RAW_NESTED_PRETTY: &str = concat!(
+        "[\n",
+        "  {\n",
+        "    a: [\n",
+        "          1,\n",
+        "          2,\n",
+        "    ],\n",
+        "    b: (\n",
+        "          c\n",
+        "          d\n",
+        "    ),\n",
+        "  },\n",
+        "  x::  (\n",
+        "      e\n",
+        "      [\n",
+        "          f,\n",
+        "    ]\n",
+        "  ),\n",
+        "  [\n",
+        "  ],\n",
+        "  (\n",
+        "  ),\n",
+        "  {\n",
+        "  },\n",
+        "  y::3,\n",
+        "]\n",
+        "{\n",
+        "  g: {\n",
+        "  },\n",
+        "  h: z::[\n",
+        "      4,\n",
+        "  ],\n",
+        "  i: (\n",
+        "      j\n",
+        "      (\n",
+        "          k\n",
+        "    )\n",
+        "  ),\n",
+        "}\n",
+    );
+
+    #[test]
+    fn display_nested_document() -> IonResult<()> {
+        let sequence = Element::read_all(NESTED_DOCUMENT)?;
+        let displayed: Vec<String> = sequence.iter().map(Element::to_string).collect();
+        assert_eq!(
+            displayed,
+            [
+                "[{a: [1, 2], b: (c d)}, x::(e [f]), [], (), {}, y::3]",
+                "{g: {}, h: z::[4], i: (j (k))}",
+            ]
+        );
+        Ok(())
+    }
+
+    /// Top-level scalars, annotated and not, around a top-level container.
+    const TOP_LEVEL_DOCUMENT: &str = "1 w::4 [2] x::y::3 z";
+
+    const TOP_LEVEL_COMPACT: &str = "1 w::4 [2, ] x::y::3 z ";
+
+    const TOP_LEVEL_LINES: &str = "1\nw::4\n[2, ]\nx::y::3\nz\n";
+
+    const TOP_LEVEL_PRETTY: &str = "1\nw::4\n[\n  2,\n]\nx::y::3\nz\n";
+
+    /// Annotated scalars as struct field values and in s-expressions.
+    const ANNOTATED_DOCUMENT: &str = "{a: w::5, b: (c v::6 d), e: [u::7]} (f t::8 s::r::9)";
+
+    const ANNOTATED_COMPACT: &str = "{a: w::5, b: (c v::6 d ), e: [u::7, ], } (f t::8 s::r::9 ) ";
+
+    const ANNOTATED_LINES: &str = "{a: w::5, b: (c v::6 d ), e: [u::7, ], }\n(f t::8 s::r::9 )\n";
+
+    const ANNOTATED_PRETTY: &str = concat!(
+        "{\n",
+        "  a: w::5,\n",
+        "  b: (\n",
+        "    c\n",
+        "    v::6\n",
+        "    d\n",
+        "  ),\n",
+        "  e: [\n",
+        "    u::7,\n",
+        "  ],\n",
+        "}\n",
+        "(\n",
+        "  f\n",
+        "  t::8\n",
+        "  s::r::9\n",
+        ")\n",
+    );
+
+    /// `ANNOTATED_DOCUMENT` in Pretty as a raw writer writes it, with the double indentation
+    /// described at `RAW_NESTED_PRETTY`.
+    const RAW_ANNOTATED_PRETTY: &str = concat!(
+        "{\n",
+        "  a: w::5,\n",
+        "  b: (\n",
+        "      c\n",
+        "      v::6\n",
+        "      d\n",
+        "  ),\n",
+        "  e: [\n",
+        "      u::7,\n",
+        "  ],\n",
+        "}\n",
+        "(\n",
+        "  f\n",
+        "  t::8\n",
+        "  s::r::9\n",
+        ")\n",
+    );
+
+    /// Scalars of every type, spread across top level, a list, an s-expression, and a struct:
+    /// strings with escapes, symbols and field names that need quotes, ints (including one beyond
+    /// `i64` in each direction), floats, decimals, timestamps, blobs, clobs, typed nulls, and
+    /// annotated scalars.
+    const SCALARS_DOCUMENT: &str = r#"
+        "plain" "q\"b\\s\n\t\x01é\U0001F600" 'two words' 'null' '' sym_1 $ab
+        a::'b c'::"annotated" 'x y'::1.5e0 null null.bool true false 0 42
+        [1.5e0, -0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0d0, 0.00100, 123.456d10, 1d-20, 12345678d0,
+         -12.5, 'q r'::7d1, "s", 'null'::null.int, -9223372036854775809]
+        (2000T 2000-01T 2000-01-02 2000-01-02T03:04Z 2000-01-02T03:04:05.678+05:30
+         2000-01-02T03:04:05-00:00 0001-01-01T -7 + '-' "t" n::null.timestamp {{aGVsbG8=}} {{"c"}})
+        {'field name': {{aGVsbG8=}}, "str field": {{}}, 'null': {{"clob \"t\" \x00\x7f"}},
+         plain: null.blob, $ab: 'a b'::null.clob, '': null.symbol, f: null.list, g: null.sexp,
+         h: null.struct, i: null.string, j: null.decimal, k: null.float, l: null.int, m: "ué",
+         n: 'quoted sym', o: 2.5e0, p: 9223372036854775808}
+    "#;
+
+    const SCALARS_COMPACT: &str = concat!(
+        "\"plain\" \"q\\\"b\\\\s\\n\\t\u{1}é😀\" 'two words' 'null' '' sym_1 $ab ",
+        "a::'b c'::\"annotated\" 'x y'::1.5e0 null null.bool true false 0 42 [1.5e0, ",
+        "-0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0., 0.00100, 123456d7, 1.d-20, ",
+        "1.2345678d7, -12.5, 'q r'::7d1, \"s\", 'null'::null.int, ",
+        "-9223372036854775809, ] (2000T 2000-01T 2000-01-02T 2000-01-02T03:04+00:00 ",
+        "2000-01-02T03:04:05.678+05:30 2000-01-02T03:04:05-00:00 0001-01-01T -7 '+' ",
+        "'-' \"t\" n::null.timestamp {{aGVsbG8=}} {{\"c\"}} ) {'field name': ",
+        "{{aGVsbG8=}}, 'str field': {{}}, ",
+        "'null': {{\"clob \\\"t\\\" \\0\\x7f\"}}, plain: null.blob, ",
+        "$ab: 'a b'::null.clob, '': null.symbol, f: null.list, g: null.sexp, ",
+        "h: null.struct, i: null.string, j: null.decimal, k: null.float, ",
+        "l: null.int, m: \"ué\", n: 'quoted sym', o: 2.5e0, p: 9223372036854775808, } ",
+    );
+
+    const SCALARS_LINES: &str = concat!(
+        "\"plain\"\n",
+        "\"q\\\"b\\\\s\\n\\t\u{1}é😀\"\n",
+        "'two words'\n",
+        "'null'\n",
+        "''\n",
+        "sym_1\n",
+        "$ab\n",
+        "a::'b c'::\"annotated\"\n",
+        "'x y'::1.5e0\n",
+        "null\n",
+        "null.bool\n",
+        "true\n",
+        "false\n",
+        "0\n",
+        "42\n",
+        "[1.5e0, -0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0., 0.00100, 123456d7, ",
+        "1.d-20, 1.2345678d7, -12.5, 'q r'::7d1, \"s\", 'null'::null.int, ",
+        "-9223372036854775809, ]\n",
+        "(2000T 2000-01T 2000-01-02T 2000-01-02T03:04+00:00 ",
+        "2000-01-02T03:04:05.678+05:30 2000-01-02T03:04:05-00:00 0001-01-01T -7 '+' ",
+        "'-' \"t\" n::null.timestamp {{aGVsbG8=}} {{\"c\"}} )\n",
+        "{'field name': {{aGVsbG8=}}, 'str field': {{}}, ",
+        "'null': {{\"clob \\\"t\\\" \\0\\x7f\"}}, plain: null.blob, ",
+        "$ab: 'a b'::null.clob, '': null.symbol, f: null.list, g: null.sexp, ",
+        "h: null.struct, i: null.string, j: null.decimal, k: null.float, ",
+        "l: null.int, m: \"ué\", n: 'quoted sym', o: 2.5e0, p: 9223372036854775808, }\n",
+    );
+
+    const SCALARS_PRETTY: &str = concat!(
+        "\"plain\"\n",
+        "\"q\\\"b\\\\s\\n\\t\u{1}é😀\"\n",
+        "'two words'\n",
+        "'null'\n",
+        "''\n",
+        "sym_1\n",
+        "$ab\n",
+        "a::'b c'::\"annotated\"\n",
+        "'x y'::1.5e0\n",
+        "null\n",
+        "null.bool\n",
+        "true\n",
+        "false\n",
+        "0\n",
+        "42\n",
+        "[\n",
+        "  1.5e0,\n",
+        "  -0e0,\n",
+        "  nan,\n",
+        "  +inf,\n",
+        "  -inf,\n",
+        "  2.5e-10,\n",
+        "  1.0,\n",
+        "  -0.,\n",
+        "  0.00100,\n",
+        "  123456d7,\n",
+        "  1.d-20,\n",
+        "  1.2345678d7,\n",
+        "  -12.5,\n",
+        "  'q r'::7d1,\n",
+        "  \"s\",\n",
+        "  'null'::null.int,\n",
+        "  -9223372036854775809,\n",
+        "]\n",
+        "(\n",
+        "  2000T\n",
+        "  2000-01T\n",
+        "  2000-01-02T\n",
+        "  2000-01-02T03:04+00:00\n",
+        "  2000-01-02T03:04:05.678+05:30\n",
+        "  2000-01-02T03:04:05-00:00\n",
+        "  0001-01-01T\n",
+        "  -7\n",
+        "  '+'\n",
+        "  '-'\n",
+        "  \"t\"\n",
+        "  n::null.timestamp\n",
+        "  {{aGVsbG8=}}\n",
+        "  {{\"c\"}}\n",
+        ")\n",
+        "{\n",
+        "  'field name': {{aGVsbG8=}},\n",
+        "  'str field': {{}},\n",
+        "  'null': {{\"clob \\\"t\\\" \\0\\x7f\"}},\n",
+        "  plain: null.blob,\n",
+        "  $ab: 'a b'::null.clob,\n",
+        "  '': null.symbol,\n",
+        "  f: null.list,\n",
+        "  g: null.sexp,\n",
+        "  h: null.struct,\n",
+        "  i: null.string,\n",
+        "  j: null.decimal,\n",
+        "  k: null.float,\n",
+        "  l: null.int,\n",
+        "  m: \"ué\",\n",
+        "  n: 'quoted sym',\n",
+        "  o: 2.5e0,\n",
+        "  p: 9223372036854775808,\n",
+        "}\n",
+    );
+
+    /// Symbols that resemble a symbol ID or a version marker, which a writer quotes wherever it
+    /// writes them.
+    const AMBIGUOUS_SYMBOLS_DOCUMENT: &str = "'$12' '$ion_1_1' ['$7'] {'$12': '$ion_1_0'::'$7'}";
+
+    const AMBIGUOUS_SYMBOLS_COMPACT: &str =
+        "'$12' '$ion_1_1' ['$7', ] {'$12': '$ion_1_0'::'$7', } ";
+
+    const AMBIGUOUS_SYMBOLS_LINES: &str =
+        "'$12'\n'$ion_1_1'\n['$7', ]\n{'$12': '$ion_1_0'::'$7', }\n";
+
+    const AMBIGUOUS_SYMBOLS_PRETTY: &str =
+        "'$12'\n'$ion_1_1'\n[\n  '$7',\n]\n{\n  '$12': '$ion_1_0'::'$7',\n}\n";
+
+    /// A document with its text in each format.
+    #[derive(Clone, Copy, Debug)]
+    enum Document {
+        Nested,
+        TopLevel,
+        Annotated,
+        Scalars,
+        AmbiguousSymbols,
+    }
+
+    impl Document {
+        fn read(self) -> IonResult<Sequence> {
+            Element::read_all(match self {
+                Document::Nested => NESTED_DOCUMENT,
+                Document::TopLevel => TOP_LEVEL_DOCUMENT,
+                Document::Annotated => ANNOTATED_DOCUMENT,
+                Document::Scalars => SCALARS_DOCUMENT,
+                Document::AmbiguousSymbols => AMBIGUOUS_SYMBOLS_DOCUMENT,
+            })
+        }
+
+        /// The text a managed writer writes for this document in `format`.
+        fn expected_text(self, format: TextFormat) -> &'static str {
+            match (self, format) {
+                (Document::Nested, TextFormat::Compact) => NESTED_COMPACT,
+                (Document::Nested, TextFormat::Lines) => NESTED_LINES,
+                (Document::Nested, TextFormat::Pretty) => NESTED_PRETTY,
+                (Document::TopLevel, TextFormat::Compact) => TOP_LEVEL_COMPACT,
+                (Document::TopLevel, TextFormat::Lines) => TOP_LEVEL_LINES,
+                (Document::TopLevel, TextFormat::Pretty) => TOP_LEVEL_PRETTY,
+                (Document::Annotated, TextFormat::Compact) => ANNOTATED_COMPACT,
+                (Document::Annotated, TextFormat::Lines) => ANNOTATED_LINES,
+                (Document::Annotated, TextFormat::Pretty) => ANNOTATED_PRETTY,
+                (Document::Scalars, TextFormat::Compact) => SCALARS_COMPACT,
+                (Document::Scalars, TextFormat::Lines) => SCALARS_LINES,
+                (Document::Scalars, TextFormat::Pretty) => SCALARS_PRETTY,
+                (Document::AmbiguousSymbols, TextFormat::Compact) => AMBIGUOUS_SYMBOLS_COMPACT,
+                (Document::AmbiguousSymbols, TextFormat::Lines) => AMBIGUOUS_SYMBOLS_LINES,
+                (Document::AmbiguousSymbols, TextFormat::Pretty) => AMBIGUOUS_SYMBOLS_PRETTY,
+            }
+        }
+
+        /// Whether a test instance skips this document. Under Miri, `Scalars` takes seconds per
+        /// instance, so a test writes it only in the instances for which `runs_under_miri` holds;
+        /// the others reach no `unsafe` code that those do not.
+        fn is_skipped(self, runs_under_miri: bool) -> bool {
+            cfg!(miri) && matches!(self, Document::Scalars) && !runs_under_miri
+        }
+
+        /// The text a raw writer writes for this document in `format`.
+        fn expected_raw_text(self, format: TextFormat) -> &'static str {
+            match (self, format) {
+                (Document::Nested, TextFormat::Pretty) => RAW_NESTED_PRETTY,
+                (Document::Annotated, TextFormat::Pretty) => RAW_ANNOTATED_PRETTY,
+                _ => self.expected_text(format),
+            }
+        }
+    }
+
+    /// A way of writing top-level values with a text writer.
+    #[derive(Clone, Copy, Debug)]
+    enum TopLevelWrite {
+        Write,
+        WriteAll,
+        ValueWriter,
+    }
+
+    impl TopLevelWrite {
+        fn write_to<W: SequenceWriter>(self, writer: &mut W, sequence: &Sequence) -> IonResult<()> {
+            match self {
+                TopLevelWrite::Write => {
+                    for element in sequence {
+                        writer.write(element)?;
+                    }
+                }
+                TopLevelWrite::WriteAll => {
+                    writer.write_all(sequence)?;
+                }
+                TopLevelWrite::ValueWriter => {
+                    for element in sequence {
+                        element.write_as_ion(writer.value_writer())?;
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Each text format, configured at run time and with its zero-sized style.
+    #[template]
+    #[rstest]
+    #[case::compact_run_time(v1_0::Text.with_format(TextFormat::Compact), TextFormat::Compact)]
+    #[case::lines_run_time(v1_0::Text.with_format(TextFormat::Lines), TextFormat::Lines)]
+    #[case::pretty_run_time(v1_0::Text.with_format(TextFormat::Pretty), TextFormat::Pretty)]
+    #[case::compact_static(v1_0::CompactText, TextFormat::Compact)]
+    #[case::lines_static(v1_0::LinesText, TextFormat::Lines)]
+    #[case::pretty_static(v1_0::PrettyText, TextFormat::Pretty)]
+    fn text_configs<S: WriterStyle>(
+        #[case] config: impl IntoWriterConfig<TextEncoding_1_0, S>,
+        #[case] format: TextFormat,
+    ) {
+    }
+
+    /// Every way of writing top-level values with a managed writer produces the same text for
+    /// each format, whether its style is chosen at run time or at compile time.
+    #[apply(text_configs)]
+    fn managed_writes_match_expected_text<S: WriterStyle>(
+        #[case] config: impl IntoWriterConfig<TextEncoding_1_0, S>,
+        #[case] format: TextFormat,
+        #[values(
+            Document::Nested,
+            Document::TopLevel,
+            Document::Annotated,
+            Document::Scalars,
+            Document::AmbiguousSymbols
+        )]
+        document: Document,
+        #[values(
+            TopLevelWrite::Write,
+            TopLevelWrite::WriteAll,
+            TopLevelWrite::ValueWriter
+        )]
+        write: TopLevelWrite,
+    ) -> IonResult<()> {
+        if document
+            .is_skipped(format == TextFormat::Compact && matches!(write, TopLevelWrite::Write))
+        {
+            return Ok(());
+        }
+        let mut writer = Writer::new(config, Vec::new())?;
+        write.write_to(&mut writer, &document.read()?)?;
+        let bytes = writer.close()?;
+        assert_eq!(
+            String::from_utf8_lossy(&bytes),
+            document.expected_text(format)
+        );
+        Ok(())
+    }
+
+    /// A raw writer's text for each format is the same whether its style is chosen at run time or
+    /// at compile time.
+    #[apply(text_configs)]
+    fn raw_writes_match_expected_text<S: WriterStyle>(
+        #[case] config: impl IntoWriterConfig<TextEncoding_1_0, S>,
+        #[case] format: TextFormat,
+        #[values(
+            Document::Nested,
+            Document::TopLevel,
+            Document::Annotated,
+            Document::Scalars,
+            Document::AmbiguousSymbols
+        )]
+        document: Document,
+        #[values(
+            TopLevelWrite::Write,
+            TopLevelWrite::WriteAll,
+            TopLevelWrite::ValueWriter
+        )]
+        write: TopLevelWrite,
+    ) -> IonResult<()> {
+        if document
+            .is_skipped(format == TextFormat::Compact && matches!(write, TopLevelWrite::Write))
+        {
+            return Ok(());
+        }
+        let config = config.into_write_config();
+        let mut writer = LazyRawTextWriter_1_0::<_, S>::build(config, Vec::new())?;
+        write.write_to(&mut writer, &document.read()?)?;
+        let bytes = SequenceWriter::close(writer)?;
+        assert_eq!(
+            String::from_utf8_lossy(&bytes),
+            document.expected_raw_text(format)
+        );
+        Ok(())
+    }
+
+    /// A way of encoding a sequence with `encode_as` or `encode_to`.
+    #[derive(Clone, Copy, Debug)]
+    enum Encode {
+        SequenceEncodeAs,
+        SequenceEncodeTo,
+        ElementEncodeAs,
+        ElementEncodeTo,
+        WriteAsIonEncodeAs,
+        WriteAsIonEncodeTo,
+        IonDataEncodeAs,
+        IonDataEncodeTo,
+    }
+
+    impl Encode {
+        /// Whether this encodes each value as a stream of its own.
+        fn is_per_value(self) -> bool {
+            !matches!(self, Encode::SequenceEncodeAs | Encode::SequenceEncodeTo)
+        }
+
+        /// Encodes `sequence` with `config`. A per-value way encodes each value as a stream of its
+        /// own; the result is those streams, concatenated.
+        fn encode<E: Encoding>(
+            self,
+            sequence: &Sequence,
+            config: WriteConfig<E>,
+        ) -> IonResult<Vec<u8>> {
+            match self {
+                Encode::SequenceEncodeAs => Ok(sequence.encode_as(config)?.as_ref().to_vec()),
+                Encode::SequenceEncodeTo => sequence.encode_to(Vec::new(), config),
+                _ => {
+                    let mut bytes = Vec::new();
+                    for element in sequence {
+                        bytes.extend(self.encode_one(element, config.clone())?);
+                    }
+                    Ok(bytes)
+                }
+            }
+        }
+
+        fn encode_one<E: Encoding>(
+            self,
+            element: &Element,
+            config: WriteConfig<E>,
+        ) -> IonResult<Vec<u8>> {
+            let data = IonData::from(element);
+            match self {
+                Encode::SequenceEncodeAs | Encode::SequenceEncodeTo => {
+                    unreachable!("a sequence is not encoded one value at a time")
+                }
+                Encode::ElementEncodeAs => Ok(element.encode_as(config)?.as_ref().to_vec()),
+                Encode::ElementEncodeTo => element.encode_to(Vec::new(), config),
+                Encode::WriteAsIonEncodeAs => {
+                    Ok(WriteAsIon::encode_as(element, config)?.as_ref().to_vec())
+                }
+                Encode::WriteAsIonEncodeTo => WriteAsIon::encode_to(element, config, Vec::new()),
+                Encode::IonDataEncodeAs => Ok(data.encode_as(config)?.as_ref().to_vec()),
+                Encode::IonDataEncodeTo => data.encode_to(config, Vec::new()),
+            }
+        }
+    }
+
+    /// Each text format configured at run time, as `encode_as` and `encode_to` take it.
+    #[template]
+    #[rstest]
+    #[case::compact(v1_0::Text.with_format(TextFormat::Compact), TextFormat::Compact)]
+    #[case::lines(v1_0::Text.with_format(TextFormat::Lines), TextFormat::Lines)]
+    #[case::pretty(v1_0::Text.with_format(TextFormat::Pretty), TextFormat::Pretty)]
+    #[case::default(v1_0::Text, TextFormat::Compact)]
+    fn run_time_text_configs(
+        #[case] config: impl Into<WriteConfig<TextEncoding_1_0>>,
+        #[case] format: TextFormat,
+    ) {
+    }
+
+    /// `encode_as` and `encode_to` write the same text as a managed writer. A value encoded as a
+    /// stream of its own has the text it has in a stream of several values: a text stream has no
+    /// prologue, and a value's separator follows it.
+    #[apply(run_time_text_configs)]
+    fn encodings_match_expected_text(
+        #[case] config: impl Into<WriteConfig<TextEncoding_1_0>>,
+        #[case] format: TextFormat,
+        #[values(
+            Document::Nested,
+            Document::TopLevel,
+            Document::Annotated,
+            Document::Scalars,
+            Document::AmbiguousSymbols
+        )]
+        document: Document,
+        #[values(
+            Encode::SequenceEncodeAs,
+            Encode::SequenceEncodeTo,
+            Encode::ElementEncodeAs,
+            Encode::ElementEncodeTo,
+            Encode::WriteAsIonEncodeAs,
+            Encode::WriteAsIonEncodeTo,
+            Encode::IonDataEncodeAs,
+            Encode::IonDataEncodeTo
+        )]
+        encode: Encode,
+    ) -> IonResult<()> {
+        if document
+            .is_skipped(format == TextFormat::Compact && matches!(encode, Encode::SequenceEncodeAs))
+        {
+            return Ok(());
+        }
+        let bytes = encode.encode(&document.read()?, config.into())?;
+        assert_eq!(
+            String::from_utf8_lossy(&bytes),
+            document.expected_text(format)
+        );
+        Ok(())
+    }
+
+    /// Binary `encode_as` and `encode_to` write the bytes a managed binary writer writes for the
+    /// same values.
+    #[rstest]
+    fn binary_encodings_match_managed_writer(
+        #[values(
+            Document::Nested,
+            Document::TopLevel,
+            Document::Annotated,
+            Document::Scalars,
+            Document::AmbiguousSymbols
+        )]
+        document: Document,
+        #[values(
+            Encode::SequenceEncodeAs,
+            Encode::SequenceEncodeTo,
+            Encode::ElementEncodeAs,
+            Encode::ElementEncodeTo,
+            Encode::WriteAsIonEncodeAs,
+            Encode::WriteAsIonEncodeTo,
+            Encode::IonDataEncodeAs,
+            Encode::IonDataEncodeTo
+        )]
+        encode: Encode,
+    ) -> IonResult<()> {
+        if document.is_skipped(matches!(encode, Encode::SequenceEncodeAs)) {
+            return Ok(());
+        }
+        fn write_stream<'a>(elements: impl IntoIterator<Item = &'a Element>) -> IonResult<Vec<u8>> {
+            let mut writer = Writer::new(v1_0::Binary, Vec::new())?;
+            writer.write_all(elements)?;
+            writer.close()
+        }
+        let sequence = document.read()?;
+        let expected = if encode.is_per_value() {
+            let mut bytes = Vec::new();
+            for element in &sequence {
+                bytes.extend(write_stream([element])?);
+            }
+            bytes
+        } else {
+            write_stream(&sequence)?
+        };
+        assert_eq!(encode.encode(&sequence, v1_0::Binary.into())?, expected);
+        Ok(())
+    }
+
+    /// A way of encoding with an encoding's default configuration.
+    #[derive(Clone, Copy, Debug)]
+    enum EncodeWithDefault {
+        Encode,
+        EncodeTo,
+        EncodeAll,
+        EncodeAllTo,
+    }
+
+    impl EncodeWithDefault {
+        /// Encodes `sequence` as text with `TextEncoding_1_0`'s helper. A per-value helper encodes
+        /// each value as a stream of its own; the result is those streams, concatenated.
+        fn encode_text(self, sequence: &Sequence) -> IonResult<String> {
+            let text = match self {
+                EncodeWithDefault::Encode => {
+                    let mut text = String::new();
+                    for element in sequence {
+                        text.push_str(&TextEncoding_1_0::encode(element)?);
+                    }
+                    text
+                }
+                EncodeWithDefault::EncodeTo => {
+                    let mut bytes = Vec::new();
+                    for element in sequence {
+                        bytes = TextEncoding_1_0::encode_to(element, bytes)?;
+                    }
+                    String::from_utf8_lossy(&bytes).into_owned()
+                }
+                EncodeWithDefault::EncodeAll => TextEncoding_1_0::encode_all(sequence)?,
+                EncodeWithDefault::EncodeAllTo => {
+                    let bytes = TextEncoding_1_0::encode_all_to(sequence, Vec::new())?;
+                    String::from_utf8_lossy(&bytes).into_owned()
+                }
+            };
+            Ok(text)
+        }
+    }
+
+    /// `Encoding`'s helpers encode text with `default_write_config`, whose format is the default
+    /// `TextFormat`, Pretty.
+    #[rstest]
+    fn text_default_encodings_match_pretty_text(
+        #[values(
+            Document::Nested,
+            Document::TopLevel,
+            Document::Annotated,
+            Document::Scalars,
+            Document::AmbiguousSymbols
+        )]
+        document: Document,
+        #[values(
+            EncodeWithDefault::Encode,
+            EncodeWithDefault::EncodeTo,
+            EncodeWithDefault::EncodeAll,
+            EncodeWithDefault::EncodeAllTo
+        )]
+        encode: EncodeWithDefault,
+    ) -> IonResult<()> {
+        if document.is_skipped(matches!(encode, EncodeWithDefault::Encode)) {
+            return Ok(());
+        }
+        let text = encode.encode_text(&document.read()?)?;
+        assert_eq!(text, document.expected_text(TextFormat::Pretty));
+        Ok(())
+    }
+
+    /// `Encoding`'s text helpers encode with the zero-sized style of the default format, Pretty.
+    #[rstest]
+    fn text_default_encodings_use_the_pretty_style(
+        #[values(
+            EncodeWithDefault::Encode,
+            EncodeWithDefault::EncodeTo,
+            EncodeWithDefault::EncodeAll,
+            EncodeWithDefault::EncodeAllTo
+        )]
+        encode: EncodeWithDefault,
+    ) -> IonResult<()> {
+        LAST_ENCODED_STYLE.set(None);
+        encode.encode_text(&Document::Nested.read()?)?;
+        assert_eq!(LAST_ENCODED_STYLE.get(), Some(type_name::<PrettyText>()));
+        Ok(())
+    }
+
+    /// `encode_as` and `encode_to` encode a run-time-styled text configuration with the zero-sized
+    /// style of its format, and binary with the run-time style.
+    #[rstest]
+    #[case::compact(v1_0::Text.with_format(TextFormat::Compact), type_name::<CompactText>())]
+    #[case::lines(v1_0::Text.with_format(TextFormat::Lines), type_name::<LinesText>())]
+    #[case::pretty(v1_0::Text.with_format(TextFormat::Pretty), type_name::<PrettyText>())]
+    #[case::default(v1_0::Text, type_name::<CompactText>())]
+    #[case::binary(v1_0::Binary, type_name::<RuntimeStyle>())]
+    fn encodings_use_the_static_style_of_the_format<E: Encoding>(
+        #[case] config: impl Into<WriteConfig<E>>,
+        #[case] expected_style: &str,
+        #[values(
+            Encode::SequenceEncodeAs,
+            Encode::SequenceEncodeTo,
+            Encode::ElementEncodeAs,
+            Encode::ElementEncodeTo,
+            Encode::WriteAsIonEncodeAs,
+            Encode::WriteAsIonEncodeTo,
+            Encode::IonDataEncodeAs,
+            Encode::IonDataEncodeTo
+        )]
+        encode: Encode,
+    ) -> IonResult<()> {
+        LAST_ENCODED_STYLE.set(None);
+        encode.encode(&Document::Nested.read()?, config.into())?;
+        assert_eq!(LAST_ENCODED_STYLE.get(), Some(expected_style));
         Ok(())
     }
 }

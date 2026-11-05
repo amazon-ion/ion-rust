@@ -520,9 +520,16 @@ impl TryFrom<OverflowingInt> for UInt {
     }
 }
 
+impl Int {
+    /// Writes this integer in base 10.
+    pub(crate) fn format_text<W: std::fmt::Write>(&self, output: &mut W) -> std::fmt::Result {
+        self.data.format_text(output)
+    }
+}
+
 impl Display for Int {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        Display::fmt(&self.data, f)
+        self.format_text(f)
     }
 }
 

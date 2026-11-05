@@ -1,10 +1,8 @@
 use std::io;
 use std::marker::PhantomData;
 
-use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
-use crate::lazy::encoder::writer::Writer;
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, OutputFromBytes, TextEncoding_1_0};
 use crate::{IonResult, TextFormat};
 
@@ -12,6 +10,8 @@ use crate::{IonResult, TextFormat};
 /// This will be used to create a writer without specifying which writer methods to use
 #[derive(Clone, Debug)]
 pub struct WriteConfig<E: Encoding> {
+    // The variant is determined by `E`: `Text` for a text encoding, `Binary` for a binary one. Every
+    // constructor upholds this, and `text_format` relies on it.
     kind: WriteConfigKind,
     max_depth: u16,
     phantom_data: PhantomData<E>,
@@ -88,9 +88,7 @@ impl<E: Encoding> WriteConfig<E> {
         value: V,
         output: W,
     ) -> IonResult<W> {
-        let mut writer = Writer::new(self.clone(), output)?;
-        writer.write(value)?;
-        writer.close()
+        self.encode_all_to(output, [value])
     }
 
     pub(crate) fn encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: io::Write>(
@@ -98,9 +96,7 @@ impl<E: Encoding> WriteConfig<E> {
         output: W,
         values: I,
     ) -> IonResult<W> {
-        let mut writer = Writer::new(self.clone(), output)?;
-        writer.write_all(values)?;
-        writer.close()
+        E::dispatch_encode_all_to(self, output, values)
     }
 }
 
@@ -110,6 +106,17 @@ impl WriteConfig<TextEncoding_1_0> {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
             max_depth: u16::MAX,
             phantom_data: Default::default(),
+        }
+    }
+
+    /// The text format of this configuration. A text encoding's configuration always has the
+    /// `Text` kind.
+    pub(crate) fn text_format(&self) -> TextFormat {
+        match self.kind() {
+            WriteConfigKind::Text(text_config) => text_config.text_kind,
+            WriteConfigKind::Binary(_) => {
+                unreachable!("Text writer config can not have a binary encoding")
+            }
         }
     }
 }
@@ -162,5 +169,60 @@ impl From<TextEncoding_1_0> for WriteConfig<TextEncoding_1_0> {
 impl From<BinaryEncoding_1_0> for WriteConfig<BinaryEncoding_1_0> {
     fn from(_encoding: BinaryEncoding_1_0) -> Self {
         WriteConfig::<BinaryEncoding_1_0>::default()
+    }
+}
+
+/// A text Ion 1.0 configuration for a managed [`Writer`](crate::Writer) whose whitespace layout is
+/// fixed at compile time by the style `S`, a marker such as
+/// [`v1_0::CompactText`](crate::v1_0::CompactText). The marker's `with_max_depth` makes one; like
+/// the marker itself, it configures [`Writer::new`](crate::Writer::new),
+/// [`Writer::idle`](crate::Writer::idle), and [`Writer::set_config`](crate::Writer::set_config) to
+/// build a `Writer<v1_0::Text, Output, S>`.
+///
+/// ```
+///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
+///# fn main() -> IonResult<()> {
+/// use ion_rs::{v1_0, Element, IonError, Writer};
+///
+/// let config: v1_0::StyledWriteConfig<v1_0::PrettyText> = v1_0::PrettyText.with_max_depth(1);
+/// let mut writer = Writer::new(config, Vec::new())?;
+/// writer.write([1])?;
+/// assert!(matches!(
+///     writer.write(Element::read_one("[[1]]")?),
+///     Err(IonError::Encoding(_))
+/// ));
+///# Ok(())
+///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
+/// ```
+#[derive(Clone, Debug)]
+pub struct StyledWriteConfig<S> {
+    // Has the text format whose layout `S` writes.
+    config: WriteConfig<TextEncoding_1_0>,
+    style: PhantomData<S>,
+}
+
+impl<S> StyledWriteConfig<S> {
+    /// A configuration of the style `S` with the default maximum depth. `format` is the text format
+    /// whose layout `S` writes.
+    pub(crate) fn new(format: TextFormat) -> Self {
+        Self {
+            config: WriteConfig::<TextEncoding_1_0>::new(format),
+            style: PhantomData,
+        }
+    }
+
+    /// Limits how deeply values may be nested when a managed writer built with this configuration
+    /// encodes them; see [`WriteConfig::with_max_depth`].
+    pub fn with_max_depth(mut self, max_depth: u16) -> Self {
+        self.config = self.config.with_max_depth(max_depth);
+        self
+    }
+
+    /// The configuration of the text format whose layout `S` writes.
+    pub(crate) fn into_write_config(self) -> WriteConfig<TextEncoding_1_0> {
+        self.config
     }
 }
