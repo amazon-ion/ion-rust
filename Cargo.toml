@@ -87,6 +87,7 @@ test-generator = "0.3"
 criterion = "0.5.1"
 rand = "0.10"
 tempfile = "3.10.0"
+indoc = "2.0.7"
 
 [[bench]]
 name = "read_many_structs"
@@ -140,4 +141,8 @@ opt-level = 2
 
 [[bench]]
 name = "write_reuse"
+harness = false
+
+[[bench]]
+name = "text_write"
 harness = false

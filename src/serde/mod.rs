@@ -898,6 +898,114 @@ mod tests {
         assert!(Timestamp::try_from(TunnelBytes(bytes)).is_err());
     }
 
+    /// Exact text of `to_string` and `to_pretty`. In a module of its own so that its types keep
+    /// the names their serialized annotations are expected to have.
+    mod exact_text {
+        use super::*;
+        use indoc::indoc;
+
+        #[derive(Serialize)]
+        struct Inner {
+            a: i32,
+            b: Vec<String>,
+        }
+
+        #[derive(Serialize)]
+        struct Outer {
+            name: String,
+            inner: Inner,
+            tags: Vec<i32>,
+        }
+
+        fn outer() -> Outer {
+            Outer {
+                name: "n".to_string(),
+                inner: Inner {
+                    a: 1,
+                    b: vec!["x".to_string(), "y".to_string()],
+                },
+                tags: vec![2, 3],
+            }
+        }
+
+        #[derive(Serialize)]
+        struct Pair(i32, String);
+
+        #[derive(Serialize)]
+        enum Shape {
+            Circle(f64),
+            Rect(i32, i32),
+        }
+
+        /// `to_string` and `to_pretty` produce exactly this text, including the whitespace after
+        /// the value. The Pretty cases pin the existing indentation of sequence elements, which is
+        /// written twice.
+        #[rstest]
+        #[case::struct_compact(
+            to_string(&outer()),
+            r#"{name: "n", inner: {a: 1, b: ["x", "y", ], }, tags: [2, 3, ], } "#
+        )]
+        #[case::struct_pretty(
+            to_pretty(&outer()),
+            indoc! {r#"
+                {
+                  name: "n",
+                  inner: {
+                    a: 1,
+                    b: [
+                            "x",
+                            "y",
+                    ],
+                  },
+                  tags: [
+                        2,
+                        3,
+                  ],
+                }
+            "#}
+        )]
+        #[case::vec_compact(to_string(&vec![1, 2, 3]), "[1, 2, 3, ] ")]
+        #[case::vec_pretty(
+            to_pretty(&vec![1, 2, 3]),
+            indoc! {"
+                [
+                    1,
+                    2,
+                    3,
+                ]
+            "}
+        )]
+        #[case::tuple_struct_compact(to_string(&Pair(1, "x".to_string())), r#"Pair::[1, "x", ] "#)]
+        #[case::tuple_struct_pretty(
+            to_pretty(&Pair(1, "x".to_string())),
+            indoc! {r#"
+                Pair::[
+                    1,
+                    "x",
+                ]
+            "#}
+        )]
+        #[case::newtype_variant_compact(to_string(&Shape::Circle(1.5)), "Circle::1.5e0 ")]
+        #[case::newtype_variant_pretty(to_pretty(&Shape::Circle(1.5)), "Circle::1.5e0\n")]
+        #[case::tuple_variant_compact(to_string(&Shape::Rect(2, 3)), "Rect::[2, 3, ] ")]
+        #[case::tuple_variant_pretty(
+            to_pretty(&Shape::Rect(2, 3)),
+            indoc! {"
+                Rect::[
+                    2,
+                    3,
+                ]
+            "}
+        )]
+        fn text_serialization_is_exact(
+            #[case] actual: IonResult<String>,
+            #[case] expected: &str,
+        ) -> IonResult<()> {
+            assert_eq!(actual?, expected);
+            Ok(())
+        }
+    }
+
     /// The local year of this `DateTime` is 10000, which `Timestamp` cannot represent.
     #[test]
     fn chrono_datetime_with_local_year_10000_fails_to_serialize() {
