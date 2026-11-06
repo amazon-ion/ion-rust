@@ -2,7 +2,7 @@ use crate::element::builders::StructBuilder;
 use crate::element::Element;
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::symbol_ref::AsSymbolRef;
-use crate::text::text_formatter::FmtValueFormatter;
+use crate::text::text_formatter::display_buffered;
 use crate::Symbol;
 use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
@@ -343,9 +343,7 @@ pub struct Struct {
 
 impl Display for Struct {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = FmtValueFormatter { output: f };
-        ivf.format_struct(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
+        display_buffered(f, |formatter| formatter.format_struct(self))
     }
 }
 

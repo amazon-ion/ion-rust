@@ -1,7 +1,9 @@
 use crate::raw_symbol_ref::{AsRawSymbolRef, RawSymbolRef};
-use crate::{Annotations, Sequence};
+use crate::{Annotations, Element, Sequence, Symbol, Value};
 use crate::{Decimal, Int, Struct, Timestamp};
 use crate::{IonResult, IonType};
+use arrayvec::ArrayString;
+use ice_code::ice as cold_path;
 use std::{fmt, io};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
@@ -199,8 +201,72 @@ pub(crate) fn write_zero_padded<W: fmt::Write>(
     output.write_str(digits)
 }
 
-/// Provides a text formatter for Ion values
-/// This is used with the Display implementation of `OwnedElement`
+/// The capacity of the stack buffer that [`display_buffered`] fills before writing to the
+/// `Formatter`.
+const DISPLAY_CHUNK_LEN: usize = 1024;
+
+/// A `fmt::Write` sink that collects text in a fixed-size stack buffer and writes the buffered text
+/// to a `Formatter` when the next `&str` does not fit in the remaining space. A `&str` too large for
+/// an empty buffer is written to the `Formatter` directly.
+pub(crate) struct DisplayBuffer<'a, 'f> {
+    chunk: ArrayString<DISPLAY_CHUNK_LEN>,
+    output: &'a mut fmt::Formatter<'f>,
+}
+
+impl DisplayBuffer<'_, '_> {
+    /// Writes any buffered text to the `Formatter`.
+    fn flush(&mut self) -> fmt::Result {
+        if !self.chunk.is_empty() {
+            self.output.write_str(&self.chunk)?;
+            self.chunk.clear();
+        }
+        Ok(())
+    }
+
+    /// Flushes the buffered text, then buffers `s` or, if it is larger than the buffer, writes it
+    /// directly.
+    #[cold]
+    #[inline(never)]
+    fn flush_and_write(&mut self, s: &str) -> fmt::Result {
+        self.flush()?;
+        if s.len() > DISPLAY_CHUNK_LEN {
+            return self.output.write_str(s);
+        }
+        self.chunk.try_push_str(s).map_err(|_| fmt::Error)
+    }
+}
+
+impl fmt::Write for DisplayBuffer<'_, '_> {
+    #[inline]
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        match self.chunk.try_push_str(s) {
+            Ok(()) => Ok(()),
+            Err(_) => self.flush_and_write(s),
+        }
+    }
+}
+
+/// Implements `Display` for an `Element`, `Value`, `List`, `SExp`, or `Struct`. `format` writes
+/// into a [`DisplayBuffer`], a concrete sink that lets every nested write inline rather than
+/// calling through `Formatter`'s `dyn Write`. The text reaches `f` in chunks of at most
+/// [`DISPLAY_CHUNK_LEN`] bytes (or as a single larger `&str`, such as a long string's unescaped
+/// text), so memory use is bounded regardless of the value's size.
+pub(crate) fn display_buffered(
+    f: &mut fmt::Formatter<'_>,
+    format: impl FnOnce(&mut FmtValueFormatter<'_, DisplayBuffer<'_, '_>>) -> IonResult<()>,
+) -> fmt::Result {
+    let mut buffer = DisplayBuffer {
+        chunk: ArrayString::new(),
+        output: f,
+    };
+    format(&mut FmtValueFormatter::new(&mut buffer)).map_err(|_| fmt::Error)?;
+    buffer.flush()
+}
+
+/// Provides a text formatter for Ion values.
+///
+/// This is the shared implementation behind the `Display` impls of `Element` and its parts and
+/// behind the text writer's symbol, string, and clob encoding.
 pub struct FmtValueFormatter<'a, W: fmt::Write> {
     pub(crate) output: &'a mut W,
 }
@@ -333,6 +399,9 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
     /// characters escaped.
+    // Always inlined so that each string or quoted symbol write runs the escape scan without a
+    // further call.
+    #[inline(always)]
     pub(crate) fn format_escaped_text_body<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         let mut start = 0usize;
         let text = value.as_ref();
@@ -449,10 +518,13 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         Ok(())
     }
 
+    // Always inlined so that a caller writing a string runs the escape scan in its own body. The
+    // recursive `format_value` calls it in a `cold_path!` instead.
+    #[inline(always)]
     pub fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
-        write!(self.output, "\"")?;
+        self.output.write_str("\"")?;
         self.format_escaped_text_body(value)?;
-        write!(self.output, "\"")?;
+        self.output.write_str("\"")?;
         Ok(())
     }
 
@@ -485,31 +557,65 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         Ok(())
     }
 
+    /// Writes `element`, including its annotations, recursing into containers through this
+    /// formatter rather than through `Display`. Each `Display` call puts a [`DISPLAY_CHUNK_LEN`]
+    /// buffer on the stack, so nested values must not go through `Display`.
+    pub(crate) fn format_element(&mut self, element: &Element) -> IonResult<()> {
+        self.format_annotations(element.annotations())?;
+        self.format_value(element.value())
+    }
+
+    /// Writes `value` without annotations. This method is on the recursive path, so a callee with a
+    /// large stack local must stay out of line.
+    pub(crate) fn format_value(&mut self, value: &Value) -> IonResult<()> {
+        match value {
+            Value::Null(ion_type) => self.format_null(*ion_type),
+            Value::Bool(bool) => self.format_bool(*bool),
+            Value::Int(integer) => self.format_integer(integer),
+            Value::Float(float) => self.format_float(*float),
+            Value::Decimal(decimal) => self.format_decimal(decimal),
+            Value::Timestamp(timestamp) => self.format_timestamp(timestamp),
+            Value::Symbol(symbol) => self.format_symbol(symbol),
+            Value::String(string) => cold_path! { self.format_string(string.text()) },
+            Value::Clob(clob) => self.format_clob(clob),
+            Value::Blob(blob) => self.format_blob(blob),
+            Value::List(sequence) => self.format_list(sequence),
+            Value::SExp(sequence) => self.format_sexp(sequence),
+            Value::Struct(struct_) => self.format_struct(struct_),
+        }
+    }
+
     pub(crate) fn format_struct(&mut self, value: &Struct) -> IonResult<()> {
-        write!(self.output, "{{")?;
-        let mut peekable_itr = value.fields().peekable();
-        while let Some((field_name, field_value)) = peekable_itr.next() {
-            self.format_symbol(field_name.as_raw_symbol_ref())?;
-            write!(self.output, ": {field_value}")?;
-            if peekable_itr.peek().is_some() {
-                write!(self.output, ", ")?;
+        self.output.write_str("{")?;
+        let mut fields = value.fields();
+        if let Some((field_name, field_value)) = fields.next() {
+            self.format_field(field_name, field_value)?;
+            for (field_name, field_value) in fields {
+                self.output.write_str(", ")?;
+                self.format_field(field_name, field_value)?;
             }
         }
-        write!(self.output, "}}")?;
+        self.output.write_str("}")?;
         Ok(())
     }
 
+    fn format_field(&mut self, name: &Symbol, value: &Element) -> IonResult<()> {
+        self.format_symbol(name.as_raw_symbol_ref())?;
+        self.output.write_str(": ")?;
+        self.format_element(value)
+    }
+
     pub(crate) fn format_sexp<S: AsRef<Sequence>>(&mut self, sequence: S) -> IonResult<()> {
-        write!(self.output, "(")?;
+        self.output.write_str("(")?;
         self.format_sequence_elements(sequence, " ")?;
-        write!(self.output, ")")?;
+        self.output.write_str(")")?;
         Ok(())
     }
 
     pub(crate) fn format_list<S: AsRef<Sequence>>(&mut self, sequence: S) -> IonResult<()> {
-        write!(self.output, "[")?;
+        self.output.write_str("[")?;
         self.format_sequence_elements(sequence, ", ")?;
-        write!(self.output, "]")?;
+        self.output.write_str("]")?;
         Ok(())
     }
 
@@ -518,12 +624,12 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         sequence: S,
         delimiter: &'static str,
     ) -> IonResult<()> {
-        let mut peekable_itr = sequence.as_ref().elements().peekable();
-        while peekable_itr.peek().is_some() {
-            let list_value = peekable_itr.next().unwrap();
-            write!(self.output, "{list_value}")?;
-            if peekable_itr.peek().is_some() {
-                write!(self.output, "{delimiter}")?;
+        let mut elements = sequence.as_ref().elements();
+        if let Some(element) = elements.next() {
+            self.format_element(element)?;
+            for element in elements {
+                self.output.write_str(delimiter)?;
+                self.format_element(element)?;
             }
         }
         Ok(())
@@ -700,6 +806,126 @@ mod fast_path_tests {
         let mut output = String::new();
         FmtValueFormatter::new(&mut output).format_integer(element.expect_int()?)?;
         assert_eq!(output, text);
+        Ok(())
+    }
+
+    /// Ion text for a list large enough to reach a `Display` sink in several chunks. The text is
+    /// already in `Display`'s output form.
+    fn large_list_text() -> String {
+        format!("[{}]", vec!["\"abc\""; 2000].join(", "))
+    }
+
+    /// A sink that records each `write_str` separately and formats another `Element` from inside
+    /// each one, re-entering `Display` between the outer value's chunks.
+    struct ReentrantSink {
+        chunks: Vec<String>,
+        nested: Element,
+        nested_texts: Vec<String>,
+    }
+
+    impl ReentrantSink {
+        fn new(nested: Element) -> Self {
+            Self {
+                chunks: Vec::new(),
+                nested,
+                nested_texts: Vec::new(),
+            }
+        }
+    }
+
+    impl fmt::Write for ReentrantSink {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            self.nested_texts.push(self.nested.to_string());
+            self.chunks.push(s.to_owned());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn display_tolerates_reentrant_sink() -> IonResult<()> {
+        let text = large_list_text();
+        let outer = Element::read_one(&text)?;
+        let mut sink = ReentrantSink::new(Element::read_one("(x y)")?);
+        fmt::Write::write_fmt(&mut sink, format_args!("{outer}"))?;
+        assert!(sink.chunks.len() > 1);
+        assert_eq!(sink.chunks.concat(), text);
+        assert!(sink.nested_texts.iter().all(|nested| nested == "(x y)"));
+        Ok(())
+    }
+
+    /// A sink that records each `write_str` separately.
+    #[derive(Default)]
+    struct ChunkSink(Vec<String>);
+
+    impl fmt::Write for ChunkSink {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            self.0.push(s.to_owned());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn display_emits_bounded_chunks() -> IonResult<()> {
+        // The longest `&str` that formatting `large_list_text()` writes (`abc`).
+        const MAX_PIECE_LEN: usize = 3;
+        let text = large_list_text();
+        let element = Element::read_one(&text)?;
+        let mut sink = ChunkSink::default();
+        fmt::Write::write_fmt(&mut sink, format_args!("{element}"))?;
+        let chunks = &sink.0;
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.len() <= DISPLAY_CHUNK_LEN));
+        // Every chunk but the last is flushed only when the next piece does not fit.
+        assert!(chunks[..chunks.len() - 1]
+            .iter()
+            .all(|chunk| chunk.len() > DISPLAY_CHUNK_LEN - MAX_PIECE_LEN));
+        assert_eq!(chunks.concat(), text);
+        Ok(())
+    }
+
+    #[test]
+    fn display_writes_oversized_text_directly() -> IonResult<()> {
+        let body = "a".repeat(DISPLAY_CHUNK_LEN + 1);
+        let element = Element::string(body.as_str());
+        let mut sink = ChunkSink::default();
+        fmt::Write::write_fmt(&mut sink, format_args!("{element}"))?;
+        assert_eq!(sink.0, ["\"", body.as_str(), "\""]);
+        Ok(())
+    }
+
+    /// A sink that accepts `remaining_writes` calls to `write_str` and fails every call after them,
+    /// counting every call in `attempts`.
+    struct FailingFmtSink {
+        remaining_writes: usize,
+        attempts: usize,
+    }
+
+    impl fmt::Write for FailingFmtSink {
+        fn write_str(&mut self, _s: &str) -> fmt::Result {
+            self.attempts += 1;
+            if self.remaining_writes == 0 {
+                return Err(fmt::Error);
+            }
+            self.remaining_writes -= 1;
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    #[case::final_flush_fails("(x y)".to_owned(), 0)]
+    #[case::flush_during_formatting_fails(large_list_text(), 1)]
+    fn display_reports_sink_failure(
+        #[case] text: String,
+        #[case] accepted_writes: usize,
+    ) -> IonResult<()> {
+        let element = Element::read_one(&text)?;
+        let mut sink = FailingFmtSink {
+            remaining_writes: accepted_writes,
+            attempts: 0,
+        };
+        assert!(fmt::Write::write_fmt(&mut sink, format_args!("{element}")).is_err());
+        // The first failed write must end formatting; any later write means the error was dropped.
+        assert_eq!(sink.attempts, accepted_writes + 1);
         Ok(())
     }
 }
