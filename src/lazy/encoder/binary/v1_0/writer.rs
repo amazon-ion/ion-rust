@@ -107,10 +107,12 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         if !self.encoding_buffer.is_empty() {
             // Write our top level encoding buffer's contents to the output sink.
             self.output.write_all(&self.encoding_buffer)?;
+            // The sink has the bytes now; clear before flushing it so that a failed sink flush
+            // cannot cause a later `flush` to write them again.
+            self.encoding_buffer.clear();
         }
         // Flush the output sink, which may have its own buffers.
         self.output.flush()?;
-        self.encoding_buffer.clear();
         Ok(())
     }
 
@@ -192,7 +194,7 @@ mod flush_tests {
     use crate::binary::constants::v1_0::IVM as IVM_1_0;
     use crate::lazy::encoder::LazyRawWriter;
     use crate::IonResult;
-    use std::io::BufWriter;
+    use std::io::{self, BufWriter, Write};
 
     /// `flush` must flush the sink even when the encoding buffer is empty: `new` writes the IVM
     /// straight to the sink, so a buffered sink holds it back until it is flushed.
@@ -210,6 +212,46 @@ mod flush_tests {
             IVM_1_0.as_slice(),
             "`flush` did not flush the sink"
         );
+        Ok(())
+    }
+
+    /// A sink whose next `flush` fails if `fail_next_flush` is set.
+    struct FlushFailsOnce {
+        bytes: Vec<u8>,
+        fail_next_flush: bool,
+    }
+
+    impl Write for FlushFailsOnce {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.bytes.write(buf)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if std::mem::take(&mut self.fail_next_flush) {
+                return Err(io::Error::other("injected flush failure"));
+            }
+            Ok(())
+        }
+    }
+
+    /// Bytes that reached the sink before its `flush` failed are not written again by a later
+    /// `flush`.
+    #[test]
+    fn failed_sink_flush_does_not_rewrite_bytes() -> IonResult<()> {
+        let sink = FlushFailsOnce {
+            bytes: Vec::new(),
+            fail_next_flush: true,
+        };
+        let mut writer = LazyRawBinaryWriter_1_0::new(sink)?;
+        writer.write(1)?;
+        assert!(
+            writer.flush().is_err(),
+            "the injected flush failure was not reported"
+        );
+        writer.flush()?;
+        // IVM, then the int `1` exactly once.
+        let expected = [IVM_1_0.as_slice(), &[0x21, 0x01]].concat();
+        assert_eq!(writer.output().bytes, expected);
         Ok(())
     }
 }
