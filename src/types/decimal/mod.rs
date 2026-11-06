@@ -4,7 +4,9 @@ use std::cmp::Ordering;
 
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonError, IonFailure};
+use crate::types::overflowing_int::Magnitude;
 use crate::{Int, IonResult};
+use ice_code::ice as cold_path;
 use num_traits::Zero;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
@@ -452,41 +454,81 @@ impl TryFrom<f64> for Decimal {
     }
 }
 
-impl Display for Decimal {
+impl Decimal {
+    /// Writes this decimal as Ion text.
     #[rustfmt::skip] // https://github.com/rust-lang/rustfmt/issues/3255
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    pub(crate) fn format_text<W: std::fmt::Write>(&self, f: &mut W) -> std::fmt::Result {
         // Inspired by the formatting conventions of Java's BigDecimal.toString()
         const WIDE_NUMBER: usize = 6; // if you think about it, six is a lot 🙃
 
-        let digits = &*self.coefficient.magnitude().to_string();
+        let mut digits_buffer = itoa::Buffer::new();
+        let big_digits: String;
+        let digits: &str = match self.coefficient.magnitude_ref() {
+            Magnitude::Small(magnitude) => digits_buffer.format(magnitude),
+            Magnitude::Big(magnitude) => {
+                big_digits = cold_path! { magnitude.to_string() };
+                &big_digits
+            }
+        };
         let len = digits.len();
+        let mut exponent_buffer = itoa::Buffer::new();
 
         if self.coefficient.sign() == Sign::Negative {
-            write!(f, "-").unwrap();
+            f.write_str("-")?;
         };
 
         if self.exponent == 0 && len > WIDE_NUMBER { // e.g. A.BCDEFGd6
-            write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], len - 1)
+            Self::write_scientific(f, digits, exponent_buffer.format(len - 1))
         } else if self.exponent == 0 { // e.g. ABC.
-            write!(f, "{}.", digits)
+            f.write_str(digits)?;
+            f.write_str(".")
         } else if self.exponent >= 0 { // e.g. ABCd1
-            write!(f, "{}d{}", digits, self.exponent)
+            f.write_str(digits)?;
+            f.write_str("d")?;
+            f.write_str(exponent_buffer.format(self.exponent))
         } else { // exponent < 0, there is a fractional component
             // The index of the decimal point, relative to the magnitude representation
             //       0123                                                       01234
             // Given ABCDd-2, the decimal gets inserted at position 2, yielding AB.CD
-            // The exponent is negative, so the sum cannot overflow.
+            // Computed only for a negative exponent, where it cannot overflow.
             let dot_index = len as i64 + self.exponent;
             if dot_index > 0 { // e.g. A.BC or AB.C
-                let dot_index = dot_index as usize;
-                write!(f, "{}.{}", &digits[0..dot_index], &digits[dot_index..len])
+                let (integer_digits, fractional_digits) = digits.split_at(dot_index as usize);
+                f.write_str(integer_digits)?;
+                f.write_str(".")?;
+                f.write_str(fractional_digits)
             } else if dot_index > -(WIDE_NUMBER as i64) { // e.g. 0.ABC or 0.000ABC
-                let width = dot_index.unsigned_abs() as usize + len;
-                write!(f, "0.{digits:0>width$}")
+                // `dot_index` is in `-(WIDE_NUMBER - 1)..=0`, so this is the number of leading
+                // zeros.
+                const LEADING_ZEROS: &str = "00000";
+                const _: () = assert!(LEADING_ZEROS.len() >= WIDE_NUMBER - 1);
+                f.write_str("0.")?;
+                f.write_str(&LEADING_ZEROS[..dot_index.unsigned_abs() as usize])?;
+                f.write_str(digits)
             } else { // e.g. A.BCd-12
-                write!(f, "{}.{}d{}", &digits[0..1], &digits[1..len], (dot_index - 1))
+                Self::write_scientific(f, digits, exponent_buffer.format(dot_index - 1))
             }
         }
+    }
+
+    /// Writes `digits` with a decimal point after the first digit, followed by `d` and `exponent`.
+    fn write_scientific<W: std::fmt::Write>(
+        f: &mut W,
+        digits: &str,
+        exponent: &str,
+    ) -> std::fmt::Result {
+        let (first_digit, remaining_digits) = digits.split_at(1);
+        f.write_str(first_digit)?;
+        f.write_str(".")?;
+        f.write_str(remaining_digits)?;
+        f.write_str("d")?;
+        f.write_str(exponent)
+    }
+}
+
+impl Display for Decimal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.format_text(f)
     }
 }
 
@@ -633,6 +675,7 @@ mod bigdecimal {
 mod decimal_tests {
     use crate::decimal::{Coefficient, Sign};
     use crate::result::IonResult;
+    use crate::types::overflowing_int::Magnitude;
     use crate::{Decimal, Int};
 
     use num_traits::Float;
@@ -654,6 +697,16 @@ mod decimal_tests {
     #[case(Decimal::new( 123, -5),   "0.00123")]
     #[case(Decimal::new( 123, -10),  "1.23d-8")]
     #[case(Decimal::new(-123, -10), "-1.23d-8")]
+    #[case(Decimal::new(1234567, 0), "1.234567d6")]
+    #[case(Decimal::new(123456, 0), "123456.")]
+    #[case(Decimal::new(1, -5), "0.00001")]
+    #[case(Decimal::new(1, -6), "0.000001")]
+    #[case(Decimal::new(1, -7), "1.d-7")]
+    #[case(Decimal::new(0, -2), "0.00")]
+    #[case(Decimal::NEGATIVE_ZERO, "-0.")]
+    #[case(Decimal::negative_zero_with_exponent(-2), "-0.00")]
+    // A magnitude this large is heap-allocated; see `u128_max_coefficient_is_heap_backed`.
+    #[case(Decimal::new(u128::MAX, -2), "3402823669209384634633746074317682114.55")]
     #[case::max_exponent(Decimal::new(1, i64::MAX), "1d9223372036854775807")]
     #[case::negative_max_exponent(Decimal::new(-123, i64::MAX), "-123d9223372036854775807")]
     #[case::min_exponent(Decimal::new(1, i64::MIN), "1.d-9223372036854775808")]
@@ -662,6 +715,17 @@ mod decimal_tests {
         let mut buffer = String::new();
         write!(buffer, "{decimal}").unwrap();
         assert_eq!(buffer.as_str(), expected);
+    }
+
+    /// `test_display`'s `u128::MAX` case covers the `Magnitude::Big` arm of `format_text` only while
+    /// this holds.
+    #[test]
+    fn u128_max_coefficient_is_heap_backed() {
+        let decimal = Decimal::new(u128::MAX, -2);
+        assert!(matches!(
+            decimal.coefficient.magnitude_ref(),
+            Magnitude::Big(_)
+        ));
     }
 
     #[test]

@@ -179,6 +179,26 @@ pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
     string_escape_codes
 }
 
+/// Writes `value` in base 10, left-padded with zeros to at least `width` digits.
+pub(crate) fn write_zero_padded<W: fmt::Write>(
+    output: &mut W,
+    value: u64,
+    width: usize,
+) -> fmt::Result {
+    // Pads every fixed-width timestamp field, and fractional seconds up to nanoseconds, in one
+    // write.
+    const ZEROS: &str = "00000000";
+    let mut buffer = itoa::Buffer::new();
+    let digits = buffer.format(value);
+    let mut padding = width.saturating_sub(digits.len());
+    while padding > 0 {
+        let chunk = padding.min(ZEROS.len());
+        output.write_str(&ZEROS[..chunk])?;
+        padding -= chunk;
+    }
+    output.write_str(digits)
+}
+
 /// Provides a text formatter for Ion values
 /// This is used with the Display implementation of `OwnedElement`
 pub struct FmtValueFormatter<'a, W: fmt::Write> {
@@ -370,7 +390,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
             SExp => "null.sexp",
             Struct => "null.struct",
         };
-        write!(self.output, "{null_text}")?;
+        self.output.write_str(null_text)?;
         Ok(())
     }
 
@@ -379,26 +399,26 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
             true => "true",
             false => "false",
         };
-        write!(self.output, "{bool_text}")?;
+        self.output.write_str(bool_text)?;
         Ok(())
     }
 
     pub fn format_integer(&mut self, value: &Int) -> IonResult<()> {
-        write!(self.output, "{value}")?;
+        value.format_text(self.output)?;
         Ok(())
     }
 
     pub fn format_float(&mut self, value: f64) -> IonResult<()> {
         if value.is_nan() {
-            write!(self.output, "nan")?;
+            self.output.write_str("nan")?;
             return Ok(());
         }
 
         if value.is_infinite() {
             if value.is_sign_positive() {
-                write!(self.output, "+inf")?;
+                self.output.write_str("+inf")?;
             } else {
-                write!(self.output, "-inf")?;
+                self.output.write_str("-inf")?;
             }
             return Ok(());
         }
@@ -407,7 +427,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         // notation. It works for all floating point values except -0.0 (it drops the sign).
         // See: https://github.com/rust-lang/rust/issues/20596
         if value == 0.0f64 && value.is_sign_negative() {
-            write!(self.output, "-0e0")?;
+            self.output.write_str("-0e0")?;
             return Ok(());
         }
 
@@ -416,7 +436,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
     }
 
     pub fn format_decimal(&mut self, value: &Decimal) -> IonResult<()> {
-        write!(self.output, "{value}")?;
+        value.format_text(self.output)?;
         Ok(())
     }
 
@@ -634,6 +654,52 @@ mod formatter_test {
             |ivf| ivf.format_list(ion_list!["hello", 5, true]),
             "[\"hello\", 5, true]",
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fast_path_tests {
+    use super::*;
+    use crate::{Element, IonResult};
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::zero_no_width(0, 0, "0")]
+    #[case::pads(7, 2, "07")]
+    #[case::exact_width(12, 2, "12")]
+    #[case::wider_than_width(12345, 4, "12345")]
+    #[case::year(2000, 4, "2000")]
+    #[case::small_year(1, 4, "0001")]
+    #[case::padding_longer_than_zeros(5, 40, "0000000000000000000000000000000000000005")]
+    fn zero_padded(
+        #[case] value: u64,
+        #[case] width: usize,
+        #[case] expected: &str,
+    ) -> fmt::Result {
+        let mut output = String::new();
+        write_zero_padded(&mut output, value, width)?;
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::zero("0")]
+    #[case::one("1")]
+    #[case::negative_one("-1")]
+    #[case::i64_max("9223372036854775807")]
+    #[case::i64_min("-9223372036854775808")]
+    #[case::u64_max("18446744073709551615")]
+    #[case::u64_max_plus_one("18446744073709551616")]
+    #[case::i128_max("170141183460469231731687303715884105727")]
+    #[case::i128_min("-170141183460469231731687303715884105728")]
+    #[case::u128_max("340282366920938463463374607431768211455")]
+    #[case::beyond_u128("-340282366920938463463374607431768211456")]
+    fn integer_text_round_trips(#[case] text: &str) -> IonResult<()> {
+        let element = Element::read_one(text)?;
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_integer(element.expect_int()?)?;
+        assert_eq!(output, text);
         Ok(())
     }
 }
