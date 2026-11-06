@@ -817,6 +817,7 @@ impl<A> core::cmp::PartialEq<A> for ion_rs::SymbolRef<'_> where A: ion_rs::symbo
 pub fn ion_rs::SymbolRef<'_>::eq(&self, &A) -> bool
 pub struct ion_rs::Timestamp
 impl ion_rs::Timestamp
+pub fn ion_rs::Timestamp::attoseconds(&self) -> u64
 pub fn ion_rs::Timestamp::day(&self) -> u32
 pub fn ion_rs::Timestamp::fractional_seconds_scale(&self) -> core::option::Option<i64>
 pub fn ion_rs::Timestamp::hour(&self) -> u32
