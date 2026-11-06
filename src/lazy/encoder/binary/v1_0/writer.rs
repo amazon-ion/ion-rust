@@ -1,11 +1,9 @@
-use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump as BumpAllocator;
 use delegate::delegate;
 use std::io::Write;
 
 use crate::binary::constants::v1_0::IVM as IVM_1_0;
 use crate::lazy::encoder::binary::v1_0::value_writer::BinaryValueWriter_1_0;
-use crate::lazy::encoder::binary::AliasableBump;
+use crate::lazy::encoder::binary::v1_0::DEFAULT_ENCODING_BUFFER_SIZE;
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
@@ -14,7 +12,6 @@ use crate::lazy::encoder::{
     cap_retained_buffer, LazyRawWriter, Recycle, Reusable, WriterRole, IDLE_RETAIN_CAP,
 };
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding};
-use crate::unsafe_helpers::{mut_ref_to_ptr, ptr_to_mut_ref, ptr_to_ref};
 use crate::write_config::{BinaryWriteConfig, WriteConfig, WriteConfigKind};
 use crate::{ContextWriter, IonResult};
 
@@ -24,29 +21,10 @@ use crate::{ContextWriter, IonResult};
 pub struct LazyRawBinaryWriter_1_0<W: Write> {
     // The sink to which all of the writer's encoded data will be written.
     output: W,
-    // A bump allocator that can be used to cheaply create scratch buffers for nested container
-    // encoding.
-    //
-    // Held via `AliasableBump` (not `Box`) so the `Bump` has a stable heap address AND deref does
-    // not assert unique access: the top-level encoding buffer (a `BumpVec` referenced by
-    // `encoding_buffer_ptr`) captures a `&Bump` into this allocator, and that reference must stay
-    // valid when the writer is moved. See `AliasableBump` for the full rationale.
-    allocator: AliasableBump,
-    // A pointer to the bump-allocated top-level encoding buffer, if set.
-    //
-    // This buffer is constructed in `allocator` above, a region of memory over which we have
-    // complete control. When the allocator creates a buffer, the buffer has a lifetime equivalent to
-    // the lifetime of the function in which it was created. However, we know that the data it contains
-    // will continue to be valid even after that method is complete and any return values are dropped.
-    // Thus, we store a raw pointer to the buffer and use an `Option` to track whether the pointer
-    // is set to a meaningful address. This allows us to refer to the contents of the buffer across
-    // multiple mutable calls of `write` and `value_writer()`.
-    encoding_buffer_ptr: Option<*mut ()>,
+    // Values encoded since the last flush. Containers are encoded in place, so this is the writer's
+    // only scratch memory.
+    encoding_buffer: Vec<u8>,
 }
-
-/// The initial size of the backing array for the writer's bump allocator.
-// This value was chosen somewhat arbitrarily and can be changed as needed.
-pub(crate) const DEFAULT_BUMP_SIZE: usize = 16 * 1024;
 
 // Implemented only for the `Vec<u8>` instantiation: that is the only one the managed writer's
 // reusable-writer API needs (`E::Writer<Vec<u8>>: Reusable`), and it is what makes re-seeding the IVM
@@ -55,25 +33,19 @@ impl Reusable for LazyRawBinaryWriter_1_0<Vec<u8>> {}
 
 impl Recycle for LazyRawBinaryWriter_1_0<Vec<u8>> {
     /// Returns this writer to its freshly-built state so it can encode another document, discarding
-    /// any buffered (unflushed) content: the output buffer and the scratch arena are emptied, either
-    /// is released if it has grown oversized, and -- for [`WriterRole::System`] -- the Ion 1.0 IVM
-    /// that `new` emits is re-seeded.
+    /// any buffered (unflushed) content: the output buffer and the encoding buffer are emptied, either
+    /// is released if it has grown past [`IDLE_RETAIN_CAP`], and -- for [`WriterRole::System`] -- the
+    /// Ion 1.0 IVM that `new` emits is re-seeded.
     ///
     /// Nothing is written to any sink here, so bytes the caller wanted emitted must have been
     /// `flush`ed beforehand.
     fn recycle(&mut self, role: WriterRole) {
-        // Clear the pointer to the top-level encoding buffer FIRST. The buffer lives inside
-        // `allocator`; if the arena below is dropped or rewound while this pointer is still set, the
-        // next `value_writer()` call would dereference a dangling pointer.
-        self.encoding_buffer_ptr = None;
-        if self.allocator.allocated_bytes() > IDLE_RETAIN_CAP {
-            // Bound retained memory: drop an oversized arena in favor of a fresh small one.
-            self.allocator = AliasableBump::new(BumpAllocator::with_capacity(DEFAULT_BUMP_SIZE));
-        } else {
-            // Keep the arena warm; `reset` rewinds it without releasing its chunks.
-            // SAFETY: `encoding_buffer_ptr` was set to `None` above, so the `&Bump` that
-            // `AliasableBump::reset` invalidates has no remaining users.
-            unsafe { self.allocator.reset() };
+        self.encoding_buffer.clear();
+        if self.encoding_buffer.capacity() > IDLE_RETAIN_CAP {
+            // Bound retained memory: drop an oversized encoding buffer in favor of a fresh one.
+            // `cap_retained_buffer` sizes its replacements for output buffers; this uses
+            // `DEFAULT_ENCODING_BUFFER_SIZE` instead, so a recycled writer matches a newly built one.
+            self.encoding_buffer = Vec::with_capacity(DEFAULT_ENCODING_BUFFER_SIZE);
         }
         // Discard anything still buffered. Doing this here rather than in the caller is what makes
         // the "discards unflushed content" contract self-enforcing: capping the buffer below may
@@ -117,8 +89,7 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         // Construct the writer
         Ok(Self {
             output,
-            allocator: AliasableBump::new(BumpAllocator::with_capacity(DEFAULT_BUMP_SIZE)),
-            encoding_buffer_ptr: None,
+            encoding_buffer: Vec::with_capacity(DEFAULT_ENCODING_BUFFER_SIZE),
         })
     }
 
@@ -128,79 +99,32 @@ impl<W: Write> LazyRawBinaryWriter_1_0<W> {
         Ok(self)
     }
 
-    /// Flushes any encoded bytes that have not already been written to the output sink.
+    /// Flushes any encoded bytes that have not already been written to the output sink, then
+    /// flushes the sink.
     ///
-    /// Calling `flush` also releases memory used for bookkeeping and storage, but calling it
-    /// frequently can reduce overall throughput.
+    /// The encoding buffer keeps its grown capacity across flushes.
     pub fn flush(&mut self) -> IonResult<()> {
-        // Temporarily break apart `self` to get simultaneous references to its innards.
-        let Self {
-            output,
-            allocator,
-            encoding_buffer_ptr,
-            ..
-        } = self;
-        if let Some(ptr) = encoding_buffer_ptr {
-            let encoding_buffer = unsafe { ptr_to_ref::<'_, BumpVec<'_, u8>>(*ptr).as_slice() };
+        if !self.encoding_buffer.is_empty() {
             // Write our top level encoding buffer's contents to the output sink.
-            output.write_all(encoding_buffer)?;
-            // Flush the output sink, which may have its own buffers.
-            output.flush()?;
+            self.output.write_all(&self.encoding_buffer)?;
+            // The sink has the bytes now; clear before flushing it so that a failed sink flush
+            // cannot cause a later `flush` to write them again.
+            self.encoding_buffer.clear();
         }
-        // Now that we've written the encoding buffer's contents to output, clear it.
-        self.encoding_buffer_ptr = None;
-        // Clear the allocator. A new encoding buffer will be allocated on the next write.
-        // SAFETY: the encoding buffer pointer was just set to `None` above, so the `&Bump` that
-        // `AliasableBump::reset` invalidates has no remaining users.
-        unsafe { allocator.reset() };
+        // Flush the output sink, which may have its own buffers.
+        self.output.flush()?;
         Ok(())
     }
 
-    /// The number of bytes of memory currently held by this writer's scratch arena.
-    // Exposed for the reuse tests, which confirm that recycling releases an oversized arena.
+    /// The number of bytes of scratch memory (excluding `output`) this writer currently retains.
+    // Exposed for the reuse tests, which check whether recycling keeps or releases it.
     #[cfg(test)]
-    pub(crate) fn allocated_bytes(&self) -> usize {
-        self.allocator.allocated_bytes()
+    pub(crate) fn retained_scratch_bytes(&self) -> usize {
+        self.encoding_buffer.capacity()
     }
 
-    fn get_or_allocate_encoding_buffer<'value, 'top>(
-        encoding_buffer_ptr: &'value mut Option<*mut ()>,
-        allocator: &'top BumpAllocator,
-    ) -> &'value mut BumpVec<'top, u8> {
-        match encoding_buffer_ptr {
-            // If the `encoding_buffer_ptr` is set, we already allocated an encoding buffer on
-            // a previous call to `value_writer()`. Dereference the pointer and continue encoding
-            // to that buffer.
-            Some(ptr) => {
-                let new_ptr = *ptr;
-                unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(new_ptr) }
-            }
-            None => {
-                let encoding_buffer = allocator.alloc_with(|| BumpVec::<u8>::new_in(allocator));
-                let ptr = mut_ref_to_ptr(encoding_buffer);
-                // SAFETY: We cannot both store `ptr` in `encoding_buffer_ptr` AND turn it into
-                //         a mutable BumVec reference to return because this (briefly) constructs
-                //         two mutable references. Instead, we store it in `encoding_buffer_ptr`
-                //         and then read it from its new location.
-                *encoding_buffer_ptr = Some(ptr);
-                unsafe { ptr_to_mut_ref::<'_, BumpVec<'_, u8>>(encoding_buffer_ptr.unwrap()) }
-            }
-        }
-    }
-
-    pub(crate) fn value_writer(&mut self) -> BinaryValueWriter_1_0<'_, '_> {
-        let Self {
-            ref allocator,
-            ref mut encoding_buffer_ptr,
-            ..
-        } = *self;
-        // Deref `&AliasableBump` to `&BumpAllocator` for the calls below. What lets the captured
-        // `&Bump` survive writer moves is `AliasableBump` itself (a non-uniqueness-asserting handle
-        // over a heap-stable `Bump`), not where this coercion is written.
-        let allocator: &BumpAllocator = allocator;
-        let top_level = Self::get_or_allocate_encoding_buffer(encoding_buffer_ptr, allocator);
-        let annotated_value_writer = BinaryValueWriter_1_0::new(allocator, top_level);
-        annotated_value_writer
+    pub(crate) fn value_writer(&mut self) -> BinaryValueWriter_1_0<'_> {
+        BinaryValueWriter_1_0::new(&mut self.encoding_buffer)
     }
 }
 
@@ -243,7 +167,7 @@ impl<W: Write> LazyRawWriter<W> for LazyRawBinaryWriter_1_0<W> {
 
 impl<W: Write> ContextWriter for LazyRawBinaryWriter_1_0<W> {
     type NestedValueWriter<'a>
-        = BinaryValueWriter_1_0<'a, 'a>
+        = BinaryValueWriter_1_0<'a>
     where
         Self: 'a;
 }
@@ -264,123 +188,70 @@ impl<W: Write> SequenceWriter for LazyRawBinaryWriter_1_0<W> {
     // Uses the default method implementations from SequenceWriter
 }
 
-// These verify the writer stays sound when moved.
 #[cfg(test)]
-mod move_soundness_tests {
+mod flush_tests {
     use super::LazyRawBinaryWriter_1_0;
-    use crate::lazy::encoder::{LazyRawWriter, Recycle, WriterRole};
+    use crate::binary::constants::v1_0::IVM as IVM_1_0;
+    use crate::lazy::encoder::LazyRawWriter;
     use crate::IonResult;
-    use rstest::rstest;
+    use std::io::{self, BufWriter, Write};
 
-    #[inline(never)]
-    fn relocate<T>(value: T) -> T {
-        // Pass-by-value forces the value to a new address (a plain move), the scenario the writer
-        // must tolerate (`let w2 = w;`). Under Miri -- which is where these tests actually detect
-        // the bug -- arguments and return values are copied to fresh allocations, so this is a
-        // genuine relocation; in optimized native builds the slot may be reused, but the native run
-        // cannot observe the aliasing defect anyway.
-        std::hint::black_box(value)
-    }
-
-    /// These tests are the regression guard for a use-after-move in the writer's self-referential
-    /// arena. The top-level encoding buffer is a `BumpVec` living inside the arena that holds a
-    /// `&Bump` back to the writer's `allocator`. With the allocator stored inline (or in a `Box`),
-    /// moving the writer invalidated that `&Bump` -- inline relocated it to freed memory, and
-    /// `Box`'s uniqueness assertion disabled it under Stacked/Tree Borrows -- so the next growing
-    /// write was UB. Holding it via `AliasableBump` (a non-uniqueness-asserting handle) keeps the
-    /// reference valid across moves.
-    ///
-    /// The defect is only observable under Miri, so the guarantee is verified by running these
-    /// tests under `cargo +nightly miri test` with both Stacked Borrows and `-Zmiri-tree-borrows`
-    /// (they pass on this fix and fail for the inline/`Box` variants). Under plain `cargo test`
-    /// they still exercise the code paths and assert output correctness, but cannot fail on the
-    /// aliasing violation. `payload_len` is parameterized so at least one case (`SMALL`) stays cheap
-    /// under Miri while another (`LARGE`) forces a fresh-chunk allocation.
-    const SMALL: usize = 64;
-    const LARGE: usize = 64 * 1024;
-
-    /// Encode a value, move the writer, then encode a value that grows the top-level buffer; the
-    /// moved writer must produce the same bytes as one that was never moved.
-    #[rstest]
-    #[case(SMALL)]
-    #[case(LARGE)]
-    fn move_between_growing_writes_is_consistent(#[case] payload_len: usize) -> IonResult<()> {
-        let payload = "a".repeat(payload_len);
-
-        // Writer that is moved mid-stream.
-        let mut moved = LazyRawBinaryWriter_1_0::new(Vec::new())?;
-        moved.write(1_i64)?; // allocates the top-level encoding buffer
-        let mut moved = relocate(moved); // relocate the writer (and, pre-fix, its inline allocator)
-        moved.write(payload.as_str())?; // growing write reaches the buffer's internal `&Bump`
-        moved.flush()?;
-
-        // Reference writer that stays put and encodes the same sequence.
-        let mut stationary = LazyRawBinaryWriter_1_0::new(Vec::new())?;
-        stationary.write(1_i64)?;
-        stationary.write(payload.as_str())?;
-        stationary.flush()?;
-
+    /// `flush` must flush the sink even when the encoding buffer is empty: `new` writes the IVM
+    /// straight to the sink, so a buffered sink holds it back until it is flushed.
+    #[test]
+    fn flush_flushes_the_sink_when_nothing_is_buffered() -> IonResult<()> {
+        let mut writer = LazyRawBinaryWriter_1_0::new(BufWriter::new(Vec::new()))?;
+        // Precondition: the IVM is still held in the `BufWriter`, not yet in the `Vec`.
+        assert!(
+            writer.output().get_ref().is_empty(),
+            "the sink passed the IVM through before `flush`"
+        );
+        writer.flush()?;
         assert_eq!(
-            moved.output(),
-            stationary.output(),
-            "moved writer produced different bytes than the stationary writer (payload_len={payload_len})"
+            writer.output().get_ref().as_slice(),
+            IVM_1_0.as_slice(),
+            "`flush` did not flush the sink"
         );
         Ok(())
     }
 
-    /// Same, but the writer is flushed (which resets the arena) *before* the move. Exercises
-    /// `AliasableBump::reset` followed by a move and a growing write on the reset arena.
-    #[rstest]
-    #[case(SMALL)]
-    #[case(LARGE)]
-    fn move_after_flush_is_consistent(#[case] payload_len: usize) -> IonResult<()> {
-        let payload = "a".repeat(payload_len);
-
-        let mut moved = LazyRawBinaryWriter_1_0::new(Vec::new())?;
-        moved.write(1_i64)?;
-        moved.flush()?; // resets the arena and clears the encoding buffer pointer
-        let mut moved = relocate(moved);
-        moved.write(payload.as_str())?; // re-allocates the buffer in the (moved) reset arena
-        moved.flush()?;
-
-        let mut stationary = LazyRawBinaryWriter_1_0::new(Vec::new())?;
-        stationary.write(1_i64)?;
-        stationary.flush()?;
-        stationary.write(payload.as_str())?;
-        stationary.flush()?;
-
-        assert_eq!(
-            moved.output(),
-            stationary.output(),
-            "moved-after-flush writer produced different bytes (payload_len={payload_len})"
-        );
-        Ok(())
+    /// A sink whose next `flush` fails if `fail_next_flush` is set.
+    struct FlushFailsOnce {
+        bytes: Vec<u8>,
+        fail_next_flush: bool,
     }
 
-    /// Same, but the writer is recycled with its arena still warm, so `recycle` rewinds it with
-    /// `AliasableBump::reset` while the discarded top-level buffer is still allocated in it.
-    #[rstest]
-    #[case(SMALL)]
-    #[case(LARGE)]
-    fn move_after_recycle_is_consistent(#[case] payload_len: usize) -> IonResult<()> {
-        let payload = "a".repeat(payload_len);
+    impl Write for FlushFailsOnce {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.bytes.write(buf)
+        }
 
-        let mut moved = LazyRawBinaryWriter_1_0::new(Vec::new())?;
-        moved.write(1_i64)?; // allocates the top-level encoding buffer, never flushed
-        moved.recycle(WriterRole::System);
-        let mut moved = relocate(moved);
-        moved.write(payload.as_str())?; // re-allocates the buffer in the (moved) rewound arena
-        moved.flush()?;
+        fn flush(&mut self) -> io::Result<()> {
+            if std::mem::take(&mut self.fail_next_flush) {
+                return Err(io::Error::other("injected flush failure"));
+            }
+            Ok(())
+        }
+    }
 
-        let mut fresh = LazyRawBinaryWriter_1_0::new(Vec::new())?;
-        fresh.write(payload.as_str())?;
-        fresh.flush()?;
-
-        assert_eq!(
-            moved.output(),
-            fresh.output(),
-            "recycled writer produced different bytes than a fresh one (payload_len={payload_len})"
+    /// Bytes that reached the sink before its `flush` failed are not written again by a later
+    /// `flush`.
+    #[test]
+    fn failed_sink_flush_does_not_rewrite_bytes() -> IonResult<()> {
+        let sink = FlushFailsOnce {
+            bytes: Vec::new(),
+            fail_next_flush: true,
+        };
+        let mut writer = LazyRawBinaryWriter_1_0::new(sink)?;
+        writer.write(1)?;
+        assert!(
+            writer.flush().is_err(),
+            "the injected flush failure was not reported"
         );
+        writer.flush()?;
+        // IVM, then the int `1` exactly once.
+        let expected = [IVM_1_0.as_slice(), &[0x21, 0x01]].concat();
+        assert_eq!(writer.output().bytes, expected);
         Ok(())
     }
 }

@@ -99,13 +99,13 @@ pub trait Recycle {
     fn apply_config<E: Encoding>(&mut self, config: &WriteConfig<E>);
 }
 
-/// The upper bound on the memory a parked (idle) writer may retain in any one of its buffers or
-/// scratch arenas. Each of those grows to fit the largest document the writer has encoded; a pooled
+/// The upper bound on the memory a parked (idle) writer may retain in any one of its buffers or its
+/// scratch memory. Each of those grows to fit the largest document the writer has encoded; a pooled
 /// writer can live for the rest of the process, so anything that has grown past this cap is not
-/// held indefinitely: an output buffer or arena is replaced with a small (possibly empty) one, and
-/// the symbol table's text storage is shrunk to the cap. The cost is regrowing it, possibly over
-/// several reallocations, the next time a large document is encoded. (A future refinement could
-/// make this adaptive to avoid thrashing when large documents are frequent.)
+/// held indefinitely: an output or encoding buffer is replaced with a small (possibly empty) one,
+/// and the symbol table's text storage is shrunk to the cap. The cost is regrowing it, possibly
+/// over several reallocations, the next time a large document is encoded. (A future refinement
+/// could make this adaptive to avoid thrashing when large documents are frequent.)
 // These caps are encoding-agnostic on purpose: they describe the managed writer's parking policy, so
 // they do not belong to (and must not be borrowed from) any one encoding's writer module.
 pub(crate) const IDLE_RETAIN_CAP: usize = 256 * 1024;
