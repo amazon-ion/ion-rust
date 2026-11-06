@@ -10,7 +10,8 @@ use crate::binary::var_uint::VarUInt;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::binary::v1_0::container_writers::{
     header_length, shift_tail, write_annotations_prefix, write_header, BinaryListWriter_1_0,
-    BinarySExpWriter_1_0, BinaryStructWriter_1_0, TruncateOnDrop, HEADER_RESERVE,
+    BinarySExpWriter_1_0, BinaryStructWriter_1_0, TruncateOnDrop, ANNOTATIONS_WRAPPER_TYPE_CODE,
+    HEADER_RESERVE,
 };
 use crate::lazy::encoder::private::Sealed;
 use crate::lazy::encoder::value_writer::ValueWriter;
@@ -340,7 +341,7 @@ impl BinaryAnnotatedValueWriter_1_0<'_> {
         );
         write_header(
             &mut encoding.buffer[start..start + wrapper_size],
-            0xE0,
+            ANNOTATIONS_WRAPPER_TYPE_CODE,
             envelope_length,
         );
         encoding.commit();

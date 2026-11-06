@@ -246,7 +246,7 @@ impl<'value> BinaryContainerWriter_1_0<'value> {
         );
         write_header(
             &mut self.encoding.buffer[start..start + wrapper_size],
-            0xE0,
+            ANNOTATIONS_WRAPPER_TYPE_CODE,
             envelope_length,
         );
     }
@@ -265,6 +265,7 @@ impl<'value> BinaryContainerWriter_1_0<'value> {
 const LIST_TYPE_CODE: u8 = 0xB0;
 const SEXP_TYPE_CODE: u8 = 0xC0;
 const STRUCT_TYPE_CODE: u8 = 0xD0;
+pub(crate) const ANNOTATIONS_WRAPPER_TYPE_CODE: u8 = 0xE0;
 
 pub struct BinaryListWriter_1_0<'value> {
     pub(crate) container_writer: BinaryContainerWriter_1_0<'value>,
