@@ -193,7 +193,6 @@ mod position;
 mod read_config;
 #[cfg(feature = "experimental-serde")]
 pub mod serde;
-pub(crate) mod unsafe_helpers;
 
 #[cfg(feature = "experimental-ion-hash")]
 pub mod ion_hash;

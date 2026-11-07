@@ -2,7 +2,7 @@
 //! primitives. This is the kind of opinionated convenience that belongs OUTSIDE the core format
 //! library — in an application module or a companion crate.
 //!
-//! Creating a writer per document allocates a fresh scratch arena (and, for the managed writer, a
+//! Creating a writer per document allocates a fresh encoding buffer (and, for the managed writer, a
 //! symbol table and two sub-writers) every time. A service encoding many small documents (one per
 //! request/message, often one thread per core) pays that setup on every value. Caching one idle
 //! writer per thread and reusing it amortizes the setup.
@@ -226,8 +226,8 @@ mod imp {
         .collect::<IonResult<Vec<_>>>()?;
 
         for (i, element) in documents.iter().enumerate() {
-            // The first iteration builds a writer; later ones reuse the writer (and its warm scratch
-            // arena) that the previous `finish` returned to the slot.
+            // The first iteration builds a writer; later ones reuse the writer (and its warm
+            // encoding buffer) that the previous `finish` returned to the slot.
             let mut writer = ThreadLocalWriter::acquire(v1_0::Binary, Vec::new())?;
             writer.write(element)?; // via `DerefMut` to the underlying `Writer`
             writer.write(element)?; // two top-level values, to show the guard is not one-shot

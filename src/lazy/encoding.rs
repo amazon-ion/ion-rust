@@ -161,9 +161,9 @@ impl Encoding for BinaryEncoding_1_0 {
 }
 
 impl ManagedWriterEncoding for BinaryEncoding_1_0 {
-    // The binary writer encodes into its arena and copies the result into this buffer with one
-    // write per flush, so the buffer grows straight to the size of what is flushed rather than in
-    // small steps. A fresh data buffer still holds the small allocation of the IVM that
+    // The binary writer encodes into its encoding buffer and copies the result into this buffer
+    // with one write per flush, so the buffer grows straight to the size of what is flushed rather
+    // than in small steps. A fresh data buffer still holds the small allocation of the IVM that
     // `LazyRawBinaryWriter_1_0::new` writes and `build_parts` erases.
     const INITIAL_DATA_BUFFER_CAPACITY: usize = 0;
 }

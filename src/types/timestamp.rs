@@ -679,6 +679,11 @@ impl Timestamp {
         }
     }
 
+    /// Returns this Timestamp's fractional seconds in attoseconds
+    pub fn attoseconds(&self) -> u64 {
+        self.attoseconds
+    }
+
     /// Returns this Timestamp's fractional seconds in nanoseconds
     ///
     /// NOTE: This is a potentially lossy operation. A Timestamp with picoseconds would return a
@@ -2159,6 +2164,35 @@ mod timestamp_tests {
             .build()?;
         assert_eq!(timestamp_4.nanoseconds(), 123456789);
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::full_precision(
+        TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
+            .with_fractional_seconds(Decimal::new(123_456_789_012_345_678u64, -18))
+            .build(),
+        123_456_789_012_345_678
+    )]
+    #[case::lower_precision(
+        TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
+            .with_milliseconds(192)
+            .build(),
+        192_000_000_000_000_000
+    )]
+    #[case::no_fraction(
+        TimestampBuilder::with_ymd(2021, 4, 6)
+            .with_hms(10, 15, 30)
+            .build(),
+        0
+    )]
+    fn test_timestamp_attoseconds(
+        #[case] timestamp: IonResult<Timestamp>,
+        #[case] expected_attoseconds: u64,
+    ) -> IonResult<()> {
+        assert_eq!(timestamp?.attoseconds(), expected_attoseconds);
         Ok(())
     }
 
