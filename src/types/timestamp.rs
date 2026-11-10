@@ -1,5 +1,6 @@
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::result::{IonFailure, IonResult};
+use crate::text::text_formatter::write_zero_padded;
 use crate::types::Decimal;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
@@ -493,51 +494,61 @@ impl Timestamp {
         debug_assert!(digits <= MAX_FRAC_DIGITS as u32);
         let divisor = POW10[MAX_FRAC_DIGITS.saturating_sub(digits as u8) as usize];
         let coefficient = self.attoseconds / divisor;
-        write!(output, ".{coefficient:0>width$}", width = digits as usize)?;
+        output.write_str(".")?;
+        write_zero_padded(output, coefficient, digits as usize)?;
         Ok(())
     }
 
     pub(crate) fn format<W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
         match self.precision() {
-            TimestampPrecision::Year => write!(output, "{:0>4}T", self.year())?,
-            TimestampPrecision::Month => {
-                write!(output, "{:0>4}-{:0>2}T", self.year(), self.month())?
+            TimestampPrecision::Year => {
+                write_zero_padded(output, self.year().into(), 4)?;
+                output.write_str("T")?;
             }
-            TimestampPrecision::Day => write!(
-                output,
-                "{:0>4}-{:0>2}-{:0>2}T",
-                self.year(),
-                self.month(),
-                self.day()
-            )?,
+            TimestampPrecision::Month => {
+                self.format_year_and_month(output)?;
+                output.write_str("T")?;
+            }
+            TimestampPrecision::Day => {
+                self.format_date(output)?;
+                output.write_str("T")?;
+            }
             TimestampPrecision::HourAndMinute => {
-                write!(
-                    output,
-                    "{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}",
-                    self.year(),
-                    self.month(),
-                    self.day(),
-                    self.hour(),
-                    self.minute()
-                )?;
+                self.format_date_hour_and_minute(output)?;
                 self.format_offset(output)?;
             }
             TimestampPrecision::Second => {
-                write!(
-                    output,
-                    "{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}",
-                    self.year(),
-                    self.month(),
-                    self.day(),
-                    self.hour(),
-                    self.minute(),
-                    self.second()
-                )?;
+                self.format_date_hour_and_minute(output)?;
+                output.write_str(":")?;
+                write_zero_padded(output, self.second().into(), 2)?;
                 self.format_fractional_seconds(output)?;
                 self.format_offset(output)?;
             }
         }
         Ok(())
+    }
+
+    /// Writes `YYYY-MM`.
+    fn format_year_and_month<W: std::fmt::Write>(&self, output: &mut W) -> std::fmt::Result {
+        write_zero_padded(output, self.year().into(), 4)?;
+        output.write_str("-")?;
+        write_zero_padded(output, self.month().into(), 2)
+    }
+
+    /// Writes `YYYY-MM-DD`.
+    fn format_date<W: std::fmt::Write>(&self, output: &mut W) -> std::fmt::Result {
+        self.format_year_and_month(output)?;
+        output.write_str("-")?;
+        write_zero_padded(output, self.day().into(), 2)
+    }
+
+    /// Writes `YYYY-MM-DDThh:mm`.
+    fn format_date_hour_and_minute<W: std::fmt::Write>(&self, output: &mut W) -> std::fmt::Result {
+        self.format_date(output)?;
+        output.write_str("T")?;
+        write_zero_padded(output, self.hour().into(), 2)?;
+        output.write_str(":")?;
+        write_zero_padded(output, self.minute().into(), 2)
     }
 
     fn format_offset<W: std::fmt::Write>(&self, output: &mut W) -> IonResult<()> {
@@ -546,16 +557,19 @@ impl Timestamp {
             None => ("-", 0, 0),
             Some(offset_minutes) => {
                 // Split the offset into a sign and magnitude for formatting
-                const MINUTES_PER_HOUR: i32 = 60;
+                const MINUTES_PER_HOUR: u32 = 60;
                 let sign = if offset_minutes >= 0 { "+" } else { "-" };
-                let offset_minutes = offset_minutes.abs();
+                let offset_minutes = offset_minutes.unsigned_abs();
                 let hours = offset_minutes / MINUTES_PER_HOUR;
                 let minutes = offset_minutes % MINUTES_PER_HOUR;
 
                 (sign, hours, minutes)
             }
         };
-        write!(output, "{sign}{hours:0>2}:{minutes:0>2}")?;
+        output.write_str(sign)?;
+        write_zero_padded(output, hours.into(), 2)?;
+        output.write_str(":")?;
+        write_zero_padded(output, minutes.into(), 2)?;
         Ok(())
     }
 
@@ -2445,6 +2459,14 @@ mod timestamp_tests {
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_microseconds(27).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.000027+00:00")]
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_nanoseconds(27).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.000000027+00:00")]
     #[case(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_fractional_seconds(Decimal::new(27, -12)).with_offset(0).build().unwrap(), "3030-03-31T17:31:57.000000000027+00:00")]
+    #[case::offset_minutes(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_offset(330).build().unwrap(), "3030-03-31T17:31:57+05:30")]
+    #[case::negative_offset_under_an_hour(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).with_offset(-30).build().unwrap(), "3030-03-31T17:31:57-00:30")]
+    #[case::negative_offset_hours_and_minutes(TimestampBuilder::with_ymd(3030, 3, 31).with_hour_and_minute(17, 31).with_offset(-90).build().unwrap(), "3030-03-31T17:31-01:30")]
+    #[case::unknown_offset(TimestampBuilder::with_ymd(3030, 3, 31).with_hms(17, 31, 57).build().unwrap(), "3030-03-31T17:31:57-00:00")]
+    #[case::year_1(TimestampBuilder::with_year(1).build().unwrap(), "0001T")]
+    #[case::year_999_month(TimestampBuilder::with_year(999).with_month(12).build().unwrap(), "0999-12T")]
+    #[case::year_999_day(TimestampBuilder::with_ymd(999, 12, 31).build().unwrap(), "0999-12-31T")]
+    #[case::year_1_with_offset(TimestampBuilder::with_ymd(1, 1, 1).with_hms(0, 0, 0).with_offset(-30).build().unwrap(), "0001-01-01T00:00:00-00:30")]
     fn test_display(#[case] ts: Timestamp, #[case] expect: String) {
         let mut buf = Vec::new();
         write!(&mut buf, "{ts}").unwrap();
