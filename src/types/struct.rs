@@ -371,34 +371,53 @@ impl Struct {
             .map(|(name, element)| (name, element))
     }
 
-    /// Compares two structs as unordered multisets of (name, value) pairs.
+    /// Compares two structs as unordered multisets of (name, value) pairs under Ion equivalence.
     ///
-    /// Each side's slots are visited in canonical Ion field order (via `by_field`) and compared
-    /// positionally. This is valid even though `eq` may be coarser than Ion's total `ion_cmp`
-    /// order — `PartialEq` treats `-0e0 == 0e0`, numeric-equal decimals such as `0d0`/`0d3` as
-    /// equal, and timestamps as equal by instant — because `ion_cmp` orders each such
-    /// `eq`-equivalence class as a **contiguous run**: the tie-breaks it adds (e.g. decimal
-    /// exponent, timestamp precision/offset) only reorder values that are already `eq`-equal, so no
-    /// `eq`-*unequal* value ever sorts between two `eq`-equal ones. Sorting both sides by `ion_cmp`
-    /// and pairing positionally therefore cannot mis-pair slots. A future `eq` that merged two
-    /// values with an `eq`-unequal value ordered between them would break this invariant and would
-    /// instead need a greedy bipartite match over each repeated name's values.
-    fn fields_eq(&self, other: &Self, eq: impl Fn(&Element, &Element) -> bool) -> bool {
+    /// `ion_cmp` reports `Equal` exactly for `ion_eq`-equal pairs, so equivalent structs list
+    /// identical pairs in `by_field` order and can be compared positionally.
+    fn fields_ion_eq(&self, other: &Self) -> bool {
         let these = self.fields.by_field();
         let those = other.fields.by_field();
         // Callers guarantee equal length before reaching here.
         debug_assert_eq!(these.len(), those.len());
-        for (&this_i, &that_i) in these.iter().zip(those.iter()) {
+        these.iter().zip(those).all(|(&this_i, &that_i)| {
             let (this_name, this_value) = &self.fields.slots[this_i as usize];
             let (that_name, that_value) = &other.fields.slots[that_i as usize];
-            // Only name equality matters here (`by_field` already put both sides in the same
-            // order); `ion_eq` can short-circuit on the first differing byte, where `ion_cmp` would
-            // compute a full ordering.
-            if !this_name.ion_eq(that_name) {
-                return false;
+            this_name.ion_eq(that_name) && this_value.ion_eq(that_value)
+        })
+    }
+
+    /// Compares two structs as unordered multisets of (name, value) pairs under `PartialEq`.
+    ///
+    /// `by_field` sorts by the [`same_run`] key, then by value, and `PartialEq`-equal fields share
+    /// that key. Fields are paired positionally, which relies on `ion_cmp` keeping each set of
+    /// `PartialEq`-equal scalars contiguous. Containers lack that property: `ion_cmp` orders them
+    /// element by element, so a tie-break inside one (e.g. `0d0` vs `0.0`) can sort
+    /// `PartialEq`-equal containers apart. A positional mismatch on a container is resolved by
+    /// [`run_eq`] over the rest of its run. Pairs matched before the mismatch stay matched:
+    /// `PartialEq` is symmetric and transitive, so equal values are interchangeable. Each pair of
+    /// values from the two structs, at any depth, is compared at most once, so structs holding m
+    /// and n values in total make at most m·n value comparisons.
+    fn fields_partial_eq(&self, other: &Self) -> bool {
+        let these = self.fields.by_field();
+        let those = other.fields.by_field();
+        // Callers guarantee equal length before reaching here.
+        debug_assert_eq!(these.len(), those.len());
+        // Lets the loop index `those` by position without per-slot bounds checks.
+        let those = &those[..these.len()];
+        let this_slots: &[(Symbol, Element)] = &self.fields.slots;
+        let that_slots: &[(Symbol, Element)] = &other.fields.slots;
+        let mut start = 0;
+        while start < these.len() {
+            let (this_name, this_value) = &this_slots[these[start] as usize];
+            let (that_name, that_value) = &that_slots[those[start] as usize];
+            if this_name.ion_eq(that_name) && this_value == that_value {
+                start += 1;
+                continue;
             }
-            if !eq(this_value, that_value) {
-                return false;
+            match resolve_mismatch(this_slots, these, that_slots, those, start) {
+                Some(end) => start = end,
+                None => return false,
             }
         }
         true
@@ -476,14 +495,90 @@ where
 
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.fields_eq(other, |a, b| a == b)
+        self.len() == other.len() && self.fields_partial_eq(other)
     }
 }
 
 impl IonEq for Struct {
     fn ion_eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.fields_eq(other, |a, b| a.ion_eq(b))
+        self.len() == other.len() && self.fields_ion_eq(other)
     }
+}
+
+/// Whether two slots are in the same run: they share a field name, Ion type, and annotations.
+fn same_run(this: &(Symbol, Element), that: &(Symbol, Element)) -> bool {
+    this.0.ion_eq(&that.0)
+        && this.1.ion_type() == that.1.ion_type()
+        && this.1.annotations() == that.1.annotations()
+}
+
+/// Resolves the positional mismatch at `start` in [`Struct::fields_partial_eq`], returning the
+/// index to resume at, or `None` if the structs are unequal. `these` and `those` have equal length.
+///
+/// Kept out of line so the common path keeps its registers.
+#[cold]
+#[inline(never)]
+fn resolve_mismatch(
+    this_slots: &[(Symbol, Element)],
+    these: &[u32],
+    that_slots: &[(Symbol, Element)],
+    those: &[u32],
+    start: usize,
+) -> Option<usize> {
+    let this_slot = |i: u32| &this_slots[i as usize];
+    let that_slot = |i: u32| &that_slots[i as usize];
+    let this @ (this_name, this_value) = this_slot(these[start]);
+    if !this_name.ion_eq(&that_slot(those[start]).0) {
+        return None;
+    }
+    if !this_value.ion_type().is_container() {
+        return None;
+    }
+    let end = start
+        + 1
+        + these[start + 1..]
+            .iter()
+            .take_while(|&&i| same_run(this, this_slot(i)))
+            .count();
+    // Fast path: a single slot has no other candidate, so `run_eq` would fail.
+    if end == start + 1 {
+        return None;
+    }
+    let (these_run, those_run) = (&these[start..end], &those[start..end]);
+    if !those_run.iter().all(|&i| same_run(this, that_slot(i))) {
+        return None;
+    }
+    if !run_eq(this_slots, these_run, that_slots, those_run) {
+        return None;
+    }
+    Some(end)
+}
+
+/// Compares equal-length runs (see [`same_run`]) of container slots as multisets of values under
+/// `PartialEq`, given that `these[0]` and `those[0]` differ.
+///
+/// Greedy matching is sound because `PartialEq` is symmetric and transitive. It costs O(n²)
+/// comparisons in the run's length.
+fn run_eq(
+    this_slots: &[(Symbol, Element)],
+    these: &[u32],
+    that_slots: &[(Symbol, Element)],
+    those: &[u32],
+) -> bool {
+    let this_value = |i: u32| &this_slots[i as usize].1;
+    let that_value = |i: u32| &that_slots[i as usize].1;
+    let mut used = vec![false; those.len()];
+    for (a, &this_i) in these.iter().enumerate() {
+        let value = this_value(this_i);
+        // Skip the known-unequal (`these[0]`, `those[0]`) pair.
+        let first = usize::from(a == 0);
+        let Some(b) = (first..those.len()).find(|&b| !used[b] && that_value(those[b]) == value)
+        else {
+            return false;
+        };
+        used[b] = true;
+    }
+    true
 }
 
 impl IonDataOrd for Struct {
@@ -552,7 +647,7 @@ const _: () = {
 mod tests {
     use crate::element::Element;
     use crate::ion_data::IonEq;
-    use crate::{ion_struct, Struct, Symbol};
+    use crate::{ion_struct, IonResult, Struct, Symbol};
 
     // Field count that forces `get()` onto the hash-index path (> LINEAR_SCAN_THRESHOLD). Derived
     // from the threshold so a build-time `ION_RS_STRUCT_LINEAR_SCAN_THRESHOLD` override can't
@@ -822,6 +917,126 @@ mod tests {
         assert_eq!(s1, s2);
         // IonEq distinguishes signed zeros
         assert!(!s1.ion_eq(&s2));
+    }
+
+    /// Repeated fields compared under `PartialEq`, in both directions. Includes containers that are
+    /// `PartialEq`-equal but that `ion_cmp` sorts apart, scalars that are `PartialEq`-equal but not
+    /// `ion_eq`-equal, and cases that must compare unequal.
+    #[rstest::rstest]
+    #[case::timestamps_in_lists(
+        "{a: [2020-01-01T05:00Z, 3], a: [2020-01-01T10:00+05:00, 2]}",
+        "{a: [2020-01-01T05:00Z, 2], a: [2020-01-01T10:00+05:00, 3]}",
+        true
+    )]
+    #[case::decimals_in_lists("{a: [0d0, 3], a: [0.0, 2]}", "{a: [0d0, 2], a: [0.0, 3]}", true)]
+    #[case::signed_zeros_in_lists(
+        "{a: [-0e0, 1], a: [0e0, 2]}",
+        "{a: [-0e0, 2], a: [0e0, 1]}",
+        true
+    )]
+    #[case::decimals_in_sexps("{a: (0d0 3), a: (0.0 2)}", "{a: (0d0 2), a: (0.0 3)}", true)]
+    #[case::decimals_in_structs(
+        "{a: {x: 0d0, y: 3}, a: {x: 0.0, y: 2}}",
+        "{a: {x: 0d0, y: 2}, a: {x: 0.0, y: 3}}",
+        true
+    )]
+    #[case::unequal_multisets("{a: [0d0, 3], a: [0.0, 2]}", "{a: [0d0, 3], a: [0.0, 3]}", false)]
+    #[case::nan_has_no_partner("{a: [nan], a: [1e0]}", "{a: [1e0], a: [nan]}", false)]
+    #[case::annotated_run(
+        "{a: x::[0d0, 3], a: x::[0.0, 2], a: [1]}",
+        "{a: x::[0d0, 2], a: x::[0.0, 3], a: [1]}",
+        true
+    )]
+    #[case::annotations_must_match("{a: x::[1], a: [2]}", "{a: [1], a: x::[2]}", false)]
+    #[case::scalar_groups_before_run(
+        r#"{a: 1, a: [0d0, 2], a: "s", a: [0.0, 1]}"#,
+        r#"{a: "s", a: [0d0, 1], a: 1, a: [0.0, 2]}"#,
+        true
+    )]
+    #[case::run_lengths_must_match("{a: 1, a: [1]}", "{a: [1], a: [1]}", false)]
+    #[case::field_after_run(
+        "{a: [0d0, 3], a: [0.0, 2], b: 1}",
+        "{a: [0d0, 2], a: [0.0, 3], b: 1}",
+        true
+    )]
+    #[case::field_after_run_differs(
+        "{a: [0d0, 3], a: [0.0, 2], b: 1}",
+        "{a: [0d0, 2], a: [0.0, 3], b: 2}",
+        false
+    )]
+    #[case::run_stops_at_field_name(
+        "{a: [0d0, 3], a: [0.0, 2], b: [0d0, 9]}",
+        "{a: [0d0, 2], a: [0.0, 9], b: [0d0, 3]}",
+        false
+    )]
+    #[case::other_run_stops_at_field_name(
+        "{a: [0.0, 2], a: [0d0, 3], b: [1d0]}",
+        "{a: [0d0, 2], b: [0.0, 3], b: [1d0]}",
+        false
+    )]
+    #[case::several_equal_candidates(
+        "{a: [0d0, 1], a: [0.0, 1], a: [0.00, 2]}",
+        "{a: [0d0, 2], a: [0.0, 1], a: [0.00, 1]}",
+        true
+    )]
+    #[case::multiplicity_mismatch(
+        "{a: [0d0, 1], a: [0.0, 1], a: [0.00, 2]}",
+        "{a: [0d0, 1], a: [0.0, 2], a: [0.00, 2]}",
+        false
+    )]
+    #[case::typed_null_before_mismatch(
+        "{a: null.list, a: [0d0, 2], a: [0.0, 1]}",
+        "{a: [0d0, 1], a: null.list, a: [0.0, 2]}",
+        true
+    )]
+    #[case::typed_null_has_no_partner("{a: null.list, a: [1]}", "{a: [1], a: [1]}", false)]
+    #[case::decimal_scalars("{a: 0d0, a: 1.0}", "{a: 0.0, a: 1d0}", true)]
+    #[case::signed_zero_scalars("{a: -0e0, a: 1e0}", "{a: 0e0, a: 1e0}", true)]
+    #[case::decimal_scalars_differ("{a: 0d0, a: 0.0}", "{a: 0d0, a: 1d0}", false)]
+    fn repeated_fields_partial_eq(
+        #[case] this: &str,
+        #[case] other: &str,
+        #[case] expected: bool,
+    ) -> IonResult<()> {
+        let (this, other) = (Element::read_one(this)?, Element::read_one(other)?);
+        assert_eq!(this == other, expected, "{this} == {other}");
+        assert_eq!(other == this, expected, "reversed: {other} == {this}");
+        Ok(())
+    }
+
+    /// Nests `{a: {}, a: <next level><siblings>}` `depth` times around `leaf`. Non-empty `siblings`
+    /// start with `, `.
+    fn nested_chain(depth: usize, leaf: &str, siblings: &str) -> String {
+        (0..depth).fold(leaf.to_owned(), |inner, _| {
+            format!("{{a: {{}}, a: {inner}{siblings}}}")
+        })
+    }
+
+    /// Every level nests the next in a repeated `a` field. Comparing a level must compare the level
+    /// below at most once, whether that pair matches or fails, in a run of one slot or several.
+    #[rstest::rstest]
+    #[case::equal(
+        nested_chain(40, "{b: 1}", ", a: {c: 0d0, d: 1}, a: {c: 0.0, d: 2}"),
+        nested_chain(40, "{b: 1}", ", a: {c: 0.0, d: 1}, a: {c: 0d0, d: 2}"),
+        true
+    )]
+    #[case::unequal(nested_chain(40, "{b: 1}", ""), nested_chain(40, "{b: 2}", ""), false)]
+    // A regression in skipping the failed pair shows up here as a hang.
+    #[case::unequal_with_sibling(
+        nested_chain(40, "{b: 1}", ", a: {z: 1}"),
+        nested_chain(40, "{b: 2}", ", a: {z: 1}"),
+        false
+    )]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    fn deeply_nested_repeated_fields_partial_eq(
+        #[case] this: String,
+        #[case] other: String,
+        #[case] expected: bool,
+    ) -> IonResult<()> {
+        let (this, other) = (Element::read_one(this)?, Element::read_one(other)?);
+        assert_eq!(this == other, expected);
+        assert_eq!(other == this, expected, "reversed");
+        Ok(())
     }
 
     #[test]
