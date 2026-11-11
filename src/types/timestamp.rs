@@ -241,9 +241,9 @@ fn add_offset_to_utc(
 // - year..second must stay in the top bits, in descending significance, with no
 //   metadata interleaved: `Ord` and `PartialEq` compare `packed & DATETIME_MASK`
 //   as a single integer.
-// - `ion_cmp` compares `packed_fields` and then `attoseconds` as raw integers, so
-//   this layout *is* the `IonDataOrd` total order — date-time, precision,
-//   subsecond_precision, offset, fraction. Permuting the metadata fields changes
+// - `ion_cmp` breaks ties between equal instants by comparing the metadata bits as
+//   a raw integer, so their order here *is* the `IonDataOrd` tie-break order —
+//   precision, subsecond_precision, offset. Permuting the metadata fields changes
 //   how `IonData`-wrapped timestamps sort. (`IonDataOrd` makes no promise that
 //   this ordering stays consistent between releases, so the layout is free to
 //   change.)
@@ -800,12 +800,14 @@ impl Debug for Timestamp {
 }
 
 impl PartialOrd for Timestamp {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for Timestamp {
+    #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         // Fast path: identical packed + attoseconds means same instant.
         if self.packed_fields == other.packed_fields && self.attoseconds == other.attoseconds {
@@ -832,53 +834,33 @@ impl Ord for Timestamp {
                 .then_with(|| self.attoseconds.cmp(&other.attoseconds));
         }
 
-        // Adjust other's time by delta and compare as linear minutes.
-        // No division or repacking needed for the common no-rollover case.
-        let other_hour = other.hour() as i32;
-        let other_minute = other.minute() as i32;
-        let other_total = other_hour * 60 + other_minute + delta_minutes as i32;
-
-        if (0..24 * 60).contains(&other_total) {
-            // No day rollover: date bits (year/month/day) unchanged.
-            // Compare date portion first.
-            const DATE_MASK: u64 =
-                (YEAR_MASK << YEAR_SHIFT) | (MONTH_MASK << MONTH_SHIFT) | (DAY_MASK << DAY_SHIFT);
-            let date_cmp = (self.packed_fields & DATE_MASK).cmp(&(other.packed_fields & DATE_MASK));
-            if date_cmp != Ordering::Equal {
-                return date_cmp;
-            }
-            // Compare time-of-day as linear minutes.
-            let self_total = self.hour() as i32 * 60 + self.minute() as i32;
-            let time_cmp = self_total.cmp(&other_total);
-            if time_cmp != Ordering::Equal {
-                return time_cmp;
-            }
-            return self
-                .second()
-                .cmp(&other.second())
-                .then_with(|| self.attoseconds.cmp(&other.attoseconds));
-        }
-
-        // Day rollover: full conversion needed.
-        let (ny, nmo, nd, nh, nmi) = add_offset_to_utc(
-            other.year() as u16,
-            other.month() as u8,
-            other.day() as u8,
-            other_hour as u8,
-            other_minute as u8,
-            delta_minutes,
-        );
-        let other_datetime = (ny as u64) << YEAR_SHIFT
-            | (nmo as u64) << MONTH_SHIFT
-            | (nd as u64) << DAY_SHIFT
-            | (nh as u64) << HOUR_SHIFT
-            | (nmi as u64) << MINUTE_SHIFT
-            | (other.packed_fields & (SECOND_MASK << SECOND_SHIFT));
-
-        (self.packed_fields & DATETIME_MASK)
-            .cmp(&other_datetime)
-            .then_with(|| self.attoseconds.cmp(&other.attoseconds))
+        cmp_shifted(self, other, delta_minutes as i32)
     }
+}
+
+/// Compares the instants of `this` and `other` when `other`'s offset is `delta_minutes` behind
+/// `this`'s. Kept out of line so that `cmp`'s other paths don't pay for this one's register
+/// pressure.
+#[inline(never)]
+fn cmp_shifted(this: &Timestamp, other: &Timestamp, delta_minutes: i32) -> Ordering {
+    // Compare whole seconds on a common day axis anchored at `this`'s month, with `other`'s local
+    // time shifted into `this`'s offset by `delta_minutes`. A shift is under two days and every
+    // month has at least 28, so months two or more apart are ordered by month alone, and an
+    // adjacent month only needs the earlier month's length to place other's day on the axis.
+    let this_month = this.year() as i32 * 12 + this.month() as i32;
+    let other_month = other.year() as i32 * 12 + other.month() as i32;
+    let other_day = match other_month - this_month {
+        0 => other.day() as i32,
+        1 => other.day() as i32 + days_in_month(this.year() as u16, this.month() as u8) as i32,
+        -1 => other.day() as i32 - days_in_month(other.year() as u16, other.month() as u8) as i32,
+        _ => return this_month.cmp(&other_month),
+    };
+    let this_minutes = this.day() as i32 * 1440 + this.hour() as i32 * 60 + this.minute() as i32;
+    let other_minutes =
+        other_day * 1440 + other.hour() as i32 * 60 + other.minute() as i32 + delta_minutes;
+    (this_minutes * 60 + this.second() as i32)
+        .cmp(&(other_minutes * 60 + other.second() as i32))
+        .then(this.attoseconds.cmp(&other.attoseconds))
 }
 
 /// Convert biased raw offset to signed minutes.
@@ -931,11 +913,16 @@ impl IonEq for Timestamp {
     }
 }
 
+/// Orders by instant, then by precision, fractional-second digit count, and offset (unknown first,
+/// then ascending). Ordering by instant keeps `PartialEq`-equal timestamps contiguous, which
+/// `Struct`'s `PartialEq` relies on.
 impl IonDataOrd for Timestamp {
+    #[inline]
     fn ion_cmp(&self, other: &Self) -> Ordering {
-        self.packed_fields
-            .cmp(&other.packed_fields)
-            .then(self.attoseconds.cmp(&other.attoseconds))
+        const METADATA_MASK: u64 = !DATETIME_MASK;
+        self.cmp(other).then_with(|| {
+            (self.packed_fields & METADATA_MASK).cmp(&(other.packed_fields & METADATA_MASK))
+        })
     }
 }
 
@@ -2447,6 +2434,134 @@ mod timestamp_tests {
         assert!(!t1.ion_eq(&t2)); // different precision (3 digits vs 1 digit)
     }
 
+    fn timestamp(text: &str) -> IonResult<Timestamp> {
+        Element::read_one(text)?.expect_timestamp()
+    }
+
+    #[rstest]
+    #[case::identical("2022-05-11T12:00Z", "2022-05-11T12:00Z", Ordering::Equal)]
+    #[case::offsets_normalized("2022-05-11T12:00Z", "2022-05-11T08:00-05:00", Ordering::Less)]
+    #[case::fraction_value_before_digit_count(
+        "2022-05-11T12:00:00.19Z",
+        "2022-05-11T12:00:00.123Z",
+        Ordering::Greater
+    )]
+    #[case::day_rollover("2022-05-11T23:30-05:00", "2022-05-12T01:00Z", Ordering::Greater)]
+    #[case::month_rollover("2022-01-31T23:00-02:00", "2022-02-01T00:30Z", Ordering::Greater)]
+    #[case::leap_day_rollover("2020-02-29T23:30-01:00", "2020-03-01T00:15Z", Ordering::Greater)]
+    #[case::leap_day_counted("2020-02-29T23:30-01:00", "2020-03-01T00:45Z", Ordering::Less)]
+    #[case::year_rollover("2019-12-31T23:30-01:00", "2020-01-01T00:15Z", Ordering::Greater)]
+    #[case::century_non_leap_year("2100-02-28T23:30-01:00", "2100-03-01T00:15Z", Ordering::Greater)]
+    #[case::two_day_delta_across_month(
+        "2022-05-31T23:30-23:00",
+        "2022-06-02T00:00+23:00",
+        Ordering::Greater
+    )]
+    #[case::utc_in_year_zero("0001-01-01T00:30+01:00", "0001-01-01T00:00Z", Ordering::Less)]
+    #[case::utc_in_year_10000(
+        "9999-12-31T23:30-01:00",
+        "9999-12-31T23:59:59.999999999999999999Z",
+        Ordering::Greater
+    )]
+    #[case::fraction_across_offsets(
+        "2022-05-11T07:00:00.2-05:00",
+        "2022-05-11T12:00:00.1Z",
+        Ordering::Greater
+    )]
+    fn ion_cmp_orders_by_instant(
+        #[case] this: &str,
+        #[case] other: &str,
+        #[case] expected: Ordering,
+    ) -> IonResult<()> {
+        let (this, other) = (timestamp(this)?, timestamp(other)?);
+        assert_eq!(this.cmp(&other), expected);
+        assert_eq!(this.ion_cmp(&other), expected);
+        assert_eq!(other.ion_cmp(&this), expected.reverse());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::same_instant_by_precision("2022T", "2022-01-01T", Ordering::Less)]
+    #[case::same_instant_no_fraction_first(
+        "2022-05-11T12:00:00Z",
+        "2022-05-11T12:00:00.000Z",
+        Ordering::Less
+    )]
+    #[case::same_instant_by_digit_count(
+        "2022-05-11T12:00:00.1Z",
+        "2022-05-11T12:00:00.100Z",
+        Ordering::Less
+    )]
+    #[case::same_instant_unknown_offset_first(
+        "2022-05-11T12:00-00:00",
+        "2022-05-11T07:00-05:00",
+        Ordering::Less
+    )]
+    #[case::same_instant_by_offset("2022-05-11T07:00-05:00", "2022-05-11T12:00Z", Ordering::Less)]
+    #[case::same_instant_by_positive_offset(
+        "2022-05-11T12:00Z",
+        "2022-05-11T17:00+05:00",
+        Ordering::Less
+    )]
+    #[case::same_instant_precision_before_offset(
+        "2022-05-11T17:00+05:00",
+        "2022-05-11T12:00:00Z",
+        Ordering::Less
+    )]
+    #[case::same_instant_two_day_delta(
+        "2022-05-31T01:00-23:00",
+        "2022-06-01T23:00+23:00",
+        Ordering::Less
+    )]
+    #[case::same_instant_across_leap_day(
+        "2000-02-29T23:59:59.999-23:59",
+        "2000-03-01T23:58:59.999Z",
+        Ordering::Less
+    )]
+    fn ion_cmp_orders_same_instant_by_metadata(
+        #[case] this: &str,
+        #[case] other: &str,
+        #[case] expected: Ordering,
+    ) -> IonResult<()> {
+        let (this, other) = (timestamp(this)?, timestamp(other)?);
+        assert_eq!(this.cmp(&other), Ordering::Equal);
+        assert_eq!(this.ion_cmp(&other), expected);
+        assert_eq!(other.ion_cmp(&this), expected.reverse());
+        Ok(())
+    }
+
+    #[test]
+    fn ion_cmp_is_equal_only_when_ion_eq() -> IonResult<()> {
+        let timestamps = [
+            "2022T",
+            "2022-01T",
+            "2022-01-01T",
+            "2022-01-01T00:00-00:00",
+            "2022-01-01T00:00Z",
+            "2022-01-01T00:00:00Z",
+            "2022-01-01T00:00:00.0Z",
+            "2022-01-01T00:00:00.000Z",
+            "2022-01-01T05:00+05:00",
+            "2021-12-31T19:00-05:00",
+            "2022-01-01T00:00:00.001Z",
+            "0001-01-01T00:30+01:00",
+            "0001-01-01T00:00Z",
+            "2000-02-29T23:59:59.999-23:59",
+            "2000-03-01T23:58:59.999Z",
+            "9999-12-31T23:30-01:00",
+            "9999-12-31T23:59:59.999999999999999999Z",
+        ]
+        .into_iter()
+        .map(timestamp)
+        .collect::<IonResult<Vec<_>>>()?;
+        for a in &timestamps {
+            for b in &timestamps {
+                assert_eq!(a.ion_cmp(b).is_eq(), a.ion_eq(b), "{a} vs {b}");
+            }
+        }
+        Ok(())
+    }
+
     #[rstest]
     #[case(TimestampBuilder::with_year(3030).build().unwrap(), "3030T")]
     #[case(TimestampBuilder::with_year(3030).with_month(11).build().unwrap(), "3030-11T")]
@@ -2548,6 +2663,71 @@ mod timestamp_tests {
     }
 
     // --- Day rollover in Ord ---
+
+    /// Checks `cmp` against comparing fully converted UTC fields, for every pair drawn from local
+    /// times at month, leap-day, and year boundaries under offsets up to ±23:59.
+    #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    fn cmp_matches_utc_conversion_near_boundaries() -> IonResult<()> {
+        let dates = [
+            (2019, 12, 31),
+            (2020, 1, 1),
+            (2020, 1, 31),
+            (2020, 2, 1),
+            (2020, 2, 28),
+            (2020, 2, 29),
+            (2020, 3, 1),
+            (2021, 2, 28),
+            (2021, 3, 1),
+            (2021, 3, 2),
+        ];
+        let times = [
+            (0, 0, 0),
+            (0, 1, 0),
+            (12, 0, 30),
+            (23, 58, 59),
+            (23, 59, 59),
+        ];
+        let offsets = [
+            None,
+            Some(-1439),
+            Some(-720),
+            Some(-61),
+            Some(0),
+            Some(1),
+            Some(1439),
+        ];
+        let mut timestamps = Vec::new();
+        for (year, month, day) in dates {
+            for (hour, minute, second) in times {
+                for offset in offsets {
+                    let builder =
+                        TimestampBuilder::with_ymd(year, month, day).with_hms(hour, minute, second);
+                    timestamps.push(match offset {
+                        Some(offset) => builder.with_offset(offset).build()?,
+                        None => builder.build()?,
+                    });
+                }
+            }
+        }
+        let utc_key = |t: &Timestamp| {
+            let (y, mo, d, h, mi) = add_offset_to_utc(
+                t.year() as u16,
+                t.month() as u8,
+                t.day() as u8,
+                t.hour() as u8,
+                t.minute() as u8,
+                -(t.offset().unwrap_or(0) as i16),
+            );
+            (y, mo, d, h, mi, t.second(), t.attoseconds)
+        };
+        for a in &timestamps {
+            for b in &timestamps {
+                assert_eq!(a.cmp(b), utc_key(a).cmp(&utc_key(b)), "{a} vs {b}");
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn cmp_day_rollover_forward() -> IonResult<()> {
@@ -2998,6 +3178,10 @@ mod chrono_interop {
             // years outside Ion's 1..=9999 range (e.g. year 0), which `from_fields` would reject;
             // we accept them silently here so this conversion behaves consistently with
             // `from_fixed_offset_datetime`. Making both conversions fallible is tracked in #1035.
+            // Both store years outside the 14-bit field modulo 16384, which can yield a date that
+            // does not exist (e.g. Feb 29 in a non-leap year). `Timestamp`'s `Ord`, `PartialEq`,
+            // and `IonDataOrd` (and thus `IonData` and `Struct` comparisons) assume the stored
+            // date is valid and can be inconsistent for such values.
             // A `NaiveDateTime` has no offset, so the offset is stored as "unknown".
             let packed = Self::pack_masked(
                 TimestampPrecision::Second,
@@ -3021,9 +3205,10 @@ mod chrono_interop {
             let offset_minutes = (offset_seconds / 60) as i16;
             let local = fixed_offset_date_time.naive_local();
             let attoseconds = nanoseconds_to_attoseconds(local.nanosecond());
-            // Pack directly from local fields — chrono guarantees validity of the
-            // DateTime, and local year may exceed 9999 (e.g., UTC year 9999 Dec 31
+            // Pack directly from local fields — chrono guarantees they form a valid date in
+            // chrono's calendar, and local year may exceed 9999 (e.g., UTC year 9999 Dec 31
             // with negative offset). We bypass from_fields validation to avoid panic.
+            // The year is masked as noted in `from_naive_datetime`, with the same caveat.
             let packed = Self::pack_masked(
                 TimestampPrecision::Second,
                 local.year() as u16,
@@ -3166,6 +3351,32 @@ mod chrono_interop {
             // Neither errored or panicked, and both masked year 0 into the 14-bit field the same
             // way, so the two conversions agree.
             assert_eq!(from_naive.year(), from_fixed.year());
+        }
+
+        /// A year-0 timestamp converted from chrono, compared against a different offset, must
+        /// still order antisymmetrically under both `Ord` and `IonDataOrd`.
+        #[test]
+        fn out_of_range_year_orders_antisymmetrically() -> IonResult<()> {
+            use crate::ion_data::IonDataOrd;
+            use std::cmp::Ordering;
+
+            let a = TimestampBuilder::with_ymd(2020, 1, 1)
+                .with_hms(0, 0, 0)
+                .with_offset(0)
+                .build()?;
+            let year_zero = NaiveDate::from_ymd_opt(0, 1, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap();
+            let b = Timestamp::from(
+                offset_east(5 * 3600)
+                    .from_local_datetime(&year_zero)
+                    .unwrap(),
+            );
+            assert_eq!(b.cmp(&a), Ordering::Less);
+            assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
+            assert_eq!(a.ion_cmp(&b), b.ion_cmp(&a).reverse());
+            Ok(())
         }
 
         #[test]
