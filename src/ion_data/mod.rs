@@ -37,9 +37,23 @@ pub(crate) use ion_ord::{ion_cmp_bool, ion_cmp_f64, IonDataOrd};
 /// [`Hash`] and [`Ord`] are not guaranteed to be implemented for all [`IonData`], but when they are,
 /// they are required to be consistent with Ion structural equality (and [`Eq`]).
 ///
-/// __WARNING__—The Ion specification does _not_ define a total ordering over all Ion values. Do
-/// not depend on getting any particular result from [Ord]. Use it only as an opaque total ordering
-/// over all [IonData]. _The algorithm used for [Ord] may change between versions._
+/// The Ion specification does _not_ define a total ordering over all Ion values. Beyond being
+/// consistent with Ion equivalence, [`Ord`] guarantees only this: for two non-null values of the
+/// same Ion type with equivalent annotations, if `a` precedes `b` in that type's natural order, then
+/// `IonData::from(a) < IonData::from(b)`. The natural orders are:
+///
+/// * `bool`: `false` before `true`
+/// * `int`, `decimal`: numeric value
+/// * `float`: numeric value; `nan` is not ordered
+/// * `timestamp`: instant, treating an unknown offset as UTC and a timestamp of lower precision as
+///   its earliest instant (`2020T` as `2020-01-01T00:00Z`)
+/// * `string`, `symbol`: Unicode code points of the text; a symbol with unknown text is not ordered
+/// * `blob`, `clob`: bytes, compared lexicographically
+///
+/// __WARNING__—Do not depend on any other result from [`Ord`], such as how it orders values of
+/// different types, values with different annotations, nulls, containers, or values that are equal
+/// in natural order but not Ion-equivalent (`1.0` and `1.00`). _Those parts of the algorithm may
+/// change between versions._
 ///
 /// __WARNING__—The hashing algorithm is _not_ the same as the
 /// [Ion Hash Algorithm](https://amazon-ion.github.io/ion-hash). _The algorithm used for [Hash] may change between versions._
