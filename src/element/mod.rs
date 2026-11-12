@@ -43,6 +43,7 @@ use crate::result::{
 };
 use crate::text::text_formatter::FmtValueFormatter;
 use crate::types::symbol::SymbolText;
+use crate::types::PrivateOrd;
 use crate::write_config::WriteConfig;
 
 mod annotations;
@@ -385,6 +386,42 @@ impl IonDataHash for Element {
     fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
         self.annotations.ion_data_hash(state);
         self.value.ion_data_hash(state);
+    }
+}
+
+impl PrivateOrd for Element {
+    fn private_cmp(&self, other: &Self) -> Ordering {
+        self.annotations
+            .ion_cmp(&other.annotations)
+            .then_with(|| self.value.private_cmp(&other.value))
+    }
+}
+
+// Keep in sync with `PartialEq for Value`: `Equal` must match `==`, except that `nan` is `Equal` to
+// `nan`. `PartialEq for Struct` relies on it.
+impl PrivateOrd for Value {
+    fn private_cmp(&self, other: &Self) -> Ordering {
+        use Value::*;
+        let ordering = self.ion_type().ion_cmp(&other.ion_type());
+        if ordering.is_ne() {
+            return ordering;
+        }
+        match (self, other) {
+            (Null(_), Null(_)) => Ordering::Equal,
+            (Null(_), _) => Ordering::Less,
+            (_, Null(_)) => Ordering::Greater,
+            (Bool(this), Bool(that)) => this.private_cmp(that),
+            (Int(this), Int(that)) => this.private_cmp(that),
+            (Float(this), Float(that)) => this.private_cmp(that),
+            (Decimal(this), Decimal(that)) => this.private_cmp(that),
+            (Timestamp(this), Timestamp(that)) => this.private_cmp(that),
+            (Symbol(this), Symbol(that)) => this.private_cmp(that),
+            (String(this), String(that)) => this.private_cmp(that),
+            (Clob(this), Clob(that)) | (Blob(this), Blob(that)) => this.private_cmp(that),
+            (List(this), List(that)) | (SExp(this), SExp(that)) => this.private_cmp(that),
+            (Struct(this), Struct(that)) => this.private_cmp(that),
+            _ => unreachable!("non-null values of the same Ion type are the same variant"),
+        }
     }
 }
 
@@ -1038,6 +1075,7 @@ impl Display for Element {
     }
 }
 
+// Keep in sync with `PrivateOrd for Element`, whose `Equal` must match `==` apart from `nan`.
 impl PartialEq for Element {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value && self.annotations == other.annotations

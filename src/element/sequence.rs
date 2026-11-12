@@ -3,6 +3,7 @@ use crate::element::iterators::SequenceIterator;
 use crate::element::Element;
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::lazy::encoding::Encoding;
+use crate::types::PrivateOrd;
 use crate::write_config::WriteConfig;
 use crate::IonResult;
 use std::cmp::Ordering;
@@ -192,6 +193,22 @@ impl IonEq for Sequence {
 impl IonDataOrd for Sequence {
     fn ion_cmp(&self, other: &Self) -> Ordering {
         self.elements.ion_cmp(&other.elements)
+    }
+}
+
+impl PrivateOrd for Sequence {
+    fn private_cmp(&self, other: &Self) -> Ordering {
+        self.elements
+            .len()
+            .cmp(&other.elements.len())
+            .then_with(|| {
+                self.elements
+                    .iter()
+                    .zip(&other.elements)
+                    .map(|(this, that)| this.private_cmp(that))
+                    .find(|ordering| ordering.is_ne())
+                    .unwrap_or(Ordering::Equal)
+            })
     }
 }
 

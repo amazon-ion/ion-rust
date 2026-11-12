@@ -3,6 +3,7 @@ use crate::element::Element;
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::symbol_ref::AsSymbolRef;
 use crate::text::text_formatter::FmtValueFormatter;
+use crate::types::PrivateOrd;
 use crate::Symbol;
 use hashbrown::hash_table::Entry;
 use hashbrown::HashTable;
@@ -65,14 +66,18 @@ struct HashIndex {
 }
 
 /// Lazily built auxiliary indexes over [`Fields::slots`]. Boxed behind a single `OnceLock` so an
-/// iterate-only struct never allocates either index, and so `Fields` itself stays pointer-small.
+/// iterate-only struct never allocates any index, and so `Fields` itself stays pointer-small.
 #[derive(Debug, Clone, Default)]
 struct FieldsAux {
     /// Hash lookup index over all fields, built on the first large-struct `get()`.
     table: OnceLock<Box<HashTable<HashIndex>>>,
-    /// Slot indices sorted into canonical Ion field order, built on the first
-    /// equality / ordering / hashing operation. Covers **all** slots, including unknown-text ones.
+    /// Slot indices sorted into canonical Ion field order, built on the first `IonEq` /
+    /// `IonDataOrd` / hashing operation. Covers **all** slots, including unknown-text ones.
     by_field: OnceLock<Box<[u32]>>,
+    /// Slot indices sorted by field name, then [`PrivateOrd`] of value, built the first time
+    /// `PartialEq` or [`PrivateOrd`] compares the struct with another of equal length and two or
+    /// more fields.
+    by_private: OnceLock<Box<[u32]>>,
 }
 
 // The struct's storage, split into its own type so `Struct` stays a thin wrapper.
@@ -159,7 +164,7 @@ impl Fields {
     }
 
     /// Returns slot indices in canonical Ion field order, building the ordering on first use.
-    /// Used by equality, ordering, and hashing, all of which treat a struct as an unordered
+    /// Used by `IonEq`, `IonDataOrd`, and hashing, all of which treat a struct as an unordered
     /// multiset of (name, value) pairs.
     fn by_field(&self) -> &[u32] {
         self.aux()
@@ -175,6 +180,26 @@ impl Fields {
                 // irrelevant.
                 order.sort_unstable_by(|&a, &b| {
                     ion_cmp_field(&self.slots[a as usize], &self.slots[b as usize])
+                });
+                order.into_boxed_slice()
+            })
+            .as_ref()
+    }
+
+    /// Returns slot indices sorted by field name, then [`PrivateOrd`] of value, building the
+    /// ordering on first use. Used by `PartialEq` and [`PrivateOrd`].
+    fn by_private(&self) -> &[u32] {
+        self.aux()
+            .by_private
+            .get_or_init(|| {
+                debug_assert!(
+                    self.slots.len() <= u32::MAX as usize,
+                    "slot index must fit in u32"
+                );
+                // Unstable is fine: slots that compare `Equal` are interchangeable for comparison.
+                let mut order: Vec<u32> = (0..self.slots.len() as u32).collect();
+                order.sort_unstable_by(|&a, &b| {
+                    private_cmp_field(&self.slots[a as usize], &self.slots[b as usize])
                 });
                 order.into_boxed_slice()
             })
@@ -371,37 +396,22 @@ impl Struct {
             .map(|(name, element)| (name, element))
     }
 
-    /// Compares two structs as unordered multisets of (name, value) pairs.
+    /// Compares two structs as unordered multisets of (name, value) pairs under Ion equivalence.
     ///
-    /// Each side's slots are visited in canonical Ion field order (via `by_field`) and compared
-    /// positionally. This is valid even though `eq` may be coarser than Ion's total `ion_cmp`
-    /// order — `PartialEq` treats `-0e0 == 0e0`, numeric-equal decimals such as `0d0`/`0d3` as
-    /// equal, and timestamps as equal by instant — because `ion_cmp` orders each such
-    /// `eq`-equivalence class as a **contiguous run**: the tie-breaks it adds (e.g. decimal
-    /// exponent, timestamp precision/offset) only reorder values that are already `eq`-equal, so no
-    /// `eq`-*unequal* value ever sorts between two `eq`-equal ones. Sorting both sides by `ion_cmp`
-    /// and pairing positionally therefore cannot mis-pair slots. A future `eq` that merged two
-    /// values with an `eq`-unequal value ordered between them would break this invariant and would
-    /// instead need a greedy bipartite match over each repeated name's values.
-    fn fields_eq(&self, other: &Self, eq: impl Fn(&Element, &Element) -> bool) -> bool {
+    /// `ion_cmp` reports `Equal` exactly for `ion_eq`-equal pairs, so equivalent structs list
+    /// identical pairs in `by_field` order and can be compared positionally.
+    fn fields_ion_eq(&self, other: &Self) -> bool {
         let these = self.fields.by_field();
         let those = other.fields.by_field();
         // Callers guarantee equal length before reaching here.
         debug_assert_eq!(these.len(), those.len());
-        for (&this_i, &that_i) in these.iter().zip(those.iter()) {
+        these.iter().zip(those).all(|(&this_i, &that_i)| {
             let (this_name, this_value) = &self.fields.slots[this_i as usize];
             let (that_name, that_value) = &other.fields.slots[that_i as usize];
             // Only name equality matters here (`by_field` already put both sides in the same
-            // order); `ion_eq` can short-circuit on the first differing byte, where `ion_cmp` would
-            // compute a full ordering.
-            if !this_name.ion_eq(that_name) {
-                return false;
-            }
-            if !eq(this_value, that_value) {
-                return false;
-            }
-        }
-        true
+            // order).
+            this_name.ion_eq(that_name) && this_value.ion_eq(that_value)
+        })
     }
 
     /// Returns the number of fields in this Struct.
@@ -474,15 +484,35 @@ where
     }
 }
 
+/// Two structs are equal when they hold the same multiset of (name, value) fields under
+/// `PartialEq`.
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.fields_eq(other, |a, b| a == b)
+        let (this, that) = (&self.fields.slots, &other.fields.slots);
+        if this.len() != that.len() {
+            return false;
+        }
+        if this.len() <= 1 {
+            return this.first() == that.first();
+        }
+        // Pairs fields positionally in `by_private` order. In `by_field` order, `ion_cmp`'s
+        // tie-breaks can sort equal fields apart: `{a: [0d0, 3], a: [0.0, 2]}` and
+        // `{a: [0d0, 2], a: [0.0, 3]}` would pair `[0d0, 3]` with `[0d0, 2]`. Equal multisets hold
+        // no `nan`, and on `nan`-free values `PrivateOrd`'s `Equal` is `==`, so equal fields land
+        // at the same positions.
+        let these = self.fields.by_private();
+        let those = other.fields.by_private();
+        these.iter().zip(those).all(|(&a, &b)| {
+            let (this_name, this_value) = &this[a as usize];
+            let (that_name, that_value) = &that[b as usize];
+            this_name.ion_eq(that_name) && this_value == that_value
+        })
     }
 }
 
 impl IonEq for Struct {
     fn ion_eq(&self, other: &Self) -> bool {
-        self.len() == other.len() && self.fields_eq(other, |a, b| a.ion_eq(b))
+        self.len() == other.len() && self.fields_ion_eq(other)
     }
 }
 
@@ -509,6 +539,36 @@ impl IonDataOrd for Struct {
             }
         }
     }
+}
+
+impl PrivateOrd for Struct {
+    fn private_cmp(&self, other: &Self) -> Ordering {
+        let (this, that) = (&self.fields.slots, &other.fields.slots);
+        let ordering = this.len().cmp(&that.len());
+        if ordering.is_ne() {
+            return ordering;
+        }
+        match (&this[..], &that[..]) {
+            ([], []) => return Ordering::Equal,
+            // A single field needs no sorted order.
+            ([this_field], [that_field]) => return private_cmp_field(this_field, that_field),
+            _ => {}
+        }
+        let these = self.fields.by_private();
+        let those = other.fields.by_private();
+        these
+            .iter()
+            .zip(those)
+            .map(|(&a, &b)| private_cmp_field(&this[a as usize], &that[b as usize]))
+            .find(|ordering| ordering.is_ne())
+            .unwrap_or(Ordering::Equal)
+    }
+}
+
+fn private_cmp_field(this: &(Symbol, Element), that: &(Symbol, Element)) -> Ordering {
+    this.0
+        .ion_cmp(&that.0)
+        .then_with(|| this.1.private_cmp(&that.1))
 }
 
 fn ion_cmp_field(this: &(Symbol, Element), that: &(Symbol, Element)) -> Ordering {
@@ -552,7 +612,7 @@ const _: () = {
 mod tests {
     use crate::element::Element;
     use crate::ion_data::IonEq;
-    use crate::{ion_struct, Struct, Symbol};
+    use crate::{ion_struct, IonResult, Struct, Symbol};
 
     // Field count that forces `get()` onto the hash-index path (> LINEAR_SCAN_THRESHOLD). Derived
     // from the threshold so a build-time `ION_RS_STRUCT_LINEAR_SCAN_THRESHOLD` override can't
@@ -759,8 +819,8 @@ mod tests {
     #[rstest::rstest]
     // `pad` distinct filler fields (f0..f{pad}) precede the class-defining fields on both sides, so
     // the same struct lands below the threshold (pad=0, linear regime) or above it (hash regime).
-    // Equality routes through `by_field`, which does not branch on the threshold, so every class
-    // must resolve identically in both regimes.
+    // Equality routes through `by_field` and `by_private`, neither of which branches on the
+    // threshold, so every class must resolve identically in both regimes.
     #[case::below(0)]
     #[cfg_attr(miri, ignore = "too slow under Miri")]
     #[case::above(ABOVE_THRESHOLD)]
@@ -792,7 +852,8 @@ mod tests {
     fn rebuild_changing_duplicate_shape_stays_equal() {
         // A struct rebuilt through the builder — introducing then removing a duplicate — must
         // compare equal to a direct build under both PartialEq and IonEq. This guards against an
-        // index (here, `by_field`) that was somehow derived from a stale pair list.
+        // index (here, `by_field` and `by_private`) that was somehow derived from a stale pair
+        // list.
         let direct = ion_struct! { "a": 1, "b": 2 };
         let rebuilt = direct
             .clone_builder()
@@ -822,6 +883,143 @@ mod tests {
         assert_eq!(s1, s2);
         // IonEq distinguishes signed zeros
         assert!(!s1.ion_eq(&s2));
+    }
+
+    /// Repeated fields compared under `PartialEq`, in both directions. Includes containers that are
+    /// `PartialEq`-equal but that `ion_cmp` sorts apart, scalars that are `PartialEq`-equal but not
+    /// `ion_eq`-equal, and cases that must compare unequal. A run is the fields sharing a name, Ion
+    /// type and annotations.
+    #[rstest::rstest]
+    #[case::timestamps(
+        "{a: 2020-01-01T05:00Z, a: 2020-01-01T07:00Z}",
+        "{a: 2020-01-01T10:00+05:00, a: 2020-01-01T07:00Z}",
+        true
+    )]
+    #[case::timestamps_in_lists(
+        "{a: [2020-01-01T05:00Z, 3], a: [2020-01-01T10:00+05:00, 2]}",
+        "{a: [2020-01-01T05:00Z, 2], a: [2020-01-01T10:00+05:00, 3]}",
+        true
+    )]
+    #[case::decimals_in_lists("{a: [0d0, 3], a: [0.0, 2]}", "{a: [0d0, 2], a: [0.0, 3]}", true)]
+    #[case::signed_zeros_in_lists(
+        "{a: [-0e0, 1], a: [0e0, 2]}",
+        "{a: [-0e0, 2], a: [0e0, 1]}",
+        true
+    )]
+    #[case::decimals_in_sexps("{a: (0d0 3), a: (0.0 2)}", "{a: (0d0 2), a: (0.0 3)}", true)]
+    #[case::decimals_in_structs(
+        "{a: {x: 0d0, y: 3}, a: {x: 0.0, y: 2}}",
+        "{a: {x: 0d0, y: 2}, a: {x: 0.0, y: 3}}",
+        true
+    )]
+    #[case::sorted_apart_inside_struct_values(
+        "{k: {a: [0d0, 3], a: [0.0, 2]}, k: {a: [0d0, 2], a: [0.0, 4]}}",
+        "{k: {a: [0d0, 2], a: [0.0, 3]}, k: {a: [0d0, 2], a: [0.0, 4]}}",
+        true
+    )]
+    #[case::unequal_multisets("{a: [0d0, 3], a: [0.0, 2]}", "{a: [0d0, 3], a: [0.0, 3]}", false)]
+    #[case::nan_has_no_partner("{a: [nan], a: [1e0]}", "{a: [1e0], a: [nan]}", false)]
+    #[case::nan_in_sorted_apart_lists(
+        "{a: [0d0, nan], a: [0.0, 1]}",
+        "{a: [0d0, 1], a: [0.0, nan]}",
+        false
+    )]
+    #[case::annotated_run(
+        "{a: x::[0d0, 3], a: x::[0.0, 2], a: [1]}",
+        "{a: x::[0d0, 2], a: x::[0.0, 3], a: [1]}",
+        true
+    )]
+    #[case::annotations_must_match("{a: x::[1], a: [2]}", "{a: [1], a: x::[2]}", false)]
+    #[case::scalar_groups_before_run(
+        r#"{a: 1, a: [0d0, 2], a: "s", a: [0.0, 1]}"#,
+        r#"{a: "s", a: [0d0, 1], a: 1, a: [0.0, 2]}"#,
+        true
+    )]
+    #[case::run_lengths_must_match("{a: 1, a: [1]}", "{a: [1], a: [1]}", false)]
+    #[case::field_after_run(
+        "{a: [0d0, 3], a: [0.0, 2], b: 1}",
+        "{a: [0d0, 2], a: [0.0, 3], b: 1}",
+        true
+    )]
+    #[case::field_after_run_differs(
+        "{a: [0d0, 3], a: [0.0, 2], b: 1}",
+        "{a: [0d0, 2], a: [0.0, 3], b: 2}",
+        false
+    )]
+    #[case::run_stops_at_field_name(
+        "{a: [0d0, 3], a: [0.0, 2], b: [0d0, 9]}",
+        "{a: [0d0, 2], a: [0.0, 9], b: [0d0, 3]}",
+        false
+    )]
+    #[case::other_run_stops_at_field_name(
+        "{a: [0.0, 2], a: [0d0, 3], b: [1d0]}",
+        "{a: [0d0, 2], b: [0.0, 3], b: [1d0]}",
+        false
+    )]
+    #[case::several_equal_candidates(
+        "{a: [0d0, 1], a: [0.0, 1], a: [0.00, 2]}",
+        "{a: [0d0, 2], a: [0.0, 1], a: [0.00, 1]}",
+        true
+    )]
+    #[case::multiplicity_mismatch(
+        "{a: [0d0, 1], a: [0.0, 1], a: [0.00, 2]}",
+        "{a: [0d0, 1], a: [0.0, 2], a: [0.00, 2]}",
+        false
+    )]
+    #[case::typed_null_beside_sorted_apart_lists(
+        "{a: null.list, a: [0d0, 2], a: [0.0, 1]}",
+        "{a: [0d0, 1], a: null.list, a: [0.0, 2]}",
+        true
+    )]
+    #[case::typed_null_has_no_partner("{a: null.list, a: [1]}", "{a: [1], a: [1]}", false)]
+    #[case::decimal_scalars("{a: 0d0, a: 1.0}", "{a: 0.0, a: 1d0}", true)]
+    #[case::signed_zero_scalars("{a: -0e0, a: 1e0}", "{a: 0e0, a: 1e0}", true)]
+    #[case::decimal_scalars_differ("{a: 0d0, a: 0.0}", "{a: 0d0, a: 1d0}", false)]
+    fn repeated_fields_partial_eq(
+        #[case] this: &str,
+        #[case] other: &str,
+        #[case] expected: bool,
+    ) -> IonResult<()> {
+        let (this, other) = (Element::read_one(this)?, Element::read_one(other)?);
+        assert_eq!(this == other, expected, "{this} == {other}");
+        assert_eq!(other == this, expected, "reversed: {other} == {this}");
+        Ok(())
+    }
+
+    /// Nests `{a: {}, a: <next level><siblings>}` `depth` times around `leaf`. Non-empty `siblings`
+    /// start with `, `.
+    fn nested_chain(depth: usize, leaf: &str, siblings: &str) -> String {
+        (0..depth).fold(leaf.to_owned(), |inner, _| {
+            format!("{{a: {{}}, a: {inner}{siblings}}}")
+        })
+    }
+
+    /// Every level nests the next in a repeated `a` field. Comparing must take time linear in depth,
+    /// whether the pair matches or fails.
+    #[rstest::rstest]
+    #[case::equal(
+        nested_chain(40, "{b: 1}", ", a: {c: 0d0, d: 1}, a: {c: 0.0, d: 2}"),
+        nested_chain(40, "{b: 1}", ", a: {c: 0.0, d: 1}, a: {c: 0d0, d: 2}"),
+        true
+    )]
+    #[case::unequal(nested_chain(40, "{b: 1}", ""), nested_chain(40, "{b: 2}", ""), false)]
+    // Above the leaf, the sibling has as many fields as the next level, so sorting a level must look
+    // inside both.
+    #[case::unequal_with_sibling(
+        nested_chain(40, "{b: 1}", ", a: {x: 1, y: 2, z: 3}"),
+        nested_chain(40, "{b: 2}", ", a: {x: 1, y: 2, z: 3}"),
+        false
+    )]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    fn deeply_nested_repeated_fields_partial_eq(
+        #[case] this: String,
+        #[case] other: String,
+        #[case] expected: bool,
+    ) -> IonResult<()> {
+        let (this, other) = (Element::read_one(this)?, Element::read_one(other)?);
+        assert_eq!(this == other, expected);
+        assert_eq!(other == this, expected, "reversed");
+        Ok(())
     }
 
     #[test]
