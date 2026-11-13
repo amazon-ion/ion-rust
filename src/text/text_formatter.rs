@@ -199,6 +199,11 @@ pub(crate) fn write_zero_padded<W: fmt::Write>(
     output.write_str(digits)
 }
 
+/// Views bytes the caller knows to be ASCII as a `str`.
+fn ascii_str(bytes: &[u8]) -> Result<&str, fmt::Error> {
+    std::str::from_utf8(bytes).map_err(|_| fmt::Error)
+}
+
 /// Provides a text formatter for Ion values
 /// This is used with the Display implementation of `OwnedElement`
 pub struct FmtValueFormatter<'a, W: fmt::Write> {
@@ -457,31 +462,43 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
     }
 
     pub fn format_clob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
-        // clob_value to be written based on defined STRING_ESCAPE_CODES.
-        const NUM_DELIMITER_BYTES: usize = 4; // {{}}
-        const NUM_HEX_BYTES_PER_BYTE: usize = 4; // \xHH
-
-        let value: &[u8] = value.as_ref();
-
-        // Set aside enough memory to hold a clob containing all hex-encoded bytes
-        let mut clob_value =
-            String::with_capacity((value.len() * NUM_HEX_BYTES_PER_BYTE) + NUM_DELIMITER_BYTES);
-
-        for byte in value.iter().copied() {
-            let c = byte as char;
-            let escaped_byte = &STRING_ESCAPE_CODES[c as usize];
-            if !escaped_byte.is_empty() {
-                clob_value.push_str(escaped_byte);
-            } else {
-                clob_value.push(c);
+        let bytes: &[u8] = value.as_ref();
+        self.output.write_str("{{\"")?;
+        // `unwritten` is the start of the bytes that have been scanned but not yet written. Every
+        // byte without an entry in `STRING_ESCAPE_CODES` is printable ASCII, so each unwritten run
+        // is valid UTF-8.
+        let mut unwritten = 0usize;
+        for (index, byte) in bytes.iter().copied().enumerate() {
+            let escape = STRING_ESCAPE_CODES[byte as usize];
+            if escape.is_empty() {
+                continue;
             }
+            if unwritten < index {
+                self.output
+                    .write_str(ascii_str(&bytes[unwritten..index])?)?;
+            }
+            self.output.write_str(escape)?;
+            unwritten = index + 1;
         }
-        write!(self.output, "{{{{\"{clob_value}\"}}}}")?;
+        self.output.write_str(ascii_str(&bytes[unwritten..])?)?;
+        self.output.write_str("\"}}")?;
         Ok(())
     }
 
+    // Keeps the `encoded` chunk buffer out of the stack frames of recursive value formatting.
+    #[inline(never)]
     pub fn format_blob<A: AsRef<[u8]>>(&mut self, value: A) -> IonResult<()> {
-        write!(self.output, "{{{{{}}}}}", base64::encode(value))?;
+        // Encoding a multiple of 3 bytes at a time produces no padding until the final chunk, so
+        // the concatenated chunks are identical to encoding the whole blob at once.
+        const INPUT_CHUNK_LEN: usize = 3 * 256;
+        const OUTPUT_CHUNK_LEN: usize = INPUT_CHUNK_LEN / 3 * 4;
+        let mut encoded = [0u8; OUTPUT_CHUNK_LEN];
+        self.output.write_str("{{")?;
+        for chunk in value.as_ref().chunks(INPUT_CHUNK_LEN) {
+            let len = base64::encode_config_slice(chunk, base64::STANDARD, &mut encoded);
+            self.output.write_str(ascii_str(&encoded[..len])?)?;
+        }
+        self.output.write_str("}}")?;
         Ok(())
     }
 
@@ -700,6 +717,62 @@ mod fast_path_tests {
         let mut output = String::new();
         FmtValueFormatter::new(&mut output).format_integer(element.expect_int()?)?;
         assert_eq!(output, text);
+        Ok(())
+    }
+
+    /// The per-byte clob encoder that the run-based `format_clob` must match.
+    fn reference_clob(bytes: &[u8]) -> String {
+        let mut body = String::new();
+        for &byte in bytes {
+            let escape = STRING_ESCAPE_CODES[byte as usize];
+            if escape.is_empty() {
+                body.push(byte as char);
+            } else {
+                body.push_str(escape);
+            }
+        }
+        format!("{{{{\"{body}\"}}}}")
+    }
+
+    fn clob_text(bytes: &[u8]) -> IonResult<String> {
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_clob(bytes)?;
+        Ok(output)
+    }
+
+    #[test]
+    fn clob_matches_reference_for_every_byte() -> IonResult<()> {
+        for byte in 0..=u8::MAX {
+            let bytes = [b'a', b'b', byte, b'c', b'd'];
+            assert_eq!(
+                clob_text(&bytes)?,
+                reference_clob(&bytes),
+                "byte {byte:#04x}"
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(b"", r#"{{""}}"#)]
+    #[case::no_escapes(b"abc", r#"{{"abc"}}"#)]
+    #[case::mixed(b"a\"b\\c\nd", r#"{{"a\"b\\c\nd"}}"#)]
+    #[case::adjacent_escapes(b"\"\"\\\\", r#"{{"\"\"\\\\"}}"#)]
+    #[case::leading_and_trailing_escapes(b"\x00ab\xff", r#"{{"\0ab\xff"}}"#)]
+    fn clob_text_matches_expected(#[case] bytes: &[u8], #[case] expected: &str) -> IonResult<()> {
+        assert_eq!(clob_text(bytes)?, expected);
+        assert_eq!(reference_clob(bytes), expected);
+        Ok(())
+    }
+
+    #[rstest]
+    fn blob_matches_single_shot_base64(
+        #[values(0, 1, 2, 3, 4, 5, 767, 768, 769, 770, 1536, 2000)] len: usize,
+    ) -> IonResult<()> {
+        let bytes: Vec<u8> = (0..len).map(|i| (i * 31 % 256) as u8).collect();
+        let mut output = String::new();
+        FmtValueFormatter::new(&mut output).format_blob(&bytes)?;
+        assert_eq!(output, format!("{{{{{}}}}}", base64::encode(&bytes)));
         Ok(())
     }
 }
