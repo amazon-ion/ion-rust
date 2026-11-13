@@ -473,8 +473,10 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
             if escape.is_empty() {
                 continue;
             }
-            self.output
-                .write_str(ascii_str(&bytes[unwritten..index])?)?;
+            if unwritten < index {
+                self.output
+                    .write_str(ascii_str(&bytes[unwritten..index])?)?;
+            }
             self.output.write_str(escape)?;
             unwritten = index + 1;
         }
