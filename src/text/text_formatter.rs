@@ -3,7 +3,6 @@ use crate::{Annotations, Element, Sequence, Symbol, Value};
 use crate::{Decimal, Int, Struct, Timestamp};
 use crate::{IonResult, IonType};
 use arrayvec::ArrayString;
-use ice_code::ice as cold_path;
 use std::{fmt, io};
 
 pub const STRING_ESCAPE_CODES: &[&str] = &string_escape_code_init();
@@ -404,9 +403,6 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
 
     /// Writes the body (i.e. no start or end delimiters) of a string or symbol with any illegal
     /// characters escaped.
-    // Always inlined so that each string or quoted symbol write runs the escape scan without a
-    // further call.
-    #[inline(always)]
     pub(crate) fn format_escaped_text_body<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         let mut start = 0usize;
         let text = value.as_ref();
@@ -523,9 +519,6 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         Ok(())
     }
 
-    // Always inlined so that a caller writing a string runs the escape scan in its own body. The
-    // recursive `format_value` calls it in a `cold_path!` instead.
-    #[inline(always)]
     pub fn format_string<S: AsRef<str>>(&mut self, value: S) -> IonResult<()> {
         self.output.write_str("\"")?;
         self.format_escaped_text_body(value)?;
@@ -582,8 +575,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         self.format_value(element.value())
     }
 
-    /// Writes `value` without annotations. This method is on the recursive path, so a callee with a
-    /// large stack local must stay out of line.
+    /// Writes `value` without annotations.
     pub(crate) fn format_value(&mut self, value: &Value) -> IonResult<()> {
         match value {
             Value::Null(ion_type) => self.format_null(*ion_type),
@@ -593,7 +585,7 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
             Value::Decimal(decimal) => self.format_decimal(decimal),
             Value::Timestamp(timestamp) => self.format_timestamp(timestamp),
             Value::Symbol(symbol) => self.format_symbol(symbol),
-            Value::String(string) => cold_path! { self.format_string(string.text()) },
+            Value::String(string) => self.format_string(string.text()),
             Value::Clob(clob) => self.format_clob(clob),
             Value::Blob(blob) => self.format_blob(blob),
             Value::List(sequence) => self.format_list(sequence),
