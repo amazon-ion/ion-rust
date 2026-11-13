@@ -22,7 +22,7 @@ rust-version = "1.82"
 
 [features]
 default = []
-experimental-ion-hash = ["dep:digest", "dep:sha2", "experimental-reader-writer"]
+experimental-ion-hash = ["dep:digest", "dep:sha2", "dep:generic-array", "experimental-reader-writer"]
 
 # Feature for indicating particularly bleeding edge APIs or functionality in the library.
 # These are not guaranteed any sort of API stability.
@@ -65,7 +65,7 @@ num-traits = "0.2"
 arrayvec = "0.7"
 smallvec = { version = "1.9.0", features = ["const_generics"] }
 bumpalo = { version = "3.15.3", features = ["collections", "std"] }
-generic-array = "=0.14.7" # 0.14.8 introduces a deprecation warning that fails our CI/CD checks. Revisit in #1009
+generic-array = { version = "=0.14.7", optional = true } # 0.14.8 introduces a deprecation warning that fails our CI/CD checks. Revisit in #1009
 digest = { version = "0.9", optional = true }
 ice_code = "0.1.4"
 rustc-hash = "2.0.0"
