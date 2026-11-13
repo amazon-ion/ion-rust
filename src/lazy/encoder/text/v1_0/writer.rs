@@ -3,7 +3,7 @@ use std::io::Write;
 use delegate::delegate;
 
 use crate::lazy::encoder::private::Sealed;
-use crate::lazy::encoder::text::v1_0::value_writer::TextValueWriter_1_0;
+use crate::lazy::encoder::text::v1_0::value_writer::{Separator, TextValueWriter_1_0};
 use crate::lazy::encoder::value_writer::internal::MakeValueWriter;
 use crate::lazy::encoder::value_writer::SequenceWriter;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
@@ -39,15 +39,11 @@ impl<W: Write> LazyRawTextWriter_1_0<W> {
         Ok(())
     }
 
-    /// Helper method to construct this format's `ValueWriter` implementation.
+    /// Helper method to construct this format's `ValueWriter` implementation. There's no delimiter
+    /// between values at the top level, only whitespace.
     #[inline]
     fn value_writer(&mut self) -> TextValueWriter_1_0<'_, W> {
-        TextValueWriter_1_0::new(
-            self,
-            0,
-            "", // No delimiter between values at the top level
-            ParentType::TopLevel,
-        )
+        TextValueWriter_1_0::new(self, 0, Separator::TopLevel, ParentType::TopLevel)
     }
 }
 
@@ -146,9 +142,8 @@ impl<W: Write> LazyRawWriter<W> for LazyRawTextWriter_1_0<W> {
     }
 
     fn write_version_marker(&mut self) -> IonResult<()> {
-        let space_between = self.whitespace_config.space_between_top_level_values;
-        write!(self.output, "$ion_1_0{space_between}")?;
-        Ok(())
+        self.output.write_all(b"$ion_1_0")?;
+        Separator::TopLevel.write(self)
     }
 }
 
