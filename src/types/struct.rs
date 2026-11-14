@@ -823,6 +823,17 @@ mod tests {
     }
 
     #[test]
+    fn repeated_timestamps_equal_by_instant() -> crate::IonResult<()> {
+        // Both sides hold the instants {05:00Z, 07:00Z}. The second side writes 05:00Z as
+        // 10:00+05:00, whose local time sorts after 07:00Z.
+        let s1 = Element::read_one("{a: 2020-01-01T05:00Z, a: 2020-01-01T07:00Z}")?;
+        let s2 = Element::read_one("{a: 2020-01-01T07:00Z, a: 2020-01-01T10:00+05:00}")?;
+        assert_eq!(s1, s2);
+        assert!(!s1.ion_eq(&s2));
+        Ok(())
+    }
+
+    #[test]
     fn rebuild_last_duplicate_survives_removal() {
         // `remove_field` removes the FIRST matching field, so from {a:1, b:2, b:3} it leaves the
         // last "b". The lazy indexes must be rebuilt from the post-removal pair list: `get`/
