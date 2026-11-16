@@ -179,24 +179,23 @@ pub(crate) const fn string_escape_code_init() -> [&'static str; 256] {
     string_escape_codes
 }
 
-/// Escape sequences for the bytes that string and symbol text must escape. An empty entry means the
-/// byte is written as-is. Every escaped byte is ASCII, so scanning UTF-8 text a byte at a time
+/// Escape sequences for the bytes that the writer escapes in string and symbol text. An empty entry
+/// means the byte is written as-is. Every escaped byte is ASCII, so scanning UTF-8 text a byte at a time
 /// (rather than a `char` at a time) finds exactly the same escapes.
 const TEXT_ESCAPE_CODES: [&str; 256] = text_escape_code_init();
 
 const fn text_escape_code_init() -> [&'static str; 256] {
     let mut codes = [""; 256];
-    codes[b'\n' as usize] = r"\n";
-    codes[b'\r' as usize] = r"\r";
-    codes[b'\t' as usize] = r"\t";
+    // Every C0 control character is escaped, even the whitespace ones that the grammar allows raw,
+    // as in clobs: with a short escape such as `\n` where one exists and as `\xNN` otherwise.
+    let mut byte = 0;
+    while byte < 0x20 {
+        codes[byte] = STRING_ESCAPE_CODES[byte];
+        byte += 1;
+    }
     codes[b'\\' as usize] = r"\\";
     codes[b'"' as usize] = r#"\""#;
     codes[b'\'' as usize] = r"\'";
-    codes[0x00] = r"\0"; // NUL
-    codes[0x07] = r"\a"; // alert BEL
-    codes[0x08] = r"\b"; // backspace
-    codes[0x0B] = r"\v"; // vertical tab
-    codes[0x0C] = r"\f"; // form feed
     codes
 }
 
@@ -212,18 +211,17 @@ const fn swar_zero_byte_mask(word: u64) -> u64 {
     word.wrapping_sub(SWAR_LOW_BITS) & !word & SWAR_HIGH_BITS
 }
 
-/// Returns `true` if any byte of `word` may need escaping in string or symbol text: a byte below
-/// `0x0E` (which covers every escaped control byte), a double quote, a single quote, or a
-/// backslash. Bytes `0x01..=0x06` are false positives; the per-byte table resolves them.
+/// Returns `true` if any byte of `word` needs escaping in string or symbol text: a C0 control
+/// byte (below `0x20`), a double quote, a single quote, or a backslash.
 ///
-/// The "has less than n" test for `0x0E` is exact only because `0x0E <= 0x80`.
+/// The "has less than n" test for `0x20` is exact only because `0x20 <= 0x80`.
 #[inline]
-const fn swar_may_need_escape(word: u64) -> bool {
-    let below_0x0e = word.wrapping_sub(SWAR_LOW_BITS * 0x0E) & !word & SWAR_HIGH_BITS;
+const fn swar_needs_escape(word: u64) -> bool {
+    let control = word.wrapping_sub(SWAR_LOW_BITS * 0x20) & !word & SWAR_HIGH_BITS;
     let double_quote = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'"' as u64));
     let single_quote = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'\'' as u64));
     let backslash = swar_zero_byte_mask(word ^ (SWAR_LOW_BITS * b'\\' as u64));
-    (below_0x0e | double_quote | single_quote | backslash) != 0
+    (control | double_quote | single_quote | backslash) != 0
 }
 
 /// Returns `true` if `text` can be written as a symbol without quotes: it is an identifier (a `$`,
@@ -451,14 +449,14 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         let mut index = 0usize;
         while index < bytes.len() {
             let scan_end = match bytes[index..].first_chunk::<8>() {
-                Some(word) if !swar_may_need_escape(u64::from_ne_bytes(*word)) => {
+                Some(word) if !swar_needs_escape(u64::from_ne_bytes(*word)) => {
                     index += 8;
                     continue;
                 }
                 Some(_) => index + 8,
                 // Fewer than 8 bytes remain. If the word ending at the last byte (which may
                 // overlap bytes already scanned) needs no escaping, neither do they.
-                None if !swar_may_need_escape(last_word(bytes)) => break,
+                None if !swar_needs_escape(last_word(bytes)) => break,
                 None => bytes.len(),
             };
             while index < scan_end {
@@ -796,6 +794,9 @@ mod fast_path_tests {
                 '\x08' => output.push_str(r"\b"),
                 '\x0B' => output.push_str(r"\v"),
                 '\x0C' => output.push_str(r"\f"),
+                control if control < '\x20' => {
+                    output.push_str(&format!(r"\x{:02x}", u32::from(control)))
+                }
                 other => output.push(other),
             }
         }
@@ -814,7 +815,7 @@ mod fast_path_tests {
     fn escaped_text_body_matches_reference_at_every_offset(
         #[values(
             "\n", "\r", "\t", "\\", "\"", "'", "\0", "\x07", "\x08", "\x0B", "\x0C", "\x01",
-            "\x06", "\x0E", "\x1F", "\x7F", "é", "日", "😀"
+            "\x06", "\x0E", "\x1B", "\x1F", " ", "\x7F", "é", "日", "😀"
         )]
         special: &str,
     ) -> IonResult<()> {
@@ -835,25 +836,50 @@ mod fast_path_tests {
         Ok(())
     }
 
-    /// The SWAR prefilter must flag every byte that `TEXT_ESCAPE_CODES` escapes, in every lane of an
-    /// otherwise clean word; a byte it missed would be written unescaped. The non-ASCII backgrounds
-    /// set the high bit of every lane except `lane`.
+    /// The SWAR prefilter must flag exactly the bytes that `TEXT_ESCAPE_CODES` escapes, in every
+    /// lane of an otherwise clean word; a byte it missed would be written unescaped. The non-ASCII
+    /// backgrounds set the high bit of every lane except `lane`.
     #[rstest]
-    fn swar_prefilter_flags_every_escaped_byte(
+    fn swar_prefilter_flags_exactly_the_escaped_bytes(
         #[values(0, 1, 2, 3, 4, 5, 6, 7)] lane: usize,
         #[values(b'a', 0x80, 0xBF, 0xC3, 0xFF)] background: u8,
     ) {
         for byte in 0..=u8::MAX {
-            if TEXT_ESCAPE_CODES[byte as usize].is_empty() {
-                continue;
-            }
             let mut word = [background; 8];
             word[lane] = byte;
-            assert!(
-                swar_may_need_escape(u64::from_ne_bytes(word)),
+            assert_eq!(
+                swar_needs_escape(u64::from_ne_bytes(word)),
+                !TEXT_ESCAPE_CODES[byte as usize].is_empty(),
                 "byte {byte:#04x} in lane {lane}, background {background:#04x}"
             );
         }
+    }
+
+    #[rstest]
+    #[case::ansi_color("\x1b[31mERROR\x1b[0m", r"\x1b[31mERROR\x1b[0m")]
+    #[case::hex_escapes("\x01\x06\x0e\x0f\x1f", r"\x01\x06\x0e\x0f\x1f")]
+    #[case::short_escapes("\0\x07\x08\t\n\x0b\x0c\r", r"\0\a\b\t\n\v\f\r")]
+    fn escaped_text_body_output(#[case] text: &str, #[case] expected: &str) -> IonResult<()> {
+        assert_eq!(escaped_text_body(text)?, expected);
+        Ok(())
+    }
+
+    /// Every C0 control character, in each position that writes escaped text, reads back through
+    /// both `Display` and the text writer.
+    #[rstest]
+    #[case::string(|text: &str| Element::string(text))]
+    #[case::symbol(|text: &str| Element::symbol(text))]
+    #[case::field_name(|text: &str| Struct::builder().with_field(text, 1).build().into())]
+    #[case::annotation(|text: &str| Element::int(1).with_annotations([text]))]
+    fn control_characters_round_trip(#[case] make_element: fn(&str) -> Element) -> IonResult<()> {
+        for control in '\0'..'\x20' {
+            let element = make_element(&format!("a{control}b"));
+            let written: String = element.encode_as(crate::v1_0::Text)?;
+            for text in [element.to_string(), written] {
+                assert_eq!(Element::read_one(&text)?, element, "text: {text:?}");
+            }
+        }
+        Ok(())
     }
 
     #[rstest]
