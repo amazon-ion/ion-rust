@@ -2,9 +2,14 @@ use std::cmp::Ordering;
 use std::ops::Deref;
 
 /// Trait used for delegating [Ord] and [PartialOrd] in [IonData](crate::IonData).
-/// Implementations of [IonDataOrd] must be consistent with [IonEq](crate::ion_data::IonEq).
-/// Since there is no total ordering in the Ion specification, do not write any code that depends on
-/// a specific order being preserved. Only depend on the fact that a total ordering does exist.
+///
+/// Implementations must be a total order that:
+/// * returns [`Ordering::Equal`] if and only if the values are
+///   [`IonEq`](crate::ion_data::IonEq)-equal;
+/// * refines the natural order documented on [`IonData`](crate::IonData): whenever that order
+///   places `a` before `b`, `a.ion_cmp(b)` is [`Ordering::Less`].
+///
+/// Beyond these obligations, the order is unspecified and may change between versions.
 ///
 /// This trait is named `IonDataOrd` (rather than `IonOrd`) to indicate that it is an implementation
 /// detail of `IonData` rather than being part of any Ion specification.
@@ -99,7 +104,20 @@ mod ord_tests {
     "
     )]
     #[case::bools("null.bool false true")]
-    #[case::ints("null.int -1 0 1")]
+    #[case::ints(
+        r"
+        null.int
+        -18446744073709551616
+        -9223372036854775809
+        -9223372036854775808
+        -1
+        0
+        1
+        9223372036854775807
+        9223372036854775808
+        18446744073709551616
+    "
+    )]
     #[case::floats("null.float -inf -1e0 -0e0 0e0 1e0 +inf nan")]
     #[case::decimals(
         r"
@@ -122,8 +140,7 @@ mod ord_tests {
         1000d0
     "
     )]
-    // Current IonDataOrd implementation compares in this order:
-    // local-date-time -> precision -> offset -> attoseconds
+    // Timestamps compare by instant, then precision, fractional-second digit count, and offset.
     #[case::timestamps_sorted_by_point_in_time_and_precision(
         r"
         null.timestamp
@@ -133,8 +150,8 @@ mod ord_tests {
         2020-01-01T00:00Z
         2020-01-01T00:00:00Z
         2020-01-01T00:00:00.000Z
-        2020-01-01T00:00:00.001Z
         2020-01-01T00:00:00.000000Z
+        2020-01-01T00:00:00.001Z
         2020-01-01T00:00:00.001000Z
         2020-01-01T00:00:01Z
         2020-01-01T00:01Z
@@ -145,18 +162,20 @@ mod ord_tests {
     )]
     #[case::timestamps_sorted_by_offset(
         r"
-        2020-01-01T05:00:00-01:00
-        2020-01-01T05:00:00.000-01:00
-        2020-01-01T06:00:00-00:00
-        2020-01-01T06:00:00-01:00
-        2020-01-01T06:00:00+00:00
         2020-01-01T06:00:00+01:00
-        2020-01-01T06:00:00.000-00:00
-        2020-01-01T06:00:00.000+00:00
+        2020-01-01T06:00:00-00:00
+        2020-01-01T05:00:00-01:00
+        2020-01-01T06:00:00+00:00
         2020-01-01T07:00:00+01:00
+        2020-01-01T06:00:00.000-00:00
+        2020-01-01T05:00:00.000-01:00
+        2020-01-01T06:00:00.000+00:00
         2020-01-01T07:00:00.000+01:00
+        2020-01-01T06:00:00-01:00
     "
     )]
+    // Symbol and string text compares by Unicode code point, so U+FF5A precedes U+1F600 even though
+    // UTF-16 code-unit order would put the surrogate pair first.
     #[case::symbols(
         r"
         null.symbol
@@ -167,6 +186,11 @@ mod ord_tests {
         'aaa'
         'ab'
         'aba'
+        'z'
+        'é'
+        '€'
+        'ｚ'
+        '\U0001f600'
     "
     )]
     #[case::strings(
@@ -178,6 +202,11 @@ mod ord_tests {
         "aaa"
         "ab"
         "aba"
+        "z"
+        "é"
+        "€"
+        "ｚ"
+        "\U0001f600"
     "#
     )]
     #[case::clobs(

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use ion_rs::{v1_0, Element, IonData, IonResult, Timestamp};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Write as FmtWrite;
@@ -272,6 +272,32 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     cmp_group.finish();
 
+    // --- Sorting by IonDataOrd ---
+    let mut sort_group = c.benchmark_group("timestamp sort (1000)");
+    for (label, offsets) in [
+        ("same offset", &[Some(0)][..]),
+        (
+            "mixed offsets",
+            &[None, Some(-480), Some(-300), Some(0), Some(330), Some(540)][..],
+        ),
+    ] {
+        let values: Vec<IonData<Timestamp>> = build_random_timestamps(1000, offsets)
+            .into_iter()
+            .map(IonData::from)
+            .collect();
+        sort_group.bench_function(label, |b| {
+            b.iter_batched(
+                || values.clone(),
+                |mut values| {
+                    values.sort_unstable();
+                    values
+                },
+                BatchSize::PerIteration,
+            )
+        });
+    }
+    sort_group.finish();
+
     // --- Clone benchmarks ---
     let mut clone_group = c.benchmark_group("timestamp clone");
 
@@ -407,6 +433,30 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     bulk_group.finish();
+}
+
+/// Builds `count` millisecond-precision timestamps spread over a year, each with an offset drawn
+/// from `offsets` (`None` is an unknown offset). Uses a fixed-seed xorshift so runs are comparable.
+fn build_random_timestamps(count: usize, offsets: &[Option<i32>]) -> Vec<Timestamp> {
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = |bound: u64| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state % bound
+    };
+    (0..count)
+        .map(|_| {
+            let builder = Timestamp::with_ymd(2024, 1 + next(12) as u32, 1 + next(28) as u32)
+                .with_hms(next(24) as u32, next(60) as u32, next(60) as u32)
+                .with_milliseconds(next(1000) as u32);
+            match offsets[next(offsets.len() as u64) as usize] {
+                Some(offset) => builder.with_offset(offset).build(),
+                None => builder.build(),
+            }
+            .unwrap()
+        })
+        .collect()
 }
 
 fn encode_timestamps_text(timestamps: &[Timestamp]) -> IonResult<Vec<u8>> {

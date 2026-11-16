@@ -2,7 +2,7 @@ use crate::element::builders::StructBuilder;
 use crate::element::Element;
 use crate::ion_data::{IonDataHash, IonDataOrd, IonEq};
 use crate::symbol_ref::AsSymbolRef;
-use crate::text::text_formatter::FmtValueFormatter;
+use crate::text::text_formatter::display_buffered;
 use crate::types::PrivateOrd;
 use crate::Symbol;
 use hashbrown::hash_table::Entry;
@@ -368,9 +368,7 @@ pub struct Struct {
 
 impl Display for Struct {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = FmtValueFormatter { output: f };
-        ivf.format_struct(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
+        display_buffered(f, |formatter| formatter.format_struct(self))
     }
 }
 
@@ -1019,6 +1017,17 @@ mod tests {
         let (this, other) = (Element::read_one(this)?, Element::read_one(other)?);
         assert_eq!(this == other, expected);
         assert_eq!(other == this, expected, "reversed");
+        Ok(())
+    }
+
+    #[test]
+    fn repeated_timestamps_equal_by_instant() -> crate::IonResult<()> {
+        // Both sides hold the instants {05:00Z, 07:00Z}. The second side writes 05:00Z as
+        // 10:00+05:00, whose local time sorts after 07:00Z.
+        let s1 = Element::read_one("{a: 2020-01-01T05:00Z, a: 2020-01-01T07:00Z}")?;
+        let s2 = Element::read_one("{a: 2020-01-01T07:00Z, a: 2020-01-01T10:00+05:00}")?;
+        assert_eq!(s1, s2);
+        assert!(!s1.ion_eq(&s2));
         Ok(())
     }
 
