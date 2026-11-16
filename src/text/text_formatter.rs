@@ -408,17 +408,12 @@ impl<W: fmt::Write> FmtValueFormatter<'_, W> {
         let text = value.as_ref();
         for (byte_index, character) in text.char_indices() {
             let escaped = match character {
-                '\n' => r"\n",
-                '\r' => r"\r",
-                '\t' => r"\t",
+                // C0 control characters can't appear unescaped. The table uses the short escapes
+                // (e.g. `\n`, `\0`) where they exist and `\xHH` otherwise.
+                '\x00'..='\x1F' => STRING_ESCAPE_CODES[character as usize],
                 '\\' => r"\\",
                 '"' => r#"\""#,
                 '\'' => r"\'",
-                '\x00' => r"\0", // NUL
-                '\x07' => r"\a", // alert BEL
-                '\x08' => r"\b", // backspace
-                '\x0B' => r"\v", // vertical tab
-                '\x0C' => r"\f", // form feed
                 _ => {
                     // Other characters can be left as-is
                     continue;
@@ -726,6 +721,7 @@ mod formatter_test {
         formatter(|ivf| ivf.format_string("\r"), "\"\\r\""); // carriage return is escaped
         formatter(|ivf| ivf.format_string("\t"), "\"\\t\""); // tab is escaped
         formatter(|ivf| ivf.format_string("\0"), "\"\\0\""); // NUL is escaped
+        formatter(|ivf| ivf.format_string("\x1b"), "\"\\x1b\""); // ESC is escaped
 
         Ok(())
     }
@@ -776,7 +772,7 @@ mod formatter_test {
 #[cfg(test)]
 mod fast_path_tests {
     use super::*;
-    use crate::{Element, IonResult};
+    use crate::{ion_struct, v1_0, Element, IonResult};
     use rstest::rstest;
 
     #[rstest]
@@ -980,6 +976,28 @@ mod fast_path_tests {
     fn clob_text_matches_expected(#[case] bytes: &[u8], #[case] expected: &str) -> IonResult<()> {
         assert_eq!(clob_text(bytes)?, expected);
         assert_eq!(reference_clob(bytes), expected);
+        Ok(())
+    }
+
+    /// The reader rejects unescaped C0 control characters in strings and symbols, so every one of
+    /// them must be escaped, including in field names and annotations.
+    #[test]
+    fn control_characters_round_trip() -> IonResult<()> {
+        for byte in 0x00..=0x1Fu8 {
+            let text: &str = &format!("a{}b", char::from(byte));
+            let element = Element::from(ion_struct! {
+                text: Element::symbol(text).with_annotations([text]),
+                "string": text,
+            });
+            for encoded in [element.to_string(), element.encode_as(v1_0::Text)?] {
+                let read_back = Element::read_one(&encoded).ok();
+                assert_eq!(
+                    read_back.as_ref(),
+                    Some(&element),
+                    "byte {byte:#04x}: {encoded:?}"
+                );
+            }
+        }
         Ok(())
     }
 
