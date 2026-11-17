@@ -103,7 +103,7 @@ mod benchmark {
         bench_styled_writer!("pretty", v1_0::PrettyText);
 
         // A fresh writer per top-level value, each producing its own `Vec`, as `encode_as/compact`
-        // does but with the layout fixed at compile time by a style marker.
+        // does, but built from a style marker rather than a run-time format.
         group.bench_function("writer_per_value/compact", |b| {
             b.iter(|| {
                 for element in &elements {
