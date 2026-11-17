@@ -285,12 +285,13 @@ struct PairFixture {
 impl PairFixture {
     fn new(slots: Vec<(Symbol, Element)>) -> Self {
         // `b` is the same multiset in reverse insertion order, so equality/ordering do their full
-        // work (no early length or first-field mismatch) and exercise the `by_field` sort.
+        // work (no early length or first-field mismatch) and exercise the `by_private` and
+        // `by_field` sorts.
         let mut reversed = slots.clone();
         reversed.reverse();
         let a = struct_from(&slots);
         let b = struct_from(&reversed);
-        let _ = a == b; // prime both structs' lazy `by_field` order
+        let _ = a == b; // prime both structs' lazy `by_private` order (two or more fields)
         let ion_a = IonData::from(a.clone());
         let ion_b = IonData::from(b.clone());
         let _ = ion_a.cmp(&ion_b); // prime the wrapped clones' `by_field`

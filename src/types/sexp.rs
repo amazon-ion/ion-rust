@@ -1,7 +1,7 @@
 use crate::element::builders::SequenceBuilder;
 use crate::element::iterators::SequenceIterator;
 use crate::ion_data::{IonDataHash, IonEq};
-use crate::text::text_formatter::FmtValueFormatter;
+use crate::text::text_formatter::display_buffered;
 use crate::{Element, Sequence};
 use delegate::delegate;
 use std::fmt::{Display, Formatter};
@@ -80,9 +80,7 @@ impl<'a> IntoIterator for &'a SExp {
 
 impl Display for SExp {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = FmtValueFormatter { output: f };
-        ivf.format_sexp(self).map_err(|_| std::fmt::Error)?;
-        Ok(())
+        display_buffered(f, |formatter| formatter.format_sexp(self))
     }
 }
 

@@ -384,8 +384,13 @@ impl<'a> BinaryBuffer<'a> {
 
         // Validate that the annotated value is not missing.
         let expected_value_length = annotations_and_value_length
-            - annotations_length.size_in_bytes()
-            - annotations_length.value();
+            .checked_sub(annotations_length.size_in_bytes())
+            .and_then(|length| length.checked_sub(annotations_length.value()))
+            .ok_or_else(|| {
+                IonError::decoding_error(
+                    "found an annotations sequence longer than its annotations wrapper",
+                )
+            })?;
 
         if expected_value_length == 0 {
             return IonResult::decoding_error("found an annotation wrapper with no value");
@@ -989,6 +994,23 @@ mod tests {
         assert!(
             decoded.value().as_i128().is_none(),
             "Value should exceed i128 range"
+        );
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case::sequence_exceeds_wrapper(&[0xE4, 0x85, 0x84, 0x21, 0x01])]
+    #[case::sequence_length_exceeds_wrapper(&[0xE1, 0x81, 0x84])]
+    #[case::null_length_code(&[0xEF, 0x81, 0x84])]
+    fn read_annotations_wrapper_too_short_for_sequence(#[case] data: &[u8]) -> IonResult<()> {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let buffer = BinaryBuffer::new(context.get_ref(), data);
+        let type_descriptor = buffer.peek_type_descriptor()?;
+        let result = buffer.read_annotations_wrapper(type_descriptor);
+        assert!(
+            matches!(result, Err(IonError::Decoding(_))),
+            "expected a decoding error, got {:?}",
+            result.map(|(wrapper, _)| wrapper.expected_value_length)
         );
         Ok(())
     }
