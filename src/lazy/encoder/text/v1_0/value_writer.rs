@@ -30,7 +30,8 @@ pub(crate) enum Separator {
 }
 
 impl Separator {
-    /// Writes this separator to `writer`'s output.
+    /// Writes this separator to `writer`'s output. Each kind is written with its own call, so with
+    /// a zero-sized [`TextStyle`] each is a write of constant length.
     #[inline]
     pub(crate) fn write<W: Write, S: TextStyle>(
         self,
@@ -51,8 +52,9 @@ impl Separator {
 }
 
 /// Writes `layout`, one of the strings of a `WhitespaceConfig`, to `output`. Every layout string is
-/// at most two bytes long; matching on its length lets a layout be written with byte stores rather
-/// than a variable-length copy.
+/// at most two bytes long; matching on its length lets a layout read at run time be written with
+/// byte stores rather than a variable-length copy, and a layout fixed at compile time folds to a
+/// single arm.
 #[inline(always)]
 fn write_layout<W: Write>(output: &mut W, layout: &'static str) -> IonResult<()> {
     match *layout.as_bytes() {
@@ -102,6 +104,8 @@ fn write_indentation_to<W: Write>(
 }
 
 /// Writes `indentation` to `output` `depth` times; the loop of [`write_indentation_to`].
+// Not `#[inline(never)]`: inlined for a zero-sized style, the loop writes the indentation with
+// constant stores.
 #[inline]
 fn write_indentation_levels<W: Write>(
     output: &mut W,
@@ -610,12 +614,25 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::{write_layout, TextValueWriter_1_0};
-    use crate::text::whitespace_config::RuntimeStyle;
+    use super::{write_layout, TextContainerWriter_1_0, TextValueWriter_1_0};
+    use crate::text::whitespace_config::{CompactText, LinesText, PrettyText, RuntimeStyle};
     use crate::IonResult;
+
+    /// The value and container writers of a style that never indents hold only the output
+    /// reference and their separators.
+    #[cfg(target_pointer_width = "64")]
+    #[rstest]
+    #[case::compact_value(size_of::<TextValueWriter_1_0<'static, Vec<u8>, CompactText>>())]
+    #[case::lines_value(size_of::<TextValueWriter_1_0<'static, Vec<u8>, LinesText>>())]
+    #[case::compact_container(size_of::<TextContainerWriter_1_0<'static, Vec<u8>, CompactText>>())]
+    #[case::lines_container(size_of::<TextContainerWriter_1_0<'static, Vec<u8>, LinesText>>())]
+    fn unindented_writers_store_no_indentation_state(#[case] size: usize) {
+        assert_eq!(size, 16);
+    }
 
     /// The value writer of a style that may indent, with its indentation state, fits in 24 bytes.
     #[rstest]
+    #[case::pretty(size_of::<TextValueWriter_1_0<'static, Vec<u8>, PrettyText>>())]
     #[case::runtime(size_of::<TextValueWriter_1_0<'static, Vec<u8>, RuntimeStyle>>())]
     fn indented_value_writers_are_at_most_24_bytes(#[case] size: usize) {
         assert!(size <= 24, "{size} bytes");
