@@ -1182,6 +1182,7 @@ mod fast_path_tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn display_tolerates_reentrant_sink() -> IonResult<()> {
         let text = large_list_text();
         let outer = Element::read_one(&text)?;
@@ -1205,6 +1206,7 @@ mod fast_path_tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn display_emits_bounded_chunks() -> IonResult<()> {
         // The longest `&str` that formatting `large_list_text()` writes (`abc`).
         const MAX_PIECE_LEN: usize = 3;
@@ -1253,6 +1255,7 @@ mod fast_path_tests {
 
     #[rstest]
     #[case::final_flush_fails("(x y)".to_owned(), 0)]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     #[case::flush_during_formatting_fails(large_list_text(), 1)]
     fn display_reports_sink_failure(
         #[case] text: String,
