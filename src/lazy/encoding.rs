@@ -1028,12 +1028,8 @@ mod tests {
     "#;
 
     // In the expected text of `SCALARS_DOCUMENT`, each long line is split into raw-string pieces.
-    // The writer writes U+0001 unescaped, and a raw string cannot spell it, so it is a piece of its
-    // own.
     const SCALARS_COMPACT: &str = concat!(
-        r#""plain" "q\"b\\s\n\t"#,
-        "\u{1}",
-        r#"é😀" 'two words' 'null' '' sym_1 $ab "#,
+        r#""plain" "q\"b\\s\n\t\x01é😀" 'two words' 'null' '' sym_1 $ab "#,
         r#"a::'b c'::"annotated" 'x y'::1.5e0 null null.bool true false 0 42 "#,
         r#"[1.5e0, -0e0, nan, +inf, -inf, 2.5e-10, 1.0, -0., 0.00100, 123456d7, 1.d-20, "#,
         r#"1.2345678d7, -12.5, 'q r'::7d1, "s", 'null'::null.int, -9223372036854775809, ] "#,
@@ -1049,9 +1045,7 @@ mod tests {
     const SCALARS_LINES: &str = concatdoc!(
         r#"
         "plain"
-        "q\"b\\s\n\t"#,
-        "\u{1}",
-        r#"é😀"
+        "q\"b\\s\n\t\x01é😀"
         'two words'
         'null'
         ''
@@ -1083,9 +1077,7 @@ mod tests {
     const SCALARS_PRETTY: &str = concatdoc!(
         r#"
         "plain"
-        "q\"b\\s\n\t"#,
-        "\u{1}",
-        r#"é😀"
+        "q\"b\\s\n\t\x01é😀"
         'two words'
         'null'
         ''

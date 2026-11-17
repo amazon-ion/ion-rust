@@ -41,8 +41,9 @@ use crate::location::SourceLocation;
 use crate::result::{
     ConversionOperationError, ConversionOperationResult, IonTypeExpectation, TypeExpectation,
 };
-use crate::text::text_formatter::FmtValueFormatter;
+use crate::text::text_formatter::display_buffered;
 use crate::types::symbol::SymbolText;
+use crate::types::PrivateOrd;
 use crate::write_config::WriteConfig;
 
 mod annotations;
@@ -189,25 +190,7 @@ impl IonTypeExpectation for Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ivf = FmtValueFormatter { output: f };
-        match &self {
-            Value::Null(ion_type) => ivf.format_null(*ion_type),
-            Value::Bool(bool) => ivf.format_bool(*bool),
-            Value::Int(integer) => ivf.format_integer(integer),
-            Value::Float(float) => ivf.format_float(*float),
-            Value::Decimal(decimal) => ivf.format_decimal(decimal),
-            Value::Timestamp(timestamp) => ivf.format_timestamp(timestamp),
-            Value::Symbol(symbol) => ivf.format_symbol(symbol),
-            Value::String(string) => ivf.format_string(string),
-            Value::Clob(clob) => ivf.format_clob(clob),
-            Value::Blob(blob) => ivf.format_blob(blob),
-            Value::List(sequence) => ivf.format_list(sequence),
-            Value::SExp(sequence) => ivf.format_sexp(sequence),
-            Value::Struct(struct_) => ivf.format_struct(struct_),
-        }
-        .map_err(|_| std::fmt::Error)?;
-
-        Ok(())
+        display_buffered(f, |formatter| formatter.format_value(self))
     }
 }
 
@@ -385,6 +368,42 @@ impl IonDataHash for Element {
     fn ion_data_hash<H: Hasher>(&self, state: &mut H) {
         self.annotations.ion_data_hash(state);
         self.value.ion_data_hash(state);
+    }
+}
+
+impl PrivateOrd for Element {
+    fn private_cmp(&self, other: &Self) -> Ordering {
+        self.annotations
+            .ion_cmp(&other.annotations)
+            .then_with(|| self.value.private_cmp(&other.value))
+    }
+}
+
+// Keep in sync with `PartialEq for Value`: `Equal` must match `==`, except that `nan` is `Equal` to
+// `nan`. `PartialEq for Struct` relies on it.
+impl PrivateOrd for Value {
+    fn private_cmp(&self, other: &Self) -> Ordering {
+        use Value::*;
+        let ordering = self.ion_type().ion_cmp(&other.ion_type());
+        if ordering.is_ne() {
+            return ordering;
+        }
+        match (self, other) {
+            (Null(_), Null(_)) => Ordering::Equal,
+            (Null(_), _) => Ordering::Less,
+            (_, Null(_)) => Ordering::Greater,
+            (Bool(this), Bool(that)) => this.private_cmp(that),
+            (Int(this), Int(that)) => this.private_cmp(that),
+            (Float(this), Float(that)) => this.private_cmp(that),
+            (Decimal(this), Decimal(that)) => this.private_cmp(that),
+            (Timestamp(this), Timestamp(that)) => this.private_cmp(that),
+            (Symbol(this), Symbol(that)) => this.private_cmp(that),
+            (String(this), String(that)) => this.private_cmp(that),
+            (Clob(this), Clob(that)) | (Blob(this), Blob(that)) => this.private_cmp(that),
+            (List(this), List(that)) | (SExp(this), SExp(that)) => this.private_cmp(that),
+            (Struct(this), Struct(that)) => this.private_cmp(that),
+            _ => unreachable!("non-null values of the same Ion type are the same variant"),
+        }
     }
 }
 
@@ -1028,16 +1047,11 @@ impl IonTypeExpectation for &Element {
 
 impl Display for Element {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let mut ivf = FmtValueFormatter { output: f };
-
-        // display for annotations of this element
-        ivf.format_annotations(&self.annotations)
-            .map_err(|_| std::fmt::Error)?;
-
-        self.value.fmt(f)
+        display_buffered(f, |formatter| formatter.format_element(self))
     }
 }
 
+// Keep in sync with `PrivateOrd for Element`, whose `Equal` must match `==` apart from `nan`.
 impl PartialEq for Element {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value && self.annotations == other.annotations
