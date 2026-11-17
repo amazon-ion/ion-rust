@@ -222,18 +222,79 @@ macro_rules! impl_static_text_style {
 }
 
 /// Ion 1.0 text in the [`TextFormat::Compact`] layout, fixed at compile time.
+///
+/// [`Writer::new`](crate::Writer::new) and [`Writer::idle`](crate::Writer::idle) accept this
+/// marker and build a `Writer<v1_0::Text, Output, v1_0::CompactText>`, whose code is specialized
+/// to the compact layout. It writes the same text as a writer built from
+/// `v1_0::Text.with_format(TextFormat::Compact)`, a `TextWriter<Output>` that reads its layout at
+/// run time. `encode_as` and `encode_to` take only run-time-styled configurations.
+///
+/// ```
+///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
+///# fn main() -> IonResult<()> {
+/// use ion_rs::{v1_0, Writer};
+///
+/// let mut writer = Writer::new(v1_0::CompactText, Vec::new())?;
+/// writer.write(1)?.write([2, 3])?;
+/// assert_eq!(writer.close()?, b"1 [2, 3, ] ");
+///# Ok(())
+///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CompactText;
 
 impl_static_text_style!(CompactText, TextFormat::Compact, NoIndentation);
 
 /// Ion 1.0 text in the [`TextFormat::Lines`] layout, fixed at compile time.
+///
+/// Like [`CompactText`], for the lines layout: a writer built with this marker writes the same text
+/// as one built from `v1_0::Text.with_format(TextFormat::Lines)`, with its code specialized to the
+/// layout.
+///
+/// ```
+///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
+///# fn main() -> IonResult<()> {
+/// use ion_rs::{v1_0, Element, Writer};
+///
+/// let mut writer = Writer::new(v1_0::LinesText, Vec::new())?;
+/// writer
+///     .write(Element::read_one("{a: [1, 2]}")?)?
+///     .write(Element::read_one("(c d)")?)?;
+/// assert_eq!(writer.close()?, b"{a: [1, 2, ], }\n(c d )\n");
+///# Ok(())
+///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LinesText;
 
 impl_static_text_style!(LinesText, TextFormat::Lines, NoIndentation);
 
 /// Ion 1.0 text in the [`TextFormat::Pretty`] layout, fixed at compile time.
+///
+/// Like [`CompactText`], for the pretty layout: a writer built with this marker writes the same
+/// text as one built from `v1_0::Text.with_format(TextFormat::Pretty)`, with its code specialized
+/// to the layout.
+///
+/// ```
+///# use ion_rs::IonResult;
+///# #[cfg(feature = "experimental-reader-writer")]
+///# fn main() -> IonResult<()> {
+/// use ion_rs::{v1_0, Element, Writer};
+///
+/// let mut writer = Writer::new(v1_0::PrettyText, Vec::new())?;
+/// writer.write(Element::read_one("{a: [1, 2]}")?)?;
+/// assert_eq!(writer.close()?, b"{\n  a: [\n    1,\n    2,\n  ],\n}\n");
+///# Ok(())
+///# }
+///# #[cfg(not(feature = "experimental-reader-writer"))]
+///# fn main() -> IonResult<()> { Ok(()) }
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PrettyText;
 
