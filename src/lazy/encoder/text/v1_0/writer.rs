@@ -80,7 +80,9 @@ impl<S: TextStyle> Recycle for LazyRawTextWriter_1_0<Vec<u8>, S> {
         cap_retained_buffer::<TextEncoding_1_0>(&mut self.output, role);
     }
 
-    /// Re-derives the whitespace rules from `config`, the only state a text writer takes from it.
+    /// Re-derives the whitespace rules from `config`, the only state a text writer takes from it. A
+    /// writer with a zero-sized style keeps that style's layout whatever the text format of
+    /// `config`.
     fn apply_config<E: Encoding>(&mut self, config: &WriteConfig<E>) {
         match config.kind() {
             WriteConfigKind::Text(text_config) => {
@@ -125,8 +127,9 @@ impl<W: Write, S: TextStyle> LazyRawWriter<W> for LazyRawTextWriter_1_0<W, S> {
         )
     }
 
-    /// Build text writer based on given writer configuration. Returns an error if `config` is a
-    /// binary configuration.
+    /// Build text writer based on given writer configuration. A writer with a zero-sized style
+    /// writes that style's layout whatever the text format of `config`. Returns an error if
+    /// `config` is a binary configuration.
     fn build<E: Encoding>(config: WriteConfig<E>, output: W) -> IonResult<Self> {
         match config.kind() {
             WriteConfigKind::Text(text_config) => Ok(LazyRawTextWriter_1_0 {
@@ -169,7 +172,11 @@ mod tests {
 
     use crate::element::reader::ElementReader;
     use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
+    use crate::lazy::encoder::{LazyRawWriter, Recycle};
     use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
+    use crate::text::whitespace_config::{
+        CompactText, LinesText, PrettyText, RuntimeStyle, TextStyle,
+    };
     use crate::{
         v1_0, Annotatable, AnnotatableWriter, Decimal, Int, IonData, IonError, IonResult,
         RawSymbolRef, Reader, SequenceWriter, Symbol, SymbolRef, TextFormat, Timestamp,
@@ -248,6 +255,69 @@ mod tests {
             .with_annotations(annotations)?
             .write_i64(1)?;
         assert_eq!(writer.close()?, expected.as_bytes());
+        Ok(())
+    }
+
+    /// Writes `1`, a version marker, and `[2, 3]` with a raw writer of style `S` built for `format`.
+    fn text_around_version_marker<S: TextStyle>(format: TextFormat) -> IonResult<String> {
+        let config = WriteConfig::<TextEncoding_1_0>::new(format);
+        let mut writer = LazyRawTextWriter_1_0::<_, S>::build(config, Vec::new())?;
+        writer.write(1)?;
+        writer.write_version_marker()?;
+        writer.write([2, 3])?;
+        let bytes = SequenceWriter::close(writer)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// A version marker is followed by the top-level separator of the writer's layout, whether the
+    /// layout is read at run time or fixed by a zero-sized style.
+    #[rstest]
+    #[case::compact(
+        text_around_version_marker::<CompactText>,
+        TextFormat::Compact,
+        "1 $ion_1_0 [2, 3, ] "
+    )]
+    #[case::lines(
+        text_around_version_marker::<LinesText>,
+        TextFormat::Lines,
+        "1\n$ion_1_0\n[2, 3, ]\n"
+    )]
+    #[case::pretty(
+        text_around_version_marker::<PrettyText>,
+        TextFormat::Pretty,
+        "1\n$ion_1_0\n[\n  2,\n  3,\n]\n"
+    )]
+    fn version_marker_is_followed_by_the_top_level_separator(
+        #[case] write_with_static_style: fn(TextFormat) -> IonResult<String>,
+        #[case] format: TextFormat,
+        #[case] expected: &str,
+    ) -> IonResult<()> {
+        assert_eq!(
+            text_around_version_marker::<RuntimeStyle>(format)?,
+            expected
+        );
+        assert_eq!(write_with_static_style(format)?, expected);
+        Ok(())
+    }
+
+    type CompactWriter = LazyRawTextWriter_1_0<Vec<u8>, CompactText>;
+
+    /// A raw writer with a zero-sized style writes that style's layout, whatever the text format of
+    /// the configuration it is built or re-configured with.
+    #[rstest]
+    #[case::build(|config: WriteConfig<TextEncoding_1_0>| CompactWriter::build(config, Vec::new()))]
+    #[case::apply_config(|config: WriteConfig<TextEncoding_1_0>| {
+        let mut writer =
+            CompactWriter::build(WriteConfig::<TextEncoding_1_0>::new(TextFormat::Compact), Vec::new())?;
+        writer.apply_config(&config);
+        Ok(writer)
+    })]
+    fn static_style_ignores_the_configured_format(
+        #[case] configure: fn(WriteConfig<TextEncoding_1_0>) -> IonResult<CompactWriter>,
+    ) -> IonResult<()> {
+        let mut writer = configure(WriteConfig::<TextEncoding_1_0>::new(TextFormat::Pretty))?;
+        writer.write([1])?;
+        assert_eq!(SequenceWriter::close(writer)?, b"[1, ] ");
         Ok(())
     }
 
