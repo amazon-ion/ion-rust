@@ -52,7 +52,8 @@ use winnow::Parser;
 /// Marker trait for types that represent an Ion encoding.
 // `ManagedWriterEncoding` and `StyledEncoding` are supertraits in crate-private modules rather than
 // members on `Encoder` or `Encoding`, so that code outside the crate can neither name nor implement
-// them and the managed writer's buffer sizing and per-style raw writers are hidden from the docs. Their items are still reachable through an `E: Encoding` bound, but
+// them and the managed writer's buffer sizing, per-style raw writers, and run-time format dispatch
+// are hidden from the docs. Their items are still reachable through an `E: Encoding` bound, but
 // they are not a supported API.
 pub trait Encoding: Encoder + Decoder + ManagedWriterEncoding + StyledEncoding {
     type Output: 'static + OutputFromBytes + AsRef<[u8]>;

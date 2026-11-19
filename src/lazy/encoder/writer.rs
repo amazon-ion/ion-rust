@@ -107,10 +107,12 @@ pub trait IntoWriterConfig<E: Encoding, S>: private::SealedWriterConfig<E, S> {}
 pub(crate) mod private {
     use std::io::Write;
 
+    use crate::lazy::encoder::write_as_ion::WriteAsIon;
     use crate::lazy::encoder::LazyRawWriter;
     use crate::lazy::encoding::Encoding;
     use crate::text::whitespace_config::TextStyle;
     use crate::write_config::WriteConfig;
+    use crate::IonResult;
 
     /// The crate-private half of [`WriterStyle`](super::WriterStyle). Code outside the crate can
     /// neither name nor implement it, but can reach its items through an `S: WriterStyle` bound.
@@ -136,14 +138,29 @@ pub(crate) mod private {
     }
 
     /// The crate-private half of an [`Encoding`]'s writer support: its raw writer for each text
-    /// style. Code outside the crate can neither name nor implement it, but can reach its items
-    /// through an `E: Encoding` bound; they are hidden from the docs and are not a supported API.
-    // A supertrait of `Encoding`, so that every `E: Encoding` has a raw writer for each style.
-    pub trait StyledEncoding {
+    /// style and how it encodes a stream whose configuration reads its layout at run time. Code
+    /// outside the crate can neither name nor implement it, but can reach its items through an
+    /// `E: Encoding` bound; they are hidden from the docs and are not a supported API.
+    // A supertrait of `Encoding`, so that every `E: Encoding` has both. The `where Self: Encoding`
+    // clause avoids a supertrait cycle with `Encoding`.
+    pub trait StyledEncoding: Sized {
         /// A raw writer like [`Encoder::Writer`](crate::lazy::encoder::Encoder::Writer) whose
         /// whitespace layout is the style `S`. Encodings with no whitespace layout ignore `S`.
         #[doc(hidden)]
         type StyledWriter<W: Write, S: TextStyle>: LazyRawWriter<W>;
+
+        /// Encodes `values` as a stream configured by `config`, which is written to `output`.
+        // Not named `encode_all_to`, which every `E: Encoding` would then have twice. A method per
+        // encoding rather than a `match` on the config's kind in `WriteConfig::encode_all_to`,
+        // which would instantiate the binary writer once per text style.
+        #[doc(hidden)]
+        fn dispatch_encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: Write>(
+            config: &WriteConfig<Self>,
+            output: W,
+            values: I,
+        ) -> IonResult<W>
+        where
+            Self: Encoding;
     }
 }
 
@@ -188,11 +205,60 @@ impl_static_writer_style!(CompactText);
 impl_static_writer_style!(LinesText);
 impl_static_writer_style!(PrettyText);
 
+/// Binary has no whitespace layout, so it encodes with the configuration as it is.
 impl StyledEncoding for BinaryEncoding_1_0 {
     type StyledWriter<W: Write, S: TextStyle> = <Self as Encoder>::Writer<W>;
+
+    fn dispatch_encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: Write>(
+        config: &WriteConfig<Self>,
+        output: W,
+        values: I,
+    ) -> IonResult<W> {
+        encode_all_with_writer::<RuntimeStyle, _, _>(config.clone(), output, values)
+    }
 }
+
+/// Text chooses, once per stream, the zero-sized style that writes the configured format. The
+/// writer that encodes the stream is never exposed, so its type can depend on the format; a
+/// [`Writer`] built from a run-time-styled configuration keeps [`RuntimeStyle`], because its type
+/// cannot depend on a run-time value. Markers configure only managed writers, so they never reach
+/// this dispatch.
+///
+/// This trades code size for speed: each value type encoded as text with a run-time-styled
+/// configuration is compiled once per style, three times rather than once.
 impl StyledEncoding for TextEncoding_1_0 {
     type StyledWriter<W: Write, S: TextStyle> = LazyRawTextWriter_1_0<W, S>;
+
+    fn dispatch_encode_all_to<V: WriteAsIon, I: IntoIterator<Item = V>, W: Write>(
+        config: &WriteConfig<Self>,
+        output: W,
+        values: I,
+    ) -> IonResult<W> {
+        let config = config.clone();
+        // Each arm matches its style's `FORMAT`, so the match is exhaustive, with no wildcard,
+        // only while every format has exactly one style.
+        match config.text_format() {
+            CompactText::FORMAT => {
+                encode_all_with_writer::<CompactText, _, _>(config, output, values)
+            }
+            LinesText::FORMAT => encode_all_with_writer::<LinesText, _, _>(config, output, values),
+            PrettyText::FORMAT => {
+                encode_all_with_writer::<PrettyText, _, _>(config, output, values)
+            }
+        }
+    }
+}
+
+/// Encodes `values` as a stream with a managed writer of style `S` built from `config`, writing it
+/// to `output`. `S` writes the layout of the text format of `config`, if it has one.
+fn encode_all_with_writer<S: WriterStyle, E: Encoding, W: Write>(
+    config: WriteConfig<E>,
+    output: W,
+    values: impl IntoIterator<Item = impl WriteAsIon>,
+) -> IonResult<W> {
+    let mut writer = Writer::<E, W, S>::from_write_config(config, output)?;
+    writer.write_all(values)?;
+    writer.close()
 }
 
 /// An Ion writer that maintains a symbol table and creates new entries as needed.
@@ -1908,6 +1974,18 @@ mod tests {
             .into_iter()
             .collect();
         assert_round_trips(format, Some(2), &values)
+    }
+
+    /// `encode_as` enforces the maximum depth of a run-time-styled text configuration in each
+    /// format.
+    #[rstest]
+    fn encode_as_applies_the_max_depth(
+        #[values(TextFormat::Compact, TextFormat::Lines, TextFormat::Pretty)] format: TextFormat,
+    ) -> IonResult<()> {
+        let config = v1_0::Text.with_format(format).with_max_depth(1);
+        Element::read_one("[0]")?.encode_as(config.clone())?;
+        assert_depth_error(Element::read_one("[[0]]")?.encode_as(config));
+        Ok(())
     }
 
     /// A limit above the `u8` range is enforced exactly.
