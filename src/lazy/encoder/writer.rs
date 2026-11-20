@@ -36,32 +36,8 @@ use crate::{
 /// [`v1_0::CompactText`](crate::v1_0::CompactText) has the layout fixed at compile time. Binary
 /// writers have the default style.
 ///
-/// This trait is sealed and has no items of its own. It lets code be generic over a writer's
-/// style:
-///
-/// ```
-///# use ion_rs::IonResult;
-///# #[cfg(feature = "experimental-reader-writer")]
-///# fn main() -> IonResult<()> {
-/// use ion_rs::{v1_0, TextFormat, Writer, WriterStyle};
-///
-/// fn write_greeting<S: WriterStyle>(writer: &mut Writer<v1_0::Text, Vec<u8>, S>) -> IonResult<()> {
-///     writer.write("hello")?.write([1, 2])?;
-///     Ok(())
-/// }
-///
-/// let mut compact = Writer::new(v1_0::CompactText, Vec::new())?;
-/// write_greeting(&mut compact)?;
-/// assert_eq!(compact.close()?, b"\"hello\" [1, 2, ] ");
-///
-/// let mut lines = Writer::new(v1_0::Text.with_format(TextFormat::Lines), Vec::new())?;
-/// write_greeting(&mut lines)?;
-/// assert_eq!(lines.close()?, b"\"hello\"\n[1, 2, ]\n");
-///# Ok(())
-///# }
-///# #[cfg(not(feature = "experimental-reader-writer"))]
-///# fn main() -> IonResult<()> { Ok(()) }
-/// ```
+/// This trait is sealed and has no items of its own. It lets crate code be generic over a writer's
+/// style.
 ///
 /// [`TextFormat`]: crate::TextFormat
 // A style's raw writer is on the crate-private supertrait `ManagedWriterStyle`, and the layout on
@@ -81,26 +57,6 @@ pub trait WriterStyle: private::ManagedWriterStyle {}
 /// This trait is sealed: it has no items of its own, and code outside the crate cannot implement
 /// it.
 ///
-/// ```
-///# use ion_rs::IonResult;
-///# #[cfg(feature = "experimental-reader-writer")]
-///# fn main() -> IonResult<()> {
-/// use ion_rs::{v1_0, IntoWriterConfig, Writer, WriterStyle};
-///
-/// fn write_one<S: WriterStyle>(config: impl IntoWriterConfig<v1_0::Text, S>) -> IonResult<Vec<u8>> {
-///     let mut writer = Writer::new(config, Vec::new())?;
-///     writer.write([1])?;
-///     writer.close()
-/// }
-///
-/// assert_eq!(write_one(v1_0::Text)?, b"[1, ] ");
-/// assert_eq!(write_one(v1_0::PrettyText)?, b"[\n  1,\n]\n");
-///# Ok(())
-///# }
-///# #[cfg(not(feature = "experimental-reader-writer"))]
-///# fn main() -> IonResult<()> { Ok(()) }
-/// ```
-///
 /// [`TextFormat`]: crate::TextFormat
 pub trait IntoWriterConfig<E: Encoding, S>: private::SealedWriterConfig<E, S> {}
 
@@ -115,8 +71,9 @@ pub(crate) mod private {
     use crate::IonResult;
 
     /// The crate-private half of [`WriterStyle`](super::WriterStyle). Code outside the crate can
-    /// neither name nor implement it, but can reach its items through an `S: WriterStyle` bound.
-    /// Their definitions are hidden from the docs, but `RawWriter` appears in the `Reusable`
+    /// neither name nor implement it, and reaches its items only through `Writer`'s methods for a
+    /// concrete style. The items' definitions are hidden from the docs, but `RawWriter` appears in
+    /// the `Reusable`
     /// bounds of [`Writer`](super::Writer)'s reusable-writer methods. They are not a supported API.
     pub trait ManagedWriterStyle: TextStyle {
         /// The raw writer for the encoding `E` that a managed writer with this style uses.
@@ -128,8 +85,8 @@ pub(crate) mod private {
     }
 
     /// The crate-private half of [`IntoWriterConfig`](super::IntoWriterConfig). Code outside the
-    /// crate can neither name nor implement it, but can reach its items through an
-    /// `IntoWriterConfig` bound; they are hidden from the docs and are not a supported API.
+    /// crate can neither name nor implement it, and reaches its items only through `Writer`'s
+    /// methods for a concrete style; they are hidden from the docs and are not a supported API.
     pub trait SealedWriterConfig<E: Encoding, S> {
         /// The configuration of the writer. Its text format, if it has one, is one whose layout
         /// `S` writes.
@@ -267,7 +224,7 @@ fn encode_all_with_writer<S: WriterStyle, E: Encoding, W: Write>(
 /// buffered. Flushing it is not guaranteed to produce a valid Ion stream.
 ///
 /// A text writer's style `S` is the whitespace layout it writes, which comes from the configuration
-/// it is built with (see [`IntoWriterConfig`]). By default, it reads the layout of the configured
+/// it is built with (see [`Writer::new`]). By default, it reads the layout of the configured
 /// [`TextFormat`] at run time; a writer built with a marker such as
 /// [`v1_0::CompactText`](crate::v1_0::CompactText) has the layout fixed at compile time, so it does
 /// not read the layout while encoding.
@@ -355,8 +312,9 @@ where
     /// [`Self::attach`], encode, then reclaim it with [`Writer::detach`]. No bytes are emitted until
     /// a sink is attached and flushed.
     ///
-    /// `config` applies to every document this writer goes on to encode and is otherwise fixed once
-    /// it is built; use [`Self::set_config`] to re-configure a parked writer before attaching it to
+    /// `config` accepts the same configurations as [`Writer::new`]. It applies to every document
+    /// this writer goes on to encode and is otherwise fixed once it is built; use
+    /// [`Self::set_config`] to re-configure a parked writer before attaching it to
     /// a new sink. A writer built with a marker such as
     /// [`v1_0::CompactText`](crate::v1_0::CompactText) has a different type from one built with a
     /// run-time-styled configuration, so a pool that holds both needs a slot for each style.
@@ -381,6 +339,9 @@ where
     /// call this before [`Self::attach`] so the next document honors the caller's configuration
     /// (e.g. `Pretty` rather than `Compact` text). This also replaces the maximum depth, so call it
     /// even for binary writers, which have no text format to change.
+    ///
+    /// `config` is a configuration that [`Writer::new`] accepts for a writer of this style. A
+    /// writer of the default style accepts any `Into<WriteConfig<E>>` value.
     ///
     /// A writer whose style is a marker such as [`v1_0::CompactText`](crate::v1_0::CompactText)
     /// accepts only that marker, so it keeps the marker's layout.
@@ -460,10 +421,16 @@ impl<E: Encoding, Output, S: WriterStyle> Writer<E, Output, S> {
 impl<E: Encoding, Output: Write, S: WriterStyle> Writer<E, Output, S> {
     /// Constructs a writer for the requested encoding using the provided configuration.
     ///
-    /// A text configuration with a run-time format, such as `v1_0::Text.with_format(format)`,
-    /// makes a writer that reads the format's whitespace layout as it writes; for a writer
-    /// specialized to one layout, pass a marker such as
-    /// [`v1_0::CompactText`](crate::v1_0::CompactText).
+    /// `config` is either:
+    ///
+    /// - any `Into<WriteConfig<E>>` value, such as [`v1_0::Binary`](crate::v1_0::Binary),
+    ///   [`v1_0::Text`](crate::v1_0::Text), `v1_0::Text.with_format(format)`, or a
+    ///   [`WriteConfig`], which makes a writer of the default style. A text writer of the default
+    ///   style reads the whitespace layout of the configured format as it writes.
+    /// - one of the markers [`v1_0::CompactText`](crate::v1_0::CompactText),
+    ///   [`v1_0::LinesText`](crate::v1_0::LinesText), or
+    ///   [`v1_0::PrettyText`](crate::v1_0::PrettyText), which makes a text writer specialized to
+    ///   that marker's layout.
     pub fn new(config: impl IntoWriterConfig<E, S>, output: Output) -> IonResult<Self> {
         Self::from_write_config(config.into_write_config(), output)
     }

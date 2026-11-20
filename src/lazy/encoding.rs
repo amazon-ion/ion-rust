@@ -1264,9 +1264,12 @@ mod tests {
         }
     }
 
-    /// Each text format, configured at run time and with its zero-sized style.
+    /// Each text format, configured at run time and with its zero-sized style, and the default text
+    /// configuration.
     #[template]
     #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    #[case::default_run_time(v1_0::Text, TextFormat::Compact)]
     #[case::compact_run_time(v1_0::Text.with_format(TextFormat::Compact), TextFormat::Compact)]
     #[case::lines_run_time(v1_0::Text.with_format(TextFormat::Lines), TextFormat::Lines)]
     #[case::pretty_run_time(v1_0::Text.with_format(TextFormat::Pretty), TextFormat::Pretty)]
