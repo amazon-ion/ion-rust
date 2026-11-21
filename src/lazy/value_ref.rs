@@ -1,3 +1,4 @@
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::element::Value;
 use crate::lazy::bytes_ref::BytesRef;
 use crate::lazy::decoder::Decoder;
@@ -80,8 +81,17 @@ impl<'top, D: Decoder> TryFrom<ValueRef<'top, D>> for Value {
     type Error = IonError;
 
     fn try_from(value: ValueRef<'top, D>) -> Result<Self, Self::Error> {
+        value.into_value(MAX_READ_WRITE_DEPTH)
+    }
+}
+
+impl<D: Decoder> ValueRef<'_, D> {
+    /// Materializes this value as a `Value`. Allows `remaining_depth` levels of containers to be
+    /// opened, counting this value if it is a container: `0` means the value may not be a
+    /// container.
+    pub(crate) fn into_value(self, remaining_depth: u16) -> IonResult<Value> {
         use ValueRef::*;
-        let value = match value {
+        let value = match self {
             Null(ion_type) => Value::Null(ion_type),
             Bool(b) => Value::Bool(b),
             Int(i) => Value::Int(i),
@@ -92,9 +102,9 @@ impl<'top, D: Decoder> TryFrom<ValueRef<'top, D>> for Value {
             Symbol(s) => Value::Symbol(s.into()),
             Blob(b) => Value::Blob(b.into()),
             Clob(c) => Value::Clob(c.into()),
-            SExp(s) => Value::SExp(s.try_into()?),
-            List(l) => Value::List(l.try_into()?),
-            Struct(s) => Value::Struct(s.try_into()?),
+            SExp(s) => Value::SExp(s.to_sequence(remaining_depth)?),
+            List(l) => Value::List(l.to_sequence(remaining_depth)?),
+            Struct(s) => Value::Struct(s.to_struct(remaining_depth)?),
         };
         Ok(value)
     }

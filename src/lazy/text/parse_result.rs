@@ -111,6 +111,17 @@ impl<'data> TextBuffer<'data> {
             kind: IonParseErrorKind::Invalid(InvalidInputError::new(description)),
         }
     }
+
+    /// Returns an error that converts to `error` unchanged, so that an error a nested parser
+    /// already described can be returned through the parsers that enclose it without adding their
+    /// context and input to its description.
+    pub(crate) fn propagate(&self, error: IonError) -> IonParseError<'data> {
+        IonParseError {
+            input: *self,
+            context: DEFAULT_CONTEXT,
+            kind: IonParseErrorKind::Propagated(Box::new(error)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,6 +141,8 @@ pub enum IonParseErrorKind {
     /// correct parser to handle it. However, there was a comma missing after `"foo"`. The list
     /// parser can say definitively that the input not valid Ion data.
     Invalid(InvalidInputError),
+    /// A nested parser's error, converted to an [`IonError`] that is returned unchanged.
+    Propagated(Box<IonError>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -198,6 +211,7 @@ impl From<IonParseError<'_>> for IonError {
                 ));
             }
             Invalid(e) => e.description.into(),
+            Propagated(e) => return *e,
             Unrecognized(..) => "found unrecognized syntax".into(),
         };
 

@@ -51,6 +51,7 @@ impl<'data> LazyRawTextReader_1_0<'data> {
                 self.input.offset(),
             )));
         }
+        self.input.context.context.text_depth.set(0);
         // Consume any trailing whitespace that followed this item. Doing this allows us to check
         // whether this was the last item in the buffer by testing `buffer.is_empty()` afterward.
         let matched_item = self

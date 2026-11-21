@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::{Decoder, LazyRawContainer};
 use crate::lazy::expanded::r#struct::{
@@ -8,6 +9,7 @@ use crate::lazy::expanded::r#struct::{
 use crate::lazy::expanded::LazyExpandedValue;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
+use crate::read_config::child_read_depth;
 use crate::result::IonFailure;
 use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef};
 use ice_code::ice as cold_path;
@@ -342,10 +344,19 @@ impl<'top, D: Decoder> TryFrom<LazyStruct<'top, D>> for Struct {
     type Error = IonError;
 
     fn try_from(lazy_struct: LazyStruct<'top, D>) -> Result<Self, Self::Error> {
+        lazy_struct.to_struct(MAX_READ_WRITE_DEPTH)
+    }
+}
+
+impl<D: Decoder> LazyStruct<'_, D> {
+    /// Materializes this struct's fields. Allows `remaining_depth` levels of containers to be
+    /// opened, counting this struct: `0` means the struct may not be opened.
+    pub(crate) fn to_struct(self, remaining_depth: u16) -> IonResult<Struct> {
+        let child_depth = child_read_depth(remaining_depth)?;
         let mut builder = StructBuilder::new();
-        for field in &lazy_struct {
+        for field in &self {
             let name_and_value =
-                field.and_then(|field| Ok((field.name()?, Element::try_from(field.value())?)));
+                field.and_then(|field| Ok((field.name()?, field.value().to_element(child_depth)?)));
             match name_and_value {
                 Ok((name, value)) => builder = builder.with_field(name, value),
                 Err(e) => {

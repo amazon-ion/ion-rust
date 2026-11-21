@@ -14,7 +14,7 @@
 use crate::lazy::encoding::ParsedTextOwner;
 use bumpalo::Bump as BumpAllocator;
 use sequence::{LazyExpandedList, LazyExpandedSExp};
-use std::cell::UnsafeCell;
+use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, Range};
 use std::rc::{Rc, Weak};
@@ -95,6 +95,14 @@ pub struct EncodingContext {
     // here because a raw text value reaches nothing else of its owner except this context; `None`
     // on every other context, including clones of that one.
     pub(crate) parsed_text_owner: Option<Weak<ParsedTextOwner>>,
+
+    // The container nesting depth of the text value being parsed with this context, counted from
+    // the value at which the parse began. During a parse, only `TextEncoding::container_matcher`
+    // changes it: it increments it after checking it against `MAX_READ_WRITE_DEPTH` and restores
+    // the previous value on every return. `LazyRawTextReader_1_0::next` resets it to 0 before
+    // parsing, so a parse that panicked cannot leave it raised for the next one.
+    // `ParsedTextContainer::parse` parses with a fresh clone, which starts at 0.
+    pub(crate) text_depth: Cell<u16>,
 }
 
 impl Clone for EncodingContext {
@@ -108,6 +116,7 @@ impl Clone for EncodingContext {
             allocator: self.allocator.clone(),
             io_buffer_source: IoBufferSource::IoBuffer(io_buffer).into(),
             parsed_text_owner: None,
+            text_depth: Cell::new(0),
         }
     }
 }
@@ -131,6 +140,7 @@ impl EncodingContext {
             allocator: Rc::new(allocator),
             io_buffer_source: IoBufferSource::None.into(),
             parsed_text_owner: None,
+            text_depth: Cell::new(0),
         }
     }
 

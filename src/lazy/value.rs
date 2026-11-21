@@ -1,3 +1,4 @@
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::lazy_element::LazyElement;
 use crate::lazy::expanded::{EncodingContextRef, ExpandedAnnotationsIterator, LazyExpandedValue};
@@ -278,6 +279,15 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
     type Error = IonError;
 
     fn try_from(lazy_value: LazyValue<'top, D>) -> Result<Self, Self::Error> {
+        lazy_value.to_element(MAX_READ_WRITE_DEPTH)
+    }
+}
+
+impl<D: Decoder> LazyValue<'_, D> {
+    /// Materializes this value as an `Element`. Allows `remaining_depth` levels of containers to be
+    /// opened, counting this value if it is a container: `0` means the value may not be a
+    /// container.
+    pub(crate) fn to_element(self, remaining_depth: u16) -> IonResult<Element> {
         // Resolve this value's location before reading it, because reading a container
         // recursively materializes its children. Doing this first means locations are
         // requested in ascending offset order, which is what allows the row lookup in
@@ -290,10 +300,10 @@ impl<'top, D: Decoder> TryFrom<LazyValue<'top, D>> for Element {
         // fallback instead of the cursor's fast path. `no_fallback_lookups_when_reading_elements`
         // guards this. The hoist is sound with respect to the `unsafe` read inside `location()`
         // only because a `SourceLocation` is owned and borrows nothing from the reader's input.
-        let location = lazy_value.location();
-        let value: Value = lazy_value.read()?.try_into()?;
-        if lazy_value.has_annotations() {
-            return cold_path!(Annotations::try_from(lazy_value.annotations())
+        let location = self.location();
+        let value = self.read()?.into_value(remaining_depth)?;
+        if self.has_annotations() {
+            return cold_path!(Annotations::try_from(self.annotations())
                 .map(|annotations| Element::new(annotations, value).with_location(location)));
         }
         Ok(<Value as Into<Element>>::into(value).with_location(location))
