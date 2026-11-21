@@ -225,7 +225,7 @@ macro_rules! v1_x_reader_writer {
             lazy::encoding::Encoding,
             lazy::encoder::annotate::Annotatable,
             lazy::encoder::write_as_ion::WriteAsIon,
-            lazy::encoder::writer::{IntoWriterConfig, Writer, WriterStyle},
+            lazy::encoder::writer::Writer,
             lazy::reader::Reader,
             raw_symbol_ref::RawSymbolRef,
             symbol_table::{SymbolTable, WriterSymbolTable},
