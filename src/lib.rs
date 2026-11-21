@@ -11,7 +11,8 @@
 //!
 //! Each `Element` represents an `(annotations, value)` pair. If the value is a container (an Ion
 //! `list`, `sexp`, or `struct`), then it will contain its own collection of `Element`s. `Element`s
-//! can be nested to arbitrary depth.
+//! can be nested to arbitrary depth, but writing with a managed writer limits how deeply they may
+//! be nested; see [Nesting limit](#nesting-limit).
 //!
 //! ## Constructing an `Element`
 //!
@@ -103,6 +104,22 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ### Nesting limit
+//!
+//! By default, a managed writer rejects with an error a container whose children are nested more
+//! than 64 levels deep. Raw writers and `Display` do not check the limit.
+//!
+//! To change this limit, set the `ION_RS_MAX_READ_WRITE_DEPTH` environment variable to a base-10
+//! integer when building `ion-rs`, for example in the `[env]` table of your project's
+//! `.cargo/config.toml`. Writing recurses at least once per level of nesting, so a higher limit
+//! needs a correspondingly larger thread stack. A writer can be given a lower limit with
+//! [`WriteConfig::with_max_depth`], but nothing at runtime can raise it.
+//!
+//! A depth error from a managed writer does not roll back the field names and enclosing containers
+//! it has already encoded, so the writer's pending output is unusable and the writer should be
+//! discarded. Methods that return their output only on success, such as [`Element::encode_as`],
+//! are not affected.
 //!
 //! ## Traversing an `Element`
 //!

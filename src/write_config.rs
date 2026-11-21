@@ -1,6 +1,7 @@
 use std::io;
 use std::marker::PhantomData;
 
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::lazy::encoder::value_writer_config::ValueWriterConfig;
 use crate::lazy::encoder::write_as_ion::WriteAsIon;
 use crate::lazy::encoding::{BinaryEncoding_1_0, Encoding, OutputFromBytes, TextEncoding_1_0};
@@ -30,18 +31,20 @@ impl<E: Encoding> WriteConfig<E> {
     /// container's children are one level deeper than the container, so in `[[1]]` the inner list
     /// is at depth 1 and `1` is at depth 2. This permits at most `max_depth` levels of nested
     /// containers; a `max_depth` of 0 permits only scalars. Typed nulls such as `null.list` are
-    /// not opened as containers, so they are accepted at any depth. By default, `max_depth` is
-    /// `u16::MAX`.
+    /// not opened as containers, so they are accepted at any depth.
+    ///
+    /// By default, and at most, `max_depth` is the [nesting limit](crate#nesting-limit) set when
+    /// `ion-rs` was built. A larger `max_depth` is reduced to that limit, so a library can lower the
+    /// limit for the values it writes but cannot raise it.
     ///
     /// Opening a container whose children would be deeper than `max_depth` returns an encoding
-    /// error, even if the container is empty.
+    /// error, even if the container is empty. The error does not roll back the field names and
+    /// enclosing containers that a managed writer has already encoded, so its pending output is
+    /// unusable and the writer should be discarded. Methods that return their output only on
+    /// success, such as [`Element::encode_as`](crate::Element::encode_as), are not affected.
     ///
-    /// Choose a limit a little above the deepest nesting your data legitimately contains; most
-    /// data models need only a few dozen levels. Encoding a value recurses at least once per level
-    /// of nesting, so a value nested hundreds or thousands of levels deep can exhaust a thread's
-    /// stack long before reaching the default limit. When encoding values whose depth you do not
-    /// control, such as recursive data built from untrusted input, set a limit low enough that the
-    /// writing thread's stack can accommodate it.
+    /// Encoding a value recurses at least once per level of nesting, so a limit raised at build
+    /// time needs a correspondingly larger thread stack.
     ///
     /// Raw writers built from this configuration do not enforce the limit.
     ///
@@ -60,7 +63,7 @@ impl<E: Encoding> WriteConfig<E> {
     ///# }
     /// ```
     pub fn with_max_depth(mut self, max_depth: u16) -> Self {
-        self.max_depth = max_depth;
+        self.max_depth = max_depth.min(MAX_READ_WRITE_DEPTH);
         self
     }
 
@@ -104,7 +107,7 @@ impl WriteConfig<TextEncoding_1_0> {
     pub fn new(text_kind: TextFormat) -> Self {
         Self {
             kind: WriteConfigKind::Text(TextWriteConfig { text_kind }),
-            max_depth: u16::MAX,
+            max_depth: MAX_READ_WRITE_DEPTH,
             phantom_data: Default::default(),
         }
     }
@@ -125,7 +128,7 @@ impl WriteConfig<BinaryEncoding_1_0> {
     pub fn new() -> Self {
         Self {
             kind: WriteConfigKind::Binary(BinaryWriteConfig),
-            max_depth: u16::MAX,
+            max_depth: MAX_READ_WRITE_DEPTH,
             phantom_data: Default::default(),
         }
     }
