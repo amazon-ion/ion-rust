@@ -582,7 +582,12 @@ pub struct LazyExpandedValue<'top, Encoding: Decoder> {
 
 impl<Encoding: Decoder> Debug for LazyExpandedValue<'_, Encoding> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.read_resolved()?)
+        // Writes a placeholder instead of returning a read error, so formatting a value never
+        // fails.
+        match self.read_resolved() {
+            Ok(value) => write!(f, "{value:?}"),
+            Err(e) => write!(f, "<error: {e}>"),
+        }
     }
 }
 

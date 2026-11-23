@@ -36,13 +36,22 @@ impl<'top> IntoIterator for &LazyRawBinaryStruct_1_0<'top> {
     }
 }
 
+// Writes a placeholder for a field that cannot be read and omits the fields after it, instead of
+// returning an error, so a read error does not make formatting fail.
 impl Debug for LazyRawBinaryStruct_1_0<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
-            let (name, lazy_value) = field?.expect_name_value()?;
-            let value = lazy_value.read()?;
-            write!(f, "{name:?}:{value:?},")?;
+            let name_and_value = field
+                .and_then(|field| field.expect_name_value())
+                .and_then(|(name, lazy_value)| Ok((name, lazy_value.read()?)));
+            match name_and_value {
+                Ok((name, value)) => write!(f, "{name:?}:{value:?},")?,
+                Err(e) => {
+                    write!(f, "<error: {e}>")?;
+                    break;
+                }
+            }
         }
         write!(f, "}}")?;
         Ok(())
@@ -58,7 +67,7 @@ impl<'top> LazyRawBinaryStruct_1_0<'top> {
         // Get as much of the struct's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawBinaryStructIterator_1_0::new(buffer_slice)
+        RawBinaryStructIterator_1_0::new(buffer_slice, self.value.encoded_value.child_depth())
     }
 }
 
@@ -89,12 +98,15 @@ impl<'top> LazyRawStruct<'top, BinaryEncoding_1_0> for LazyRawBinaryStruct_1_0<'
 #[derive(Debug, Copy, Clone)]
 pub struct RawBinaryStructIterator_1_0<'top> {
     source: DataSource<'top>,
+    // The depth of the field values this iterator yields.
+    depth: u8,
 }
 
 impl<'top> RawBinaryStructIterator_1_0<'top> {
-    pub(crate) fn new(input: BinaryBuffer<'top>) -> RawBinaryStructIterator_1_0<'top> {
+    pub(crate) fn new(input: BinaryBuffer<'top>, depth: u8) -> RawBinaryStructIterator_1_0<'top> {
         RawBinaryStructIterator_1_0 {
             source: DataSource::new(input),
+            depth,
         }
     }
 }
@@ -103,8 +115,9 @@ impl<'top> Iterator for RawBinaryStructIterator_1_0<'top> {
     type Item = IonResult<LazyRawFieldExpr<'top, BinaryEncoding_1_0>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let depth = self.depth;
         self.source
-            .try_parse_next_field(BinaryBuffer::peek_field)
+            .try_parse_next_field(|buffer| buffer.peek_field(depth))
             .transpose()
     }
 }

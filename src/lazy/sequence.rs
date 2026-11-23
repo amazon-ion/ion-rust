@@ -131,6 +131,7 @@ impl<D: Decoder> LazyList<'_, D> {
     /// Materializes this list's children. Allows `remaining_depth` levels of containers to be
     /// opened, counting this list: `0` means the list may not be opened.
     pub(crate) fn to_sequence(self, remaining_depth: u16) -> IonResult<Sequence> {
+        // The binary reader rejects this depth first, except with a limit greater than 255.
         let child_depth = child_read_depth(remaining_depth)?;
         let sequence: Sequence = self
             .iter()
@@ -184,11 +185,19 @@ impl<'top, D: Decoder> Iterator for ListIterator<'top, D> {
     }
 }
 
+// Writes a placeholder for a value that cannot be read and omits the values after it, instead of
+// returning an error, so a read error does not make formatting fail.
 impl<D: Decoder> Debug for LazyList<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
-            write!(f, "{:?},", value?.read()?)?;
+            match value.and_then(|value| value.read()) {
+                Ok(value) => write!(f, "{value:?},")?,
+                Err(e) => {
+                    write!(f, "<error: {e}>")?;
+                    break;
+                }
+            }
         }
         write!(f, "]")?;
 
@@ -203,11 +212,18 @@ pub struct LazySExp<'top, D: Decoder> {
     pub(crate) expanded_sexp: LazyExpandedSExp<'top, D>,
 }
 
+// Writes read errors as the `LazyList` impl does.
 impl<D: Decoder> Debug for LazySExp<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {
-            write!(f, "{:?} ", value?.read()?)?;
+            match value.and_then(|value| value.read()) {
+                Ok(value) => write!(f, "{value:?} ")?,
+                Err(e) => {
+                    write!(f, "<error: {e}>")?;
+                    break;
+                }
+            }
         }
         write!(f, ")")?;
 
@@ -286,6 +302,7 @@ impl<D: Decoder> LazySExp<'_, D> {
     /// Materializes this s-expression's children. Allows `remaining_depth` levels of containers
     /// to be opened, counting this s-expression: `0` means the s-expression may not be opened.
     pub(crate) fn to_sequence(self, remaining_depth: u16) -> IonResult<Sequence> {
+        // The binary reader rejects this depth first, except with a limit greater than 255.
         let child_depth = child_read_depth(remaining_depth)?;
         let sequence: Sequence = self
             .iter()

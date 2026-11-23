@@ -1,13 +1,17 @@
-/// The deepest level of container nesting that the text parser and conversions from lazy values
-/// to `Element`, `Value`, `Sequence`, and `Struct` accept, and the default and maximum depth of
-/// managed writers. Top-level values are at depth 0 and a container's children are one level
-/// deeper than the container, so in `[[1]]` the inner list is at depth 1 and `1` is at depth 2.
-/// Parsing, converting, or writing a container whose children would be deeper than this limit
-/// returns an error, even if the container is empty. Reading binary Ion into an `Element` is
-/// limited by the conversion. Navigating binary input lazily (`Reader::next`, `LazyList::iter`,
-/// `LazyValue::read`) is not, because the library does not recurse there: any recursion is in the
-/// caller's code. Serde deserialization of binary input, raw writers, and `Display` do not check
-/// this limit.
+/// The deepest level of container nesting that the text parser, lazy binary navigation, and
+/// conversions from lazy values to `Element`, `Value`, `Sequence`, and `Struct` accept, and the
+/// default and maximum depth of managed writers. Top-level values are at depth 0 and a container's
+/// children are one level deeper than the container, so in `[[1]]` the inner list is at depth 1 and
+/// `1` is at depth 2. Parsing, converting, or writing a container whose children would be deeper
+/// than this limit returns an error, even if the container is empty. Lazy binary navigation returns
+/// the error when the container is read, by `LazyValue::read` or a method that calls it such as
+/// `LazyStruct::get`, not when the container is reached with `Reader::next` or a container's
+/// iterator. Depth counts from the top-level value of the input, including when a nested value is
+/// converted to an `Element` or written to a writer. Serde deserialization of binary input reads
+/// lists, s-expressions, and structs with `LazyValue::read`, so it is limited too. With a limit
+/// greater than 255, lazy binary navigation never returns the error, because binary values store
+/// their depth in a `u8` that saturates at 255; conversions still check the limit. Raw writers and
+/// `Display` do not check this limit.
 ///
 /// Parsing text, converting values to `Element`s, and encoding values recurse at least once per
 /// level of nesting. The default (64) leaves room in a 2 MiB thread stack (the default for threads

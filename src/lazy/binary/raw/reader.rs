@@ -65,7 +65,8 @@ impl<'data> LazyRawBinaryReader_1_0<'data> {
     where
         'data: 'top,
     {
-        let lazy_value = match BinaryBuffer::peek_sequence_value(buffer)? {
+        // Top-level values are at depth 0.
+        let lazy_value = match buffer.peek_sequence_value(0)? {
             Some(lazy_value) => lazy_value,
             None => {
                 return Ok(LazyRawStreamItem::<BinaryEncoding_1_0>::EndOfStream(

@@ -100,7 +100,7 @@ impl<'top> LazyRawBinarySequence_1_0<'top> {
         // Get as much of the sequence's body as is available in the input buffer.
         // Reading a child value may fail as `Incomplete`
         let buffer_slice = self.value.available_body();
-        RawBinarySequenceIterator_1_0::new(buffer_slice)
+        RawBinarySequenceIterator_1_0::new(buffer_slice, self.value.encoded_value.child_depth())
     }
 }
 
@@ -140,12 +140,15 @@ impl Debug for LazyRawBinarySequence_1_0<'_> {
 #[derive(Debug, Copy, Clone)]
 pub struct RawBinarySequenceIterator_1_0<'top> {
     source: DataSource<'top>,
+    // The depth of the values this iterator yields.
+    depth: u8,
 }
 
 impl<'top> RawBinarySequenceIterator_1_0<'top> {
-    pub(crate) fn new(input: BinaryBuffer<'top>) -> RawBinarySequenceIterator_1_0<'top> {
+    pub(crate) fn new(input: BinaryBuffer<'top>, depth: u8) -> RawBinarySequenceIterator_1_0<'top> {
         RawBinarySequenceIterator_1_0 {
             source: DataSource::new(input),
+            depth,
         }
     }
 }
@@ -154,9 +157,10 @@ impl<'top> Iterator for RawBinarySequenceIterator_1_0<'top> {
     type Item = IonResult<<BinaryEncoding_1_0 as Decoder>::Value<'top>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let depth = self.depth;
         match self
             .source
-            .try_parse_next_value(BinaryBuffer::peek_sequence_value)
+            .try_parse_next_value(|buffer| buffer.peek_sequence_value(depth))
         {
             Ok(Some(value)) => Some(Ok(value)),
             Ok(None) => None,

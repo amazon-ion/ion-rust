@@ -109,12 +109,16 @@
 //! ### Nesting limit
 //!
 //! By default, a container whose children are nested more than 64 levels deep is rejected with an
-//! error by the text parser, by conversions of values read from a stream to `Element`, `Value`,
-//! `Sequence`, or `Struct`, and by managed writers. Reading binary Ion into an `Element` is limited
-//! by the conversion. Navigating binary input lazily (`Reader::next`, `LazyList::iter`,
-//! `LazyValue::read`) is not, because the library does not recurse there: any recursion is in the
-//! caller's code. Serde deserialization of binary input, raw writers, and `Display` do not check
-//! the limit.
+//! error by the text parser, by lazy binary navigation, by conversions of values read from a stream
+//! to `Element`, `Value`, `Sequence`, or `Struct`, and by managed writers. Lazy binary navigation
+//! returns the error when the container is read, by `LazyValue::read` or a method that calls it
+//! such as `LazyStruct::get`, not when the container is reached with `Reader::next` or a
+//! container's iterator. Depth counts from the top-level value of the input, including when a
+//! nested value is converted to an `Element` or written to a writer. Serde deserialization of
+//! binary input reads lists, s-expressions, and structs with `LazyValue::read`, so it is limited
+//! too. With a limit greater than 255, lazy binary navigation never returns the error, because
+//! binary values store their depth in a `u8` that saturates at 255; conversions still check the
+//! limit. Raw writers and `Display` do not check the limit.
 //!
 //! To change this limit, set the `ION_RS_MAX_READ_WRITE_DEPTH` environment variable to a base-10
 //! integer when building `ion-rs`, for example in the `[env]` table of your project's
