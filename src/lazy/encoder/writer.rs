@@ -3,6 +3,7 @@ use ice_code::ice as cold_path;
 use std::io::Write;
 
 use crate::constants::v1_0::system_symbol_ids;
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::element::element_writer::ElementWriter;
 use crate::lazy::encoder::annotation_seq::{AnnotationSeq, AnnotationsVec};
 use crate::lazy::encoder::text::v1_0::writer::LazyRawTextWriter_1_0;
@@ -634,9 +635,16 @@ impl<V: ValueWriter> AnnotatableWriter for ApplicationValueWriter<'_, V> {
     }
 }
 
-/// The description of the encoding error raised when opening a container whose children would be
-/// deeper than the maximum depth.
-const MAX_DEPTH_EXCEEDED: &str = "container nesting exceeds the configured maximum depth";
+/// Describes the encoding error raised when opening a container whose children would be deeper
+/// than the maximum depth.
+#[cold]
+fn max_write_depth_exceeded_message() -> String {
+    format!(
+        "container nesting exceeds the maximum write depth: {MAX_READ_WRITE_DEPTH}, or a lower \
+         limit set with `WriteConfig::with_max_depth`; {MAX_READ_WRITE_DEPTH} can be raised by \
+         setting `ION_RS_MAX_READ_WRITE_DEPTH` when building `ion-rs`"
+    )
+}
 
 impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
     /// Returns the configuration for the children of a container this writer is about to open. If
@@ -647,7 +655,7 @@ impl<V: ValueWriter> ApplicationValueWriter<'_, V> {
     fn nested_container_config(&self) -> IonResult<ValueWriterConfig> {
         match self.value_writer_config.enter_container() {
             Some(config) => Ok(config),
-            None => cold_path!(IonResult::encoding_error(MAX_DEPTH_EXCEEDED)),
+            None => cold_path!(IonResult::encoding_error(max_write_depth_exceeded_message())),
         }
     }
 
@@ -1601,10 +1609,14 @@ mod reuse_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{BinaryWriter_1_0, TextWriter_1_0, WriterStyle, MAX_DEPTH_EXCEEDED};
+    use super::{max_write_depth_exceeded_message, BinaryWriter_1_0, TextWriter_1_0, WriterStyle};
+    use crate::constants::MAX_READ_WRITE_DEPTH;
     use crate::lazy::encoding::{BinaryEncoding_1_0, TextEncoding_1_0};
     use crate::text::whitespace_config::{CompactText, LinesText, PrettyText, RuntimeStyle};
-    use crate::{v1_0, Element, Encoding, IonError, IonResult, TextFormat, WriteConfig, Writer};
+    use crate::{
+        ion_list, ion_sexp, ion_struct, v1_0, Element, Encoding, IonError, IonResult, TextFormat,
+        WriteConfig, Writer,
+    };
     use rstest::rstest;
     use std::any::type_name;
     use std::io::BufWriter;
@@ -1744,7 +1756,7 @@ mod tests {
     pub(super) fn assert_depth_error<T>(result: IonResult<T>) {
         let result = result.map(|_| ());
         assert!(
-            matches!(&result, Err(IonError::Encoding(e)) if e.to_string() == MAX_DEPTH_EXCEEDED),
+            matches!(&result, Err(IonError::Encoding(e)) if e.to_string() == max_write_depth_exceeded_message()),
             "expected a depth encoding error, got {result:?}"
         );
     }
@@ -1806,31 +1818,18 @@ mod tests {
 
     /// Returns a value made of `containers` levels of nested `container`s around the integer `0`,
     /// each container optionally annotated. The integer is at depth `containers`.
-    fn nested(container: Container, annotated: bool, containers: usize) -> IonResult<Element> {
-        let (open, close) = match container {
-            Container::List => ("[", "]"),
-            Container::SExp => ("(", ")"),
-            Container::Struct => ("{a:", "}"),
-        };
-        let annotation = if annotated { "x::" } else { "" };
-        let text = format!(
-            "{}0{}",
-            format!("{annotation}{open}").repeat(containers),
-            close.repeat(containers)
-        );
-        Element::read_one(text)
-    }
-
-    /// Runs `f` on a thread with a stack large enough for the recursive reading and writing of
-    /// values nested hundreds of levels deep in unoptimized builds.
-    fn on_large_stack<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-        std::thread::scope(|scope| {
-            std::thread::Builder::new()
-                .stack_size(64 * 1024 * 1024)
-                .spawn_scoped(scope, f)
-                .unwrap()
-                .join()
-                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    fn nested(container: Container, annotated: bool, containers: usize) -> Element {
+        (0..containers).fold(Element::from(0), |child, _| {
+            let parent: Element = match container {
+                Container::List => ion_list![child].into(),
+                Container::SExp => ion_sexp!(child).into(),
+                Container::Struct => ion_struct! {"a": child}.into(),
+            };
+            if annotated {
+                parent.with_annotations(["x"])
+            } else {
+                parent
+            }
         })
     }
 
@@ -1842,7 +1841,7 @@ mod tests {
         #[values(false, true)] annotated: bool,
         #[values(2, 4)] max_depth: u16,
     ) -> IonResult<()> {
-        let value = nested(container, annotated, usize::from(max_depth))?;
+        let value = nested(container, annotated, usize::from(max_depth));
         assert_round_trips(format, Some(max_depth), &[value])
     }
 
@@ -1853,7 +1852,7 @@ mod tests {
         #[values(false, true)] annotated: bool,
         #[values(2, 4)] max_depth: u16,
     ) -> IonResult<()> {
-        let value = nested(container, annotated, usize::from(max_depth) + 1)?;
+        let value = nested(container, annotated, usize::from(max_depth) + 1);
         assert_depth_error(encode_with_max_depth(format, Some(max_depth), &[value]));
         Ok(())
     }
@@ -1955,30 +1954,28 @@ mod tests {
         Ok(())
     }
 
-    /// A limit above the `u8` range is enforced exactly.
+    /// Without a `with_max_depth`, a writer allows the nesting limit set when `ion-rs` was built.
     #[rstest]
-    #[cfg_attr(miri, ignore = "too slow under Miri")]
-    fn max_depth_above_u8_range_is_enforced(
+    fn default_max_depth_is_the_build_time_limit(
         #[values(Format::Text, Format::Binary)] format: Format,
     ) -> IonResult<()> {
-        on_large_stack(|| {
-            let at_max = nested(Container::List, false, 300)?;
-            assert_round_trips(format, Some(300), &[at_max])?;
-
-            let past_max = nested(Container::List, false, 301)?;
-            assert_depth_error(encode_with_max_depth(format, Some(300), &[past_max]));
-            Ok(())
-        })
+        let max = usize::from(MAX_READ_WRITE_DEPTH);
+        assert_round_trips(format, None, &[nested(Container::List, false, max)])?;
+        let past_max = nested(Container::List, false, max + 1);
+        assert_depth_error(encode_with_max_depth(format, None, &[past_max]));
+        Ok(())
     }
 
+    /// `with_max_depth` cannot raise the limit above the one set when `ion-rs` was built.
     #[rstest]
-    #[cfg_attr(miri, ignore = "too slow under Miri")]
-    fn default_depth_allows_deep_nesting(
+    fn max_depth_above_the_build_time_limit_is_reduced_to_it(
         #[values(Format::Text, Format::Binary)] format: Format,
     ) -> IonResult<()> {
-        on_large_stack(|| {
-            let value = nested(Container::List, false, 300)?;
-            assert_round_trips(format, None, &[value])
-        })
+        let max = usize::from(MAX_READ_WRITE_DEPTH);
+        let at_max = nested(Container::List, false, max);
+        assert_round_trips(format, Some(u16::MAX), &[at_max])?;
+        let past_max = nested(Container::List, false, max + 1);
+        assert_depth_error(encode_with_max_depth(format, Some(u16::MAX), &[past_max]));
+        Ok(())
     }
 }

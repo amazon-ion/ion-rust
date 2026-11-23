@@ -1,3 +1,56 @@
+/// The default and maximum depth of managed writers. Top-level values are at depth 0 and a
+/// container's children are one level deeper than the container, so in `[[1]]` the inner list is
+/// at depth 1 and `1` is at depth 2. Writing a container whose children would be deeper than this
+/// limit with a managed writer returns an error, even if the container is empty. Raw writers and
+/// `Display` do not check this limit.
+///
+/// Encoding values recurses at least once per level of nesting. The default (64) leaves room in a
+/// 2 MiB thread stack (the default for threads spawned by `std`) in both debug and release builds.
+///
+/// The default can be overridden at build time by setting the `ION_RS_MAX_READ_WRITE_DEPTH`
+/// environment variable to a base-10 integer no greater than 65535, e.g.
+/// `ION_RS_MAX_READ_WRITE_DEPTH=512 cargo build`. An empty value is treated as unset, and any
+/// other malformed or out-of-range value is a compile error. `rustc` records the read, so the
+/// crate is rebuilt when the value changes. Nothing at runtime can raise the limit, so a library
+/// that depends on `ion-rs` cannot raise it on behalf of the application that uses it.
+pub(crate) const MAX_READ_WRITE_DEPTH: u16 =
+    max_read_write_depth(option_env!("ION_RS_MAX_READ_WRITE_DEPTH"));
+
+/// Returns the limit selected by `setting`, the value of `ION_RS_MAX_READ_WRITE_DEPTH` at build
+/// time. `None` and an empty value select the default.
+const fn max_read_write_depth(setting: Option<&str>) -> u16 {
+    match setting {
+        Some(text) if !text.is_empty() => parse_max_read_write_depth(text),
+        _ => 64,
+    }
+}
+
+/// Parses the `ION_RS_MAX_READ_WRITE_DEPTH` override in const context. Accepts a run of ASCII
+/// digits whose value fits in a `u16`; anything else panics, which is a compile error when
+/// evaluated for a `const`.
+const fn parse_max_read_write_depth(text: &str) -> u16 {
+    let bytes = text.as_bytes();
+    let mut value: u16 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        let digit = bytes[i];
+        assert!(
+            digit.is_ascii_digit(),
+            "ION_RS_MAX_READ_WRITE_DEPTH must be a base-10 integer"
+        );
+        let next = match value.checked_mul(10) {
+            Some(tens) => tens.checked_add((digit - b'0') as u16),
+            None => None,
+        };
+        value = match next {
+            Some(next) => next,
+            None => panic!("ION_RS_MAX_READ_WRITE_DEPTH must be no greater than 65535"),
+        };
+        i += 1;
+    }
+    value
+}
+
 pub(crate) mod v1_0 {
     use phf::phf_map;
 
@@ -43,4 +96,37 @@ pub(crate) mod v1_0 {
         "max_id"                   => 8,
         "$ion_shared_symbol_table" => 9,
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::max_read_write_depth;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::unset(None, 64)]
+    #[case::empty(Some(""), 64)]
+    #[case::zero(Some("0"), 0)]
+    #[case::leading_zero(Some("064"), 64)]
+    #[case::largest(Some("65535"), 65535)]
+    fn accepts_depth_setting(#[case] setting: Option<&str>, #[case] expected: u16) {
+        assert_eq!(max_read_write_depth(setting), expected);
+    }
+
+    #[rstest]
+    #[case::just_too_large("65536")]
+    #[case::too_large_after_multiplying("100000")]
+    #[should_panic(expected = "no greater than 65535")]
+    fn rejects_out_of_range_depth_setting(#[case] setting: &str) {
+        max_read_write_depth(Some(setting));
+    }
+
+    #[rstest]
+    #[case::letters("abc")]
+    #[case::trailing_letter("6a")]
+    #[case::negative("-1")]
+    #[should_panic(expected = "base-10 integer")]
+    fn rejects_non_digit_depth_setting(#[case] setting: &str) {
+        max_read_write_depth(Some(setting));
+    }
 }
