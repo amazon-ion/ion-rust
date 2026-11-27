@@ -1,11 +1,13 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::lazy::decoder::Decoder;
 use crate::lazy::expanded::sequence::{
     ExpandedListIterator, ExpandedSExpIterator, LazyExpandedList, LazyExpandedSExp,
 };
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
+use crate::read_config::child_read_depth;
 use crate::{
     try_next, Annotations, Element, ExpandedListSource, ExpandedSExpSource, IntoAnnotatedElement,
     LazyExpandedValue, LazyRawContainer, Sequence, Value,
@@ -121,9 +123,19 @@ impl<'top, D: Decoder> TryFrom<LazyList<'top, D>> for Sequence {
     type Error = IonError;
 
     fn try_from(lazy_sequence: LazyList<'top, D>) -> Result<Self, Self::Error> {
-        let sequence: Sequence = lazy_sequence
+        lazy_sequence.to_sequence(MAX_READ_WRITE_DEPTH)
+    }
+}
+
+impl<D: Decoder> LazyList<'_, D> {
+    /// Materializes this list's children. Allows `remaining_depth` levels of containers to be
+    /// opened, counting this list: `0` means the list may not be opened.
+    pub(crate) fn to_sequence(self, remaining_depth: u16) -> IonResult<Sequence> {
+        // The binary reader rejects this depth first, except with a limit greater than 255.
+        let child_depth = child_read_depth(remaining_depth)?;
+        let sequence: Sequence = self
             .iter()
-            .map(|result| result.and_then(Element::try_from))
+            .map(|result| result.and_then(|value| value.to_element(child_depth)))
             .collect::<IonResult<Vec<_>>>()?
             .into();
         Ok(sequence)
@@ -173,11 +185,19 @@ impl<'top, D: Decoder> Iterator for ListIterator<'top, D> {
     }
 }
 
+// Writes a placeholder for a value that cannot be read and omits the values after it, instead of
+// returning an error, so a read error does not make formatting fail.
 impl<D: Decoder> Debug for LazyList<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for value in self {
-            write!(f, "{:?},", value?.read()?)?;
+            match value.and_then(|value| value.read()) {
+                Ok(value) => write!(f, "{value:?},")?,
+                Err(e) => {
+                    write!(f, "<error: {e}>")?;
+                    break;
+                }
+            }
         }
         write!(f, "]")?;
 
@@ -192,11 +212,18 @@ pub struct LazySExp<'top, D: Decoder> {
     pub(crate) expanded_sexp: LazyExpandedSExp<'top, D>,
 }
 
+// Writes read errors as the `LazyList` impl does.
 impl<D: Decoder> Debug for LazySExp<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for value in self {
-            write!(f, "{:?} ", value?.read()?)?;
+            match value.and_then(|value| value.read()) {
+                Ok(value) => write!(f, "{value:?} ")?,
+                Err(e) => {
+                    write!(f, "<error: {e}>")?;
+                    break;
+                }
+            }
         }
         write!(f, ")")?;
 
@@ -267,9 +294,19 @@ impl<'top, D: Decoder> TryFrom<LazySExp<'top, D>> for Sequence {
     type Error = IonError;
 
     fn try_from(lazy_sequence: LazySExp<'top, D>) -> Result<Self, Self::Error> {
-        let sequence: Sequence = lazy_sequence
+        lazy_sequence.to_sequence(MAX_READ_WRITE_DEPTH)
+    }
+}
+
+impl<D: Decoder> LazySExp<'_, D> {
+    /// Materializes this s-expression's children. Allows `remaining_depth` levels of containers
+    /// to be opened, counting this s-expression: `0` means the s-expression may not be opened.
+    pub(crate) fn to_sequence(self, remaining_depth: u16) -> IonResult<Sequence> {
+        // The binary reader rejects this depth first, except with a limit greater than 255.
+        let child_depth = child_read_depth(remaining_depth)?;
+        let sequence: Sequence = self
             .iter()
-            .map(|v| Element::try_from(v?))
+            .map(|v| v?.to_element(child_depth))
             .collect::<IonResult<Vec<_>>>()?
             .into();
         Ok(sequence)

@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::element::builders::StructBuilder;
 use crate::lazy::decoder::{Decoder, LazyRawContainer};
 use crate::lazy::expanded::r#struct::{
@@ -8,6 +9,7 @@ use crate::lazy::expanded::r#struct::{
 use crate::lazy::expanded::LazyExpandedValue;
 use crate::lazy::value::{AnnotationsIterator, LazyValue};
 use crate::lazy::value_ref::ValueRef;
+use crate::read_config::child_read_depth;
 use crate::result::IonFailure;
 use crate::{Annotations, Element, IntoAnnotatedElement, IonError, IonResult, Struct, SymbolRef};
 use ice_code::ice as cold_path;
@@ -51,17 +53,21 @@ pub struct LazyStruct<'top, D: Decoder> {
     pub(crate) expanded_struct: LazyExpandedStruct<'top, D>,
 }
 
-// Best-effort debug formatting for LazyStruct. Any failures that occur during reading will result
-// in the output being silently truncated.
+// Best-effort debug formatting for LazyStruct. A field that cannot be read is written as a
+// placeholder describing the error, and the fields after it are omitted, so a read error does not
+// make formatting fail.
 impl<D: Decoder> Debug for LazyStruct<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{{")?;
         for field in self {
-            let field = field?;
-            let name = field.name()?;
-            let lazy_value = field.value();
-            let value = lazy_value.read()?;
-            write!(f, "{}:{:?},", name.text().unwrap_or("$0"), value)?;
+            let name_and_value = field.and_then(|field| Ok((field.name()?, field.value().read()?)));
+            match name_and_value {
+                Ok((name, value)) => write!(f, "{}:{:?},", name.text().unwrap_or("$0"), value)?,
+                Err(e) => {
+                    write!(f, "<error: {e}>")?;
+                    break;
+                }
+            }
         }
         write!(f, "}}")?;
         Ok(())
@@ -259,12 +265,15 @@ pub struct LazyField<'top, D: Decoder> {
 
 impl<D: Decoder> Debug for LazyField<'_, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}: {:?}",
-            self.name()?.text().unwrap_or("$0"),
-            self.value().read()?,
-        )
+        // Writes placeholders instead of returning read errors, so formatting a field never fails.
+        match self.name() {
+            Ok(name) => write!(f, "{}: ", name.text().unwrap_or("$0"))?,
+            Err(e) => write!(f, "<error: {e}>: ")?,
+        }
+        match self.value().read() {
+            Ok(value) => write!(f, "{value:?}"),
+            Err(e) => write!(f, "<error: {e}>"),
+        }
     }
 }
 
@@ -342,10 +351,20 @@ impl<'top, D: Decoder> TryFrom<LazyStruct<'top, D>> for Struct {
     type Error = IonError;
 
     fn try_from(lazy_struct: LazyStruct<'top, D>) -> Result<Self, Self::Error> {
+        lazy_struct.to_struct(MAX_READ_WRITE_DEPTH)
+    }
+}
+
+impl<D: Decoder> LazyStruct<'_, D> {
+    /// Materializes this struct's fields. Allows `remaining_depth` levels of containers to be
+    /// opened, counting this struct: `0` means the struct may not be opened.
+    pub(crate) fn to_struct(self, remaining_depth: u16) -> IonResult<Struct> {
+        // The binary reader rejects this depth first, except with a limit greater than 255.
+        let child_depth = child_read_depth(remaining_depth)?;
         let mut builder = StructBuilder::new();
-        for field in &lazy_struct {
+        for field in &self {
             let name_and_value =
-                field.and_then(|field| Ok((field.name()?, Element::try_from(field.value())?)));
+                field.and_then(|field| Ok((field.name()?, field.value().to_element(child_depth)?)));
             match name_and_value {
                 Ok((name, value)) => builder = builder.with_field(name, value),
                 Err(e) => {

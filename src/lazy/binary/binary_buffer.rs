@@ -536,8 +536,11 @@ impl<'a> BinaryBuffer<'a> {
         Ok((length, self))
     }
 
-    /// Reads a field ID and a value from the buffer.
-    pub(crate) fn peek_field(self) -> IonResult<Option<LazyRawFieldExpr<'a, BinaryEncoding_1_0>>> {
+    /// Reads a field ID and a value at `depth` from the buffer.
+    pub(crate) fn peek_field(
+        self,
+        depth: u8,
+    ) -> IonResult<Option<LazyRawFieldExpr<'a, BinaryEncoding_1_0>>> {
         let mut input = self;
         if self.is_empty() {
             // We're at the end of the struct
@@ -577,7 +580,7 @@ impl<'a> BinaryBuffer<'a> {
         let matched_field_id = input.slice(0, field_id_var_uint.size_in_bytes());
         let field_name = LazyRawBinaryFieldName_1_0::new(field_id, matched_field_id);
 
-        let field_value = input_after_field_id.read_value(type_descriptor)?;
+        let field_value = input_after_field_id.read_value(type_descriptor, depth)?;
         let allocator = self.context.allocator();
         let value_ref = allocator.alloc_with(|| field_value);
         Ok(Some(LazyRawFieldExpr::NameValue(field_name, &*value_ref)))
@@ -614,9 +617,12 @@ impl<'a> BinaryBuffer<'a> {
         }
     }
 
-    /// Reads a value without a field name from the buffer. This is applicable in lists, s-expressions,
-    /// and at the top level.
-    pub(crate) fn peek_sequence_value(self) -> IonResult<Option<&'a LazyRawBinaryValue_1_0<'a>>> {
+    /// Reads a value at `depth` without a field name from the buffer. This is applicable in lists,
+    /// s-expressions, and at the top level.
+    pub(crate) fn peek_sequence_value(
+        self,
+        depth: u8,
+    ) -> IonResult<Option<&'a LazyRawBinaryValue_1_0<'a>>> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -633,7 +639,7 @@ impl<'a> BinaryBuffer<'a> {
             // Otherwise, there's a value.
             type_descriptor = input.peek_type_descriptor()?;
         }
-        let value = input.read_value(type_descriptor)?;
+        let value = input.read_value(type_descriptor, depth)?;
         let allocator = self.context.allocator();
         let value_ref = allocator.alloc_with(|| value);
         Ok(Some(value_ref))
@@ -641,11 +647,15 @@ impl<'a> BinaryBuffer<'a> {
 
     /// Reads a value from the buffer. The caller must confirm that the buffer is not empty and that
     /// the next byte (`type_descriptor`) is not a NOP.
-    fn read_value(self, type_descriptor: TypeDescriptor) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
+    fn read_value(
+        self,
+        type_descriptor: TypeDescriptor,
+        depth: u8,
+    ) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
         if type_descriptor.is_annotation_wrapper() {
-            cold_path! { self.read_annotated_value(type_descriptor) }
+            cold_path! { self.read_annotated_value(type_descriptor, depth) }
         } else {
-            self.read_value_without_annotations(type_descriptor)
+            self.read_value_without_annotations(type_descriptor, depth)
         }
     }
 
@@ -654,6 +664,7 @@ impl<'a> BinaryBuffer<'a> {
     fn read_value_without_annotations(
         self,
         type_descriptor: TypeDescriptor,
+        depth: u8,
     ) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
         let input = self;
         let header = type_descriptor
@@ -684,6 +695,7 @@ impl<'a> BinaryBuffer<'a> {
             length_length,
             value_body_length: value_length,
             total_length,
+            depth,
         };
         let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value,
@@ -698,6 +710,7 @@ impl<'a> BinaryBuffer<'a> {
     fn read_annotated_value(
         self,
         mut type_descriptor: TypeDescriptor,
+        depth: u8,
     ) -> IonResult<LazyRawBinaryValue_1_0<'a>> {
         let input = self;
         let (wrapper, input_after_annotations) = input.read_annotations_wrapper(type_descriptor)?;
@@ -713,7 +726,7 @@ impl<'a> BinaryBuffer<'a> {
         }
 
         let mut lazy_value =
-            input_after_annotations.read_value_without_annotations(type_descriptor)?;
+            input_after_annotations.read_value_without_annotations(type_descriptor, depth)?;
         if wrapper.expected_value_length != lazy_value.encoded_value.total_length() {
             return IonResult::decoding_error(
                 "value length did not match length declared by annotations wrapper",

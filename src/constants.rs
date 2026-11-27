@@ -1,11 +1,23 @@
-/// The default and maximum depth of managed writers. Top-level values are at depth 0 and a
-/// container's children are one level deeper than the container, so in `[[1]]` the inner list is
-/// at depth 1 and `1` is at depth 2. Writing a container whose children would be deeper than this
-/// limit with a managed writer returns an error, even if the container is empty. Raw writers and
+/// The deepest level of container nesting that the text parser, lazy binary navigation, and
+/// conversions from lazy values to `Element`, `Value`, `Sequence`, and `Struct` accept, and the
+/// default and maximum depth of managed writers. Top-level values are at depth 0 and a container's
+/// children are one level deeper than the container, so in `[[1]]` the inner list is at depth 1 and
+/// `1` is at depth 2. Parsing, converting, or writing a container whose children would be deeper
+/// than this limit returns an error, even if the container is empty. Lazy binary navigation returns
+/// the error when the container is read, by `LazyValue::read` or a method that calls it such as
+/// `LazyStruct::get`, not when the container is reached with `Reader::next` or a container's
+/// iterator. Depth counts from the top-level value of the input, including when a nested value is
+/// converted to an `Element` or written to a writer. Serde deserialization of binary input reads
+/// lists, s-expressions, and structs with `LazyValue::read`, so it is limited too. With a limit
+/// greater than 255, lazy binary navigation never returns the error, because binary values store
+/// their depth in a `u8` that saturates at 255; conversions still check the limit. Raw writers and
 /// `Display` do not check this limit.
 ///
-/// Encoding values recurses at least once per level of nesting. The default (64) leaves room in a
-/// 2 MiB thread stack (the default for threads spawned by `std`) in both debug and release builds.
+/// Parsing text, converting values to `Element`s, and encoding values recurse at least once per
+/// level of nesting. The default (64) leaves room in a 2 MiB thread stack (the default for threads
+/// spawned by `std`) in both debug and release builds. Reading nested text structs uses the most
+/// stack per level of the inputs measured; it exhausts that stack at roughly 100 levels in a debug
+/// build.
 ///
 /// The default can be overridden at build time by setting the `ION_RS_MAX_READ_WRITE_DEPTH`
 /// environment variable to a base-10 integer no greater than 65535, e.g.

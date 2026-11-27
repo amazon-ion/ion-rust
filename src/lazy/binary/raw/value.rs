@@ -6,6 +6,7 @@ use std::{fmt, mem};
 
 use crate::binary::int::DecodedInt;
 use crate::binary::uint::DecodedUInt;
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::lazy::binary::binary_buffer::BinaryBuffer;
 use crate::lazy::binary::encoded_value::EncodedBinaryValue;
 use crate::lazy::binary::raw::annotations_iterator::RawBinaryAnnotationsIterator;
@@ -20,11 +21,13 @@ use crate::lazy::expanded::EncodingContextRef;
 use crate::lazy::raw_value_ref::RawValueRef;
 use crate::lazy::span::Span;
 use crate::lazy::str_ref::StrRef;
+use crate::read_config::max_read_depth_exceeded_message;
 use crate::result::IonFailure;
 use crate::types::SymbolId;
 use crate::{
     Decimal, Decoder, Int, IonEncoding, IonError, IonResult, IonType, RawSymbolRef, Timestamp,
 };
+use ice_code::ice as cold_path;
 
 #[derive(Debug, Copy, Clone)]
 pub struct LazyRawBinaryVersionMarker_1_0<'top> {
@@ -752,9 +755,21 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
         Ok(RawValueRef::Clob(bytes.into()))
     }
 
+    /// Returns an error if this container's children would be nested more deeply than
+    /// [`MAX_READ_WRITE_DEPTH`]. The stored depth saturates at 255, so with a limit greater than
+    /// 255, this never returns an error.
+    #[inline]
+    fn check_container_depth(&self) -> IonResult<()> {
+        if u16::from(self.encoded_value.depth) >= MAX_READ_WRITE_DEPTH {
+            return cold_path!(IonResult::decoding_error(max_read_depth_exceeded_message()));
+        }
+        Ok(())
+    }
+
     /// Helper method called by [`Self::read`]. Reads the current value as an S-expression.
     fn read_sexp(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::SExp);
+        self.check_container_depth()?;
         let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value: self.encoded_value,
             input: self.input,
@@ -771,6 +786,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as a list.
     fn read_list(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::List);
+        self.check_container_depth()?;
         let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value: self.encoded_value,
             input: self.input,
@@ -787,6 +803,7 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
     /// Helper method called by [`Self::read`]. Reads the current value as a struct.
     fn read_struct(&self) -> ValueParseResult<'top, BinaryEncoding_1_0> {
         debug_assert!(self.encoded_value.ion_type() == IonType::Struct);
+        self.check_container_depth()?;
         let lazy_value = LazyRawBinaryValue_1_0 {
             encoded_value: self.encoded_value,
             input: self.input,
@@ -800,9 +817,25 @@ impl<'top> LazyRawBinaryValue_1_0<'top> {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
+    use crate::constants::MAX_READ_WRITE_DEPTH;
+    use crate::lazy::any_encoding::AnyEncoding;
     use crate::lazy::binary::raw::reader::LazyRawBinaryReader_1_0;
-    use crate::lazy::binary::test_utilities::to_binary_ion;
-    use crate::{EncodingContext, IonResult};
+    use crate::lazy::binary::test_utilities::{
+        binary_nested, binary_type_descriptor, binary_value, to_binary_ion,
+        LAZY_BINARY_DEPTH_IS_CHECKED,
+    };
+    use crate::lazy::decoder::LazyRawSequence;
+    use crate::lazy::raw_value_ref::RawValueRef;
+    use crate::read_config::assert_max_read_depth_exceeded;
+    use crate::result::IonFailure;
+    use crate::{
+        v1_0, Decoder, EncodingContext, IonError, IonInput, IonResult, IonType, IonVersion,
+        LazyValue, Reader, ValueRef,
+    };
+
+    const MAX: usize = MAX_READ_WRITE_DEPTH as usize;
 
     #[test]
     fn annotations_sequence() -> IonResult<()> {
@@ -820,6 +853,275 @@ mod tests {
         assert_eq!(annotations_sequence.len(), 1);
         assert_eq!(annotations_sequence.offset(), 6);
         assert_eq!(annotations_sequence.bytes()[0], 0x83u8); // 0x83 == $3 == $ion_symbol_table
+        Ok(())
+    }
+
+    /// The encoding of the int `1`.
+    const INT: [u8; 2] = [0x21, 0x01];
+
+    /// Encodes a container of type `kind` whose only child is `child`. A struct's field is named
+    /// `name` (`$4`), as in `binary_nested`.
+    fn container_of(kind: IonType, child: &[u8]) -> Vec<u8> {
+        let field_name: &[u8] = if kind == IonType::Struct {
+            &[0x84]
+        } else {
+            &[]
+        };
+        binary_value(binary_type_descriptor(kind), [field_name, child].concat())
+    }
+
+    /// Wraps `value` in an annotations wrapper with one annotation, `name` (`$4`).
+    fn annotated(value: Vec<u8>) -> Vec<u8> {
+        binary_value(0xE0, [&[0x81, 0x84][..], &value].concat())
+    }
+
+    /// With the raw binary reader, reads the value at `depth` in the first top-level value of
+    /// `data`, reaching it through the first child of each enclosing container. Returns an error if
+    /// reaching the value fails, and otherwise the result of reading it.
+    fn read_at_depth(data: &[u8], depth: usize) -> IonResult<IonResult<()>> {
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), data);
+        let _ivm = reader.next()?.expect_ivm()?;
+        let mut value = reader.next()?.expect_value()?;
+        for _ in 0..depth {
+            let child = match value.read()? {
+                RawValueRef::List(list) => list.iter().next(),
+                RawValueRef::SExp(sexp) => sexp.iter().next(),
+                RawValueRef::Struct(struct_) => struct_
+                    .iter()
+                    .next()
+                    .map(|field| Ok(field?.expect_name_value()?.1)),
+                other => return IonResult::illegal_operation(format!("{other:?} has no children")),
+            };
+            value = child.ok_or_else(|| IonError::illegal_operation("empty container"))??;
+        }
+        Ok(value.read().map(|_| ()))
+    }
+
+    /// Asserts that `result`, from reading a container at depth `MAX`, is a maximum read depth
+    /// error. With a limit greater than 255, lazy binary navigation does not check the limit, so
+    /// the read succeeds instead.
+    #[track_caller]
+    fn assert_rejected_at_max(result: IonResult<()>) {
+        if LAZY_BINARY_DEPTH_IS_CHECKED {
+            assert_max_read_depth_exceeded(result);
+        } else {
+            assert!(result.is_ok(), "{result:?}");
+        }
+    }
+
+    #[rstest]
+    fn reads_values_at_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+        #[values(false, true)] null_innermost: bool,
+    ) -> IonResult<()> {
+        let innermost = if null_innermost {
+            vec![binary_type_descriptor(kind) | 0x0F]
+        } else {
+            INT.to_vec()
+        };
+        read_at_depth(&binary_nested(kind, MAX, innermost), MAX)?
+    }
+
+    /// Reading the container at depth `MAX` fails whether or not it has children, and whether or
+    /// not it is annotated. Its parent can still be read.
+    #[rstest]
+    fn rejects_containers_whose_children_exceed_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+        #[values(false, true)] empty: bool,
+        #[values(false, true)] annotate: bool,
+    ) -> IonResult<()> {
+        let mut container = if empty {
+            vec![binary_type_descriptor(kind)]
+        } else {
+            container_of(kind, &INT)
+        };
+        if annotate {
+            container = annotated(container);
+        }
+        let data = binary_nested(kind, MAX, container);
+        read_at_depth(&data, MAX - 1)??;
+        assert_rejected_at_max(read_at_depth(&data, MAX)?);
+        Ok(())
+    }
+
+    /// Only reading a container past the limit fails, not reading the top-level value that
+    /// encloses it.
+    #[rstest]
+    fn reads_top_level_values_with_children_beyond_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+    ) -> IonResult<()> {
+        let data = binary_nested(kind, 2 * MAX + 1, INT.to_vec());
+        read_at_depth(&data, 0)??;
+        assert_rejected_at_max(read_at_depth(&data, MAX)?);
+        Ok(())
+    }
+
+    /// Asserts that `text`, the `Debug` output of a value nested past the limit, has a placeholder
+    /// for the container that cannot be read, or that it has none when lazy binary navigation does
+    /// not check the limit.
+    #[track_caller]
+    fn assert_has_placeholder(text: &str) {
+        let has_placeholder = text.contains("<error: ");
+        assert_eq!(has_placeholder, LAZY_BINARY_DEPTH_IS_CHECKED, "{text}");
+    }
+
+    /// The raw struct's `Debug` impl reads its fields; the raw list and s-expression impls do not.
+    #[test]
+    fn formats_raw_structs_nested_beyond_the_maximum_depth() -> IonResult<()> {
+        let data = binary_nested(IonType::Struct, MAX + 1, INT.to_vec());
+        let context = EncodingContext::for_ion_version(IonVersion::v1_0);
+        let mut reader = LazyRawBinaryReader_1_0::new(context.get_ref(), &data);
+        let _ivm = reader.next()?.expect_ivm()?;
+        let text = format!("{:?}", reader.next()?.expect_value()?.read()?);
+        assert_has_placeholder(&text);
+        Ok(())
+    }
+
+    /// Returns the first child of `value`, a list, s-expression, or struct.
+    fn first_child<D: Decoder>(value: LazyValue<'_, D>) -> IonResult<LazyValue<'_, D>> {
+        let child = match value.read()? {
+            ValueRef::List(list) => list.iter().next(),
+            ValueRef::SExp(sexp) => sexp.iter().next(),
+            ValueRef::Struct(struct_) => struct_.iter().next().map(|field| Ok(field?.value())),
+            other => return IonResult::illegal_operation(format!("{other:?} has no children")),
+        };
+        child.ok_or_else(|| IonError::illegal_operation("empty container"))?
+    }
+
+    /// Returns the value at `depth` in the next top-level value that `reader` reads, reaching it
+    /// through the first child of each enclosing container.
+    fn value_at_depth<D: Decoder, I: IonInput>(
+        reader: &mut Reader<D, I>,
+        depth: usize,
+    ) -> IonResult<LazyValue<'_, D>> {
+        let mut value = reader.expect_next()?;
+        for _ in 0..depth {
+            value = first_child(value)?;
+        }
+        Ok(value)
+    }
+
+    /// With a `Reader` for `AnyEncoding` if `any_encoding` is true and for `v1_0::Binary`
+    /// otherwise, reads the value at depth `MAX` in the first top-level value of `data`. Returns
+    /// an error if reaching the value fails, and otherwise the result of reading it.
+    fn reader_read_at_max(data: Vec<u8>, any_encoding: bool) -> IonResult<IonResult<()>> {
+        let result = if any_encoding {
+            value_at_depth(&mut Reader::new(AnyEncoding, data)?, MAX)?
+                .read()
+                .map(drop)
+        } else {
+            value_at_depth(&mut Reader::new(v1_0::Binary, data)?, MAX)?
+                .read()
+                .map(drop)
+        };
+        Ok(result)
+    }
+
+    #[rstest]
+    fn reader_reads_values_at_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+        #[values(false, true)] any_encoding: bool,
+    ) -> IonResult<()> {
+        reader_read_at_max(binary_nested(kind, MAX, INT.to_vec()), any_encoding)?
+    }
+
+    #[rstest]
+    fn reader_rejects_containers_whose_children_exceed_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+        #[values(false, true)] any_encoding: bool,
+    ) -> IonResult<()> {
+        let data = binary_nested(kind, MAX + 1, INT.to_vec());
+        assert_rejected_at_max(reader_read_at_max(data, any_encoding)?);
+        Ok(())
+    }
+
+    /// A `LazyElement` made from a value keeps the value's depth, so it is limited as the value is.
+    #[rstest]
+    fn lazy_elements_keep_the_depth_of_their_values(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+    ) -> IonResult<()> {
+        let data = binary_nested(kind, MAX + 1, INT.to_vec());
+        let parent =
+            value_at_depth(&mut Reader::new(v1_0::Binary, data.clone())?, MAX - 1)?.to_owned();
+        let container = value_at_depth(&mut Reader::new(v1_0::Binary, data)?, MAX)?.to_owned();
+        parent.read()?;
+        assert_rejected_at_max(container.read().map(drop));
+        Ok(())
+    }
+
+    /// Reads the first top-level value in `data` with `expect_i64`, whose error describes the value
+    /// it found using `Debug`.
+    fn expect_i64(data: Vec<u8>) -> IonResult<i64> {
+        Reader::new(v1_0::Binary, data)?
+            .expect_next()?
+            .read()?
+            .expect_i64()
+    }
+
+    #[track_caller]
+    fn assert_not_an_int(result: IonResult<i64>) {
+        match result {
+            Err(IonError::Decoding(e)) if e.description().starts_with("expected an int") => {}
+            other => panic!("expected an error for a value that is not an int, found {other:?}"),
+        }
+    }
+
+    #[rstest]
+    fn expect_i64_rejects_containers_nested_beyond_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+    ) {
+        assert_not_an_int(expect_i64(binary_nested(kind, MAX + 1, INT.to_vec())));
+    }
+
+    #[rstest]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
+    fn expect_i64_rejects_containers_nested_far_beyond_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+    ) {
+        // Formatting the value recurses once per level until a container cannot be read, so
+        // without the depth check it would recurse 100,000 times.
+        if !LAZY_BINARY_DEPTH_IS_CHECKED {
+            return;
+        }
+        assert_not_an_int(expect_i64(binary_nested(kind, 100_000, INT.to_vec())));
+    }
+
+    /// Formatting a value writes a placeholder for a container that cannot be read.
+    #[rstest]
+    fn formats_values_nested_beyond_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+    ) -> IonResult<()> {
+        let mut reader = Reader::new(v1_0::Binary, binary_nested(kind, MAX + 1, INT.to_vec()))?;
+        let text = format!("{:?}", reader.expect_next()?);
+        assert_has_placeholder(&text);
+        Ok(())
+    }
+
+    /// Formatting the container at the maximum depth, and the struct field that holds it,
+    /// writes a placeholder for the container's contents.
+    #[rstest]
+    fn formats_the_container_at_the_maximum_depth(
+        #[values(IonType::List, IonType::SExp, IonType::Struct)] kind: IonType,
+    ) -> IonResult<()> {
+        let data = binary_nested(kind, MAX + 1, INT.to_vec());
+        let mut reader = Reader::new(v1_0::Binary, data)?;
+        let mut value = reader.expect_next()?;
+        for level in 0..MAX {
+            value = match value.read()? {
+                ValueRef::List(list) => list.iter().next().expect("a child")?,
+                ValueRef::SExp(sexp) => sexp.iter().next().expect("a child")?,
+                ValueRef::Struct(strukt) => {
+                    let field = strukt.iter().next().expect("a field")?;
+                    if level == MAX - 1 {
+                        assert_has_placeholder(&format!("{field:?}"));
+                    }
+                    field.value()
+                }
+                other => panic!("expected a container, found {other:?}"),
+            };
+        }
+        assert_has_placeholder(&format!("{value:?}"));
         Ok(())
     }
 }

@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 
+use crate::constants::MAX_READ_WRITE_DEPTH;
 use crate::lazy::any_encoding::{IonEncoding, IonVersion, LazyRawAnyValue};
 use crate::lazy::binary::binary_buffer::BinaryBuffer;
 use crate::lazy::binary::encoded_value::EncodedBinaryValue;
@@ -33,13 +34,14 @@ use crate::lazy::text::value::{
     LazyRawTextValue, LazyRawTextValue_1_0, LazyRawTextVersionMarker_1_0,
     RawTextAnnotationsIterator,
 };
+use crate::read_config::{is_max_read_depth_exceeded, max_read_depth_exceeded_message};
 
 use crate::{
     AnnotationsEncoding, ContainerEncoding, FieldNameEncoding, HasRange, IonError, IonResult,
     IonType, LazyRawFieldExpr, SymbolValueEncoding, TextFormat, ValueWriterConfig, WriteConfig,
 };
 use ice_code::ice as cold_path;
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 use std::fmt::Debug;
 use std::io;
 use std::ops::Range;
@@ -271,6 +273,19 @@ pub trait TextEncoding:
             let mut iterator_input = *input;
             // Confirm that the input begins with the expected opening token, consuming it in the process.
             let _head = opening_token.parse_next(&mut iterator_input)?;
+            let depth: &'top Cell<u16> = &input.context.context.text_depth;
+            let container_depth = depth.get();
+            if container_depth >= MAX_READ_WRITE_DEPTH {
+                return cold_path!(input
+                    .invalid(max_read_depth_exceeded_message())
+                    .context(label)
+                    .cut());
+            }
+            // Both exits below restore `depth` to `container_depth`: the error arm in the loop and
+            // the statement after it. They do so explicitly rather than through a drop guard so
+            // that this recursive matcher, which runs for every container, does not gain the
+            // guard's drop glue.
+            depth.set(container_depth + 1);
             let iterator = make_iterator(iterator_input);
             // Bump-allocate a space to store any child expressions we encounter as we traverse this
             // container.
@@ -279,16 +294,24 @@ pub trait TextEncoding:
             for expr_result in iterator {
                 let expr = match expr_result {
                     Ok(expr) => expr,
-                    Err(IonError::Incomplete(..)) => {
-                        return input.incomplete(label);
-                    }
                     Err(e) => {
-                        return input.invalid(format!("{e}")).context(label).cut();
+                        depth.set(container_depth);
+                        return match e {
+                            IonError::Incomplete(..) => input.incomplete(label),
+                            // A depth error is returned as the innermost container reported it, so
+                            // that its description and the work to build it do not grow with the
+                            // depth.
+                            e if is_max_read_depth_exceeded(&e) => {
+                                cold_path!(input.propagate(e).cut())
+                            }
+                            e => input.invalid(format!("{e}")).context(label).cut(),
+                        };
                     }
                 };
                 // If there are no errors, add the new child expr to the cache.
                 child_expr_cache.push(expr);
             }
+            depth.set(container_depth);
 
             // Take note of where we finished.
             let last_expr_end = child_expr_cache
@@ -507,6 +530,9 @@ impl ParsedTextContainer {
         //         one. The bytes are `io_buffer`'s `Rc<[u8]>`, which the reader copies on write
         //         rather than mutating while shared. The symbol table reached through `context_ref`
         //         is copied rather than mutated while shared (`EncodingContext::symbol_table_mut`).
+        //         The context's `text_depth` is a `Cell` that parses over this context access only
+        //         through `get` and `set`; a `Cell` never hands out a reference to the value it
+        //         holds, so writing it does not invalidate either reference.
         //         The arena is shared with the reader and with other `LazyElement`s, which allocate
         //         in it, but it is never reset while shared (`EncodingContext::make_allocator_mut`
         //         installs a fresh one), so allocations made in it, including this parse's, are not

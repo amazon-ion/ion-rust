@@ -40,4 +40,8 @@ impl DecodingError {
     pub fn position(&self) -> Option<&Position> {
         self.inner.position.as_ref()
     }
+
+    pub(crate) fn description(&self) -> &str {
+        &self.inner.description
+    }
 }

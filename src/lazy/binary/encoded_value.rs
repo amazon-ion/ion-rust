@@ -73,7 +73,15 @@ pub struct EncodedBinaryValue<HeaderType: EncodedHeader> {
     // optimization. `total_length` is needed when stepping into a value, skipping a value,
     // and reading a value's data.
     pub total_length: usize,
+    // The value's container nesting depth: 0 at the top level, and one more than its parent's
+    // inside a container. Reading a container at a depth of at least `MAX_READ_WRITE_DEPTH` is an
+    // error. The depth saturates at `u8::MAX`, so with a build-time limit greater than 255, reading
+    // a container never returns that error.
+    pub(crate) depth: u8,
 }
+
+// `depth` occupies what would otherwise be padding; this keeps it from growing the type.
+const _: () = assert!(size_of::<EncodedBinaryValue<Header>>() <= 32);
 
 impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
     pub fn header(&self) -> HeaderType {
@@ -227,6 +235,11 @@ impl<HeaderType: EncodedHeader> EncodedBinaryValue<HeaderType> {
     pub fn ion_type(&self) -> IonType {
         self.header.ion_type()
     }
+
+    /// Returns the depth of this value's children, if it is a container.
+    pub(crate) fn child_depth(&self) -> u8 {
+        self.depth.saturating_add(1)
+    }
 }
 
 #[cfg(test)]
@@ -251,6 +264,7 @@ mod tests {
             length_length: 0,
             value_body_length: 3,
             total_length: 7,
+            depth: 0,
         };
         assert_eq!(value.ion_type(), IonType::String);
         assert_eq!(
